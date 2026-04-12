@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import guppy_agent; print\\('OK'\\)\")",
+      "Bash(python test_ptt.py)",
+      "Bash(.venv/Scripts/python.exe -c ':*)",
+      "Bash(.venv/Scripts/pip install:*)"
+    ]
+  }
+}

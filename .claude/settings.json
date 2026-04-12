@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l *.py)",
+      "Bash(grep -l \"^from guppy_\" *.py)",
+      "Bash(grep -l \"^from merlin_\" *.py)"
+    ]
+  }
+}

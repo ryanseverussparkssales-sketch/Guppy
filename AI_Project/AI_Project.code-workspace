@@ -1,0 +1,73 @@
+{
+	"folders": [
+		{
+			"path": ".",
+			"name": "🤖 AI_Project"
+		},
+		{
+			"path": "../Guppy",
+			"name": "🎩 Guppy (Main)"
+		},
+		{
+			"path": "../Guppy/bin",
+			"name": "📦 Launchers"
+		},
+		{
+			"path": "../Guppy/models",
+			"name": "🧠 Ollama Models"
+		},
+		{
+			"path": "../Guppy/tests",
+			"name": "✅ Tests"
+		},
+		{
+			"path": "../Guppy/docs",
+			"name": "📚 Documentation"
+		}
+	],
+	"settings": {
+		"python.linting.enabled": true,
+		"python.linting.pylintEnabled": true,
+		"python.formatting.provider": "black",
+		"python.analysis.typeCheckingMode": "basic",
+		"editor.formatOnSave": false,
+		"editor.rulers": [80, 120],
+		"files.exclude": {
+			"**/__pycache__": true,
+			"**/*.pyc": true,
+			"**/.pytest_cache": true,
+			"**/.venv": true
+		},
+		"files.watcherExclude": {
+			"**/.venv/**": true,
+			"**/node_modules/**": true,
+			"**/__pycache__/**": true
+		},
+		"search.exclude": {
+			"**/.venv": true,
+			"**/node_modules": true,
+			"**/__pycache__": true,
+			".git": true
+		},
+		"[python]": {
+			"editor.defaultFormatter": "ms-python.python",
+			"editor.formatOnSave": false,
+			"editor.codeActionsOnSave": {
+				"source.organizeImports": "explicit"
+			}
+		},
+		"chat.tools.terminal.autoApprove": {
+			"&": true
+		}
+	},
+	"extensions": {
+		"recommendations": [
+			"ms-python.python",
+			"ms-python.vscode-pylance",
+			"ms-python.debugpy",
+			"charliermarsh.ruff",
+			"ms-vscode.makefile-tools",
+			"GitHub.copilot"
+		]
+	}
+}

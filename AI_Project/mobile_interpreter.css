@@ -1,0 +1,55 @@
+/* Mobile-Optimized Open Interpreter Interface */
+
+/* Larger fonts for readability */
+body, .message {
+    font-size: 18px !important;
+    line-height: 1.6 !important;
+}
+
+/* Bigger input area */
+input, textarea {
+    font-size: 20px !important;
+    padding: 15px !important;
+    min-height: 60px !important;
+}
+
+/* Larger buttons */
+button, .button {
+    font-size: 18px !important;
+    padding: 15px 25px !important;
+    min-height: 50px !important;
+}
+
+/* Better spacing */
+.message {
+    padding: 20px !important;
+    margin: 15px 0 !important;
+}
+
+/* High contrast for readability */
+body {
+    background: #000 !important;
+    color: #fff !important;
+}
+
+.user-message {
+    background: #1a1a2e !important;
+    border: 2px solid #16213e !important;
+}
+
+.assistant-message {
+    background: #0f3460 !important;
+    border: 2px solid #e94560 !important;
+}
+
+/* Wider layout for phones */
+.container, .chat-container {
+    max-width: 100% !important;
+    padding: 10px !important;
+}
+
+/* Bigger code blocks */
+pre, code {
+    font-size: 16px !important;
+    padding: 15px !important;
+}

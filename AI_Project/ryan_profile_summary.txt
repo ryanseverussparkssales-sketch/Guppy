@@ -1,0 +1,43 @@
+
+╔══════════════════════════════════════════════════════════╗
+║           MASTER RYAN - PROFILE SUMMARY                  ║
+╚══════════════════════════════════════════════════════════╝
+
+📋 BASIC INFORMATION:
+  Name: Ryan Sparks
+  Location: White Bear Lake, MN
+  Contact: ryanseverussparkssales@gmail.com
+  Phone: 612-417-2133
+
+💼 PROFESSIONAL PROFILE:
+  Primary Role: Sales Development Representative & Account Executive
+  Experience: 10+ years
+  Current: Owner & SDR Consultant at Northern Spark Sales Agency / 
+           Arcane Artisans Retail Distribution Network (2021-Present)
+
+🎯 CORE EXPERTISE:
+  • CRM & Pipeline Management (Salesforce)
+  • Lead Generation & Prospecting
+  • Cold & Warm Outreach
+  • Sales Coaching & Team Leadership
+  • Trade Show Marketing
+  • B2B & B2C Sales
+  • Digital Advertising
+
+📊 KEY ACHIEVEMENTS:
+  • Generated $2M+ in revenue for clients over 5 years
+  • Specializes in SAAS marketing agency market
+  • B2B services and B2C/B2B calling (home remodeling/building)
+  • Works through freelancing platforms (Upwork/GlenCoco)
+
+📚 INTERESTS (Based on Desktop Files):
+  • Gaming (extensive collection of 98+ games)
+  • Content Creation (Wondershare Filmora installed)
+  • Design/Creative (GIMP, Krita installed)
+  • Writing (Scrivener installed)
+  • Organization (Evernote installed)
+
+🔧 CURRENT TECH PROJECT:
+  • Setting up local LLM for permanent AI assistant duties
+  • Using Open Interpreter for task automation
+  • Located in: C:/Users/Ryan/AI_Project/

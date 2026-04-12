@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(python tests/test_ptt.py)",
+      "Bash(.venv\\\\Scripts\\\\python.exe tests/test_ptt.py)",
+      "Bash(\".venv/Scripts/python.exe\" tests/test_ptt.py)",
+      "Bash(grep -n \"import.*stress_test\\\\|import.*seed_profile\" *.py)",
+      "Bash(.venv/Scripts/python.exe -c ':*)",
+      "Bash(.venv/Scripts/python.exe -c \"import google.oauth2; print\\('google-auth OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"from googleapiclient.discovery import build; print\\('google-api-client OK'\\)\")",
+      "Bash(tasklist /FI \"IMAGENAME eq python.exe\")",
+      "Bash(powershell -Command \"Get-Process python -ErrorAction SilentlyContinue | Select-Object Id,CPU,WS\")",
+      "Bash(powershell -Command \"Get-Process python -ErrorAction SilentlyContinue | Select-Object Id\")",
+      "Bash(powershell -Command ':*)",
+      "Bash(powershell -Command \"ollama ps\")",
+      "Bash(powershell -Command \"ollama list\")",
+      "Bash(powershell -Command \"Get-ItemProperty 'HKLM:\\\\SOFTWARE\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Uninstall\\\\*' | Where-Object DisplayName -like '*ROCm*' | Select-Object DisplayName, DisplayVersion\")",
+      "Bash(powershell -Command \"Get-ItemProperty 'HKLM:\\\\SOFTWARE\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Uninstall\\\\*' | Where-Object DisplayName -like '*AMD*' | Select-Object DisplayName, DisplayVersion\")",
+      "Bash(ollama pull:*)",
+      "Bash(grep -rn \"OLLAMA_MODEL\\\\|\\\\\"guppy\\\\\"\\\\|\\\\\"merlin\\\\\"\\\\|ollama_model\\\\|MERLIN_LOCAL_MODEL\" *.py)",
+      "Bash(ls Modelfile* modelfile* *.modelfile)",
+      "Bash(ollama show:*)",
+      "Bash(ollama create:*)",
+      "Bash(ollama list:*)",
+      "Bash(ollama run:*)",
+      "Bash(pip list:*)",
+      "Bash(ls *.py *.bat *.md Modelfile*)"
+    ]
+  }
+}
