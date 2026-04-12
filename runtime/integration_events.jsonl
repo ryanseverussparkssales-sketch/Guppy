@@ -1,3 +1,0 @@
-{"timestamp": "2026-04-12T02:48:07.099956+00:00", "event_type": "crm.upsert_contact.request", "payload": {"provider": "hubspot", "name": "Test Contact", "email": "test@example.com", "phone": "", "company": "", "notes": "", "dry_run": true}}
-{"timestamp": "2026-04-12T02:48:07.101150+00:00", "event_type": "voip.place_call.request", "payload": {"provider": "twilio", "to_number": "+15551234567", "from_number": "", "contact_name": "", "purpose": "intro call", "dry_run": true}}
-{"timestamp": "2026-04-12T02:48:07.101150+00:00", "event_type": "voip.place_call.request", "payload": {"provider": "twilio", "to_number": "+15557654321", "from_number": "", "contact_name": "", "purpose": "", "dry_run": true}}

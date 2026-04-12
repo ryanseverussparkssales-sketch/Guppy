@@ -45,6 +45,9 @@ guppy_memory.db
 # Logs
 *.log
 debug.log
+runtime/*.heartbeat
+runtime/*.activity
+runtime/*.jsonl
 
 # Temporary files
 *.tmp
