@@ -28,10 +28,6 @@ def _backend() -> str:
     return (os.environ.get("GUPPY_SEMANTIC_BACKEND", "sqlite") or "sqlite").strip().lower()
 
 
-def _chroma_warning_line() -> str:
-    return "Warning: Chroma backend is experimental/deferred. Use sqlite for stable runtime."
-
-
 def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(str(DB_PATH))
     c.execute("PRAGMA journal_mode=WAL")
@@ -207,9 +203,9 @@ def _recall_sqlite(q: str, limit: int, cat: str) -> str:
 
 def _remember_chroma(k: str, v: str, c: str) -> str:
     col = _get_chroma_collection()
-    doc_id = f"{k}:{datetime.now().timestamp()}"
+    # Use key as ID so upsert truly replaces the existing document for this key.
     col.upsert(
-        ids=[doc_id],
+        ids=[k],
         documents=[v],
         metadatas=[{"key": k, "category": c, "created": datetime.now().isoformat()}],
     )
@@ -248,13 +244,11 @@ def remember_semantic(key: str, value: str, category: str = "general") -> str:
 
     try:
         if _backend() == "chroma":
-            result = _remember_chroma(k, v, c)
-            return f"{_chroma_warning_line()}\n{result}"
+            return _remember_chroma(k, v, c)
         return _remember_sqlite(k, v, c)
     except Exception as e:
-        prefix = f"{_chroma_warning_line()}\n" if _backend() == "chroma" else ""
         return (
-            f"{prefix}Error: semantic remember failed ({_backend()}). {e}. "
+            f"Error: semantic remember failed ({_backend()}). {e}. "
             f"Ensure Ollama is running and model '{EMBED_MODEL}' is installed."
         )
 
@@ -269,12 +263,45 @@ def recall_semantic(query: str, n: int = 5, category: str = "") -> str:
 
     try:
         if _backend() == "chroma":
-            result = _recall_chroma(q, limit, cat)
-            return f"{_chroma_warning_line()}\n{result}"
+            return _recall_chroma(q, limit, cat)
         return _recall_sqlite(q, limit, cat)
     except Exception as e:
-        prefix = f"{_chroma_warning_line()}\n" if _backend() == "chroma" else ""
         return (
-            f"{prefix}Error: semantic recall failed ({_backend()}). {e}. "
+            f"Error: semantic recall failed ({_backend()}). {e}. "
             f"Ensure Ollama is running and model '{EMBED_MODEL}' is installed."
         )
+
+
+def migrate_sqlite_to_chroma() -> str:
+    """One-time migration: copy all SQLite semantic memories into Chroma.
+
+    Safe to re-run — Chroma upsert by key is idempotent.
+    Requires Ollama running with nomic-embed-text and GUPPY_SEMANTIC_BACKEND=chroma.
+    """
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT memory_key, category, value FROM semantic_memory ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return "No SQLite semantic memories to migrate."
+
+    col = _get_chroma_collection()
+    migrated = 0
+    errors = 0
+    for key, category, value in rows:
+        try:
+            col.upsert(
+                ids=[key],
+                documents=[value],
+                metadatas=[{"key": key, "category": category, "created": datetime.now().isoformat()}],
+            )
+            migrated += 1
+        except Exception as e:
+            errors += 1
+            print(f"  SKIP {key}: {e}")
+
+    return f"Migration complete: {migrated} memories copied to Chroma, {errors} skipped."

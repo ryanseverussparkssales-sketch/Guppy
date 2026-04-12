@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from pathlib import Path
 from statistics import mean
 
@@ -26,37 +27,65 @@ def summarize(events):
         print("No performance events found.")
         return
 
-    recent = events[-200:]
+    recent = [e for e in events[-200:] if e.get("event") == "request_complete"]
+    if not recent:
+        print("No request_complete events in last 200 entries.")
+        return
+
     by_agent = {}
     for e in recent:
         by_agent.setdefault(e.get("agent", "unknown"), []).append(e)
 
-    print(f"Loaded {len(events)} events. Showing summary for last {len(recent)} events.")
+    print(f"Loaded {len(events)} events. Showing summary for last {len(recent)} completed requests.")
     for agent, rows in by_agent.items():
-        latencies = [r.get("latency_ms") for r in rows if isinstance(r.get("latency_ms"), (int, float))]
-        failures = [r for r in rows if r.get("status") == "error"]
-        tools = [r.get("tool_calls", 0) for r in rows if isinstance(r.get("tool_calls"), int)]
+        latencies = [r["latency_ms"] for r in rows if isinstance(r.get("latency_ms"), (int, float))]
+        failures  = [r for r in rows if r.get("status") == "error"]
+        tools     = [r["tool_calls"] for r in rows if isinstance(r.get("tool_calls"), int)]
         fallbacks = [r for r in rows if r.get("fallback_used")]
+        cache_hits = [r for r in rows if r.get("route") == "cache" or r.get("model_used") == "cache"]
+        voice_reqs = [r for r in rows if r.get("voice_triggered")]
+
+        task_counts  = Counter(r.get("task_type", "unknown") for r in rows)
+        route_counts = Counter(r.get("route", "unknown") for r in rows)
+        model_counts = Counter(r.get("model_used", "unknown") for r in rows if r.get("model_used"))
 
         print("-" * 68)
-        print(f"Agent: {agent}")
-        print(f"  requests: {len(rows)}")
-        print(f"  failures: {len(failures)}")
+        print(f"Agent: {agent}  ({len(rows)} requests)")
+        print(f"  failures:    {len(failures)}")
+        print(f"  cache hits:  {len(cache_hits)}  ({100*len(cache_hits)//max(len(rows),1)}%)")
+        print(f"  voice reqs:  {len(voice_reqs)}")
+        print(f"  fallbacks:   {len(fallbacks)}")
         if latencies:
-            print(f"  latency avg ms: {mean(latencies):.1f}")
-            print(f"  latency p95 ms: {sorted(latencies)[int(len(latencies) * 0.95) - 1]:.1f}")
+            p95_idx = max(0, int(len(latencies) * 0.95) - 1)
+            print(f"  latency avg: {mean(latencies):.0f} ms")
+            print(f"  latency p95: {sorted(latencies)[p95_idx]:.0f} ms")
         if tools:
-            print(f"  avg tool calls: {mean(tools):.2f}")
-        print(f"  fallback count: {len(fallbacks)}")
+            print(f"  avg tools/req: {mean(tools):.2f}")
+        if task_counts:
+            print(f"  task types:  {dict(task_counts)}")
+        if route_counts:
+            print(f"  routes:      {dict(route_counts)}")
+        if model_counts:
+            print(f"  models used: {dict(model_counts)}")
 
 
 def show_tail(events, n=20):
-    if not events:
+    complete = [e for e in events if e.get("event") == "request_complete"]
+    if not complete:
         return
+    tail = complete[-n:]
     print("-" * 68)
-    print(f"Last {min(n, len(events))} events:")
-    for e in events[-n:]:
-        print(json.dumps(e, ensure_ascii=True))
+    print(f"Last {len(tail)} completed requests:")
+    for e in tail:
+        ts      = e.get("ts", "")[:19]
+        mode    = e.get("mode", "?")
+        route   = e.get("route", "?")
+        task    = e.get("task_type", "?")
+        model   = e.get("model_used", "?")
+        latency = e.get("latency_ms", "?")
+        status  = e.get("status", "?")
+        voice   = " [voice]" if e.get("voice_triggered") else ""
+        print(f"  {ts}  {mode}/{route}/{task}  model={model}  {latency}ms  {status}{voice}")
 
 
 if __name__ == "__main__":

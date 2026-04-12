@@ -1,5 +1,6 @@
 ﻿import sys, os, json, math, threading, time
 import urllib.request
+from pathlib import Path
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QScrollArea, QLabel, QPushButton, QLineEdit, QFrame, QSizePolicy,
@@ -493,6 +494,9 @@ class MerlinWindow(QMainWindow):
         self._ui_tick = QTimer(self)
         self._ui_tick.timeout.connect(self._refresh_telemetry_panels)
         self._ui_tick.start(1800)
+        self._cmd_timer = QTimer(self)
+        self._cmd_timer.timeout.connect(self._poll_agent_commands)
+        self._cmd_timer.start(2000)
         self._log_event("ui_started", mode="local")
 
     def _build(self):
@@ -810,6 +814,46 @@ class MerlinWindow(QMainWindow):
         self._stop_voice_output()
         self._send_text(self.inp.text().strip())
         self.inp.clear()
+
+    def _poll_agent_commands(self):
+        """IPC poll: check runtime/merlin.cmd every 2 s."""
+        cmd_path = Path("runtime") / "merlin.cmd"
+        if not cmd_path.exists():
+            return
+        try:
+            data = json.loads(cmd_path.read_text(encoding="utf-8"))
+            cmd_path.unlink(missing_ok=True)
+        except Exception:
+            return
+
+        cmd = data.get("cmd", "")
+        if cmd == "nudge":
+            self.orb.set_state("idle")
+            self._bubble("A nudge from the hub has arrived.", "merlin", "merlin")
+        elif cmd == "clear_history":
+            self.history.clear()
+            self._bubble("Memory thread cleared by hub command.", "merlin", "merlin")
+        elif cmd == "reset_context":
+            self._system = get_merlin_startup_system()
+            self._bubble("Context sigils refreshed.", "merlin", "merlin")
+        elif cmd == "ambient_offer":
+            payload = data.get("payload", {}) if isinstance(data, dict) else {}
+            preview = str(payload.get("preview", ""))[:180]
+            self._bubble(f"Ambient clue: {preview}", "merlin", "merlin")
+        elif cmd == "report_status":
+            status_path = Path("runtime") / "merlin.status"
+            try:
+                status_path.write_text(
+                    json.dumps({
+                        "ts": _dt.now().isoformat(),
+                        "history_len": len(self.history),
+                        "worker_busy": bool(self._worker and self._worker.isRunning()),
+                        "haiku_boost": bool(self._haiku_boost_enabled),
+                    }),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
 
     def _send_text(self, text):
         if not text or (self._worker and self._worker.isRunning()):

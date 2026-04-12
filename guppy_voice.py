@@ -74,6 +74,11 @@ class VoiceConfig:
     min_silence_threshold: int = 150
     min_duration: float = 0.3
     max_duration: float = 45.0
+    # VAD: stop recording after this many seconds of silence once speech has been detected.
+    # Lower = snappier cutoff; raise if commands get clipped. Override: GUPPY_SILENCE_CUTOFF env var.
+    silence_cutoff: float = float(os.environ.get("GUPPY_SILENCE_CUTOFF", "0.7"))
+    # RMS amplitude above which audio counts as "speech". Override: GUPPY_SPEECH_THRESHOLD env var.
+    speech_threshold: float = float(os.environ.get("GUPPY_SPEECH_THRESHOLD", "0.01"))
 
 
 class GuppyVoice:
@@ -282,10 +287,25 @@ class GuppyVoice:
             return
 
         deadline = time.time() + float(timeout or self.cfg.max_duration or 30.0)
+        silence_cutoff   = self.cfg.silence_cutoff
+        speech_threshold = self.cfg.speech_threshold
+
+        # VAD state — written from the sounddevice callback thread, read from the poll loop.
+        # Benign race: worst case we cut off 50 ms early/late, which is acceptable.
+        speech_detected  = False
+        last_speech_time = [time.time()]   # list so the closure can rebind
 
         def _callback(indata, _frames, _time_info, _status):
-            if self._listening.is_set() and not self._stop_listening.is_set():
-                self._record_q.put(indata.copy())
+            nonlocal speech_detected
+            if not (self._listening.is_set() and not self._stop_listening.is_set()):
+                return
+            self._record_q.put(indata.copy())
+            # Lightweight RMS VAD — numpy is always available when sounddevice is
+            if np is not None:
+                rms = float(np.sqrt(np.mean(indata ** 2)))
+                if rms > speech_threshold:
+                    speech_detected = True
+                    last_speech_time[0] = time.time()
 
         try:
             with sd.InputStream(
@@ -296,6 +316,9 @@ class GuppyVoice:
             ):
                 while self._listening.is_set() and not self._stop_listening.is_set():
                     if timeout and time.time() >= deadline:
+                        break
+                    # Early cutoff: speech started then went quiet for silence_cutoff seconds
+                    if speech_detected and (time.time() - last_speech_time[0]) >= silence_cutoff:
                         break
                     time.sleep(0.05)
         finally:

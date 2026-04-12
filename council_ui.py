@@ -14,6 +14,7 @@ Route toggle (bottom bar):
 import sys, os, json, math, threading, time
 import urllib.request
 from datetime import datetime as _dt
+from pathlib import Path
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -631,6 +632,9 @@ class CouncilWindow(QMainWindow):
         self._ui_tick = QTimer(self)
         self._ui_tick.timeout.connect(self._refresh_telemetry_panels)
         self._ui_tick.start(1800)
+        self._cmd_timer = QTimer(self)
+        self._cmd_timer.timeout.connect(self._poll_agent_commands)
+        self._cmd_timer.start(2000)
 
     # ── Voice ──────────────────────────────────────────────────────────────────
 
@@ -864,6 +868,51 @@ class CouncilWindow(QMainWindow):
             self._stop_voice_output()
             self.inp.clear()
             self._dispatch(text)
+
+    def _poll_agent_commands(self):
+        """IPC poll: check runtime/council.cmd every 2 s."""
+        cmd_path = Path("runtime") / "council.cmd"
+        if not cmd_path.exists():
+            return
+        try:
+            data = json.loads(cmd_path.read_text(encoding="utf-8"))
+            cmd_path.unlink(missing_ok=True)
+        except Exception:
+            return
+
+        cmd = data.get("cmd", "")
+        if cmd == "nudge":
+            self._g_panel.add_bubble("Hub nudge received.", "tool_result", "tool_result")
+            self._m_panel.add_bubble("Hub nudge received.", "tool_result", "tool_result")
+        elif cmd == "clear_history":
+            self._g_history.clear()
+            self._m_history.clear()
+            self._g_panel.add_bubble("Council histories cleared by hub.", "tool_result", "tool_result")
+        elif cmd == "reset_context":
+            self._g_system = get_startup_system()
+            self._m_system = get_merlin_startup_system()
+            self._g_panel.add_bubble("Council contexts reset.", "tool_result", "tool_result")
+        elif cmd == "ambient_offer":
+            payload = data.get("payload", {}) if isinstance(data, dict) else {}
+            preview = str(payload.get("preview", ""))[:180]
+            self._g_panel.add_bubble(f"Ambient hint: {preview}", "tool_result", "tool_result")
+        elif cmd == "report_status":
+            status_path = Path("runtime") / "council.status"
+            try:
+                status_path.write_text(
+                    json.dumps({
+                        "ts": _dt.now().isoformat(),
+                        "mode": self._mode,
+                        "route": self._route,
+                        "g_history_len": len(self._g_history),
+                        "m_history_len": len(self._m_history),
+                        "g_busy": bool(self._g_worker and self._g_worker.isRunning()),
+                        "m_busy": bool(self._m_worker and self._m_worker.isRunning()),
+                    }),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
 
     def _dispatch(self, text: str):
         self._stop_voice_output()

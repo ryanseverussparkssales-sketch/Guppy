@@ -17,9 +17,13 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, ExpiredSignatureError, jwt
 from pydantic import BaseModel
 
+from utils.env_bootstrap import load_env_file
+
 logger = logging.getLogger(__name__)
 
 # ── Configuration ──────────────────────────────────────────────────────────────
+
+load_env_file(override=True)
 
 DEV_MODE = os.getenv("GUPPY_DEV_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -29,6 +33,16 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 24 * 60  # 24 hours
 
 TURNSTILE_SECRET = os.getenv("TURNSTILE_SECRET", "").strip()
 TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
+
+def _refresh_runtime_config() -> None:
+    """Reload env-backed auth settings for reloader and alternate import paths."""
+    global DEV_MODE, SECRET_KEY, TURNSTILE_SECRET
+
+    load_env_file(override=True)
+    DEV_MODE = os.getenv("GUPPY_DEV_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+    SECRET_KEY = os.getenv("GUPPY_JWT_SECRET", "").strip()
+    TURNSTILE_SECRET = os.getenv("TURNSTILE_SECRET", "").strip()
 
 
 def _is_placeholder_secret(value: str) -> bool:
@@ -57,6 +71,7 @@ security = HTTPBearer(auto_error=False)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Create JWT access token."""
+    _refresh_runtime_config()
     if _is_placeholder_secret(SECRET_KEY):
         raise RuntimeError("GUPPY_JWT_SECRET is not configured")
 
@@ -71,6 +86,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     """Verify JWT token and return user ID."""
+    _refresh_runtime_config()
     if _is_placeholder_secret(SECRET_KEY):
         raise HTTPException(status_code=503, detail="JWT signing key is not configured")
 
@@ -93,6 +109,7 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
 
 def get_token_expiry(token: str) -> Optional[datetime]:
     """Get token expiry time without full verification."""
+    _refresh_runtime_config()
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": False})
         exp = payload.get("exp")
@@ -106,6 +123,7 @@ def get_token_expiry(token: str) -> Optional[datetime]:
 
 async def verify_turnstile_token(token: str) -> bool:
     """Verify Cloudflare Turnstile token with siteverify API."""
+    _refresh_runtime_config()
     if _is_placeholder_secret(TURNSTILE_SECRET):
         if DEV_MODE:
             logger.warning("TURNSTILE_SECRET not set - allowing all tokens in development mode")
@@ -250,10 +268,12 @@ def is_token_expired(token: str) -> bool:
 
 def create_development_token(user_id: str = "dev_user") -> str:
     """Create a development token that bypasses Turnstile (for testing only)."""
+    _refresh_runtime_config()
     return create_access_token({"sub": user_id})
 
 def validate_environment():
     """Validate that required environment variables are set."""
+    _refresh_runtime_config()
     missing = []
     if _is_placeholder_secret(SECRET_KEY):
         missing.append("GUPPY_JWT_SECRET")

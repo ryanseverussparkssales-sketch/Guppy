@@ -8,7 +8,7 @@
 
 // Configuration
 const API_BASE = window.location.origin; // Use same origin as the web server
-const TURNSTILE_SITE_KEY = 'your-turnstile-site-key'; // Set in Cloudflare dashboard
+const TURNSTILE_SITE_KEY = '0x4AAAAAAC8haN8mXd57RJ18'; // Set in Cloudflare dashboard
 
 // Global state
 let turnstileToken = null;

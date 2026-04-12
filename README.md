@@ -24,24 +24,32 @@ Archived historical docs now live under `docs/archive/`, split between `root-his
 ### Implemented
 
 - Desktop UI surfaces: `guppy_ui.py`, `merlin_ui.py`, `council_ui.py`
+- Smart dispatcher (Phases 1-3): Task classification → Haiku-first routing with fallback chain
+- **Phase 4 voice fast-path**: Wake-word → Haiku-first always (`voice_triggered` flag), <2s latency target
+- **Phase 5 response cache**: TTL-based module-level cache for simple/tool-free queries; cache hits skip API entirely
 - Local + Claude routing: `guppy_core.py`, `inference_router.py`
-- FastAPI remote surface: `guppy_api.py`, `guppy_api_auth.py`
-- Web client alpha: `web/index.html`, `web/turnstile.js`
+- FastAPI remote surface: `guppy_api.py`, `guppy_api_auth.py` — strict mode active, public endpoint live at `guppy.sparkscuriositystudio.com`
+- Web client alpha: `web/index.html`, `web/turnstile.js` — Cloudflare Turnstile wired with real site key
 - API smoke testing: `tests/smoke_api.py`
 - Hub/status surface and runtime logging: `guppy_hub.py`, `runtime/hub.log`
-- Persistent memory and semantic memory: `guppy_memory.py`, `guppy_semantic_memory.py`
-- Voice pipeline with wake-word support path: `guppy_voice.py`
+- Hub Orchestrator: `utils/hub_operator.py` — IPC, pattern logging, health checks, scheduled Haiku analysis (15min auto-tick)
+- Persistent memory: `guppy_memory.py`
+- Semantic memory dual backend: `guppy_semantic_memory.py` — SQLite default, Chroma opt-in (`GUPPY_SEMANTIC_BACKEND=chroma`)
+- Voice pipeline with wake-word: `guppy_voice.py` — PTT, Kokoro TTS with SAPI fallback, openwakeword path, RMS VAD silence cutoff (`GUPPY_SILENCE_CUTOFF`, `GUPPY_SPEECH_THRESHOLD`)
+- Proactive daemon + ambient watcher: `guppy_daemon.py` — agent health checks, reminder nudges, clipboard/window polling; Haiku semantic gate filters clipboard content before offering
+- **Phase 11 ambient banner**: `AmbientBanner` widget in `guppy_ui.py` — non-intrusive offer bar between chat and input; shows Haiku's suggested action; "Ask Guppy" pre-fills input; auto-dismisses 30s
+- 73 tools registered in `guppy_core.py` including `run_python`, `notify`, `web_summarize`, `github`, `semantic_remember/recall`, Gmail, Spotify, calendar, and more
 - Revenue dashboard route plus CRM/VoIP scaffolding: `guppy_api.py`, `crm_voip_integrations.py`
+
+**For complete credentials & dependencies audit, see** `CREDENTIALS_AUDIT.md`
 
 ### Partial / Needs Hardening
 
-- **Inference latency**: Ollama bottleneck (30s timeout potential) blocks responsive butler experience. Smart dispatcher (Haiku-first) in progress to replace with <3s predictable response.
-- **Merlin utilization**: Built but rarely used. Smart routing (Phase 3) will auto-dispatch teaching/explanation tasks to Merlin instead of requiring manual selection.
-- **Remote production path**: auth, tunnel, and external validation are not fully closed out. Unblocked by Phase 1 (latency improvement makes remote feel snappy).
-- `/status` performance: readiness is present, but context gathering is still a likely hotspot. Will be addressed in Phase 5-6.
-- **Foundation visibility**: UIs bypass inference router instead of calling it. Phase 6 will make router the single path and add structured logging/metrics.
-- Packaging and release checks: not yet locked into a clean-machine release path (Phase 6 prep).
-- Wake-word and voice quality: implemented, but latency tuning (Phase 4) needed for natural voice feel.
+- **CRM & VoIP tools**: Safe stubs wired (log intent, validate config); no live calls or writes yet.
+- `/status` performance: context gathering is a likely hotspot. Will be addressed in Phase 6.
+- **Foundation visibility**: UIs still bypass `inference_router.py` for non-auto modes. Phase 6 will make the router the single inference path and add structured logging/metrics.
+- Packaging: `build_executable.bat` significantly improved (venv python, `--no-clean` flag, full hidden-import coverage); still needs clean-machine validation before treating builds as release-ready.
+- `web_summarize` tool uses HTTP+Haiku fallback until `FIRECRAWL_API_KEY` is set.
 
 ### Not Present
 
@@ -151,7 +159,7 @@ python tests/smoke_api.py
 
 The remote/API layer already exists and should be treated as alpha, not planned work.
 
-- Base URL: `http://127.0.0.1:8080`
+- Base URL: `http://127.0.0.1:8081`
 - Auth: `POST /auth/verify`
 - Health and readiness: `GET /status`, `GET /startup/check`, `GET /logs/recent`
 - Chat: `POST /chat`, `POST /chat/voice`, `WebSocket /ws`
@@ -205,11 +213,11 @@ Use `docs/PACKAGING.md` for full build, installer, signing, and distribution det
 
 ## Active Priorities
 
-1. Finish remote hardening across API, websocket, auth, and tunnel flows.
-2. Reduce `/status` overhead around enhanced context gathering.
-3. Convert CRM-lite scaffolding into at least one complete business workflow.
-4. Add release-grade startup checks and packaging validation.
-5. Tune wake-word and voice defaults for real daily use.
+1. **Phase 6** — Make `inference_router.py` the single inference path; add structured per-request logging (task type, model, latency, cost).
+2. **Voice tuning** — Validate wake-word → Haiku fast-path latency in real use; tune openwakeword model and cooldown.
+3. **CRM workflow** — Convert at least one CRM-lite stub into a complete end-to-end flow (e.g. log a call, update pipeline stage, send follow-up email).
+4. **Packaging** — Pass a clean-machine validation before treating builds as release-ready.
+5. **`/status` performance** — Profile and reduce context-gathering overhead.
 
 ## Working Style For Multi-Agent Sessions
 

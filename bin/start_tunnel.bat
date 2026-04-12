@@ -25,7 +25,7 @@ REM Configuration - Update these values
 set TUNNEL_NAME=guppy
 set TUNNEL_ID=your-tunnel-uuid-here
 set LOCAL_HOST=localhost
-set LOCAL_PORT=8080
+set LOCAL_PORT=8081
 
 REM Resolve cloudflared — prefer bundled binary in bin\
 set CF_BIN=%~dp0cloudflared.exe

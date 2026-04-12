@@ -38,7 +38,7 @@ import urllib.request
 
 from utils.env_bootstrap import load_env_file
 
-load_env_file()
+load_env_file(override=True)
 
 try:
     import anthropic
@@ -128,7 +128,7 @@ from guppy_api_auth import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, D
 
 # Server settings
 HOST = "127.0.0.1"
-PORT = 8080
+PORT = int(os.environ.get("GUPPY_API_PORT", "8081"))
 CHAT_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_CHAT_TIMEOUT_SECONDS", "120"))
 VOICE_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_VOICE_TIMEOUT_SECONDS", "180"))
 SLOW_REQUEST_MS = int(os.environ.get("GUPPY_SLOW_REQUEST_MS", "1500"))
@@ -136,8 +136,8 @@ STATUS_CACHE_TTL_SECONDS = float(os.environ.get("GUPPY_STATUS_CACHE_TTL_SECONDS"
 STARTUP_CHECK_TTL_SECONDS = float(os.environ.get("GUPPY_STARTUP_CHECK_TTL_SECONDS", "60.0"))
 
 _default_origins = [
-    "http://localhost:8080",
-    "http://127.0.0.1:8080",
+    "http://localhost:8081",
+    "http://127.0.0.1:8081",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
@@ -938,10 +938,14 @@ async def websocket_endpoint(websocket: WebSocket):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    api_reload = os.environ.get("GUPPY_API_RELOAD", "").strip().lower() in {"1", "true", "yes", "on"}
+    if not api_reload:
+        api_reload = DEV_MODE
+
     uvicorn.run(
         "guppy_api:app",
         host=HOST,
         port=PORT,
-        reload=True,
+        reload=api_reload,
         log_level="info"
     )

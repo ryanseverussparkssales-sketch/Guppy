@@ -32,6 +32,8 @@ print("=" * 60)
 print("\n[1/5] Personal identity...")
 seed("full_name",           "Ryan Severus Sparks",                           "personal")
 seed("preferred_name",      "Ryan",                                           "personal")
+seed("location",            "White Bear Lake, MN",                            "personal")
+seed("phone",               "612-417-2133",                                   "personal")
 seed("guppy_address",       "Master Ryan  (how Guppy addresses Ryan)",        "personal")
 seed("merlin_address",      "Apprentice  (how Merlin addresses Ryan)",         "personal")
 
@@ -39,7 +41,9 @@ seed("merlin_address",      "Apprentice  (how Merlin addresses Ryan)",         "
 print("\n[2/5] Work & company...")
 seed("role",                "SDR / AE  (Sales Development Representative / Account Executive)", "work")
 seed("company",             "Northern Spark Sales Agency",                    "work")
+seed("company_also",        "Arcane Artisans Retail Distribution Network (co-venture, 2021-present)", "work")
 seed("work_focus",          "B2B sales — prospecting, outreach, account management, call reports, order notes", "work")
+seed("work_background",     "10+ years sales experience. $2M+ revenue generated for clients. Platforms: Upwork, GlenCoco. Sectors: SaaS, B2B/B2C, home remodeling/building.", "work")
 seed("primary_email",       "ryanseverussparkssales@gmail.com  (alias: main)", "work")
 seed("personal_email",      "ryanseverussparks@gmail.com  (alias: personal)", "work")
 seed("retiring_email",      "trsparkssales@gmail.com  (alias: sales — being phased out)", "work")
@@ -60,6 +64,7 @@ seed("memory_behaviour",    "Guppy proactively remembers facts Ryan shares. Uses
 seed("gmail_cleanup",       "Prefers aggressive inbox cleanup. Smart cleanup runs 6 passes: unsubscribe, noreply, newsletter, old promo, old mail, mark-old-unread-as-read.", "preferences")
 seed("gmail_consolidation", "Keeping main + personal Gmail. Retiring trsparkssales@gmail.com.", "preferences")
 seed("spotify_use",         "Uses Spotify for background music while working. Guppy can control playback.", "preferences")
+seed("interests",           "Gaming (98+ titles: RimWorld, Total War, Cyberpunk 2077, Disco Elysium). Content creation (Filmora). Design (GIMP, Krita). Writing (Scrivener). Reads Dresden Files.", "personal")
 
 # ── Contacts — seed Ryan himself so Guppy knows the owner ─────────────────────
 print("\n[5/5] Contacts...")
@@ -67,8 +72,8 @@ result = save_contact(
     name="Ryan Sparks",
     company="Northern Spark Sales Agency",
     email="ryanseverussparkssales@gmail.com",
-    phone="",
-    notes="Owner / operator of this Guppy instance. SDR/AE. Prefers direct communication.",
+    phone="612-417-2133",
+    notes="Owner / operator of this Guppy instance. SDR/AE. White Bear Lake MN. Prefers direct communication.",
 )
 print(f"  {result}")
 

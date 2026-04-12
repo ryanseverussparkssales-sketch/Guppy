@@ -862,6 +862,46 @@ TOOLS = [
             "required": ["action"],
         },
     },
+    # ── Run Python ───────────────────────────────────────────────────────────
+    {
+        "name": "run_python",
+        "description": "Execute a Python snippet and return stdout/stderr. Use for calculations, data transforms, quick scripts, and anything that benefits from real computation. Runs in a subprocess so it cannot corrupt Guppy's state.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "Python code to execute."},
+                "timeout": {"type": "integer", "description": "Max seconds to wait. Default 10."},
+            },
+            "required": ["code"],
+        },
+    },
+    # ── Windows Notification ─────────────────────────────────────────────────
+    {
+        "name": "notify",
+        "description": "Send a Windows 11 toast notification to Ryan. Use for async alerts, reminders that fire mid-task, or when completing long background work.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title":   {"type": "string", "description": "Notification title."},
+                "message": {"type": "string", "description": "Notification body."},
+                "duration": {"type": "string", "enum": ["short", "long"], "description": "Display duration. Default: short."},
+            },
+            "required": ["title", "message"],
+        },
+    },
+    # ── Web Summarize ────────────────────────────────────────────────────────
+    {
+        "name": "web_summarize",
+        "description": "Fetch a URL and return a summary or extracted content. Uses Firecrawl if FIRECRAWL_API_KEY is set (handles JS-heavy pages), otherwise falls back to plain HTTP + Claude summary.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The URL to fetch and summarize."},
+                "instruction": {"type": "string", "description": "What to extract or summarize. Default: summarize the main content."},
+            },
+            "required": ["url"],
+        },
+    },
 ]
 
 
@@ -2026,6 +2066,125 @@ def _exec_tool(name: str, inp: dict):
                 path=inp.get("path", ""),
                 ref=inp.get("ref", ""),
             )
+
+        # ── Run Python ───────────────────────────────────────────────────────
+        elif name == "run_python":
+            code = (inp.get("code") or "").strip()
+            if not code:
+                return "Error: no code provided."
+            timeout = max(1, min(int(inp.get("timeout") or 10), 60))
+            venv_python = str(Path(__file__).parent / ".venv" / "Scripts" / "python.exe")
+            python_bin = venv_python if Path(venv_python).exists() else "python"
+            try:
+                result = subprocess.run(
+                    [python_bin, "-c", code],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    cwd=str(Path(__file__).parent),
+                )
+                out = result.stdout.strip()
+                err = result.stderr.strip()
+                parts = []
+                if out:
+                    parts.append(out[:3000])
+                if err:
+                    parts.append(f"stderr:\n{err[:1000]}")
+                if not parts:
+                    parts.append(f"(exit code {result.returncode}, no output)")
+                return "\n".join(parts)
+            except subprocess.TimeoutExpired:
+                return f"Error: code timed out after {timeout}s."
+            except Exception as e:
+                return f"Error running code: {e}"
+
+        # ── Windows Notification ─────────────────────────────────────────────
+        elif name == "notify":
+            title   = (inp.get("title")   or "Guppy").strip()
+            message = (inp.get("message") or "").strip()
+            duration = inp.get("duration", "short")
+            if not message:
+                return "Error: message is required."
+            try:
+                from win11toast import notify as _win_notify
+                _win_notify(title=title, body=message, duration=duration)
+                return f"Notification sent: '{title}'"
+            except ImportError:
+                # Graceful fallback using Windows balloon tip via ctypes
+                try:
+                    import ctypes
+                    ctypes.windll.user32.MessageBoxW(0, message, title, 0x40)
+                    return f"Notification sent (fallback): '{title}'"
+                except Exception as e2:
+                    return f"Error: win11toast not installed and fallback failed: {e2}"
+            except Exception as e:
+                return f"Error sending notification: {e}"
+
+        # ── Web Summarize ────────────────────────────────────────────────────
+        elif name == "web_summarize":
+            url = (inp.get("url") or "").strip()
+            if not url:
+                return "Error: url is required."
+            instruction = (inp.get("instruction") or "Summarize the main content of this page.").strip()
+            firecrawl_key = os.environ.get("FIRECRAWL_API_KEY", "").strip()
+
+            raw_text = ""
+            source = "http"
+
+            if firecrawl_key:
+                try:
+                    import requests as _req
+                    resp = _req.post(
+                        "https://api.firecrawl.dev/v1/scrape",
+                        headers={"Authorization": f"Bearer {firecrawl_key}", "Content-Type": "application/json"},
+                        json={"url": url, "formats": ["markdown"]},
+                        timeout=30,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    raw_text = (data.get("data") or {}).get("markdown") or ""
+                    source = "firecrawl"
+                except Exception as fc_err:
+                    logger.warning(f"Firecrawl failed ({fc_err}), falling back to HTTP")
+
+            if not raw_text:
+                try:
+                    import urllib.request as _ureq
+                    import html as _html
+                    import re as _re
+                    req = _ureq.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                    with _ureq.urlopen(req, timeout=20) as r:
+                        raw_html = r.read().decode("utf-8", errors="replace")
+                    # Strip tags, decode entities, collapse whitespace
+                    text = _re.sub(r"<script[^>]*>.*?</script>", " ", raw_html, flags=_re.DOTALL | _re.IGNORECASE)
+                    text = _re.sub(r"<style[^>]*>.*?</style>", " ", text, flags=_re.DOTALL | _re.IGNORECASE)
+                    text = _re.sub(r"<[^>]+>", " ", text)
+                    text = _html.unescape(text)
+                    raw_text = _re.sub(r"\s+", " ", text).strip()[:12000]
+                    source = "http"
+                except Exception as e:
+                    return f"Error fetching URL: {e}"
+
+            if not raw_text:
+                return "Could not extract content from that URL."
+
+            # Summarize with Claude Haiku
+            try:
+                import anthropic as _ant
+                _sc = _ant.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+                resp = _sc.messages.create(
+                    model=os.environ.get("ANTHROPIC_BACKUP_MODEL", "claude-haiku-4-5-20251001"),
+                    max_tokens=1024,
+                    messages=[{
+                        "role": "user",
+                        "content": f"{instruction}\n\nPage content:\n{raw_text[:10000]}",
+                    }],
+                )
+                summary = resp.content[0].text if resp.content else "No summary generated."
+                return f"[{source}] {summary}"
+            except Exception as e:
+                # Return raw truncated text if Haiku unavailable
+                return f"[{source}, no AI summary] {raw_text[:2000]}"
 
         else:
             return f"Unknown tool: {name}"

@@ -39,11 +39,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM ── Port 8080 available? ─────────────────────────────────────────────────────
-netstat -ano | findstr ":8080 " >nul 2>&1
+REM ── Port 8081 available? ─────────────────────────────────────────────────────
+netstat -ano | findstr ":8081 " >nul 2>&1
 if not errorlevel 1 (
-    echo ERROR: Port 8080 is already in use. Stop the existing process first.
-    echo Use:  netstat -ano ^| findstr ":8080"  to find the PID.
+    echo ERROR: Port 8081 is already in use. Stop the existing process first.
+    echo Use:  netstat -ano ^| findstr ":8081"  to find the PID.
     pause
     exit /b 1
 )
@@ -64,7 +64,7 @@ if "%TURNSTILE_SECRET%"=="" (
 )
 
 REM ── Start ────────────────────────────────────────────────────────────────────
-echo API Server starting on http://localhost:8080
+echo API Server starting on http://localhost:8081
 echo Press Ctrl+C to stop
 echo.
 

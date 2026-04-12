@@ -64,6 +64,12 @@ except ImportError:
     _DAEMON_AVAILABLE = False
 
 try:
+    from utils.hub_operator import get_operator as _get_operator, HubOperator
+    _OPERATOR_AVAILABLE = True
+except Exception:
+    _OPERATOR_AVAILABLE = False
+
+try:
     from utils.env_bootstrap import load_env_file
     load_env_file()
 except Exception:
@@ -128,7 +134,7 @@ def _cloudflare_cert_paths() -> list[Path]:
     ]
 
 
-def _check_api_server(port: int = 8080) -> str:
+def _check_api_server(port: int = 8081) -> str:
     """Return LIVE if something is accepting on localhost:port, else DOWN."""
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=0.3):
@@ -835,15 +841,385 @@ class OrchestrationCard(QFrame):
 
 
 # ==============================================================================
+# OperatorCard - Hub intelligence panel (Phase 8/11/14 integration point)
+# ==============================================================================
+class OperatorCard(QFrame):
+    """
+    Shows HubOperator insight, system health, and exposes ANALYZE button.
+    Data source: utils/hub_operator.py (HubOperator singleton).
+    """
+
+    def __init__(self, operator, parent=None):
+        super().__init__(parent)
+        self._op = operator
+        self._lifecycle_log: list[str] = []
+        self.setObjectName("OperatorCard")
+        self._build_ui()
+        # Refresh display every 30 s (health checks + status snapshot)
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.timeout.connect(self.refresh)
+        self._refresh_timer.start(30_000)
+        # Auto-analyze patterns every 15 min (HubOperator throttles actual API calls to 1/hr)
+        self._analyze_timer = QTimer(self)
+        self._analyze_timer.timeout.connect(self._auto_analyze)
+        self._analyze_timer.start(15 * 60 * 1000)
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(8, 6, 8, 6)
+        lay.setSpacing(3)
+
+        top = QHBoxLayout()
+        title = QLabel("HUB OPERATOR")
+        title.setStyleSheet(f"color:{ACNT}; background:transparent; border:none;")
+        title.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        top.addWidget(title)
+        top.addStretch()
+
+        self._analyze_btn = QPushButton("◆ ANALYZE")
+        self._analyze_btn.setFixedHeight(20)
+        self._analyze_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._analyze_btn.setFont(QFont("Segoe UI", 7))
+        self._analyze_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{ACNT};"
+            f"border:1px solid {ACNT}66;border-radius:4px;"
+            f"font-size:7px;font-weight:bold;letter-spacing:1px;}}"
+            f"QPushButton:hover{{background:{ACNT}22;border-color:{ACNT};}}"
+        )
+        self._analyze_btn.clicked.connect(self._on_analyze)
+        top.addWidget(self._analyze_btn)
+        lay.addLayout(top)
+
+        action_row = QHBoxLayout()
+        self._offer_btn = QPushButton("TEST OFFER")
+        self._offer_btn.setFixedHeight(20)
+        self._offer_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._offer_btn.setFont(QFont("Segoe UI", 7))
+        self._offer_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{SILV};"
+            f"border:1px solid {SILV}66;border-radius:4px;"
+            f"font-size:7px;font-weight:bold;letter-spacing:1px;}}"
+            f"QPushButton:hover{{background:{SILV}22;border-color:{SILV};}}"
+        )
+        self._offer_btn.clicked.connect(self._send_test_offer)
+
+        self._status_btn = QPushButton("STATUS SNAP")
+        self._status_btn.setFixedHeight(20)
+        self._status_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._status_btn.setFont(QFont("Segoe UI", 7))
+        self._status_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{ACNT};"
+            f"border:1px solid {ACNT}66;border-radius:4px;"
+            f"font-size:7px;font-weight:bold;letter-spacing:1px;}}"
+            f"QPushButton:hover{{background:{ACNT}22;border-color:{ACNT};}}"
+        )
+        self._status_btn.clicked.connect(self._request_status_snap)
+
+        self._dry_run_btn = QPushButton("DRY RUN: OFF")
+        self._dry_run_btn.setCheckable(True)
+        self._dry_run_btn.setChecked(False)
+        self._dry_run_btn.setFixedHeight(20)
+        self._dry_run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._dry_run_btn.setFont(QFont("Segoe UI", 7))
+        self._dry_run_btn.toggled.connect(self._on_dry_run_toggled)
+        self._on_dry_run_toggled(False)
+
+        action_row.addWidget(self._offer_btn)
+        action_row.addWidget(self._status_btn)
+        action_row.addWidget(self._dry_run_btn)
+        lay.addLayout(action_row)
+
+        svc_start_row = QHBoxLayout()
+        self._api_start_btn = QPushButton("START API")
+        self._api_start_btn.setFixedHeight(20)
+        self._api_start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._api_start_btn.setFont(QFont("Segoe UI", 7))
+        self._api_start_btn.clicked.connect(lambda: self._start_service("api"))
+        self._api_start_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#6adfb8;"
+            "border:1px solid #6adfb866;border-radius:4px;font-size:7px;font-weight:bold;}"
+            "QPushButton:hover{background:#6adfb822;border-color:#6adfb8;}"
+        )
+
+        self._cf_start_btn = QPushButton("START CF")
+        self._cf_start_btn.setFixedHeight(20)
+        self._cf_start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._cf_start_btn.setFont(QFont("Segoe UI", 7))
+        self._cf_start_btn.clicked.connect(lambda: self._start_service("cloudflared"))
+        self._cf_start_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#6adfb8;"
+            "border:1px solid #6adfb866;border-radius:4px;font-size:7px;font-weight:bold;}"
+            "QPushButton:hover{background:#6adfb822;border-color:#6adfb8;}"
+        )
+
+        self._ollama_start_btn = QPushButton("START OLLAMA")
+        self._ollama_start_btn.setFixedHeight(20)
+        self._ollama_start_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ollama_start_btn.setFont(QFont("Segoe UI", 7))
+        self._ollama_start_btn.clicked.connect(lambda: self._start_service("ollama"))
+        self._ollama_start_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#6adfb8;"
+            "border:1px solid #6adfb866;border-radius:4px;font-size:7px;font-weight:bold;}"
+            "QPushButton:hover{background:#6adfb822;border-color:#6adfb8;}"
+        )
+
+        svc_start_row.addWidget(self._api_start_btn)
+        svc_start_row.addWidget(self._cf_start_btn)
+        svc_start_row.addWidget(self._ollama_start_btn)
+        lay.addLayout(svc_start_row)
+
+        svc_stop_row = QHBoxLayout()
+        self._api_stop_btn = QPushButton("STOP API")
+        self._api_stop_btn.setFixedHeight(20)
+        self._api_stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._api_stop_btn.setFont(QFont("Segoe UI", 7))
+        self._api_stop_btn.clicked.connect(lambda: self._stop_service("api"))
+        self._api_stop_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#c87050;"
+            "border:1px solid #c8705066;border-radius:4px;font-size:7px;font-weight:bold;}"
+            "QPushButton:hover{background:#c8705022;border-color:#c87050;}"
+        )
+
+        self._cf_stop_btn = QPushButton("STOP CF")
+        self._cf_stop_btn.setFixedHeight(20)
+        self._cf_stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._cf_stop_btn.setFont(QFont("Segoe UI", 7))
+        self._cf_stop_btn.clicked.connect(lambda: self._stop_service("cloudflared"))
+        self._cf_stop_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#c87050;"
+            "border:1px solid #c8705066;border-radius:4px;font-size:7px;font-weight:bold;}"
+            "QPushButton:hover{background:#c8705022;border-color:#c87050;}"
+        )
+
+        self._ollama_stop_btn = QPushButton("STOP OLLAMA")
+        self._ollama_stop_btn.setFixedHeight(20)
+        self._ollama_stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ollama_stop_btn.setFont(QFont("Segoe UI", 7))
+        self._ollama_stop_btn.clicked.connect(lambda: self._stop_service("ollama"))
+        self._ollama_stop_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#c87050;"
+            "border:1px solid #c8705066;border-radius:4px;font-size:7px;font-weight:bold;}"
+            "QPushButton:hover{background:#c8705022;border-color:#c87050;}"
+        )
+
+        svc_stop_row.addWidget(self._api_stop_btn)
+        svc_stop_row.addWidget(self._cf_stop_btn)
+        svc_stop_row.addWidget(self._ollama_stop_btn)
+        lay.addLayout(svc_stop_row)
+
+        svc_row = QHBoxLayout()
+        self._api_restart_btn = QPushButton("RESTART API")
+        self._api_restart_btn.setFixedHeight(20)
+        self._api_restart_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._api_restart_btn.setFont(QFont("Segoe UI", 7))
+        self._api_restart_btn.clicked.connect(lambda: self._restart_service("api"))
+        self._api_restart_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#8ecae6;"
+            "border:1px solid #8ecae666;border-radius:4px;font-size:7px;font-weight:bold;}"
+            "QPushButton:hover{background:#8ecae622;border-color:#8ecae6;}"
+        )
+
+        self._cf_restart_btn = QPushButton("RESTART CF")
+        self._cf_restart_btn.setFixedHeight(20)
+        self._cf_restart_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._cf_restart_btn.setFont(QFont("Segoe UI", 7))
+        self._cf_restart_btn.clicked.connect(lambda: self._restart_service("cloudflared"))
+        self._cf_restart_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#ffd166;"
+            "border:1px solid #ffd16666;border-radius:4px;font-size:7px;font-weight:bold;}"
+            "QPushButton:hover{background:#ffd16622;border-color:#ffd166;}"
+        )
+
+        self._ollama_restart_btn = QPushButton("RESTART OLLAMA")
+        self._ollama_restart_btn.setFixedHeight(20)
+        self._ollama_restart_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ollama_restart_btn.setFont(QFont("Segoe UI", 7))
+        self._ollama_restart_btn.clicked.connect(lambda: self._restart_service("ollama"))
+        self._ollama_restart_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#b8f2a6;"
+            "border:1px solid #b8f2a666;border-radius:4px;font-size:7px;font-weight:bold;}"
+            "QPushButton:hover{background:#b8f2a622;border-color:#b8f2a6;}"
+        )
+
+        svc_row.addWidget(self._api_restart_btn)
+        svc_row.addWidget(self._cf_restart_btn)
+        svc_row.addWidget(self._ollama_restart_btn)
+        lay.addLayout(svc_row)
+
+        self._insight_lbl = QLabel("No analysis yet.")
+        self._insight_lbl.setStyleSheet(f"color:{TEXT}; background:transparent; border:none;")
+        self._insight_lbl.setFont(QFont("Consolas", 7))
+        self._insight_lbl.setWordWrap(True)
+        lay.addWidget(self._insight_lbl)
+
+        self._health_lbl = QLabel("")
+        self._health_lbl.setStyleSheet(f"color:{DIM}; background:transparent; border:none;")
+        self._health_lbl.setFont(QFont("Consolas", 7))
+        lay.addWidget(self._health_lbl)
+
+        self._status_files_lbl = QLabel("")
+        self._status_files_lbl.setStyleSheet(f"color:{DIM}; background:transparent; border:none;")
+        self._status_files_lbl.setFont(QFont("Consolas", 7))
+        self._status_files_lbl.setWordWrap(True)
+        lay.addWidget(self._status_files_lbl)
+
+        self._lifecycle_log_lbl = QLabel("Lifecycle log: idle")
+        self._lifecycle_log_lbl.setStyleSheet(f"color:{DIM}; background:transparent; border:none;")
+        self._lifecycle_log_lbl.setFont(QFont("Consolas", 7))
+        self._lifecycle_log_lbl.setWordWrap(True)
+        lay.addWidget(self._lifecycle_log_lbl)
+
+        self.setStyleSheet(
+            f"OperatorCard{{background:{BG2};"
+            f"border:1px solid {ACNT}33;border-radius:6px;}}"
+        )
+        self.refresh()
+
+    def _auto_analyze(self):
+        """Scheduled tick — runs analyze_patterns(force=False) in background.
+        HubOperator throttles real API calls to once per hour; this tick just
+        ensures the analysis eventually fires without requiring a button press."""
+        if not self._op:
+            return
+        def _run():
+            insight = self._op.analyze_patterns(force=False)
+            if insight and insight != "No analysis yet.":
+                self._insight_lbl.setText(
+                    f"{insight[:160]}{'...' if len(insight) > 160 else ''}"
+                )
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_analyze(self):
+        if not self._op:
+            return
+        self._analyze_btn.setEnabled(False)
+        self._analyze_btn.setText("working...")
+
+        def _run():
+            insight = self._op.analyze_patterns(force=True)
+            self._insight_lbl.setText(insight)
+            self._analyze_btn.setEnabled(True)
+            self._analyze_btn.setText("◆ ANALYZE")
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+
+    def _send_test_offer(self):
+        if not self._op:
+            return
+        self._op.send_command(
+            "guppy",
+            "ambient_offer",
+            {
+                "type": "manual_test",
+                "preview": "Manual ambient offer test from Hub Operator.",
+                "length": 39,
+            },
+        )
+        self._op.record_event("hub", "manual_ambient_offer", "operator_card", "sent")
+
+    def _request_status_snap(self):
+        if not self._op:
+            return
+        for aid in ("guppy", "merlin", "council"):
+            self._op.send_command(aid, "report_status")
+
+    def _on_dry_run_toggled(self, enabled: bool):
+        if enabled:
+            self._dry_run_btn.setText("DRY RUN: ON")
+            self._dry_run_btn.setStyleSheet(
+                "QPushButton{background:transparent;color:#ffd166;"
+                "border:1px solid #ffd16688;border-radius:4px;font-size:7px;font-weight:bold;}"
+                "QPushButton:hover{background:#ffd16622;border-color:#ffd166;}"
+            )
+        else:
+            self._dry_run_btn.setText("DRY RUN: OFF")
+            self._dry_run_btn.setStyleSheet(
+                "QPushButton{background:transparent;color:#7a7a92;"
+                "border:1px solid #7a7a9255;border-radius:4px;font-size:7px;font-weight:bold;}"
+                "QPushButton:hover{background:#7a7a9222;border-color:#9a9ab2;}"
+            )
+
+    def _dry_run_enabled(self) -> bool:
+        return bool(self._dry_run_btn.isChecked())
+
+    def _start_service(self, service: str):
+        if not self._op:
+            return
+        res = self._op.start_service(service, dry_run=self._dry_run_enabled())
+        status = res.get("status", "")
+        mode = "dry" if self._dry_run_enabled() else "live"
+        self._append_lifecycle_log(f"start[{mode}] {service}: {status}")
+
+    def _stop_service(self, service: str):
+        if not self._op:
+            return
+        res = self._op.stop_service(service, dry_run=self._dry_run_enabled())
+        status = res.get("status", "")
+        mode = "dry" if self._dry_run_enabled() else "live"
+        self._append_lifecycle_log(f"stop[{mode}] {service}: {status}")
+
+    def _restart_service(self, service: str):
+        if not self._op:
+            return
+        res = self._op.restart_service(service, dry_run=self._dry_run_enabled())
+        status = res.get("status", "")
+        mode = "dry" if self._dry_run_enabled() else "live"
+        self._append_lifecycle_log(f"restart[{mode}] {service}: {status}")
+
+    def _append_lifecycle_log(self, line: str):
+        ts = datetime.now().strftime("%H:%M:%S")
+        entry = f"[{ts}] {line}"
+        self._lifecycle_log.append(entry)
+        self._lifecycle_log = self._lifecycle_log[-4:]
+        self._lifecycle_log_lbl.setText("Lifecycle log: " + " | ".join(self._lifecycle_log))
+
+    def refresh(self):
+        if not self._op:
+            self._health_lbl.setText("operator unavailable")
+            return
+        self._insight_lbl.setText(
+            f"{self._op.last_insight[:160]}{'...' if len(self._op.last_insight) > 160 else ''}"
+            if self._op.last_insight != "No analysis yet."
+            else f"No analysis yet.  Last: {self._op.analysis_age_str}"
+        )
+        # Quick health row (cheap checks only)
+        checks = self._op.full_system_check()
+        segs = []
+        for svc, res in checks.items():
+            mark = "✓" if res["ok"] else "✗"
+            col_tag = "#6adfb8" if res["ok"] else "#c87050"
+            segs.append(f'<span style="color:{col_tag}">{mark} {svc.upper()}</span>')
+        self._health_lbl.setText("  ".join(segs))
+
+        # Quick status file readers (runtime/guppy.status etc.)
+        snap = self._op.get_agent_status_snapshot()
+        rows = []
+        for aid in ("guppy", "merlin", "council"):
+            info = snap.get(aid, {})
+            if info.get("ok"):
+                data = info.get("data", {})
+                mode = data.get("mode") or data.get("route") or "-"
+                busy = data.get("worker_busy")
+                if busy is None:
+                    busy = data.get("g_busy") or data.get("m_busy")
+                rows.append(f"{aid}: ok mode={mode} busy={busy}")
+            else:
+                rows.append(f"{aid}: {info.get('status', 'missing')}")
+        self._status_files_lbl.setText(" | ".join(rows))
+
+
+# ==============================================================================
 # AgentCard - UI card per agent
 # ==============================================================================
 class AgentCard(QFrame):
     launch_requested = Signal(str)
     stop_requested   = Signal(str)
 
-    def __init__(self, agent: dict, parent=None):
+    def __init__(self, agent: dict, operator=None, parent=None):
         super().__init__(parent)
         self._agent  = agent
+        self._operator = operator
         self._proc: Optional[subprocess.Popen] = None
         self._start_time: Optional[float] = None
         self._recommended = False
@@ -910,10 +1286,38 @@ class AgentCard(QFrame):
         self._unstall_btn.setVisible(False)
         self._unstall_btn.clicked.connect(self._on_unstall)
 
+        self._nudge_btn = QPushButton("~ NUDGE")
+        self._nudge_btn.setFixedHeight(22)
+        self._nudge_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._nudge_btn.setFont(QFont("Segoe UI", 7))
+        self._nudge_btn.setVisible(False)
+        self._nudge_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#8888ee;"
+            "border:1px solid #8888ee55;border-radius:4px;"
+            "font-size:8px;font-weight:bold;letter-spacing:1px;}"
+            "QPushButton:hover{border-color:#8888ee;background:#8888ee22;}"
+        )
+        self._nudge_btn.clicked.connect(self._on_nudge)
+
+        self._repair_btn = QPushButton("+ REPAIR")
+        self._repair_btn.setFixedHeight(22)
+        self._repair_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._repair_btn.setFont(QFont("Segoe UI", 7))
+        self._repair_btn.setVisible(False)
+        self._repair_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#6adfb8;"
+            "border:1px solid #6adfb855;border-radius:4px;"
+            "font-size:8px;font-weight:bold;letter-spacing:1px;}"
+            "QPushButton:hover{border-color:#6adfb8;background:#6adfb822;}"
+        )
+        self._repair_btn.clicked.connect(self._on_repair)
+
         bot.addWidget(self._status_lbl)
         bot.addWidget(self._uptime_lbl)
         bot.addStretch()
         bot.addWidget(self._activity_lbl)
+        bot.addWidget(self._nudge_btn)
+        bot.addWidget(self._repair_btn)
         bot.addWidget(self._unstall_btn)
         bot.addWidget(self._btn)
         lay.addLayout(bot)
@@ -943,6 +1347,8 @@ class AgentCard(QFrame):
                 f"border-radius:6px;}}"
             )
             self._unstall_btn.setVisible(False)
+            self._nudge_btn.setVisible(False)
+            self._repair_btn.setVisible(False)
         elif running and stalled:
             # Process alive but heartbeat stale - agent is frozen/stalled
             AMBER = "#d4860a"
@@ -972,6 +1378,8 @@ class AgentCard(QFrame):
                 "QPushButton:hover{border-color:#d4860a;background:#d4860a22;}"
                 "QPushButton:pressed{background:#d4860a33;}"
             )
+            self._nudge_btn.setVisible(True)
+            self._repair_btn.setVisible(False)
         else:
             self._status_lbl.setStyleSheet(
                 f"color:{DIM}; background:transparent; border:none; "
@@ -993,6 +1401,9 @@ class AgentCard(QFrame):
                 f"border:1px solid {border}44;border-radius:6px;}}"
             )
             self._unstall_btn.setVisible(False)
+            self._nudge_btn.setVisible(False)
+            # Show REPAIR if agent crashed repeatedly
+            self._repair_btn.setVisible(self._crash_count >= 2)
     def _is_stalled(self) -> bool:
         """Return True if the process is alive but its heartbeat file is stale."""
         if not self.is_running():
@@ -1067,6 +1478,8 @@ class AgentCard(QFrame):
         self._start_time = time.time()
         self._update_style(running=True)
         self._uptime_lbl.setText("0s")
+        if self._operator:
+            self._operator.record_event(self._agent["id"], "launch", "user", "started")
 
     def stop(self):
         if self._proc and self.is_running():
@@ -1080,10 +1493,16 @@ class AgentCard(QFrame):
         self._crash_count = 0  # Deliberate stop - reset so next launch gets full attempts
         self._update_style(running=False)
         self._uptime_lbl.setText("")
+        if self._operator:
+            self._operator.record_event(self._agent["id"], "stop", "user", "stopped")
 
     def _schedule_restart(self, delay_ms: int = 5000):
         if self._crash_count >= 3:
             logger.warning(f"{self._agent['id']} reached max restart attempts.")
+            if self._operator:
+                self._operator.record_event(
+                    self._agent["id"], "crash_max", "short_exit", "giving_up"
+                )
             return
         self._crash_count += 1
         self._status_lbl.setText(f"~~ RECALLING ({self._crash_count}/3)")
@@ -1091,6 +1510,10 @@ class AgentCard(QFrame):
             f"color:{ACNT}; background:transparent; border:none; "
             f"font-size:8px; letter-spacing:1px;"
         )
+        if self._operator:
+            self._operator.record_event(
+                self._agent["id"], "crash", "short_exit", f"attempt:{self._crash_count}/3"
+            )
         QTimer.singleShot(delay_ms, self.launch)
 
     # Processes that exit after running at least this long are assumed to have
@@ -1176,13 +1599,29 @@ class AgentCard(QFrame):
         self._start_time = None
         self._crash_count = 0
         self._unstall_btn.setVisible(False)
+        self._nudge_btn.setVisible(False)
         hb = _RUNTIME / f"{self._agent['id']}.heartbeat"
         try: hb.unlink(missing_ok=True)
         except Exception: pass
         act = _RUNTIME / f"{self._agent['id']}.activity"
         try: act.unlink(missing_ok=True)
         except Exception: pass
+        if self._operator:
+            self._operator.record_event(self._agent["id"], "unstall", "user", "restarting")
         QTimer.singleShot(500, self.launch)
+
+    def _on_nudge(self):
+        """Send a nudge IPC command to the running agent."""
+        if self._operator:
+            self._operator.nudge_agent(self._agent["id"])
+
+    def _on_repair(self):
+        """Clear stale runtime files and reset crash count."""
+        if self._operator:
+            removed = self._operator.repair_agent(self._agent["id"])
+            logger.info(f"Repair {self._agent['id']}: removed {removed}")
+        self._crash_count = 0
+        self._update_style(running=False)
 
 # ==============================================================================
 # HubWindow - Main application window
@@ -1194,6 +1633,7 @@ class HubWindow(QWidget):
         self._cards = {}
         self._dragging = False
         self._drag_pos = QPoint()
+        self._operator = _get_operator() if _OPERATOR_AVAILABLE else None
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setStyleSheet(
@@ -1245,11 +1685,18 @@ class HubWindow(QWidget):
 
         # Agent cards
         for agent in AGENTS:
-            card = AgentCard(agent, self)
+            card = AgentCard(agent, operator=self._operator, parent=self)
             card.launch_requested.connect(self._on_launch)
             card.stop_requested.connect(self._on_stop)
             self._cards[agent["id"]] = card
             lay.addWidget(card)
+
+        # Operator intelligence card (hub brain panel)
+        if self._operator:
+            self._operator_card = OperatorCard(self._operator, self)
+            lay.addWidget(self._operator_card)
+        else:
+            self._operator_card = None
 
         controls = QHBoxLayout()
         controls.setSpacing(6)
@@ -1347,6 +1794,10 @@ class HubWindow(QWidget):
         for aid, card in self._cards.items():
             card.set_recommended(aid == rec)
             card.tick()
+
+        # Refresh operator card (health checks are cheap; throttled internally)
+        if self._operator_card is not None:
+            self._operator_card.refresh()
 
         # Update system info
         if PSUTIL_OK:

@@ -1,7 +1,7 @@
 # API Reference (Phase 3)
 
 ## Base URL
-- Local: `http://127.0.0.1:8080`
+- Local: `http://127.0.0.1:8081`
 
 ## Auth
 ### POST /auth/verify
