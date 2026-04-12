@@ -1,5 +1,7 @@
 # Claude Code Handoff Notes
 
+> Historical note: this file is retained as handoff archive context. Current living docs are `README.md` and `ROADMAP.md`.
+
 Date: April 11, 2026
 Owner transition: temporary handoff from Copilot to Claude Code
 

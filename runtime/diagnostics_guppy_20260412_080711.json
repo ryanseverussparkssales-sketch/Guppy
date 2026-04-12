@@ -1,0 +1,2699 @@
+{
+  "generated_at": "2026-04-12T08:07:11.958512+00:00",
+  "agent": "guppy",
+  "system": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python_version": "3.12.10"
+  },
+  "env": {
+    "ANTHROPIC_API_KEY": true,
+    "OLLAMA_MODEL": "guppy",
+    "MERLIN_LOCAL_MODEL": "merlin",
+    "MERLIN_HAIKU_BOOST": "",
+    "GUPPY_SHOW_BACKEND_DETAILS": ""
+  },
+  "logs": {
+    "session_events.jsonl": [
+      {
+        "ts": "2026-04-12T05:05:22.880164+00:00",
+        "source": "smoke",
+        "event": "session_logger_check",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T05:06:41.690726+00:00",
+        "source": "ui",
+        "event": "voice_ready",
+        "level": "info",
+        "session_id": "20260412_000632",
+        "stt_backend": "whisper",
+        "tts_backend": "sapi"
+      },
+      {
+        "ts": "2026-04-12T05:06:41.693225+00:00",
+        "source": "ui",
+        "event": "ui_started",
+        "level": "info",
+        "session_id": "20260412_000632",
+        "mode": "auto"
+      },
+      {
+        "ts": "2026-04-12T05:07:50.643555+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_000632",
+        "mode": "auto",
+        "response_chars": 75
+      },
+      {
+        "ts": "2026-04-12T05:08:11.056191+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 503,
+        "elapsed_ms": 1.58
+      },
+      {
+        "ts": "2026-04-12T05:08:17.132976+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 200,
+        "elapsed_ms": 15.38
+      },
+      {
+        "ts": "2026-04-12T05:08:23.490139+00:00",
+        "source": "ui",
+        "event": "voice_ready",
+        "level": "info",
+        "session_id": "20260412_000813",
+        "stt_backend": "whisper",
+        "tts_backend": "sapi"
+      },
+      {
+        "ts": "2026-04-12T05:08:23.493644+00:00",
+        "source": "ui",
+        "event": "ui_started",
+        "level": "info",
+        "session_id": "20260412_000813",
+        "mode": "auto"
+      },
+      {
+        "ts": "2026-04-12T05:08:39.948911+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T05:08:52.282891+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T05:09:08.468962+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T05:09:10.749590+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_000813",
+        "mode": "auto",
+        "response_chars": 80
+      },
+      {
+        "ts": "2026-04-12T05:09:27.790099+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/status",
+        "status_code": 200,
+        "elapsed_ms": 2325.15
+      },
+      {
+        "ts": "2026-04-12T05:09:27.801132+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/metrics",
+        "status_code": 200,
+        "elapsed_ms": 2.92
+      },
+      {
+        "ts": "2026-04-12T05:09:27.821177+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 200,
+        "elapsed_ms": 16.47
+      },
+      {
+        "ts": "2026-04-12T05:09:27.824187+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T05:11:59.815242+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/status",
+        "status_code": 200,
+        "elapsed_ms": 6523.46
+      },
+      {
+        "ts": "2026-04-12T05:11:59.961083+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/status",
+        "status_code": 200,
+        "elapsed_ms": 6720.53
+      },
+      {
+        "ts": "2026-04-12T05:11:59.972112+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/metrics",
+        "status_code": 200,
+        "elapsed_ms": 1.85
+      },
+      {
+        "ts": "2026-04-12T05:11:59.984137+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 200,
+        "elapsed_ms": 9.79
+      },
+      {
+        "ts": "2026-04-12T05:12:04.017942+00:00",
+        "source": "api",
+        "event": "startup_check",
+        "level": "info",
+        "overall": "PARTIAL"
+      },
+      {
+        "ts": "2026-04-12T05:12:04.020446+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/startup/check",
+        "status_code": 200,
+        "elapsed_ms": 4196.73
+      },
+      {
+        "ts": "2026-04-12T05:12:04.037476+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 200,
+        "elapsed_ms": 11.05
+      },
+      {
+        "ts": "2026-04-12T05:12:04.261942+00:00",
+        "source": "api",
+        "event": "startup_check",
+        "level": "info",
+        "overall": "PARTIAL"
+      },
+      {
+        "ts": "2026-04-12T05:12:04.264448+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/startup/check",
+        "status_code": 200,
+        "elapsed_ms": 4275.83
+      },
+      {
+        "ts": "2026-04-12T05:12:04.268456+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T05:12:08.077545+00:00",
+        "source": "api",
+        "event": "startup_check",
+        "level": "info",
+        "overall": "PARTIAL"
+      },
+      {
+        "ts": "2026-04-12T05:12:08.080050+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/startup/check",
+        "status_code": 200,
+        "elapsed_ms": 4038.12
+      },
+      {
+        "ts": "2026-04-12T05:12:13.312291+00:00",
+        "source": "ui",
+        "event": "voice_ready",
+        "level": "info",
+        "session_id": "20260412_001159",
+        "stt_backend": "whisper",
+        "tts_backend": "sapi"
+      },
+      {
+        "ts": "2026-04-12T05:12:17.420364+00:00",
+        "source": "ui",
+        "event": "startup_check",
+        "level": "info",
+        "session_id": "20260412_001159",
+        "auth": "READY",
+        "ollama": "READY",
+        "voice": "READY"
+      },
+      {
+        "ts": "2026-04-12T05:12:17.422371+00:00",
+        "source": "ui",
+        "event": "ui_started",
+        "level": "info",
+        "session_id": "20260412_001159",
+        "mode": "auto"
+      },
+      {
+        "ts": "2026-04-12T05:12:32.611716+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_001159",
+        "mode": "auto",
+        "response_chars": 129
+      },
+      {
+        "ts": "2026-04-12T05:22:27.393898+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/status",
+        "status_code": 200,
+        "elapsed_ms": 5859.4
+      },
+      {
+        "ts": "2026-04-12T05:22:27.403438+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/metrics",
+        "status_code": 200,
+        "elapsed_ms": 2.03
+      },
+      {
+        "ts": "2026-04-12T05:22:27.421462+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 200,
+        "elapsed_ms": 15.64
+      },
+      {
+        "ts": "2026-04-12T05:22:31.283587+00:00",
+        "source": "api",
+        "event": "startup_check",
+        "level": "info",
+        "overall": "PARTIAL"
+      },
+      {
+        "ts": "2026-04-12T05:22:31.285086+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/startup/check",
+        "status_code": 200,
+        "elapsed_ms": 3860.06
+      },
+      {
+        "ts": "2026-04-12T05:22:31.289594+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T05:22:59.172857+00:00",
+        "source": "ui",
+        "event": "voice_ready",
+        "level": "info",
+        "session_id": "20260412_002237",
+        "stt_backend": "whisper",
+        "tts_backend": "kokoro"
+      },
+      {
+        "ts": "2026-04-12T05:23:03.279651+00:00",
+        "source": "ui",
+        "event": "startup_check",
+        "level": "info",
+        "session_id": "20260412_002237",
+        "auth": "READY",
+        "ollama": "READY",
+        "voice": "READY"
+      },
+      {
+        "ts": "2026-04-12T05:23:03.282163+00:00",
+        "source": "ui",
+        "event": "ui_started",
+        "level": "info",
+        "session_id": "20260412_002237",
+        "mode": "auto"
+      },
+      {
+        "ts": "2026-04-12T05:23:57.010778+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_002237",
+        "mode": "auto",
+        "response_chars": 78
+      },
+      {
+        "ts": "2026-04-12T05:30:19.477474+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/status",
+        "status_code": 200,
+        "elapsed_ms": 4206.9
+      },
+      {
+        "ts": "2026-04-12T05:30:19.485512+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/metrics",
+        "status_code": 200,
+        "elapsed_ms": 1.86
+      },
+      {
+        "ts": "2026-04-12T05:30:19.507587+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 200,
+        "elapsed_ms": 17.5
+      },
+      {
+        "ts": "2026-04-12T05:30:19.513124+00:00",
+        "source": "api",
+        "event": "startup_check",
+        "level": "info",
+        "overall": "PARTIAL"
+      },
+      {
+        "ts": "2026-04-12T05:30:19.514123+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/startup/check",
+        "status_code": 200,
+        "elapsed_ms": 1.78
+      },
+      {
+        "ts": "2026-04-12T05:30:19.515623+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T05:35:38.831657+00:00",
+        "source": "ui",
+        "event": "voice_ready",
+        "level": "info",
+        "session_id": "20260412_003522",
+        "stt_backend": "whisper",
+        "tts_backend": "sapi"
+      },
+      {
+        "ts": "2026-04-12T05:35:38.834163+00:00",
+        "source": "ui",
+        "event": "ui_error",
+        "level": "error",
+        "session_id": "20260412_003522",
+        "message": "Voice note: using Windows SAPI fallback (robotic). Install/enable Kokoro for natural voice."
+      },
+      {
+        "ts": "2026-04-12T05:35:38.867759+00:00",
+        "source": "ui",
+        "event": "voice_tts_fallback",
+        "level": "warning",
+        "session_id": "20260412_003522",
+        "tts_backend": "sapi"
+      },
+      {
+        "ts": "2026-04-12T05:35:42.981722+00:00",
+        "source": "ui",
+        "event": "startup_check",
+        "level": "info",
+        "session_id": "20260412_003522",
+        "auth": "READY",
+        "ollama": "READY",
+        "voice": "READY"
+      },
+      {
+        "ts": "2026-04-12T05:35:42.983723+00:00",
+        "source": "ui",
+        "event": "ui_started",
+        "level": "info",
+        "session_id": "20260412_003522",
+        "mode": "auto"
+      },
+      {
+        "ts": "2026-04-12T05:37:12.634827+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_003522",
+        "mode": "auto",
+        "response_chars": 98
+      },
+      {
+        "ts": "2026-04-12T05:46:54.699951+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/status",
+        "status_code": 200,
+        "elapsed_ms": 4181.25
+      },
+      {
+        "ts": "2026-04-12T05:46:54.708967+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/metrics",
+        "status_code": 200,
+        "elapsed_ms": 1.99
+      },
+      {
+        "ts": "2026-04-12T05:46:54.721977+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 200,
+        "elapsed_ms": 10.13
+      },
+      {
+        "ts": "2026-04-12T05:46:54.727984+00:00",
+        "source": "api",
+        "event": "startup_check",
+        "level": "info",
+        "overall": "PARTIAL"
+      },
+      {
+        "ts": "2026-04-12T05:46:54.728484+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/startup/check",
+        "status_code": 200,
+        "elapsed_ms": 1.6
+      },
+      {
+        "ts": "2026-04-12T05:46:54.730485+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T05:50:38.031297+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/status",
+        "status_code": 200,
+        "elapsed_ms": 4154.0
+      },
+      {
+        "ts": "2026-04-12T05:50:38.040313+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/metrics",
+        "status_code": 200,
+        "elapsed_ms": 2.1
+      },
+      {
+        "ts": "2026-04-12T05:50:38.053339+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 200,
+        "elapsed_ms": 10.56
+      },
+      {
+        "ts": "2026-04-12T05:50:38.058854+00:00",
+        "source": "api",
+        "event": "startup_check",
+        "level": "info",
+        "overall": "PARTIAL"
+      },
+      {
+        "ts": "2026-04-12T05:50:38.059353+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/startup/check",
+        "status_code": 200,
+        "elapsed_ms": 2.08
+      },
+      {
+        "ts": "2026-04-12T05:50:38.061865+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T05:52:34.768865+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/status",
+        "status_code": 200,
+        "elapsed_ms": 3920.04
+      },
+      {
+        "ts": "2026-04-12T05:52:34.776381+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/metrics",
+        "status_code": 200,
+        "elapsed_ms": 1.56
+      },
+      {
+        "ts": "2026-04-12T05:52:34.788903+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 200,
+        "elapsed_ms": 9.07
+      },
+      {
+        "ts": "2026-04-12T05:52:34.792412+00:00",
+        "source": "api",
+        "event": "startup_check",
+        "level": "info",
+        "overall": "PARTIAL"
+      },
+      {
+        "ts": "2026-04-12T05:52:34.793417+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/startup/check",
+        "status_code": 200,
+        "elapsed_ms": 1.62
+      },
+      {
+        "ts": "2026-04-12T05:52:34.795424+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T05:56:43.022383+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/status",
+        "status_code": 200,
+        "elapsed_ms": 4025.26
+      },
+      {
+        "ts": "2026-04-12T05:56:43.030404+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/metrics",
+        "status_code": 200,
+        "elapsed_ms": 1.78
+      },
+      {
+        "ts": "2026-04-12T05:56:43.043926+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 200,
+        "elapsed_ms": 9.21
+      },
+      {
+        "ts": "2026-04-12T05:56:43.047427+00:00",
+        "source": "api",
+        "event": "startup_check",
+        "level": "info",
+        "overall": "PARTIAL"
+      },
+      {
+        "ts": "2026-04-12T05:56:43.047926+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/startup/check",
+        "status_code": 200,
+        "elapsed_ms": 1.68
+      },
+      {
+        "ts": "2026-04-12T05:56:43.050427+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T05:57:44.528013+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/status",
+        "status_code": 200,
+        "elapsed_ms": 3922.44
+      },
+      {
+        "ts": "2026-04-12T05:57:44.536531+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/metrics",
+        "status_code": 200,
+        "elapsed_ms": 1.85
+      },
+      {
+        "ts": "2026-04-12T05:57:44.548048+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 200,
+        "elapsed_ms": 9.8
+      },
+      {
+        "ts": "2026-04-12T05:57:44.552560+00:00",
+        "source": "api",
+        "event": "startup_check",
+        "level": "info",
+        "overall": "PARTIAL"
+      },
+      {
+        "ts": "2026-04-12T05:57:44.553590+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/startup/check",
+        "status_code": 200,
+        "elapsed_ms": 2.0
+      },
+      {
+        "ts": "2026-04-12T05:57:44.555094+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T06:02:21.610843+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/status",
+        "status_code": 200,
+        "elapsed_ms": 4180.54
+      },
+      {
+        "ts": "2026-04-12T06:02:21.619362+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/metrics",
+        "status_code": 200,
+        "elapsed_ms": 1.6
+      },
+      {
+        "ts": "2026-04-12T06:02:21.633887+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 200,
+        "elapsed_ms": 10.87
+      },
+      {
+        "ts": "2026-04-12T06:02:21.638891+00:00",
+        "source": "api",
+        "event": "startup_check",
+        "level": "info",
+        "overall": "PARTIAL"
+      },
+      {
+        "ts": "2026-04-12T06:02:21.639893+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/startup/check",
+        "status_code": 200,
+        "elapsed_ms": 1.83
+      },
+      {
+        "ts": "2026-04-12T06:02:21.641390+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T06:05:15.793850+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/status",
+        "status_code": 200,
+        "elapsed_ms": 4161.24
+      },
+      {
+        "ts": "2026-04-12T06:05:15.802864+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/metrics",
+        "status_code": 200,
+        "elapsed_ms": 3.27
+      },
+      {
+        "ts": "2026-04-12T06:05:15.816404+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 200,
+        "elapsed_ms": 9.75
+      },
+      {
+        "ts": "2026-04-12T06:05:15.820413+00:00",
+        "source": "api",
+        "event": "startup_check",
+        "level": "info",
+        "overall": "PARTIAL"
+      },
+      {
+        "ts": "2026-04-12T06:05:15.821412+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/startup/check",
+        "status_code": 200,
+        "elapsed_ms": 2.14
+      },
+      {
+        "ts": "2026-04-12T06:05:15.822914+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T06:34:26.334844+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "warning",
+        "method": "GET",
+        "path": "/status",
+        "status_code": 200,
+        "elapsed_ms": 6077.57
+      },
+      {
+        "ts": "2026-04-12T06:34:26.343854+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/metrics",
+        "status_code": 200,
+        "elapsed_ms": 2.0
+      },
+      {
+        "ts": "2026-04-12T06:34:26.370395+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/logs/recent",
+        "status_code": 200,
+        "elapsed_ms": 23.12
+      },
+      {
+        "ts": "2026-04-12T06:34:26.374903+00:00",
+        "source": "api",
+        "event": "startup_check",
+        "level": "info",
+        "overall": "PARTIAL"
+      },
+      {
+        "ts": "2026-04-12T06:34:26.375903+00:00",
+        "source": "api",
+        "event": "request_complete",
+        "level": "info",
+        "method": "GET",
+        "path": "/startup/check",
+        "status_code": 200,
+        "elapsed_ms": 1.76
+      },
+      {
+        "ts": "2026-04-12T06:34:26.377403+00:00",
+        "source": "test",
+        "event": "runtime_smoke_logger_roundtrip",
+        "level": "info",
+        "note": "ok"
+      },
+      {
+        "ts": "2026-04-12T06:55:06.387573+00:00",
+        "source": "ui",
+        "event": "voice_ready",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "stt_backend": "whisper",
+        "tts_backend": "elevenlabs"
+      },
+      {
+        "ts": "2026-04-12T06:55:08.635182+00:00",
+        "source": "merlin_ui",
+        "event": "ui_started",
+        "level": "info",
+        "session_id": "20260412_015500",
+        "mode": "local"
+      },
+      {
+        "ts": "2026-04-12T06:55:10.449232+00:00",
+        "source": "ui",
+        "event": "startup_check",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "auth": "READY",
+        "ollama": "READY",
+        "voice": "READY"
+      },
+      {
+        "ts": "2026-04-12T06:55:10.450762+00:00",
+        "source": "ui",
+        "event": "ui_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "auto"
+      },
+      {
+        "ts": "2026-04-12T06:55:48.726114+00:00",
+        "source": "ui",
+        "event": "ptt_started",
+        "level": "info",
+        "session_id": "20260412_015438"
+      },
+      {
+        "ts": "2026-04-12T06:55:49.637513+00:00",
+        "source": "ui",
+        "event": "ptt_started",
+        "level": "info",
+        "session_id": "20260412_015438"
+      },
+      {
+        "ts": "2026-04-12T06:56:02.227159+00:00",
+        "source": "ui",
+        "event": "ptt_transcribed",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "chars": 10
+      },
+      {
+        "ts": "2026-04-12T06:56:10.268925+00:00",
+        "source": "ui",
+        "event": "ptt_transcribed",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "chars": 25
+      },
+      {
+        "ts": "2026-04-12T06:56:10.492656+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "auto",
+        "response_chars": 151
+      },
+      {
+        "ts": "2026-04-12T06:56:21.360759+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "auto",
+        "input_chars": 33
+      },
+      {
+        "ts": "2026-04-12T06:56:54.023412+00:00",
+        "source": "ui",
+        "event": "claude_tier_changed",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "tier": "haiku"
+      },
+      {
+        "ts": "2026-04-12T06:56:59.035520+00:00",
+        "source": "ui",
+        "event": "claude_tier_changed",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "tier": "sonnet"
+      },
+      {
+        "ts": "2026-04-12T06:57:01.379506+00:00",
+        "source": "ui",
+        "event": "mode_changed",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude"
+      },
+      {
+        "ts": "2026-04-12T06:57:12.142318+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 144
+      },
+      {
+        "ts": "2026-04-12T06:57:55.631925+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 96
+      },
+      {
+        "ts": "2026-04-12T06:58:20.990586+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 565
+      },
+      {
+        "ts": "2026-04-12T06:59:18.976702+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 68
+      },
+      {
+        "ts": "2026-04-12T07:01:11.363565+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 1410
+      },
+      {
+        "ts": "2026-04-12T07:02:42.324965+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 85
+      },
+      {
+        "ts": "2026-04-12T07:02:56.496403+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 335
+      },
+      {
+        "ts": "2026-04-12T07:03:29.822910+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 3
+      },
+      {
+        "ts": "2026-04-12T07:05:05.170941+00:00",
+        "source": "ui",
+        "event": "claude_tier_changed",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "tier": "haiku"
+      },
+      {
+        "ts": "2026-04-12T07:05:08.795616+00:00",
+        "source": "ui",
+        "event": "claude_tier_changed",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "tier": "sonnet"
+      },
+      {
+        "ts": "2026-04-12T07:05:12.429931+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 170
+      },
+      {
+        "ts": "2026-04-12T07:05:16.036468+00:00",
+        "source": "ui",
+        "event": "claude_tier_changed",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "tier": "haiku"
+      },
+      {
+        "ts": "2026-04-12T07:05:37.798534+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 40
+      },
+      {
+        "ts": "2026-04-12T07:05:41.431140+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 807
+      },
+      {
+        "ts": "2026-04-12T07:07:48.276957+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 32
+      },
+      {
+        "ts": "2026-04-12T07:07:51.921935+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 342
+      },
+      {
+        "ts": "2026-04-12T07:08:04.015248+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 1
+      },
+      {
+        "ts": "2026-04-12T07:08:39.056671+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 932
+      },
+      {
+        "ts": "2026-04-12T07:09:22.564505+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 31
+      },
+      {
+        "ts": "2026-04-12T07:09:33.414085+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 205
+      },
+      {
+        "ts": "2026-04-12T07:10:35.917117+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 62
+      },
+      {
+        "ts": "2026-04-12T07:11:11.637883+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 172
+      },
+      {
+        "ts": "2026-04-12T07:11:47.568621+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 42
+      },
+      {
+        "ts": "2026-04-12T07:12:09.322668+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 1235
+      },
+      {
+        "ts": "2026-04-12T07:13:25.465282+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 30
+      },
+      {
+        "ts": "2026-04-12T07:14:16.303630+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 1405
+      },
+      {
+        "ts": "2026-04-12T07:17:42.844614+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 24
+      },
+      {
+        "ts": "2026-04-12T07:19:07.651989+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 981
+      },
+      {
+        "ts": "2026-04-12T07:19:46.114729+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 134
+      },
+      {
+        "ts": "2026-04-12T07:20:02.107635+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 822
+      },
+      {
+        "ts": "2026-04-12T07:23:19.972210+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 52
+      },
+      {
+        "ts": "2026-04-12T07:23:52.608556+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 713
+      },
+      {
+        "ts": "2026-04-12T07:29:10.236805+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 16
+      },
+      {
+        "ts": "2026-04-12T07:32:00.219312+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 692
+      },
+      {
+        "ts": "2026-04-12T07:32:21.965103+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 63
+      },
+      {
+        "ts": "2026-04-12T07:32:58.243779+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 647
+      },
+      {
+        "ts": "2026-04-12T07:34:07.116066+00:00",
+        "source": "ui",
+        "event": "ptt_started",
+        "level": "info",
+        "session_id": "20260412_015438"
+      },
+      {
+        "ts": "2026-04-12T07:34:07.185299+00:00",
+        "source": "ui",
+        "event": "ptt_error",
+        "level": "error",
+        "session_id": "20260412_015438",
+        "error": "No audio captured"
+      },
+      {
+        "ts": "2026-04-12T07:34:07.601619+00:00",
+        "source": "ui",
+        "event": "ptt_started",
+        "level": "info",
+        "session_id": "20260412_015438"
+      },
+      {
+        "ts": "2026-04-12T07:34:21.948761+00:00",
+        "source": "ui",
+        "event": "ptt_transcribed",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "chars": 18
+      },
+      {
+        "ts": "2026-04-12T07:34:22.163211+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 13
+      },
+      {
+        "ts": "2026-04-12T07:34:25.239943+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 116
+      },
+      {
+        "ts": "2026-04-12T07:35:09.595178+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 27
+      },
+      {
+        "ts": "2026-04-12T07:35:12.366149+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 96
+      },
+      {
+        "ts": "2026-04-12T07:35:46.114288+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 61
+      },
+      {
+        "ts": "2026-04-12T07:35:49.404139+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 6
+      },
+      {
+        "ts": "2026-04-12T07:36:44.164830+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 84
+      },
+      {
+        "ts": "2026-04-12T07:36:47.235943+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 10
+      },
+      {
+        "ts": "2026-04-12T07:37:04.750838+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 9
+      },
+      {
+        "ts": "2026-04-12T07:37:42.779177+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 320
+      },
+      {
+        "ts": "2026-04-12T07:38:59.776898+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 114
+      },
+      {
+        "ts": "2026-04-12T07:39:24.285782+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 537
+      },
+      {
+        "ts": "2026-04-12T07:40:04.175943+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 3
+      },
+      {
+        "ts": "2026-04-12T07:40:54.559477+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 668
+      },
+      {
+        "ts": "2026-04-12T07:42:06.285433+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 58
+      },
+      {
+        "ts": "2026-04-12T07:44:52.352552+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 669
+      },
+      {
+        "ts": "2026-04-12T07:46:56.024629+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 70
+      },
+      {
+        "ts": "2026-04-12T07:49:30.648834+00:00",
+        "source": "ui",
+        "event": "diagnostics_bundle_created",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "path": "C:\\Users\\Ryan\\Guppy\\runtime\\diagnostics_guppy_20260412_074930.json"
+      },
+      {
+        "ts": "2026-04-12T07:49:44.377277+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 349
+      },
+      {
+        "ts": "2026-04-12T07:50:17.023180+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 30
+      },
+      {
+        "ts": "2026-04-12T07:51:59.870642+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 364
+      },
+      {
+        "ts": "2026-04-12T07:53:22.629487+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 109
+      },
+      {
+        "ts": "2026-04-12T07:53:55.603242+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 547
+      },
+      {
+        "ts": "2026-04-12T07:55:21.680019+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 87
+      },
+      {
+        "ts": "2026-04-12T07:55:53.957731+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 551
+      },
+      {
+        "ts": "2026-04-12T07:56:19.344503+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 9
+      },
+      {
+        "ts": "2026-04-12T07:59:03.841223+00:00",
+        "source": "ui",
+        "event": "claude_tier_changed",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "tier": "sonnet"
+      },
+      {
+        "ts": "2026-04-12T08:00:30.261345+00:00",
+        "source": "ui",
+        "event": "request_finished",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "response_chars": 1355
+      },
+      {
+        "ts": "2026-04-12T08:02:50.903797+00:00",
+        "source": "ui",
+        "event": "request_started",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "mode": "claude",
+        "input_chars": 98
+      },
+      {
+        "ts": "2026-04-12T08:06:44.441170+00:00",
+        "source": "ui",
+        "event": "diagnostics_bundle_created",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "path": "C:\\Users\\Ryan\\Guppy\\runtime\\diagnostics_guppy_20260412_080644.json"
+      },
+      {
+        "ts": "2026-04-12T08:06:47.469851+00:00",
+        "source": "ui",
+        "event": "diagnostics_bundle_created",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "path": "C:\\Users\\Ryan\\Guppy\\runtime\\diagnostics_guppy_20260412_080647.json"
+      },
+      {
+        "ts": "2026-04-12T08:06:50.187758+00:00",
+        "source": "ui",
+        "event": "diagnostics_bundle_created",
+        "level": "info",
+        "session_id": "20260412_015438",
+        "path": "C:\\Users\\Ryan\\Guppy\\runtime\\diagnostics_guppy_20260412_080650.json"
+      }
+    ],
+    "agent_performance.jsonl": [
+      {
+        "ts": "2026-04-12T03:05:15.578869+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260411_220509",
+        "mode": "claude",
+        "input_chars": 118,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 0,
+        "fallback_used": false,
+        "model_used": "",
+        "status": "error",
+        "error": "Claude request failed on all configured models: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CZy8sw2dQK1ucfPVT4wqm'}",
+        "latency_ms": 1650.49
+      },
+      {
+        "ts": "2026-04-12T03:08:27.113929+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260411_220821",
+        "mode": "claude",
+        "input_chars": 118,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 0,
+        "fallback_used": false,
+        "model_used": "",
+        "status": "error",
+        "error": "Claude request failed on all configured models: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CZy983ukza5jURzuCVxdb'}",
+        "latency_ms": 1208.27
+      },
+      {
+        "ts": "2026-04-12T03:11:29.183881+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260411_221110",
+        "mode": "claude",
+        "input_chars": 118,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 0,
+        "fallback_used": false,
+        "model_used": "",
+        "status": "error",
+        "error": "Claude request failed on all configured models: Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'}, 'request_id': 'req_011CZy9MTJ3ghQAAW5ViWa4W'}",
+        "latency_ms": 1563.08
+      },
+      {
+        "ts": "2026-04-12T05:07:50.640052+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_000632",
+        "mode": "auto",
+        "input_chars": 129,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 75,
+        "fallback_used": false,
+        "model_used": "",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 68946.64
+      },
+      {
+        "ts": "2026-04-12T05:09:10.745085+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_000813",
+        "mode": "auto",
+        "input_chars": 129,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 80,
+        "fallback_used": false,
+        "model_used": "",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 47251.5
+      },
+      {
+        "ts": "2026-04-12T05:12:32.606205+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_001159",
+        "mode": "auto",
+        "input_chars": 129,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 129,
+        "fallback_used": false,
+        "model_used": "",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 17226.68
+      },
+      {
+        "ts": "2026-04-12T05:23:57.006769+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_002237",
+        "mode": "auto",
+        "input_chars": 129,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 78,
+        "fallback_used": false,
+        "model_used": "",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 55775.51
+      },
+      {
+        "ts": "2026-04-12T05:26:13.328360+00:00",
+        "agent": "merlin",
+        "event": "request_complete",
+        "session_id": "20260412_002512",
+        "mode": "ollama_gemma_with_haiku_boost",
+        "input_chars": 106,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 71,
+        "fallback_used": false,
+        "boost_used": false,
+        "boost_chars": 0,
+        "model_used": "merlin",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 39197.27
+      },
+      {
+        "ts": "2026-04-12T05:36:39.610546+00:00",
+        "agent": "merlin",
+        "event": "request_complete",
+        "session_id": "20260412_003523",
+        "mode": "ollama_gemma_with_haiku_boost",
+        "input_chars": 106,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 60,
+        "fallback_used": false,
+        "boost_used": false,
+        "boost_chars": 0,
+        "model_used": "merlin",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 60776.99
+      },
+      {
+        "ts": "2026-04-12T05:37:12.630324+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_003522",
+        "mode": "auto",
+        "input_chars": 129,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 98,
+        "fallback_used": false,
+        "model_used": "",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 91699.31
+      },
+      {
+        "ts": "2026-04-12T06:55:08.415168+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:175295044:2502663564480",
+        "mode": "auto",
+        "input_chars": 129
+      },
+      {
+        "ts": "2026-04-12T06:55:08.635182+00:00",
+        "agent": "merlin",
+        "event": "request_started",
+        "session_id": "20260412_015500",
+        "request_id": "20260412_015500:175295264:1942172996800",
+        "mode": "ollama_gemma_with_haiku_boost",
+        "input_chars": 102
+      },
+      {
+        "ts": "2026-04-12T06:56:10.257922+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:175295044:2502663564480",
+        "mode": "auto",
+        "input_chars": 129,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 151,
+        "fallback_used": false,
+        "model_used": "",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 61842.37
+      },
+      {
+        "ts": "2026-04-12T06:56:21.363759+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:175367992:2502709162112",
+        "mode": "auto",
+        "input_chars": 33
+      },
+      {
+        "ts": "2026-04-12T06:57:11.422376+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:175367992:2502709162112",
+        "mode": "auto",
+        "input_chars": 33,
+        "tool_calls": 1,
+        "tool_errors": 0,
+        "response_chars": 211,
+        "fallback_used": false,
+        "model_used": "guppy",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 50058.24
+      },
+      {
+        "ts": "2026-04-12T06:57:55.634925+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:175462264:2502709162880",
+        "mode": "claude",
+        "input_chars": 96
+      },
+      {
+        "ts": "2026-04-12T06:58:19.082073+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:175462264:2502709162880",
+        "mode": "claude",
+        "input_chars": 96,
+        "tool_calls": 2,
+        "tool_errors": 0,
+        "response_chars": 565,
+        "fallback_used": false,
+        "model_used": "claude-sonnet-4-6",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 23447.11
+      },
+      {
+        "ts": "2026-04-12T06:59:18.979702+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:175545608:2504816416768",
+        "mode": "claude",
+        "input_chars": 68
+      },
+      {
+        "ts": "2026-04-12T07:01:11.199683+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:175545608:2504816416768",
+        "mode": "claude",
+        "input_chars": 68,
+        "tool_calls": 15,
+        "tool_errors": 3,
+        "response_chars": 1410,
+        "fallback_used": false,
+        "model_used": "claude-sonnet-4-6",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 112220.09
+      },
+      {
+        "ts": "2026-04-12T07:02:42.327967+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:175748957:2505732884608",
+        "mode": "claude",
+        "input_chars": 85
+      },
+      {
+        "ts": "2026-04-12T07:02:56.238095+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:175748957:2505732884608",
+        "mode": "claude",
+        "input_chars": 85,
+        "tool_calls": 3,
+        "tool_errors": 0,
+        "response_chars": 335,
+        "fallback_used": false,
+        "model_used": "claude-sonnet-4-6",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 13909.94
+      },
+      {
+        "ts": "2026-04-12T07:03:29.826910+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:175796455:2502688613248",
+        "mode": "claude",
+        "input_chars": 3
+      },
+      {
+        "ts": "2026-04-12T07:05:11.258306+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:175796455:2502688613248",
+        "mode": "claude",
+        "input_chars": 3,
+        "tool_calls": 3,
+        "tool_errors": 1,
+        "response_chars": 378,
+        "fallback_used": false,
+        "model_used": "claude-sonnet-4-6",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 101432.16
+      },
+      {
+        "ts": "2026-04-12T07:05:37.802533+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:175924431:2504816416768",
+        "mode": "claude",
+        "input_chars": 40
+      },
+      {
+        "ts": "2026-04-12T07:05:41.074204+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:175924431:2504816416768",
+        "mode": "claude",
+        "input_chars": 40,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 807,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 3271.79
+      },
+      {
+        "ts": "2026-04-12T07:07:48.279956+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176054909:2505732957632",
+        "mode": "claude",
+        "input_chars": 32
+      },
+      {
+        "ts": "2026-04-12T07:07:50.259351+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176054909:2505732957632",
+        "mode": "claude",
+        "input_chars": 32,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 342,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 1979.56
+      },
+      {
+        "ts": "2026-04-12T07:08:04.018252+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176070647:2505732963200",
+        "mode": "claude",
+        "input_chars": 1
+      },
+      {
+        "ts": "2026-04-12T07:08:38.237690+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176070647:2505732963200",
+        "mode": "claude",
+        "input_chars": 1,
+        "tool_calls": 8,
+        "tool_errors": 0,
+        "response_chars": 1439,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 34218.78
+      },
+      {
+        "ts": "2026-04-12T07:09:22.568501+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176149197:2505732954944",
+        "mode": "claude",
+        "input_chars": 31
+      },
+      {
+        "ts": "2026-04-12T07:09:32.170306+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176149197:2505732954944",
+        "mode": "claude",
+        "input_chars": 31,
+        "tool_calls": 3,
+        "tool_errors": 0,
+        "response_chars": 475,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 9602.69
+      },
+      {
+        "ts": "2026-04-12T07:10:35.921122+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176222549:2505734682944",
+        "mode": "claude",
+        "input_chars": 62
+      },
+      {
+        "ts": "2026-04-12T07:11:11.616881+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176222549:2505734682944",
+        "mode": "claude",
+        "input_chars": 62,
+        "tool_calls": 6,
+        "tool_errors": 0,
+        "response_chars": 1055,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 35696.68
+      },
+      {
+        "ts": "2026-04-12T07:11:47.572620+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176294201:2504816779008",
+        "mode": "claude",
+        "input_chars": 42
+      },
+      {
+        "ts": "2026-04-12T07:12:07.383427+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176294201:2504816779008",
+        "mode": "claude",
+        "input_chars": 42,
+        "tool_calls": 3,
+        "tool_errors": 0,
+        "response_chars": 1289,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 19810.76
+      },
+      {
+        "ts": "2026-04-12T07:13:25.469277+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176392097:2505734531328",
+        "mode": "claude",
+        "input_chars": 30
+      },
+      {
+        "ts": "2026-04-12T07:14:16.261633+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176392097:2505734531328",
+        "mode": "claude",
+        "input_chars": 30,
+        "tool_calls": 2,
+        "tool_errors": 0,
+        "response_chars": 1491,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 50792.72
+      },
+      {
+        "ts": "2026-04-12T07:17:42.848694+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176649477:2505735082240",
+        "mode": "claude",
+        "input_chars": 24
+      },
+      {
+        "ts": "2026-04-12T07:19:07.614661+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176649477:2505735082240",
+        "mode": "claude",
+        "input_chars": 24,
+        "tool_calls": 11,
+        "tool_errors": 0,
+        "response_chars": 1110,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 84767.32
+      },
+      {
+        "ts": "2026-04-12T07:19:46.118730+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176772747:2505734683456",
+        "mode": "claude",
+        "input_chars": 134
+      },
+      {
+        "ts": "2026-04-12T07:20:02.070321+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176772747:2505734683456",
+        "mode": "claude",
+        "input_chars": 134,
+        "tool_calls": 4,
+        "tool_errors": 0,
+        "response_chars": 1004,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 15951.67
+      },
+      {
+        "ts": "2026-04-12T07:23:19.974726+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176986604:2505734673408",
+        "mode": "claude",
+        "input_chars": 52
+      },
+      {
+        "ts": "2026-04-12T07:23:52.149444+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:176986604:2505734673408",
+        "mode": "claude",
+        "input_chars": 52,
+        "tool_calls": 6,
+        "tool_errors": 1,
+        "response_chars": 901,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 32174.03
+      },
+      {
+        "ts": "2026-04-12T07:29:10.239879+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177336869:2505735151616",
+        "mode": "claude",
+        "input_chars": 16
+      },
+      {
+        "ts": "2026-04-12T07:31:59.784373+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177336869:2505735151616",
+        "mode": "claude",
+        "input_chars": 16,
+        "tool_calls": 8,
+        "tool_errors": 1,
+        "response_chars": 1304,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 169543.87
+      },
+      {
+        "ts": "2026-04-12T07:32:21.969103+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177528597:2505734924416",
+        "mode": "claude",
+        "input_chars": 63
+      },
+      {
+        "ts": "2026-04-12T07:32:58.046507+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177528597:2505734924416",
+        "mode": "claude",
+        "input_chars": 63,
+        "tool_calls": 14,
+        "tool_errors": 2,
+        "response_chars": 1136,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 36077.83
+      },
+      {
+        "ts": "2026-04-12T07:34:22.166211+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177648795:2505735151616",
+        "mode": "claude",
+        "input_chars": 13
+      },
+      {
+        "ts": "2026-04-12T07:34:23.627240+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177648795:2505735151616",
+        "mode": "claude",
+        "input_chars": 13,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 116,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 1461.06
+      },
+      {
+        "ts": "2026-04-12T07:35:09.598702+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177696227:2505735416384",
+        "mode": "claude",
+        "input_chars": 27
+      },
+      {
+        "ts": "2026-04-12T07:35:10.846133+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177696227:2505735416384",
+        "mode": "claude",
+        "input_chars": 27,
+        "tool_calls": 0,
+        "tool_errors": 0,
+        "response_chars": 96,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 1247.42
+      },
+      {
+        "ts": "2026-04-12T07:35:46.117288+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177732746:2505734635392",
+        "mode": "claude",
+        "input_chars": 61
+      },
+      {
+        "ts": "2026-04-12T07:35:49.357927+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177732746:2505734635392",
+        "mode": "claude",
+        "input_chars": 61,
+        "tool_calls": 1,
+        "tool_errors": 0,
+        "response_chars": 194,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 3241.1
+      },
+      {
+        "ts": "2026-04-12T07:36:44.168827+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177790797:2504816385024",
+        "mode": "claude",
+        "input_chars": 84
+      },
+      {
+        "ts": "2026-04-12T07:36:47.187491+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177790797:2504816385024",
+        "mode": "claude",
+        "input_chars": 84,
+        "tool_calls": 1,
+        "tool_errors": 0,
+        "response_chars": 139,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 3019.12
+      },
+      {
+        "ts": "2026-04-12T07:37:04.753838+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177811382:2505735089024",
+        "mode": "claude",
+        "input_chars": 9
+      },
+      {
+        "ts": "2026-04-12T07:37:42.187151+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177811382:2505735089024",
+        "mode": "claude",
+        "input_chars": 9,
+        "tool_calls": 9,
+        "tool_errors": 0,
+        "response_chars": 886,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 37433.45
+      },
+      {
+        "ts": "2026-04-12T07:38:59.779896+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177926409:2505735082688",
+        "mode": "claude",
+        "input_chars": 114
+      },
+      {
+        "ts": "2026-04-12T07:39:24.282782+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177926409:2505735082688",
+        "mode": "claude",
+        "input_chars": 114,
+        "tool_calls": 3,
+        "tool_errors": 0,
+        "response_chars": 695,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 24502.59
+      },
+      {
+        "ts": "2026-04-12T07:40:04.178941+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177990807:2505735309376",
+        "mode": "claude",
+        "input_chars": 3
+      },
+      {
+        "ts": "2026-04-12T07:40:54.497451+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:177990807:2505735309376",
+        "mode": "claude",
+        "input_chars": 3,
+        "tool_calls": 8,
+        "tool_errors": 0,
+        "response_chars": 1281,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 50318.56
+      },
+      {
+        "ts": "2026-04-12T07:42:06.288433+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:178112917:2504816629184",
+        "mode": "claude",
+        "input_chars": 58
+      },
+      {
+        "ts": "2026-04-12T07:44:51.941637+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:178112917:2504816629184",
+        "mode": "claude",
+        "input_chars": 58,
+        "tool_calls": 7,
+        "tool_errors": 2,
+        "response_chars": 1192,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 165653.05
+      },
+      {
+        "ts": "2026-04-12T07:46:56.027630+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:178402656:2505734916032",
+        "mode": "claude",
+        "input_chars": 70
+      },
+      {
+        "ts": "2026-04-12T07:49:42.976602+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:178402656:2505734916032",
+        "mode": "claude",
+        "input_chars": 70,
+        "tool_calls": 4,
+        "tool_errors": 2,
+        "response_chars": 568,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 166948.9
+      },
+      {
+        "ts": "2026-04-12T07:50:17.026182+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:178603655:2505735519104",
+        "mode": "claude",
+        "input_chars": 30
+      },
+      {
+        "ts": "2026-04-12T07:51:59.800127+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:178603655:2505735519104",
+        "mode": "claude",
+        "input_chars": 30,
+        "tool_calls": 3,
+        "tool_errors": 1,
+        "response_chars": 443,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 102773.77
+      },
+      {
+        "ts": "2026-04-12T07:53:22.633484+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:178789262:2504816779008",
+        "mode": "claude",
+        "input_chars": 109
+      },
+      {
+        "ts": "2026-04-12T07:53:55.532222+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:178789262:2504816779008",
+        "mode": "claude",
+        "input_chars": 109,
+        "tool_calls": 6,
+        "tool_errors": 0,
+        "response_chars": 870,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 32898.79
+      },
+      {
+        "ts": "2026-04-12T07:55:21.683014+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:178908312:2505735790848",
+        "mode": "claude",
+        "input_chars": 87
+      },
+      {
+        "ts": "2026-04-12T07:55:52.953703+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:178908312:2505735790848",
+        "mode": "claude",
+        "input_chars": 87,
+        "tool_calls": 4,
+        "tool_errors": 0,
+        "response_chars": 722,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 31270.04
+      },
+      {
+        "ts": "2026-04-12T07:56:19.347503+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:178965976:2505735080192",
+        "mode": "claude",
+        "input_chars": 9
+      },
+      {
+        "ts": "2026-04-12T08:00:30.163835+00:00",
+        "agent": "guppy",
+        "event": "request_complete",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:178965976:2505735080192",
+        "mode": "claude",
+        "input_chars": 9,
+        "tool_calls": 36,
+        "tool_errors": 2,
+        "response_chars": 3458,
+        "fallback_used": false,
+        "model_used": "claude-haiku-4-5-20251001",
+        "status": "ok",
+        "error": "",
+        "latency_ms": 250816.1
+      },
+      {
+        "ts": "2026-04-12T08:02:50.907797+00:00",
+        "agent": "guppy",
+        "event": "request_started",
+        "session_id": "20260412_015438",
+        "request_id": "20260412_015438:179357537:2504455476224",
+        "mode": "claude",
+        "input_chars": 98
+      }
+    ],
+    "integration_events.jsonl": [
+      {
+        "timestamp": "2026-04-12T02:48:07.099956+00:00",
+        "event_type": "crm.upsert_contact.request",
+        "payload": {
+          "provider": "hubspot",
+          "name": "Test Contact",
+          "email": "test@example.com",
+          "phone": "",
+          "company": "",
+          "notes": "",
+          "dry_run": true
+        }
+      },
+      {
+        "timestamp": "2026-04-12T02:48:07.101150+00:00",
+        "event_type": "voip.place_call.request",
+        "payload": {
+          "provider": "twilio",
+          "to_number": "+15551234567",
+          "from_number": "",
+          "contact_name": "",
+          "purpose": "intro call",
+          "dry_run": true
+        }
+      },
+      {
+        "timestamp": "2026-04-12T02:48:07.101150+00:00",
+        "event_type": "voip.place_call.request",
+        "payload": {
+          "provider": "twilio",
+          "to_number": "+15557654321",
+          "from_number": "",
+          "contact_name": "",
+          "purpose": "",
+          "dry_run": true
+        }
+      }
+    ],
+    "hub.log": "[INFO] 2026-04-12 01:54:00,950 OmnissiahHub: Omnissiah starting...\n[INFO] 2026-04-12 01:54:01,050 OmnissiahHub: HubManager initialized with mode: CLAUDE\n[INFO] 2026-04-12 01:54:12,459 OmnissiahHub: Omnissiah ready.\n[INFO] 2026-04-12 01:55:36,584 OmnissiahHub: merlin exited after 39s (user close assumed - no restart).\n"
+  }
+}

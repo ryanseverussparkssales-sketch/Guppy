@@ -1,4 +1,7 @@
 # Guppy AI Suite — Copilot Handoff Report
+
+> Historical note: this file is retained as session archive context. Current living docs are `README.md` and `ROADMAP.md`.
+
 **Date:** 2026-04-11  
 **From:** Claude Sonnet 4.6 session (context exhausted)  
 **To:** GitHub Copilot / next AI session  

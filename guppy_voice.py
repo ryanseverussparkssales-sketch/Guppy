@@ -483,6 +483,17 @@ class GuppyVoice:
         while self._is_speaking:
             time.sleep(0.05)
 
+        # If another recording is in progress (e.g. wake word loop), abort it and
+        # wait for the stream to close before opening a new one.  Without this,
+        # two concurrent _record_worker calls race on the same InputStream and
+        # shared events — the loser gets an empty queue → "No audio captured".
+        if self._listening.is_set():
+            self._stop_listening.set()
+            for _ in range(40):   # up to 2 s
+                if not self._listening.is_set():
+                    break
+                time.sleep(0.05)
+
         self._clear_record_queue()
         self._stop_listening.clear()
         self._listening.set()
@@ -549,17 +560,21 @@ class GuppyVoice:
 
     def _wake_word_listener_oww(self):
         """openwakeword-based listener. <1% CPU, 80ms latency.
+        Only called when GUPPY_OWW_MODEL env var points to a custom model file.
         Falls back to transcription loop if import or stream fails."""
         _OWW_CHUNK = 1280   # 80 ms at 16 kHz (openwakeword requirement)
         _OWW_RATE  = 16000
         cooldown_until = 0.0
 
+        custom_model = os.environ.get("GUPPY_OWW_MODEL", "").strip()
         try:
             from openwakeword.model import Model as _OWW
-            oww = _OWW(inference_framework="onnx")
+            model_args = [custom_model] if custom_model else []
+            oww = _OWW(wakeword_models=model_args, inference_framework="onnx")
+            logger.info(f"[WAKE] OWW loaded model: {custom_model or 'all pretrained'}")
         except Exception as e:
+            logger.warning(f"[WAKE] OWW init failed: {e}. Falling back to transcription.")
             self._oww_available = False
-            # Silently drop to transcription path
             self._wake_word_listener()
             return
 
@@ -613,9 +628,14 @@ class GuppyVoice:
         self.wake_word_callback = callback_function
         self.is_listening_for_wake_word = True
 
-        # Prefer openwakeword (fast + low CPU) when sounddevice + library are available
+        # Use openwakeword ONLY if a custom model path is explicitly configured.
+        # Without a custom "hey_guppy" model, the pretrained models (alexa, hey_jarvis, etc.)
+        # won't respond to "hey guppy". The transcription-based fallback catches custom
+        # phrases reliably on Ryan's hardware. Set GUPPY_OWW_MODEL=<path> to opt into OWW
+        # once a custom model is trained.
+        custom_oww_model = os.environ.get("GUPPY_OWW_MODEL", "").strip()
         use_oww = False
-        if sd is not None and self._oww_available is not False:
+        if custom_oww_model and sd is not None:
             try:
                 from openwakeword.model import Model  # noqa: F401
                 use_oww = True
@@ -623,6 +643,8 @@ class GuppyVoice:
                 self._oww_available = False
 
         target = self._wake_word_listener_oww if use_oww else self._wake_word_listener
+        mode = "openwakeword" if use_oww else "transcription"
+        logger.info(f"Wake word detection starting (mode: {mode}, phrases: {self.wake_words})")
         self.wake_word_thread = threading.Thread(target=target, daemon=True)
         self.wake_word_thread.start()
         self.speak("Wake word detection activated, Master Ryan.")

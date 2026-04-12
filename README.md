@@ -1,224 +1,221 @@
-# Guppy — Personal AI Assistant System
+﻿# Guppy
 
-A multi-agent AI system featuring **Guppy** (digital butler) and **Merlin** (Socratic mentor), running locally or via Claude API.
+Guppy is a local-first multi-agent assistant suite built around three main surfaces:
 
-## Quick Start
+- Guppy: butler / operator
+- Merlin: mentor / research persona
+- Council: dual-agent orchestration
 
-### Installation
+## Living Docs
 
-1. Clone or download this repository
-2. Install dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-3. (Optional) Set your Anthropic API key for Claude mode:
-   ```
-   [System.Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY","your-key-here","User")
-   ```
+Only these two files should be treated as current project status documents:
 
-### Running the Apps
+- `README.md` — current source of truth for setup, architecture, and project state
+- `ROADMAP.md` — active priorities and handoff log for ongoing work across agents
 
-**Windows:**
-- **Guppy GUI:** Double-click `bin/launch_guppy.bat`
-- **Merlin (Mentor):** Double-click `bin/launch_merlin.bat`
-- **The Council** (both modes): Double-click `bin/launch_council.bat`
+Other status-heavy markdown files in the repo should be treated as historical notes or deep-dive references, not current release truth.
+Archived historical docs now live under `docs/archive/`, split between `root-history/` and `planning-history/`.
+`CONTRIBUTING.md` stays in the repo root by convention; operational guides like packaging live under `docs/`.
 
-**Terminal:**
-```
-python guppy_ui.py      # GUI mode
-python guppy_agent.py   # Terminal mode (with /web for browser interface)
-python merlin_ui.py     # Merlin's study (spawned by Council)
-```
+**Project Focus**: Guppy is a **butler/personal assistant**, not a sales tool. Priority is fast response (<3s), accurate first-time routing, and seamless voice integration for daily use.
+
+## Current State
+
+### Implemented
+
+- Desktop UI surfaces: `guppy_ui.py`, `merlin_ui.py`, `council_ui.py`
+- Local + Claude routing: `guppy_core.py`, `inference_router.py`
+- FastAPI remote surface: `guppy_api.py`, `guppy_api_auth.py`
+- Web client alpha: `web/index.html`, `web/turnstile.js`
+- API smoke testing: `tests/smoke_api.py`
+- Hub/status surface and runtime logging: `guppy_hub.py`, `runtime/hub.log`
+- Persistent memory and semantic memory: `guppy_memory.py`, `guppy_semantic_memory.py`
+- Voice pipeline with wake-word support path: `guppy_voice.py`
+- Revenue dashboard route plus CRM/VoIP scaffolding: `guppy_api.py`, `crm_voip_integrations.py`
+
+### Partial / Needs Hardening
+
+- **Inference latency**: Ollama bottleneck (30s timeout potential) blocks responsive butler experience. Smart dispatcher (Haiku-first) in progress to replace with <3s predictable response.
+- **Merlin utilization**: Built but rarely used. Smart routing (Phase 3) will auto-dispatch teaching/explanation tasks to Merlin instead of requiring manual selection.
+- **Remote production path**: auth, tunnel, and external validation are not fully closed out. Unblocked by Phase 1 (latency improvement makes remote feel snappy).
+- `/status` performance: readiness is present, but context gathering is still a likely hotspot. Will be addressed in Phase 5-6.
+- **Foundation visibility**: UIs bypass inference router instead of calling it. Phase 6 will make router the single path and add structured logging/metrics.
+- Packaging and release checks: not yet locked into a clean-machine release path (Phase 6 prep).
+- Wake-word and voice quality: implemented, but latency tuning (Phase 4) needed for natural voice feel.
+
+### Not Present
+
+- No iOS client project is currently in the repository
+
+## Capabilities Snapshot
+
+- Desktop chat across Guppy, Merlin, and Council surfaces
+- Local model plus Claude-backed routing
+- Push-to-talk, spoken replies, interruption-aware voice handling, and wake-word path
+- FastAPI remote chat, voice route, websocket streaming, and readiness endpoints
+- Persistent memory, semantic memory, and daemon-backed context awareness
+- CRM-lite and VoIP scaffolding with revenue dashboard support
+
+## Focused References
+
+Keep these as separate docs because they still serve as active operational references rather than status clutter:
+
+- `docs/API.md` — endpoint and integration reference
+- `docs/VOICE.md` — voice behavior, troubleshooting, and device notes
+- `docs/TROUBLESHOOTING.md` — quick operational recovery steps
+- `docs/PACKAGING.md` — build and release packaging guide
+
+The old broad capability catalog has been archived to `docs/archive/reference-history/FEATURES.md` because its active summary now lives here in `README.md`.
 
 ## Architecture
 
 ### Entry Points
-- **`guppy_ui.py`** – PySide6 GUI with push-to-talk voice, dark theme, AI orb indicator
-- **`guppy_agent.py`** – Terminal REPL with Claude or Ollama backend, multiline input
-- **`merlin_ui.py`** – Spellcaster interface with tool execution and ripple effects
-- **`council_ui.py`** – Dual-window orchestrator (Guppy + Merlin conversation)
+
+- `guppy_ui.py` — main desktop UI
+- `guppy_agent.py` — terminal / CLI surface
+- `merlin_ui.py` — Merlin desktop UI
+- `council_ui.py` — dual-agent UI
+- `guppy_api.py` — remote API server
+- `guppy_hub.py` — launcher / status hub
 
 ### Core Modules
-- **`guppy_core.py`** – Shared system prompts, tool definitions, backend logic
-- **`merlin_core.py`** – Spell toolkit (torrent search, research, task management, file ops)
-- **`guppy_voice.py`** – Push-to-talk (sounddevice + Google Speech Recognition), Windows TTS
-- **`guppy_memory.py`** – SQLite session persistence for chat history
 
-### Models
-- **`Modelfile`** – Ollama config for Guppy local model (butler personality)
-- **`Modelfile_Merlin`** – Ollama config for Merlin (Socratic tutor)
+- `guppy_core.py` — routing, tools, model behavior, shared runtime glue
+- `merlin_core.py` — Merlin spell aliases and persona-specific behavior
+- `guppy_voice.py` — TTS, STT, wake-word, interruption control
+- `guppy_daemon.py` — reminders, window awareness, background services
+- `guppy_memory.py` — persistent storage and dashboard data
+- `guppy_semantic_memory.py` — semantic memory backend layer
+- `crm_voip_integrations.py` — external business-system stubs and readiness helpers
 
-### Tests
-- **`tests/test_ptt.py`** – Voice capture & transcription verification
+## Quick Start
 
-## Features
+### Install
 
-### Guppy (Butler Mode)
-- **Modes:** Claude (online w/ vision) or local Ollama model
-- **Voice:** Push-to-talk recording, Google Speech Transcription, Windows TTS
-- **Tools:** PC control (screenshot, mouse, keyboard), email drafting, Gmail, Kindle, reports
-- **Memory:** Optional session-based chat persistence
+1. Create or activate the project virtual environment.
+2. Install dependencies:
 
-### Merlin (Mentor Mode)
-- **Personality:** Socratic questioning, dry wit, archaic phrasing
-- **Spells:** Web research, torrent search/management, file I/O, task/notes, terminal commands
-- **Backend:** Ollama local model (`merlin`)
-
-### The Council
-- Simultaneous dual-window chat between Guppy and Merlin
-- Each with independent backends and tool sets
-- Rich visual feedback (orbs, ripple effects, state indicators)
-
-## Configuration
-
-### Environment Variables
-```
-ANTHROPIC_API_KEY          # Claude API key (optional for Guppy GUI)
-UTORRENT_HOST              # uTorrent WebUI host (localhost)
-UTORRENT_PORT              # uTorrent WebUI port (8080)
-UTORRENT_USER              # uTorrent WebUI user (admin)
-UTORRENT_PASS              # uTorrent WebUI password
-PLEX_URL                   # Plex media server URL
-PLEX_TOKEN                 # Plex auth token
-VPN_CLIENT                 # VPN client type (not yet implemented)
+```powershell
+python -m pip install -r requirements.txt
 ```
 
-### Ollama Setup
-1. Install Ollama from ollama.ai
-2. Pull local personas:
-   ```
-   ollama pull guppy
-   ollama pull merlin
-   ```
-3. Load custom models:
-   ```
-   ollama create guppy -f models/Modelfile
-   ollama create merlin -f models/Modelfile_Merlin
-   ```
-4. Serve on localhost:11434 (Ollama default)
+3. Optional but common environment setup:
 
-## Dependencies
-
-| Package | Purpose |
-|---------|---------|
-| PySide6 | GUI framework |
-| requests | HTTP client |
-| beautifulsoup4 | Web scraping |
-| anthropic | Claude API |
-| sounddevice | Audio input |
-| soundfile | WAV file I/O |
-| SpeechRecognition | Speech-to-text (Google) |
-| pyttsx3 | Text-to-speech (Windows native) |
-| keyboard | Global hotkey detection (planned) |
-| open-webui | Browser-based Ollama UI |
-
-## Project Structure
-
-```
-Guppy/
-├── README.md                    # This file
-├── requirements.txt             # Python dependencies
-├── guppy_ui.py                 # Guppy GUI entry point
-├── guppy_agent.py              # Guppy terminal REPL
-├── merlin_ui.py                # Merlin UI entry point
-├── council_ui.py               # Dual-window orchestrator
-├── guppy_core.py               # Shared backend logic
-├── merlin_core.py              # Merlin spell definitions
-├── guppy_voice.py              # Push-to-talk system
-├── guppy_memory.py             # Session persistence
-├── media_tools.py              # Media/torrent helpers
-├── debug_console.py            # Debugging utilities
-│
-├── bin/
-│   ├── launch_guppy.bat        # Windows launcher (Guppy)
-│   ├── launch_merlin.bat       # Windows launcher (Merlin)
-│   └── launch_council.bat      # Windows launcher (Council)
-│
-├── models/
-│   ├── Modelfile               # Ollama config (Guppy)
-│   └── Modelfile_Merlin        # Ollama config (Merlin)
-│
-├── tests/
-│   └── test_ptt.py             # Voice system test
-│
-├── docs/
-│   ├── FEATURES.md             # Feature deep-dives
-│   ├── VOICE.md                # Voice setup guide
-│   ├── API.md                  # Tool API reference
-│   └── TROUBLESHOOTING.md      # Common issues
-│
-├── data/
-│   ├── guppy_memory.db         # SQLite session cache
-│   └── webui_data/             # Open WebUI runtime
-│
-└── .venv/                      # Python virtual environment
+```powershell
+[System.Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "your-key", "User")
 ```
 
-## Voices & Personalities
+### Local Model Setup
 
-### Guppy
-- **Persona:** British butler, dry wit, TARS-level directness
-- **TTS Voice:** en-GB-RyanNeural (approx. Tim Curry)
-- **Orb Color (Idle):** Deep indigo
-- **Orb Color (Thinking):** Amber
-- **Sign-off:** 🎩
+1. Install Ollama.
+2. Create the local persona models:
 
-### Merlin
-- **Persona:** Ancient wizard, Socratic mentor, archaically witty
-- **TTS Voice:** en-GB-ThomasNeural or en-IE-ConnorNeural
-- **Orb Color (Idle):** Deep indigo
-- **Orb Color (Thinking):** Amber
-- **Sign-off:** ✦
+```powershell
+ollama create guppy -f models/Modelfile
+ollama create merlin -f models/Modelfile_Merlin
+```
 
-## Troubleshooting
+3. Ensure Ollama is serving on `http://127.0.0.1:11434`.
 
-### No Sound in PTT
-- Verify microphone in Windows Sound settings
-- Run `tests/test_ptt.py` to diagnose
-- Ensure sounddevice, soundfile, SpeechRecognition are installed
+### Run
 
-### Claude Mode Not Activating
-- Check `ANTHROPIC_API_KEY` is set (use PowerShell `$env:ANTHROPIC_API_KEY`)
-- Verify internet connection
-- Check API key validity at console startup (watch for "Claude mode" message)
+```powershell
+python guppy_ui.py
+python guppy_agent.py
+python merlin_ui.py
+python council_ui.py
+python guppy_api.py
+python guppy_hub.py
+```
 
-### Ollama Connection Failed
-- Ensure Ollama is running: `ollama serve` in terminal
-- Verify localhost:11434 is reachable: `curl http://localhost:11434/api/tags`
-- Pull local personas: `ollama pull guppy` and `ollama pull merlin`
+VS Code tasks in this workspace also cover the main launch flows.
 
-### Voice Transcription Errors
-- "Could not understand audio" → Speak more clearly or reduce background noise
-- Network timeout → Google Speech Recognition requires internet
-- Device error → Check microphone selection in `guppy_voice.py` VoiceConfig
+## Verification
 
-## Development
+### Useful Checks
 
-### Adding a New Tool
-1. Define in `guppy_core.py` (TOOLS list)
-2. Implement in `guppy_core.py` (run_tool function)
-3. For Merlin, add alias in `merlin_core.py` (SPELL_MAP)
+```powershell
+python tests/test_ptt.py
+python tests/smoke_api.py
+```
 
-### Extending the UI
-- `guppy_ui.py` uses PySide6 and custom gradients/animations
-- Orb state machine: "idle", "thinking", "listening", "speaking"
-- Chat bubbles auto-scroll to latest message
+### Runtime Truth Sources
 
-### Custom Prompts
-- Edit `SYSTEM` prompt in `guppy_core.py` or `MERLIN_SYSTEM` in `merlin_core.py`
-- Rebuild Ollama models: `ollama create guppy -f models/Modelfile`
+- API behavior and readiness: `guppy_api.py`
+- Auth behavior: `guppy_api_auth.py`
+- Routing behavior: `inference_router.py`
+- Tool surface: `guppy_core.py`
+- Current active work and handoff notes: `ROADMAP.md`
 
-## License
+## API Surface
 
-Personal project. Modify as needed.
+The remote/API layer already exists and should be treated as alpha, not planned work.
 
-## Credits
+- Base URL: `http://127.0.0.1:8080`
+- Auth: `POST /auth/verify`
+- Health and readiness: `GET /status`, `GET /startup/check`, `GET /logs/recent`
+- Chat: `POST /chat`, `POST /chat/voice`, `WebSocket /ws`
+- Business reporting: `GET /revenue/dashboard`
 
-- **Ollama** – Local LLM engine (ollama.ai)
-- **Anthropic** – Claude API (anthropic.com)
-- **PySide6** – Cross-platform GUI framework
-- **Google Speech Recognition** – STT service
+The safest validation path is:
 
----
+```powershell
+python tests/smoke_api.py
+```
 
-**Master Ryan's Digital Assistant Suite** ✦🎩
+Treat external auth, tunnel, and websocket validation as the release gate for remote use.
+
+## Voice Summary
+
+The voice stack supports push-to-talk, spoken responses, interruption on user typing, and a wake-word path.
+
+- Input path: PTT via `guppy_voice.py`
+- Primary transcription path: Google STT
+- Additional backend support exists for local/fallback paths already wired into the project
+- TTS: Kokoro when available, otherwise Windows SAPI fallback
+- Wake-word path: implemented, still needs tuning and real-use validation
+
+Useful voice checks:
+
+```powershell
+python tests/test_ptt.py
+python -c "import sounddevice as sd; import json; print(json.dumps(sd.query_devices(), indent=2))"
+```
+
+If voice behavior drifts, treat `guppy_voice.py` plus `ROADMAP.md` as the current truth, and `docs/VOICE.md` as a deeper reference.
+
+## Troubleshooting Quick Hits
+
+- Cloudflare tunnel cert issues: run the Cloudflare login flow again via `bin/cloudflare_terminal.ps1 -Action login`
+- API auth failures: verify `GUPPY_JWT_SECRET` and `TURNSTILE_SECRET`, or use `GUPPY_DEV_MODE=1` only for local development
+- Voice transcription 400s: test with clear spoken audio and confirm the machine has working STT dependencies
+- Ollama failures: verify `ollama serve` is running and confirm models with `ollama list`
+- UI slowness: inspect `runtime/agent_performance.jsonl` and run `python runtime/review_agent_performance.py`
+
+Use `docs/TROUBLESHOOTING.md` when the quick summary is not enough.
+
+## Packaging Summary
+
+- Primary packaging doc: `docs/PACKAGING.md`
+- Quick build path: `build_executable.bat`
+- Current packaging goal: pass a clean-machine validation flow before treating builds as release-ready
+- Packaging remains a hardening item, not a closed release system
+
+Use `docs/PACKAGING.md` for full build, installer, signing, and distribution details.
+
+## Active Priorities
+
+1. Finish remote hardening across API, websocket, auth, and tunnel flows.
+2. Reduce `/status` overhead around enhanced context gathering.
+3. Convert CRM-lite scaffolding into at least one complete business workflow.
+4. Add release-grade startup checks and packaging validation.
+5. Tune wake-word and voice defaults for real daily use.
+
+## Working Style For Multi-Agent Sessions
+
+When multiple agents are touching the repo in parallel:
+
+- Use `README.md` for the stable project picture.
+- Use `ROADMAP.md` for active priorities, open questions, and handoff notes.
+- Add short dated notes to the handoff log instead of creating another status markdown file.
+- Treat older handoff, planning, or completion docs as archive material unless they are being deliberately refreshed; archived docs live under `docs/archive/`.

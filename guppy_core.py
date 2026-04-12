@@ -228,7 +228,7 @@ MEMORY BEHAVIOUR — follow these rules without being asked:
 
 Available tools: execute_command, read_file, write_file, list_directory, open_application,
 screenshot, mouse_move, mouse_click, keyboard_type, keyboard_shortcut, get_screen_info,
-open_gmail, draft_email, create_call_report, create_order_note, open_kindle, search_web,
+open_gmail, draft_email, create_call_report, create_order_note, open_kindle, search_web, fetch_url, get_news,
 remember, recall, forget, add_task, get_tasks, complete_task, save_contact, get_contacts,
 semantic_remember, semantic_recall,
 add_pipeline_item, update_pipeline_item, log_pipeline_activity, get_pipeline_items, get_revenue_dashboard,
@@ -341,6 +341,39 @@ TOOLS = [
                 "detail": {"type": "boolean", "description": "If true, request a more detailed answer (uses more tokens). Default false."},
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "fetch_url",
+        "description": (
+            "Fetch the text content of any URL and return it so you can read it. "
+            "Use to read news articles, documentation pages, RSS feeds, or any webpage. "
+            "Returns up to 4000 characters of cleaned plain text. "
+            "Prefer this over search_web when you need actual article content, not just a summary."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url":    {"type": "string", "description": "Full URL to fetch (must include https://)."},
+                "max_chars": {"type": "integer", "description": "Max characters to return. Default 4000."},
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "get_news",
+        "description": (
+            "Get current news headlines with titles, sources, and links. "
+            "Uses Google News RSS — no API key required, always returns real current stories. "
+            "Use for 'what's in the news', 'top stories', or topic-specific news like 'tech news' or 'sports headlines'. "
+            "Returns 8-10 real headlines with clickable links."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string", "description": "News topic or search query. Leave empty for top headlines."},
+                "count": {"type": "integer", "description": "Number of headlines to return. Default 8, max 15."},
+            },
         },
     },
     {
@@ -1425,6 +1458,60 @@ def _exec_tool(name: str, inp: dict):
             else:
                 webbrowser.open(f"https://www.google.com/search?q={urllib.parse.quote(query)}")
                 return f"Opened Google search for: {query}  (set PERPLEXITY_API_KEY for AI answers)"
+
+        elif name == "fetch_url":
+            import urllib.request as _ureq, html as _html, re as _re
+            url = inp.get("url", "").strip()
+            max_chars = int(inp.get("max_chars") or 4000)
+            if not url.startswith("http"):
+                return "Error: URL must start with http:// or https://"
+            try:
+                req = _ureq.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; GuppyBot/1.0)"})
+                with _ureq.urlopen(req, timeout=15) as r:
+                    raw = r.read().decode("utf-8", errors="replace")
+                # Strip scripts, styles, and tags; collapse whitespace
+                raw = _re.sub(r"<(script|style)[^>]*>.*?</(script|style)>", " ", raw, flags=_re.S | _re.I)
+                raw = _re.sub(r"<[^>]+>", " ", raw)
+                text = _html.unescape(raw)
+                text = _re.sub(r"[ \t]+", " ", text)
+                text = _re.sub(r"\n{3,}", "\n\n", text).strip()
+                if len(text) > max_chars:
+                    text = text[:max_chars] + f"\n\n[truncated — {len(text)} chars total]"
+                return text or "Page fetched but no text content extracted."
+            except Exception as e:
+                return f"Error fetching {url}: {e}"
+
+        elif name == "get_news":
+            import urllib.request as _ureq, xml.etree.ElementTree as _ET
+            topic = (inp.get("topic") or "").strip()
+            count = min(int(inp.get("count") or 8), 15)
+            try:
+                if topic:
+                    q = urllib.parse.quote(topic)
+                    rss_url = f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
+                else:
+                    rss_url = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
+                req = _ureq.Request(rss_url, headers={"User-Agent": "Mozilla/5.0 (compatible; GuppyBot/1.0)"})
+                with _ureq.urlopen(req, timeout=12) as r:
+                    xml_data = r.read()
+                root = _ET.fromstring(xml_data)
+                items = root.findall(".//item")[:count]
+                if not items:
+                    return "No news items found."
+                lines = [f"{'Top headlines' if not topic else topic + ' news'} — {len(items)} stories:\n"]
+                for i, item in enumerate(items, 1):
+                    title   = (item.findtext("title") or "").strip()
+                    link    = (item.findtext("link") or "").strip()
+                    source  = (item.findtext("source") or "").strip()
+                    pubdate = (item.findtext("pubDate") or "")[:22].strip()
+                    # Clean Google News redirect URLs when possible
+                    lines.append(f"{i}. {title}")
+                    if source:
+                        lines.append(f"   Source: {source}  |  {pubdate}")
+                    lines.append(f"   {link}")
+                return "\n".join(lines)
+            except Exception as e:
+                return f"Error fetching news: {e}"
 
         elif name == "get_weather":
             location = inp.get("location", "") or os.environ.get("WEATHER_LOCATION", "")

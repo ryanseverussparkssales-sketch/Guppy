@@ -71,4 +71,4 @@ provider-specific clients are implemented.
 - Integration requests are recorded in `runtime/integration_events.jsonl` for auditing and future replay.
 
 ### Planning board
-- Full plan and activation board: `docs/FOUNDATION_BOARD.md`
+- Full plan and activation board: `docs/archive/planning-history/FOUNDATION_BOARD.md`

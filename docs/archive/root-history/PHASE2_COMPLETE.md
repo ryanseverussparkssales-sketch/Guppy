@@ -1,5 +1,7 @@
 # 🎩 GUPPY: Phase 2 - PTT Stability & Window Awareness
 
+> Historical note: this file is retained as milestone archive context. Current living docs are `README.md` and `ROADMAP.md`.
+
 **Status:** ✅ **COMPLETE & VALIDATED**
 
 ---

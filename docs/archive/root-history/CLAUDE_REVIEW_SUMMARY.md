@@ -1,4 +1,7 @@
 # Claude AI Work Review — Guppy Project
+
+> Historical note: this file is retained as session archive context. Current living docs are `README.md` and `ROADMAP.md`.
+
 **Date:** April 11, 2026  
 **Status:** In-Progress Enhancement
 

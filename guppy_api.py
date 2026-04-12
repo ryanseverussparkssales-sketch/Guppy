@@ -102,6 +102,15 @@ except ImportError as e:
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+
+try:
+    from inference_router import get_router
+    INFERENCE_ROUTER_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Inference router not available: {e}")
+    INFERENCE_ROUTER_AVAILABLE = False
+
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -123,8 +132,8 @@ PORT = 8080
 CHAT_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_CHAT_TIMEOUT_SECONDS", "120"))
 VOICE_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_VOICE_TIMEOUT_SECONDS", "180"))
 SLOW_REQUEST_MS = int(os.environ.get("GUPPY_SLOW_REQUEST_MS", "1500"))
-STATUS_CACHE_TTL_SECONDS = float(os.environ.get("GUPPY_STATUS_CACHE_TTL_SECONDS", "1.0"))
-STARTUP_CHECK_TTL_SECONDS = float(os.environ.get("GUPPY_STARTUP_CHECK_TTL_SECONDS", "20.0"))
+STATUS_CACHE_TTL_SECONDS = float(os.environ.get("GUPPY_STATUS_CACHE_TTL_SECONDS", "120.0"))
+STARTUP_CHECK_TTL_SECONDS = float(os.environ.get("GUPPY_STARTUP_CHECK_TTL_SECONDS", "60.0"))
 
 _default_origins = [
     "http://localhost:8080",
@@ -146,6 +155,30 @@ _startup_check_cache = {
     "expires_at": 0.0,
     "payload": None,
 }
+
+# Detect voice backends once at module load so /status never pays import probe cost
+def _detect_voice_backends() -> tuple[str, str, list[str]]:
+    tts, stt, details = "sapi", "none", []
+    try:
+        from kokoro import KPipeline as _KP  # noqa: F401
+        tts = "kokoro"
+        details.append("kokoro import ok")
+    except Exception:
+        details.append("kokoro unavailable -> sapi fallback")
+    try:
+        from faster_whisper import WhisperModel as _WM  # noqa: F401
+        stt = "whisper"
+        details.append("faster-whisper import ok")
+    except Exception:
+        try:
+            import speech_recognition as _sr  # noqa: F401
+            stt = "google"
+            details.append("speech_recognition import ok")
+        except Exception:
+            details.append("no transcription backend available")
+    return tts, stt, details
+
+_VOICE_TTS_BACKEND, _VOICE_STT_BACKEND, _VOICE_BACKEND_DETAILS = _detect_voice_backends()
 
 _api_metrics_lock = threading.Lock()
 _api_metrics = {
@@ -280,9 +313,6 @@ def _startup_readiness_snapshot() -> dict:
 
 # ── Authentication ─────────────────────────────────────────────────────────────
 
-# Import security from auth module
-from guppy_api_auth import security
-
 # Remove duplicate JWT functions - now imported from auth module
 
 # ── FastAPI App ───────────────────────────────────────────────────────────────
@@ -415,6 +445,43 @@ def _extract_text_from_anthropic_blocks(blocks) -> str:
     return "\n".join(parts).strip()
 
 
+def _call_unified_inference(user_text: str, system_prompt: str) -> str:
+    """
+    NEW: Unified inference using intelligent router.
+    Priority: local (guppy) -> haiku -> sonnet
+    Automatically falls back if local model is unavailable.
+    
+    This is now the PRIMARY inference method.
+    """
+    if not GUPPY_CORE_AVAILABLE:
+        raise RuntimeError("Guppy core not available.")
+    
+    if not INFERENCE_ROUTER_AVAILABLE:
+        # Fallback to Claude if router unavailable
+        logger.warning("Router unavailable, falling back to Claude")
+        return _call_claude_with_tools(user_text, system_prompt)
+    
+    router = get_router()
+    
+    try:
+        # Try unified inference (local first, then cloud)
+        response, source, metadata = router.query(
+            system_prompt=system_prompt,
+            user_text=user_text,
+            tools=core.TOOLS,
+            prefer_local=True  # Prefer local model
+        )
+        
+        logger.info(f"Inference completed via {source}. Tokens: {metadata.get('usage', {}).get('output_tokens', '?')}")
+        return response
+    
+    except Exception as e:
+        logger.error(f"Unified inference failed: {e}. Escalating to Claude Sonnet.")
+        # Final fallback to Claude
+        return _call_claude_with_tools(user_text, system_prompt)
+
+
+
 def _call_claude_with_tools(user_text: str, system_prompt: str) -> str:
     if not ANTHROPIC_AVAILABLE:
         raise RuntimeError("Anthropic SDK is not installed.")
@@ -482,7 +549,8 @@ def _call_ollama_with_tools(user_text: str, system_prompt: str) -> str:
             "messages": all_msgs,
             "tools": ollama_tools,
             "stream": False,
-            "options": {"temperature": 0.8, "top_p": 0.95, "top_k": 64},
+            "keep_alive": "10m",
+            "options": {"temperature": 0.8, "top_p": 0.95, "top_k": 40, "num_predict": 512},
         }).encode()
         req = urllib.request.Request(
             "http://localhost:11434/api/chat",
@@ -592,40 +660,18 @@ async def get_status(user_id: str = Depends(require_rate_limit)):
             daemon = get_daemon_manager()
             context = daemon.window_watcher.get_enhanced_context() if daemon else {}
 
-        voice_tts = "none"
-        voice_stt = "none"
+        voice_tts = _VOICE_TTS_BACKEND if GUPPY_VOICE_AVAILABLE else "none"
+        voice_stt = _VOICE_STT_BACKEND if GUPPY_VOICE_AVAILABLE else "none"
         voice_status = {
             "available": GUPPY_VOICE_AVAILABLE,
-            "tts_backend": "none",
-            "stt_backend": "none",
-            "details": [],
+            "tts_backend": voice_tts,
+            "stt_backend": voice_stt,
+            "details": _VOICE_BACKEND_DETAILS if GUPPY_VOICE_AVAILABLE else [],
         }
-        if GUPPY_VOICE_AVAILABLE:
-            try:
-                from kokoro import KPipeline as _KP  # noqa: F401
-                voice_tts = "kokoro"
-                voice_status["details"].append("kokoro import ok")
-            except Exception:
-                voice_tts = "sapi"
-                voice_status["details"].append("kokoro unavailable -> sapi fallback")
-            try:
-                from faster_whisper import WhisperModel as _WM  # noqa: F401
-                voice_stt = "whisper"
-                voice_status["details"].append("faster-whisper import ok")
-            except Exception:
-                try:
-                    import speech_recognition as _sr  # noqa: F401
-                    voice_stt = "google"
-                    voice_status["details"].append("speech_recognition import ok")
-                except Exception:
-                    voice_stt = "none"
-                    voice_status["details"].append("no transcription backend available")
-        voice_status["tts_backend"] = voice_tts
-        voice_status["stt_backend"] = voice_stt
 
         payload = {
             "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "context": context,
             "memory_available": GUPPY_MEMORY_AVAILABLE,
             "voice_available": GUPPY_VOICE_AVAILABLE,
@@ -633,7 +679,7 @@ async def get_status(user_id: str = Depends(require_rate_limit)):
             "voice_stt_backend": voice_stt,
             "voice_status": voice_status,
             "daemon_available": GUPPY_DAEMON_AVAILABLE,
-            "startup_readiness": _startup_readiness_snapshot(),
+            "startup_readiness": await asyncio.to_thread(_startup_readiness_snapshot),
         }
         _status_cache["payload"] = payload
         _status_cache["expires_at"] = now + STATUS_CACHE_TTL_SECONDS
@@ -648,7 +694,7 @@ async def get_status(user_id: str = Depends(require_rate_limit)):
 async def startup_check(user_id: str = Depends(require_rate_limit)):
     """Explicit startup readiness checks for UI diagnostics and launch gating."""
     del user_id
-    snapshot = _startup_readiness_snapshot()
+    snapshot = await asyncio.to_thread(_startup_readiness_snapshot)
     log_session_event("api", "startup_check", level="info", overall=snapshot.get("overall", "unknown"))
     return snapshot
 
@@ -699,21 +745,13 @@ async def chat(request: ChatRequest, user_id: str = Depends(require_rate_limit))
             query_context=request.message
         )
 
-        # Route to appropriate LLM
-        if request.use_claude:
-            response = await _run_blocking(
-                _call_claude_with_tools,
-                request.message,
-                system_prompt,
-                timeout_seconds=CHAT_TIMEOUT_SECONDS,
-            )
-        else:
-            response = await _run_blocking(
-                _call_ollama_with_tools,
-                request.message,
-                system_prompt,
-                timeout_seconds=CHAT_TIMEOUT_SECONDS,
-            )
+        # Route through priority chain: local (guppy) -> haiku -> sonnet
+        response = await _run_blocking(
+            _call_unified_inference,
+            request.message,
+            system_prompt,
+            timeout_seconds=CHAT_TIMEOUT_SECONDS,
+        )
 
         # Store in memory if session provided and memory is available
         if request.session_id and GUPPY_MEMORY_AVAILABLE:
@@ -790,20 +828,13 @@ async def chat_voice(
                 query_context=transcription
             )
 
-            if use_claude:
-                response = await _run_blocking(
-                    _call_claude_with_tools,
-                    transcription,
-                    system_prompt,
-                    timeout_seconds=CHAT_TIMEOUT_SECONDS,
-                )
-            else:
-                response = await _run_blocking(
-                    _call_ollama_with_tools,
-                    transcription,
-                    system_prompt,
-                    timeout_seconds=CHAT_TIMEOUT_SECONDS,
-                )
+            # Route through priority chain: local (guppy) -> haiku -> sonnet
+            response = await _run_blocking(
+                _call_unified_inference,
+                transcription,
+                system_prompt,
+                timeout_seconds=CHAT_TIMEOUT_SECONDS,
+            )
 
             # Store in memory if session provided and memory is available
             if session_id and GUPPY_MEMORY_AVAILABLE:
@@ -852,7 +883,7 @@ async def websocket_endpoint(websocket: WebSocket):
         # Verify token
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            _user_id = payload.get("sub")
+            _ = payload.get("sub")  # validated but not used beyond auth check
         except JWTError:
             await websocket.send_json({"error": "Invalid token"})
             await websocket.close()
@@ -881,25 +912,15 @@ async def websocket_endpoint(websocket: WebSocket):
                     query_context=message
                 )
 
-                # Stream response
-                if use_claude:
-                    text = await _run_blocking(
-                        _call_claude_with_tools,
-                        message,
-                        system_prompt,
-                        timeout_seconds=CHAT_TIMEOUT_SECONDS,
-                    )
-                    async for chunk in _stream_chunks(text):
-                        await websocket.send_json({"chunk": chunk})
-                else:
-                    text = await _run_blocking(
-                        _call_ollama_with_tools,
-                        message,
-                        system_prompt,
-                        timeout_seconds=CHAT_TIMEOUT_SECONDS,
-                    )
-                    async for chunk in _stream_chunks(text):
-                        await websocket.send_json({"chunk": chunk})
+                # Stream response — route through priority chain: local (guppy) -> haiku -> sonnet
+                text = await _run_blocking(
+                    _call_unified_inference,
+                    message,
+                    system_prompt,
+                    timeout_seconds=CHAT_TIMEOUT_SECONDS,
+                )
+                async for chunk in _stream_chunks(text):
+                    await websocket.send_json({"chunk": chunk})
 
                 await websocket.send_json({"done": True})
 

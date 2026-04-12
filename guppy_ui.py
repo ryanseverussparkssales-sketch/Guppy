@@ -188,7 +188,6 @@ class Worker(QThread):
         self.orb.emit("thinking")
         if _HB_OK: _write_act("guppy", "thinking")
         try:
-            self.bubble.emit("Thinking through context and next action", "thinking", "thinking_stream")
             route_mode = self.mode
             route_reason = "manual route"
             route_claude_model = None
@@ -197,9 +196,11 @@ class Worker(QThread):
                 route_mode, route_reason, route_claude_model, route_claude_backup = self._route_auto_mode()
                 if route_mode == "claude":
                     route_tier = "Haiku" if "haiku" in (route_claude_model or "").lower() else "Sonnet"
-                    self.bubble.emit(f"Auto route: Claude {route_tier} ({route_reason})", "thinking", "thinking_stream")
+                    self.bubble.emit(f"routing to Claude {route_tier}  •  {route_reason}", "thinking", "thinking_stream")
                 else:
-                    self.bubble.emit(f"Auto route: local model ({route_reason})", "thinking", "thinking_stream")
+                    self.bubble.emit(f"routing to local model  •  {route_reason}", "thinking", "thinking_stream")
+            else:
+                self.bubble.emit(f"mode: {self.mode}", "thinking", "thinking_stream")
             if route_mode == "claude":
                 self._claude(route_claude_model, route_claude_backup)
             else:
@@ -374,6 +375,7 @@ class Worker(QThread):
         if not ok:
             self.bubble.emit(err, "error", "error")
             return
+        self._perf["model_used"] = self.model  # set once; stays even if no tool calls
         if _SAVE and self.save:
             _save_msg(self.session_id, "user", self.text)
         current_system = get_startup_system(session_id=self.session_id, query_context=self.text)
@@ -384,13 +386,14 @@ class Worker(QThread):
         )
         ollama_tools = to_ollama_tools(TOOLS)
         while True:
-            self.bubble.emit("Thinking through local model pass", "thinking", "thinking_stream")
+            self.bubble.emit("Generating response", "thinking", "thinking_stream")
             data = json.dumps({
                 "model": self.model,
                 "messages": all_msgs,
                 "tools": ollama_tools,
-                "stream": False,
-                "options": {"temperature": 1.0, "top_p": 0.95, "top_k": 64},
+                "stream": True,
+                "keep_alive": "10m",
+                "options": {"temperature": 1.0, "top_p": 0.95, "top_k": 40, "num_predict": 512},
             }).encode()
             req = urllib.request.Request(
                 "http://localhost:11434/api/chat",
@@ -398,13 +401,28 @@ class Worker(QThread):
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
+            full_content = ""
+            final_message = {}
             with urllib.request.urlopen(req, timeout=120) as r:
-                resp = json.loads(r.read())
-            msg = resp["message"]
+                for raw_line in r:
+                    line = raw_line.decode("utf-8").strip()
+                    if not line:
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    delta = chunk.get("message", {}).get("content") or ""
+                    if delta:
+                        full_content += delta
+                        self.bubble.emit(delta, "guppy", "guppy_stream")
+                    if chunk.get("done"):
+                        final_message = chunk.get("message", {})
+                        break
+            msg = {**final_message, "content": full_content}
             all_msgs.append(msg)
-            reply_text = (msg.get("content") or "").strip()
+            reply_text = full_content.strip()
             if reply_text:
-                self.bubble.emit(reply_text, "guppy", "guppy")
                 self._perf["response_chars"] += len(reply_text)
                 if _SAVE and self.save:
                     _save_msg(self.session_id, "assistant", reply_text)
@@ -424,7 +442,9 @@ class Worker(QThread):
                 if SHOW_BACKEND_DETAILS:
                     self.bubble.emit(f"⚙️  {name}({preview})", "tool", "tool")
                 else:
-                    self.bubble.emit(f"Thinking step using {name}", "thinking", "thinking_stream")
+                    key_arg = next(iter(args.values()), "") if args else ""
+                    hint = f" → {str(key_arg)[:40]}" if key_arg else ""
+                    self.bubble.emit(f"{name}{hint}", "thinking", "thinking_stream")
                 result = run_tool(name, args)
                 result_str = (
                     f"Screenshot saved: {result['path']} ({result['size']})"
@@ -436,7 +456,10 @@ class Worker(QThread):
                 if SHOW_BACKEND_DETAILS:
                     self.bubble.emit(f"   ↳ {result_str[:200]}" + ("..." if len(result_str) > 200 else ""), "tool_result", "tool_result")
                 elif result_str.lower().startswith("error"):
-                    self.bubble.emit("Thinking step failed and recovered", "thinking", "thinking_stream")
+                    self.bubble.emit(f"{name} failed, retrying", "thinking", "thinking_stream")
+                else:
+                    snippet = result_str[:60].replace("\n", " ")
+                    self.bubble.emit(f"got result: {snippet}{'…' if len(result_str) > 60 else ''}", "thinking", "thinking_stream")
                 all_msgs.append({"role": "tool", "content": result_str})
                 
                 # -- Memory optimization: trim conversation history during tool loops --
@@ -588,6 +611,7 @@ class GuppyWindow(QMainWindow):
         self._session_id = _dt.now().strftime("%Y%m%d_%H%M%S") if _SAVE else ""
         self._system     = get_startup_system()
         self._think_label = None
+        self._stream_label = None
         self._last_persona_reply = ""
         self._tts_generation = 0
         self._status_lbl = None
@@ -1200,30 +1224,36 @@ class GuppyWindow(QMainWindow):
             self._bubble("Voice subsystem unavailable; PTT cannot start.", "error", "error")
             self._log_event("ptt_unavailable", level="error")
             return
+        if getattr(self, "_ptt_in_progress", False):
+            return  # ignore duplicate press while already recording
         st = self._voice_status_payload()
         if str(st.get("stt_backend", "none")) == "none":
             self._bubble("No speech-to-text backend detected; PTT unavailable.", "error", "error")
             self._log_event("ptt_no_stt_backend", level="error")
             return
+        self._ptt_in_progress = True
         self.orb.set_state("listening")
         self._log_event("ptt_started")
         def _listen():
-            res = self._voice.listen_once()
-            if res is None:
-                QTimer.singleShot(0, lambda: self.orb.set_state("idle"))
-                return
-            if res.get("error"):
-                QTimer.singleShot(0, lambda: self._bubble(
-                    f"Voice error: {res.get('error')}", "error", "error",
-                ))
-                self._log_event("ptt_error", level="error", error=str(res.get("error") or ""))
-                QTimer.singleShot(0, lambda: self.orb.set_state("idle"))
-            elif res.get("text"):
-                self._log_event("ptt_transcribed", chars=len(str(res.get("text") or "")))
-                QTimer.singleShot(0, lambda: self._send_text(res.get("text")))
-            else:
-                self._log_event("ptt_no_text", level="warning")
-                QTimer.singleShot(0, lambda: self.orb.set_state("idle"))
+            try:
+                res = self._voice.listen_once()
+                if res is None:
+                    QTimer.singleShot(0, lambda: self.orb.set_state("idle"))
+                    return
+                if res.get("error"):
+                    QTimer.singleShot(0, lambda: self._bubble(
+                        f"Voice error: {res.get('error')}", "error", "error",
+                    ))
+                    self._log_event("ptt_error", level="error", error=str(res.get("error") or ""))
+                    QTimer.singleShot(0, lambda: self.orb.set_state("idle"))
+                elif res.get("text"):
+                    self._log_event("ptt_transcribed", chars=len(str(res.get("text") or "")))
+                    QTimer.singleShot(0, lambda: self._send_text(res.get("text")))
+                else:
+                    self._log_event("ptt_no_text", level="warning")
+                    QTimer.singleShot(0, lambda: self.orb.set_state("idle"))
+            finally:
+                self._ptt_in_progress = False
         threading.Thread(target=_listen, daemon=True).start()
 
     def _ptt_stop(self):
@@ -1332,6 +1362,7 @@ class GuppyWindow(QMainWindow):
         self._log_event("request_started", mode=self._mode, input_chars=len(text))
         self._stop_voice_output()
         self._think_label = None
+        self._stream_label = None
         self._last_persona_reply = ""
         self._tts_generation += 1
         self._bubble(text, "user", "user")
@@ -1352,7 +1383,17 @@ class GuppyWindow(QMainWindow):
         self._worker = w
 
     def _on_done(self):
-        self._log_event("request_finished", mode=self._mode, response_chars=len((self._last_persona_reply or "").strip()))
+        perf = getattr(self._worker, "_perf", {}) if self._worker else {}
+        self._log_event(
+            "request_finished",
+            mode=self._mode,
+            response_chars=len((self._last_persona_reply or "").strip()),
+            elapsed_ms=perf.get("latency_ms"),
+            backend=perf.get("route"),
+            model=perf.get("model_used") or None,
+            fallback=perf.get("fallback_used") or None,
+            status=perf.get("status") or None,
+        )
         if not self._voice:
             return
         text = (self._last_persona_reply or "").strip()
@@ -1399,6 +1440,24 @@ class GuppyWindow(QMainWindow):
                 ))
                 return
             style = "thinking"
+
+        _init_stream = False
+        if style == "guppy_stream":
+            if self._stream_label is not None:
+                current_text = getattr(self._stream_label, "_text", self._stream_label.text())
+                accumulated = current_text + text
+                self._stream_label._text = accumulated
+                self._stream_label.setText(accumulated)
+                self._last_persona_reply = accumulated
+                self._think_label = None
+                QTimer.singleShot(20, lambda: self.scroll.verticalScrollBar().setValue(
+                    self.scroll.verticalScrollBar().maximum()
+                ))
+                return
+            # First chunk — fall through to create a guppy bubble
+            style = "guppy"
+            sender = "guppy"
+            _init_stream = True
 
         frame = QWidget()
         frame._sender = sender
@@ -1452,11 +1511,14 @@ class GuppyWindow(QMainWindow):
             f"QLabel{{background:{bg};border-left:3px solid {border};"
             f"border-radius:{r}px;padding:9px 14px;color:{T.text};{italic}}}"
         )
+        msg._text = text
         fl.addWidget(msg)
 
         if sender == "guppy" and style == "guppy":
             self._last_persona_reply = text
             self._think_label = None
+            if _init_stream:
+                self._stream_label = msg
         elif style == "thinking":
             self._think_label = msg
         elif style == "error":
