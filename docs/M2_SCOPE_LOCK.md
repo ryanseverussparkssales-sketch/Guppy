@@ -6,7 +6,7 @@
 
 ---
 
-## 6 M2 Epics (LOCKED)
+## 8 M2 Workstreams (LOCKED)
 
 | Epic | Owner | Priority | Start | End | Acceptance |
 |---|---|---|---|---|---|
@@ -21,7 +21,7 @@
 
 **All must complete by Sep 30, 2026 exit gate.**
 
-(Note: Epics 0 and 0.1 are foundation layers that enable the others. See M2_ENGINEERING_PLAN.md for detailed breakdown.)
+(Note: Workstreams 0 and 0.1 are foundation layers that enable the others. See M2_ENGINEERING_PLAN.md for detailed breakdown.)
 
 ---
 
@@ -35,7 +35,7 @@
 
 2. **Multi-instance support works reliably**
    - Create instance → switch → activate → receive messages → all chat persisted per instance
-   - Background instances can receive queries via API
+  - Background instances can receive bounded synchronous queries via API
    - If switching drops chat history or breaks background instance, architecture failed
 
 3. **Agent Tools vs App Management clearly separated**
@@ -49,12 +49,17 @@
    - Run recovery action → status appears in chat or diagnostics
    - If silent or "pending...", UX failed
 
-5. **Instance-Aware Tool Permissions**
-   - Instance can be marked "write-prohibited" → write tools disabled in Agent Tools tab
-   - Instances can be marked "read-only" → tool list reflects this
-   - If user sees "write_file" tool when instance disallows writes, permissions failed
+5. **Instance-Aware Tool Permissions Are Enforced Server-Side**
+  - Instance can be marked "write-prohibited" → write tools disabled in Agent Tools tab and denied by API/tool runner
+  - Instances can be marked "read-only" → tool list reflects this and denied operations return authorization errors
+  - If a direct tool/API call can bypass restrictions, permissions failed
 
-6. **Off-hours writes are safe by default**
+6. **Instance Logs Have Redaction and Retention Controls**
+  - Raw per-instance logs redact obvious secrets before persistence/export
+  - Retention: 14-day raw log window, 30-day summary/metadata window
+  - Export warns operators that logs may still contain sensitive business context
+
+7. **Off-hours writes are safe by default**
    - Dry-run staging to `runtime/offhours_results/dry_run/`
    - Human approval required before writing
    - Path validation against whitelist (src/, tests/, docs/, config/ only)
@@ -112,13 +117,13 @@
 - **Chat history stored per-instance**
   - Switching instances must restore full chat history
   - No chat pollution between instances
-  - Instance state file: `config/instances.json` OR `runtime/instance_state.json`
+  - Instance definitions live in `config/instances.json`; runtime state lives in `runtime/instance_state.json`
   - Query per instance in API: `GET /instances` → list all
 
 - **Background instances remain responsive**
-  - Endpoint: `POST /instances/{name}/query` → queues message, returns response
-  - No blocking on background instance; async-safe
-  - Response includes token_count, model_used, duration_ms
+  - Endpoint: `POST /instances/{name}/query` → bounded synchronous request in M2.0
+  - At most 1 inter-instance query may be in flight at a time
+  - Response includes token_count, model_used, duration_ms, source_instance, and status (`ok|busy|timeout`)
 
 - **Inter-agent communication is explicit**
   - Instances can call other instances via tool (e.g., `query_instance(name, message)`)
@@ -129,8 +134,13 @@
 - **Agent Tools vs App Management Tools (Strict Boundary)**
   - Agent Tools: run_python, read_file, write_file, query_instance, etc.
   - App Management: warmup, restart-daemon, audit-runtime
-  - Tool list filtered per-instance type (write-prohibited instances see read-only tools only)
+  - Tool list filtered per-instance type and enforced by API/tool runner below the UI
   - Permission schema: `config/tool_permissions.json`
+
+- **Restricted capabilities are enforced server-side**
+  - UI hiding/disablement is convenience only
+  - API and tool runner must validate active instance capability before execution
+  - Authorization failures are logged with reason and surfaced to the transcript/status area
 
 - **Off-hours write budget: max 3 files/run**
   - Hard cap in `tools/idle_agent_worker.py`
@@ -161,9 +171,9 @@
 **Constraint:** Must take 70%+ of window; all other tabs are secondary surfaces
 
 ### Decision 2: Multi-Instance MVP vs Single Instance
-**DECIDED:** Multi-instance from M2.0 (not postpone to M2.2)  
-**Reasoning:** Killer feature; enables inter-agent workflows; enables Builder to run while chatting to another instance; slightly more complex but high value  
-**Revisit in:** M2.2 if feedback signals need for simplification
+**DECIDED:** Bounded multi-instance from M2.0  
+**Reasoning:** Needed for builder/background collaboration, but limited to 2 active instances and 1 in-flight inter-instance query for feasibility  
+**Revisit in:** M2.2 if telemetry shows headroom for broader concurrency
 
 ### Decision 3: Instance Context Switching Location
 **DECIDED:** Quick switcher in Home Tab header + Full manager in Instance Manager tab  
@@ -175,39 +185,48 @@
 - Agent Tools: tools that instances USE  
 - App Management: tools for MANAGING the app itself
 **Reasoning:** Reduces cognitive load; prevents accidental system operations; clearer permission model  
-**Permission Model:** Write-prohibited instances see read-only tools only
+**Permission Model:** Write-prohibited instances see read-only tools only, and server-side execution checks enforce the same boundary
 
-### Decision 5: Drag-drop vs Click-to-Assign for Model Selection
+### Decision 5: Inter-Agent Query Contract
+**DECIDED:** `POST /instances/{name}/query` is bounded synchronous in M2.0  
+**Reasoning:** Clearer UI and lower operational complexity than queue orchestration in the first release  
+**Constraint:** 5s timeout, 1 in-flight cross-instance query max, explicit `busy|timeout` status
+
+### Decision 6: Drag-drop vs Click-to-Assign for Model Selection
 **DECIDED:** Click-to-assign (MVP, simpler)  
 **May revisit in:** M2.2 if UX feedback signals demand
 
-### Decision 6: All voices or just Kokoro + System TTS?
+### Decision 7: All voices or just Kokoro + System TTS?
 **DECIDED:** Kokoro + System (Lock ElevenLabs to M2.2)  
 **Reasoning:** Fewer API keys, less maintenance  
 **Revisit in:** M2.2 after M2.0 stability + user demand signal
 
-### Decision 7: Auto-apply off-hours tasks or always require approval?
+### Decision 8: Auto-apply off-hours tasks or always require approval?
 **DECIDED:** Always require human approval in M2.0 (safe default)  
 **Reasoning:** Safety-first; human review builds confidence  
 **Revisit in:** M2.2 after 20+ successful approved tasks demonstrate reliability
 
 ---
 
-## Blocking Depdencies (Must Exist by Jun 15)
+## Blocking Dependencies (Must Exist by Jun 15)
 
 | Dependency | Current Status | Owner | Due |
 |---|---|---|---|
 | `/status` API endpoint (model health) | ✓ Exists in guppy_api.py | Platform | ✓ Ready |
-| Model routes schema (`config/model_routes.json`) | ✓ Exists + validated | ModelOps | ✓ Ready |
-| Persona config schema (`config/personas.json`) | ✓ Exists + validated | UI | ✓ Ready |
+| Provider/model routes schema (`runtime/provider_registry.json`) | ✓ Exists + validated | ModelOps | ✓ Ready |
+| Persona config schema (`runtime/persona_config.json`) | ✓ Exists + validated | UI | ✓ Ready |
 | Voice bindings schema (`runtime/voice_bindings.json`) | ✓ Exists | Voice | ✓ Ready |
+| Instance definition schema (`config/instances.json`) | Planned for M2.0 foundation | UI/Platform | May 1 |
+| Tool permission schema (`config/tool_permissions.json`) | Planned for M2.0 foundation | Tools | May 1 |
+| Server-side capability enforcement | Planned for M2.0 foundation | Platform | May 15 |
+| Instance log retention/redaction policy | Planned for M2.0 foundation | Platform/Security | May 15 |
 | Kokoro inference working | ✓ Tested at baseline | Runtime | ✓ Ready |
 | Merlin-code model responsive | ✓ Tested | Runtime | ✓ Ready |
 | System TTS fallback working | ✓ Tested on Windows | Voice | ✓ Ready |
 | `apply_patch` tool ready | ✓ In tool_registry + handler | Platform | ✓ Ready |
 | Off-hours worker task queue | ✓ Exists; accepts write tasks | Runtime | ✓ Ready |
 
-**All green. No blocking dependencies remain.**
+**Not all dependencies are green yet. Instance schema, capability enforcement, and log safety controls are required before M2 launch.**
 
 ---
 
@@ -237,7 +256,7 @@ Example:
 
 - Slider events wired to live system prompt preview
 - Preview modal shows how tone affects Merlin prompts
-- Save button persists to config/personas.json
+- Save button persists to runtime/persona_config.json
 - Tests: form instantiation + slider responsive (2 new tests)
 - Status: All 70 tests passing, no lint errors
 ```
@@ -264,7 +283,7 @@ Example:
 ## Handoff to Next Phase (Oct 1)
 
 On Sep 30, document:
-1. **What shipped:** All 6 epics summary
+1. **What shipped:** All 8 M2 workstreams summary
 2. **What deferred:** Any M2.2 features + justification
 3. **What broke:** Any technical debt or regressions
 4. **What next:** Immediate M3 priorities

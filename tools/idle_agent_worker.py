@@ -13,6 +13,9 @@ QUEUE_PATH = RUNTIME / "offhours_task_queue.json"
 RESULTS_PATH = RUNTIME / "offhours_task_results.jsonl"
 STATE_PATH = RUNTIME / "offhours_task_worker_state.json"
 RESULT_DIR = RUNTIME / "offhours_results"
+DRY_RUN_DIR = RESULT_DIR / "dry_run"
+
+WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
 
 IDLE_STATES = {"idle", "ready", "waiting", ""}
 ACTIVE_STATES = {"thinking", "speaking", "listening", "busy", "running"}
@@ -274,19 +277,121 @@ def run_haiku(prompt: str) -> tuple[bool, str, str]:
         return False, "", str(e)
 
 
-def execute_task(task: dict[str, Any], timeout_s: int) -> tuple[bool, str, str]:
+# ── Write-task helpers ────────────────────────────────────────────────────────
+
+_CODE_BLOCK_RE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+
+
+def _extract_code_block(text: str) -> str:
+    """Return content of the first fenced code block, or the full text if none found."""
+    m = _CODE_BLOCK_RE.search(text)
+    return m.group(1).strip() if m else text.strip()
+
+
+def _safe_write_path(rel_path: str, root: Path) -> Path | None:
+    """Return resolved absolute path only if it stays within workspace root."""
+    try:
+        resolved = (root / rel_path).resolve()
+        if resolved.is_relative_to(root.resolve()):
+            return resolved
+    except Exception:
+        pass
+    return None
+
+
+def execute_write_task(
+    task: dict[str, Any],
+    timeout_s: int,
+    dry_run_override: bool = False,
+) -> tuple[bool, str, str, bool]:
+    """Run a write-type task. Returns (ok, output, error, actually_wrote).
+
+    The model is prompted to generate a complete replacement file. The first
+    fenced code block in the output is extracted and written.
+
+    If dry_run is True (or dry_run_override is set), the result is staged to
+    runtime/offhours_results/dry_run/ for human review — the workspace file is
+    NOT modified.
+    """
+    target = str(task.get("target", "")).strip().lower()
+    prompt = str(task.get("prompt", "")).strip()
+    output_file_path = str(task.get("output_file_path", "")).strip()
+    is_dry_run = dry_run_override or bool(task.get("dry_run", True))
+
+    if not prompt:
+        return False, "", "task prompt is empty", False
+    if not output_file_path:
+        return False, "", "write task missing output_file_path", False
+
+    # Run the model
+    if target == "haiku":
+        ok, raw_output, error = run_haiku(prompt)
+    else:
+        model_tag = MODEL_MAP.get(target)
+        if not model_tag:
+            return False, "", f"unsupported target: {target}", False
+        ok, raw_output, error = run_local_model(model_tag, prompt, timeout_s)
+
+    if not ok or not raw_output:
+        return ok, raw_output, error, False
+
+    code = _extract_code_block(raw_output)
+    if not code:
+        return False, raw_output, "no code block found in model output", False
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    if is_dry_run:
+        DRY_RUN_DIR.mkdir(parents=True, exist_ok=True)
+        stem = Path(output_file_path).stem
+        dry_path = DRY_RUN_DIR / f"{stem}_{stamp}.staged"
+        try:
+            dry_path.write_text(code, encoding="utf-8")
+            summary = f"DRY RUN — staged to {dry_path} (review before approving)"
+            return True, f"{summary}\n\n---\n{raw_output}", "", False
+        except Exception as e:
+            return False, raw_output, f"dry-run stage write failed: {e}", False
+    else:
+        safe_path = _safe_write_path(output_file_path, WORKSPACE_ROOT)
+        if safe_path is None:
+            return False, raw_output, f"unsafe output path rejected: {output_file_path}", False
+        try:
+            safe_path.parent.mkdir(parents=True, exist_ok=True)
+            safe_path.write_text(code, encoding="utf-8")
+            return True, f"WROTE {safe_path}\n\n---\n{raw_output}", "", True
+        except Exception as e:
+            return False, raw_output, f"file write failed: {e}", False
+
+
+def execute_task(
+    task: dict[str, Any],
+    timeout_s: int,
+    write_count: int = 0,
+    max_writes: int = 3,
+    dry_run_writes: bool = False,
+) -> tuple[bool, str, str, bool]:
+    """Dispatch to write or prompt executor. Returns (ok, output, error, wrote_file)."""
+    task_type = str(task.get("task_type", "prompt")).strip().lower()
+
+    if task_type == "write":
+        over_budget = write_count >= max_writes
+        return execute_write_task(task, timeout_s, dry_run_override=dry_run_writes or over_budget)
+
+    # Default: prompt-only task (read-only, returns text to file)
     target = str(task.get("target", "")).strip().lower()
     prompt = str(task.get("prompt", "")).strip()
     if not prompt:
-        return False, "", "task prompt is empty"
+        return False, "", "task prompt is empty", False
 
     if target == "haiku":
-        return run_haiku(prompt)
+        ok, out, err = run_haiku(prompt)
+    else:
+        model_tag = MODEL_MAP.get(target)
+        if not model_tag:
+            return False, "", f"unsupported target: {target}", False
+        ok, out, err = run_local_model(model_tag, prompt, timeout_s)
 
-    model_tag = MODEL_MAP.get(target)
-    if not model_tag:
-        return False, "", f"unsupported target: {target}"
-    return run_local_model(model_tag, prompt, timeout_s)
+    return ok, out, err, False
 
 
 def write_task_output(task: dict[str, Any], ok: bool, output: str, error: str) -> str:
@@ -314,17 +419,30 @@ def write_task_output(task: dict[str, Any], ok: bool, output: str, error: str) -
     return str(out_path)
 
 
-def process_one_task(queue_path: Path, results_path: Path, timeout_s: int) -> bool:
+def process_one_task(
+    queue_path: Path,
+    results_path: Path,
+    timeout_s: int,
+    write_count: int = 0,
+    max_writes: int = 3,
+    dry_run_writes: bool = False,
+) -> tuple[bool, bool]:
+    """Process one queued task. Returns (processed, wrote_file)."""
     queue = load_queue(queue_path)
     task = pick_next_task(queue)
     if task is None:
-        return False
+        return False, False
 
     task["status"] = "running"
     task["last_run_utc"] = utc_now()
     save_queue(queue_path, queue)
 
-    ok, output, error = execute_task(task, timeout_s)
+    ok, output, error, wrote = execute_task(
+        task, timeout_s,
+        write_count=write_count,
+        max_writes=max_writes,
+        dry_run_writes=dry_run_writes,
+    )
     error = clean_control_text(error)
     output_file = write_task_output(task, ok, output, error)
 
@@ -349,14 +467,16 @@ def process_one_task(queue_path: Path, results_path: Path, timeout_s: int) -> bo
             "task_id": task.get("id"),
             "title": task.get("title"),
             "target": task.get("target"),
+            "task_type": task.get("task_type", "prompt"),
             "ok": ok,
+            "wrote_file": wrote,
             "status": task.get("status"),
             "retry_count": task.get("retry_count", 0),
             "output_file": output_file,
             "error": error,
         },
     )
-    return True
+    return True, wrote
 
 
 def write_state(state_path: Path, payload: dict[str, Any]) -> None:
@@ -375,6 +495,10 @@ def main() -> int:
     parser.add_argument("--task-timeout", type=int, default=240)
     parser.add_argument("--stale-running-seconds", type=int, default=900)
     parser.add_argument("--max-tasks-per-run", type=int, default=20)
+    parser.add_argument("--max-writes-per-run", type=int, default=3,
+                        help="Max write-type tasks that may actually modify files per run (default 3)")
+    parser.add_argument("--dry-run-writes", action="store_true",
+                        help="Force all write tasks to dry-run mode (stage only, no workspace modification)")
     parser.add_argument("--once", action="store_true", help="Run one check cycle and exit")
     parser.add_argument("--seed-defaults", action="store_true", help="Seed queue with starter tasks")
     parser.add_argument("--add-title", default="")
@@ -404,6 +528,7 @@ def main() -> int:
         return 0
 
     processed = 0
+    writes_this_run = 0
     while True:
         queue = load_queue(queue_path)
         reset_count = recover_stale_running_tasks(queue, int(args.stale_running_seconds))
@@ -416,14 +541,23 @@ def main() -> int:
             "idle": idle,
             "activity_states": states,
             "processed_this_run": processed,
+            "writes_this_run": writes_this_run,
             "stale_running_reset": reset_count,
         }
         write_state(state_path, state_payload)
 
         if idle and processed < int(args.max_tasks_per_run):
-            did = process_one_task(queue_path, results_path, timeout_s=int(args.task_timeout))
+            did, wrote = process_one_task(
+                queue_path, results_path,
+                timeout_s=int(args.task_timeout),
+                write_count=writes_this_run,
+                max_writes=int(args.max_writes_per_run),
+                dry_run_writes=bool(args.dry_run_writes),
+            )
             if did:
                 processed += 1
+            if wrote:
+                writes_this_run += 1
 
         if args.once:
             break

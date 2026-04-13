@@ -30,6 +30,12 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Valid modes for inference routing
+VALID_MODES = ("auto", "claude", "ollama", "local", "code", "teaching", "vault")
+VALID_MODES_DISPLAY = ("AUTO", "CLAUDE", "OLLAMA", "LOCAL", "CODE", "TEACHING", "VAULT")
+LAUNCHER_MODES = ("auto", "claude", "ollama", "local", "code", "teaching")
+LAUNCHER_MODES_DISPLAY = ("AUTO", "CLAUDE", "OLLAMA", "LOCAL", "CODE", "TEACHING")
+
 class InferenceRouter:
     """
     Smart inference routing with automatic fallback.
@@ -72,13 +78,50 @@ class InferenceRouter:
     HAIKU_MODEL = "claude-haiku-4-5-20251001"
     SONNET_MODEL = "claude-sonnet-4-6"
 
-    HAIKU_TIMEOUT_SMART = 3   # fast timeout for smart dispatch (Haiku should be quick)
-    SONNET_TIMEOUT_SMART = 10 # fallback timeout
+    HAIKU_TIMEOUT_SMART = 8   # API cold-start + network can easily hit 2-3 s; 3 was too aggressive
+    SONNET_TIMEOUT_SMART = 20 # Sonnet is slower — give it room
+    
+    @staticmethod
+    def _bool_env(name: str, default: bool = True) -> bool:
+        """Parse boolean environment variable."""
+        val = (os.environ.get(name, "") or "").strip().lower()
+        if val in {"1", "true", "yes", "on"}:
+            return True
+        if val in {"0", "false", "no", "off"}:
+            return False
+        return default
     
     def __init__(self):
         """Initialize the router."""
         self.current_primary = "local"
         self.fallback_chain = ["local", "haiku", "sonnet"]
+
+        # Runtime model overrides for low-compute/night runs.
+        self.low_compute_mode = self._bool_env("GUPPY_LOW_COMPUTE_MODE", False)
+        default_complex_model = self.LOCAL_FAST_MODEL if self.low_compute_mode else self.LOCAL_MODEL
+        default_teach_model = self.LOCAL_CODE_MODEL if self.low_compute_mode else self.LOCAL_TEACH_MODEL
+
+        self.LOCAL_FAST_MODEL = (os.environ.get("GUPPY_LOCAL_FAST_MODEL", self.LOCAL_FAST_MODEL) or self.LOCAL_FAST_MODEL).strip()
+        self.LOCAL_MODEL = (os.environ.get("GUPPY_LOCAL_COMPLEX_MODEL", default_complex_model) or default_complex_model).strip()
+        self.LOCAL_TEACH_MODEL = (os.environ.get("GUPPY_LOCAL_TEACH_MODEL", default_teach_model) or default_teach_model).strip()
+        self.LOCAL_CODE_MODEL = (os.environ.get("GUPPY_LOCAL_CODE_MODEL", self.LOCAL_CODE_MODEL) or self.LOCAL_CODE_MODEL).strip()
+        self.LOCAL_VAULT_MODEL = (os.environ.get("GUPPY_LOCAL_VAULT_MODEL", self.LOCAL_VAULT_MODEL) or self.LOCAL_VAULT_MODEL).strip()
+
+        self.LOCAL_TIER_MAP = {
+            "simple": self.LOCAL_FAST_MODEL,
+            "complex": self.LOCAL_MODEL,
+            "teaching": self.LOCAL_TEACH_MODEL,
+        }
+
+        default_predict = "320" if self.low_compute_mode else "512"
+        try:
+            self.local_num_predict = max(128, int(os.environ.get("GUPPY_LOCAL_NUM_PREDICT", default_predict)))
+        except Exception:
+            self.local_num_predict = int(default_predict)
+        
+        # Anthropic model overrides (consolidate env reads into instance vars)
+        self.haiku_model_override = (os.environ.get("ANTHROPIC_HAIKU_MODEL", "").strip() or self.HAIKU_MODEL)
+        self.sonnet_model_override = (os.environ.get("ANTHROPIC_MODEL", "").strip() or self.SONNET_MODEL)
         
         # Try to import Anthropic
         try:
@@ -90,6 +133,12 @@ class InferenceRouter:
         except ImportError:
             self.anthropic_client = None
             self.anthropic_available = False
+    
+    def _should_use_haiku_boost(self, api_available: bool) -> bool:
+        """Check if haiku boost should be used."""
+        if not api_available:
+            return False
+        return self._bool_env("GUPPY_HAIKU_BOOST", True)
     
     def _classify_task(self, user_text: str, system_prompt: str = "") -> str:
         """Classify task into simple/complex/teaching using semantic + fallback heuristic."""
@@ -257,7 +306,7 @@ class InferenceRouter:
 
         # code — dedicated coder-14B session (merlin-code), optional Haiku boost
         if normalized_mode == "code":
-            haiku_boost = has_api and os.environ.get("GUPPY_HAIKU_BOOST", "1") in {"1", "true", "yes"}
+            haiku_boost = self._should_use_haiku_boost(has_api)
             return {
                 "task_type": task_type,
                 "route": "local_code",
@@ -274,7 +323,7 @@ class InferenceRouter:
 
         # vault — structured media extraction via vault-scraper, optional Haiku enrich pass
         if normalized_mode == "vault":
-            haiku_boost = has_api and os.environ.get("GUPPY_HAIKU_BOOST", "1") in {"1", "true", "yes"}
+            haiku_boost = self._should_use_haiku_boost(has_api)
             return {
                 "task_type": "simple",
                 "route": "local_vault",
@@ -342,8 +391,8 @@ class InferenceRouter:
                     "route_reason": "teaching task, cloud mode via Haiku + Merlin system",
                     "executor": "claude",
                     "system_profile": "merlin",
-                    "model": os.environ.get("ANTHROPIC_HAIKU_MODEL", self.HAIKU_MODEL),
-                    "backup_model": os.environ.get("ANTHROPIC_MODEL", self.SONNET_MODEL),
+                    "model": self.haiku_model_override,
+                    "backup_model": self.sonnet_model_override,
                 }
 
             if voice_triggered or task_type == "simple":
@@ -353,8 +402,8 @@ class InferenceRouter:
                     "route_reason": "voice fast-path" if voice_triggered else "simple task classification",
                     "executor": "claude",
                     "system_profile": "guppy",
-                    "model": os.environ.get("ANTHROPIC_HAIKU_MODEL", self.HAIKU_MODEL),
-                    "backup_model": os.environ.get("ANTHROPIC_MODEL", self.SONNET_MODEL),
+                    "model": self.haiku_model_override,
+                    "backup_model": self.sonnet_model_override,
                 }
 
             return {
@@ -363,8 +412,8 @@ class InferenceRouter:
                 "route_reason": "complex task classification",
                 "executor": "claude",
                 "system_profile": "guppy",
-                "model": os.environ.get("ANTHROPIC_MODEL", self.SONNET_MODEL),
-                "backup_model": os.environ.get("ANTHROPIC_HAIKU_MODEL", self.HAIKU_MODEL),
+                "model": self.sonnet_model_override,
+                "backup_model": self.haiku_model_override,
             }
 
         # auto mode
@@ -376,8 +425,8 @@ class InferenceRouter:
                     "route_reason": "voice-triggered teaching fallback to cloud",
                     "executor": "claude",
                     "system_profile": "merlin",
-                    "model": os.environ.get("ANTHROPIC_HAIKU_MODEL", self.HAIKU_MODEL),
-                    "backup_model": os.environ.get("ANTHROPIC_MODEL", self.SONNET_MODEL),
+                    "model": self.haiku_model_override,
+                    "backup_model": self.sonnet_model_override,
                 }
             return {
                 "task_type": task_type,
@@ -407,8 +456,8 @@ class InferenceRouter:
                 "route_reason": "voice_triggered fast-path" if voice_triggered else "simple task classification",
                 "executor": "claude",
                 "system_profile": "guppy",
-                "model": os.environ.get("ANTHROPIC_HAIKU_MODEL", self.HAIKU_MODEL),
-                "backup_model": os.environ.get("ANTHROPIC_MODEL", self.SONNET_MODEL),
+                "model": self.haiku_model_override,
+                "backup_model": self.sonnet_model_override,
             }
 
         return {
@@ -417,8 +466,8 @@ class InferenceRouter:
             "route_reason": "complex task classification",
             "executor": "claude",
             "system_profile": "guppy",
-            "model": os.environ.get("ANTHROPIC_MODEL", self.SONNET_MODEL),
-            "backup_model": os.environ.get("ANTHROPIC_HAIKU_MODEL", self.HAIKU_MODEL),
+            "model": self.sonnet_model_override,
+            "backup_model": self.haiku_model_override,
         }
     
     def query_smart(
@@ -601,10 +650,7 @@ class InferenceRouter:
         if result is None:
             return None
 
-        boost_enabled = (
-            self.anthropic_available
-            and os.environ.get("GUPPY_HAIKU_BOOST", "1") in {"1", "true", "yes"}
-        )
+        boost_enabled = self.anthropic_available and self._should_use_haiku_boost(self.anthropic_available)
         if boost_enabled:
             boosted = self._haiku_boost(
                 original_query=user_text,
@@ -725,7 +771,12 @@ class InferenceRouter:
                 "messages": all_msgs,
                 "stream": False,
                 "keep_alive": "10m",
-                "options": {"temperature": 0.8, "top_p": 0.95, "top_k": 40, "num_predict": 512},
+                "options": {
+                    "temperature": 0.8,
+                    "top_p": 0.95,
+                    "top_k": 40,
+                    "num_predict": self.local_num_predict,
+                },
             }
             if tools:
                 payload["tools"] = tools

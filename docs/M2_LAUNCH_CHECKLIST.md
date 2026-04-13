@@ -18,16 +18,24 @@
 ### Documentation Gate
 - [ ] ROADMAP.md updated with M2 active status
 - [ ] M2_ENGINEERING_PLAN.md published + reviewed
-- [ ] All 6 epic PRDs finalized (personas, routes, voices, tools, recovery, offhours)
-- [ ] Decision points documented (drag-drop vs click, ElevenLabs defer, approval-required default)
+- [ ] All 8 M2 workstreams finalized (instances, home, personas, routes, voices, agent tools, app management, offhours)
+- [ ] Decision points documented (bounded multi-instance, sync query contract, ElevenLabs defer, approval-required default)
 - [ ] Success metrics defined and baselined
 
 ### Infrastructure Gate
 - [ ] `/status` API endpoint returns model health
-- [ ] Model routes schema in `config/model_routes.json`
-- [ ] Persona config schema in `config/personas.json`
+- [ ] Provider/model routes schema in `runtime/provider_registry.json`
+- [ ] Persona config schema in `runtime/persona_config.json`
 - [ ] Voice bindings schema in `runtime/voice_bindings.json`
+- [ ] Instance definition schema in `config/instances.json`
+- [ ] Tool permission schema in `config/tool_permissions.json`
 - [ ] Off-hours task queue empty (ready to accept M2 tasks)
+
+### Security Gate
+- [ ] Per-instance tool permissions enforced server-side
+- [ ] Inter-instance query endpoint returns `ok|busy|timeout` status and respects 5s timeout
+- [ ] Instance logs redact obvious secrets and enforce retention policy
+- [ ] Raw log export displays warning and is operator-only
 
 ### Dependency Gate
 - [ ] Kokoro inference stable at baseline
@@ -48,34 +56,41 @@
 Use this template to track progress against 8-week ramp:
 
 ### Week of Apr 15 (Week 1/8)
+- [ ] Instance Manager: config/runtime schema finalized
+- [ ] Home Tab: quick-switcher layout sketched
 - [ ] Persona Builder: form mockup in Qt (no handlers yet)
-- [ ] Model Routes: data structure finalized
+- [ ] Model Routes: provider registry binding finalized
 - [ ] Voice: engine abstraction design (which engines supported)
-- [ ] Tools: placeholder audit completed (list of dead controls)
+- [ ] Agent Tools/App Mgmt: split existing controls into separate surfaces
 - [ ] Off-Hours: write task templates outlined
 - **Goal:** Designs approved, dev environment ready
 
 ### Week of Apr 22 (Week 2/8)
+- [ ] Instance Manager: create/delete/switch flow working
+- [ ] Home Tab: active instance indicator + restore history working
 - [ ] Persona Builder: slider events wired to preview
 - [ ] Model Routes: dropdown selectors working
 - [ ] Voice: Kokoro API abstraction implemented
-- [ ] Tools: card template design ready
+- [ ] Agent Tools: card template + permission schema ready
 - [ ] Off-Hours: first template (test stub generator) coded
-- **Goal:** All epics have working skeleton
+- **Goal:** All workstreams have working skeleton
 
 ### Week of Apr 29 (Week 3/8)
+- [ ] Inter-instance query API: bounded sync contract implemented
 - [ ] Persona Builder: save flow working, JSON persisted
 - [ ] Model Routes: fallback chain editing working
 - [ ] Voice: system TTS fallback integrated
-- [ ] Tools: old buttons removed, new cards in place
+- [ ] Agent Tools/App Mgmt: old mixed controls removed, new surfaces in place
 - [ ] Off-Hours: dry-run staging working
 - **Goal:** Feature completeness for Epic 1 & 4
 
 ### Week of May 6 (Week 4/8)
+- [ ] Tool runner/API capability enforcement tested end-to-end
 - [ ] Persona Builder: v0.1 complete + tested
 - [ ] Model Routes: health badges working (polling `/status`)
 - [ ] Voice: preview playback tested
-- [ ] Tools: all live tools have descriptions + dry-run
+- [ ] Agent Tools: all live tools have descriptions + dry-run
+- [ ] App Mgmt: warmup/restart/audit cards working
 - [ ] Off-Hours: approval workflow tested end-to-end
 - **Goal:** Epics 1, 4, 6 done; Epics 2, 3 in progress
 
@@ -109,7 +124,7 @@ Use this template to track progress against 8-week ramp:
 
 ### Week of Jun 10 (Launch Prep)
 - [ ] Final verification gate run (see below)
-- [ ] Team sign-off on all 6 epics
+- [ ] Team sign-off on all 8 workstreams
 - [ ] Stakeholder approval to proceed
 - [ ] Build tagged and archived
 
@@ -122,14 +137,16 @@ Use this template to track progress against 8-week ramp:
 - [ ] Lint clean: `pylint` or equivalent
 - [ ] No console errors on first launch
 - [ ] All tabs render without errors
-- [ ] Settings/Models/Voices/Advanced tabs all load
+- [ ] Home/Instance Manager/Agent Tools/App Management/Settings/Models/Voices tabs all load
 
 ### Smoke Test
 - [ ] INIT button live on all agent cards → open embedded chat
+- [ ] Switch active instance from Home header → transcript swaps cleanly
+- [ ] Query background instance → `ok|busy|timeout` surfaced correctly
 - [ ] Select model in Models tab → route updates
 - [ ] Adjust persona slider in Settings → preview updates
 - [ ] Play voice sample from Voices tab → audio plays
-- [ ] Click "Warmup" in Advanced tab → status appears in chat
+- [ ] Click "Warmup" in App Management tab → status appears in chat
 
 ### Operational Readiness
 - [ ] Off-hours worker ready (queue empty, tasks runnable)
@@ -146,11 +163,13 @@ Use this template to track progress against 8-week ramp:
 ## Success Criteria (End of M2 — Sep 30)
 
 ### Feature Completion
+- [ ] Epic 0: Instance Manager + multi-instance shipped with bounded limits
+- [ ] Epic 0.1: Home tab primary interface shipped
 - [ ] Epic 1: Persona Builder v1 live (non-technical UX confirmed)
 - [ ] Epic 2: Model Assignment + Routes visible (100% coverage)
 - [ ] Epic 3: Voice assignment working (per-persona override tested)
-- [ ] Epic 4: Tools tab clean (no placeholders visible)
-- [ ] Epic 5: Recovery actions discoverable + guarded
+- [ ] Epic 4: Agent Tools tab clean and capability-aware
+- [ ] Epic 5: App Management actions discoverable + guarded
 - [ ] Epic 6: Off-hours at scale (5–10 write tasks/week)
 
 ### Code Quality

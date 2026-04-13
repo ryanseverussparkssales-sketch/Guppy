@@ -110,11 +110,11 @@ def _silent_wav(duration_s: float = 0.5, sample_rate: int = 22050) -> bytes:
 
 def _mint_token(secret: str, user: str = "smoke_test") -> str:
     """Mint a short-lived JWT locally using GUPPY_JWT_SECRET."""
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     payload = {
         "sub": user,
-        "iat": datetime.utcnow(),
-        "exp": datetime.utcnow() + timedelta(hours=1),
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
     }
     return jose_jwt.encode(payload, secret, algorithm="HS256")
 

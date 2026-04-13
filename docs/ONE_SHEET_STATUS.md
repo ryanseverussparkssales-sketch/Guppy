@@ -1,6 +1,6 @@
 # Guppy Honest One-Sheet
 
-Date: April 12, 2026
+Date: April 12-13, 2026
 Audience: product owner + engineering handoff
 
 ## Executive Readout
@@ -8,23 +8,34 @@ Audience: product owner + engineering handoff
 Guppy has strong infrastructure and operating tooling, but is not pilot-release ready at this moment.
 Current gate status is NO_GO due to local model fleet ping timeout, not due to missing core scaffolding.
 
+A full reliability pass was completed April 12-13, 2026 covering: launcher bootstrap, IPC atomicity,
+/repair endpoint auth, guppy_core package split, and UI layout overhaul. These remove the primary
+structural debt and are not reflected in the NO_GO — the gate failure is model-fleet only.
+
 ## How Far Are We (Honest Estimate)
 
-1. Infrastructure and observability: 85% complete.
-2. Day-to-day reliability hardening: 75% complete.
+1. Infrastructure and observability: 90% complete.
+2. Day-to-day reliability hardening: 85% complete.
 3. Product UX builder completeness (persona/model/voice): 55% complete.
 4. AI context quality (shared memory, grounded recall consistency): 50% complete.
 5. Pilot release readiness overall: 65% complete (blocked by current NO_GO gate instability).
 
 ## Timeline (Honest)
 
-### Completed in current cycle (through 2026-04-12)
+### Completed in current cycle (through 2026-04-13)
 
 1. Unified launcher is the primary app surface and is functionally usable.
 2. Runtime hardening is in place: schema audits, logging health checks, telemetry mirror, resource envelope checks.
 3. Off-hours worker was hardened (stale-running recovery, cleaner output, autostart fallback path).
 4. Triage stack improved: nightly summary, regression state, decision canary, and fault-injection canary.
 5. Seed vault storage rollout is now concrete: USB snapshots now, NAS path ready next.
+6. Launcher auto-bootstrap: guppy_api.py and guppy_hub.py now start automatically on launcher open.
+7. IPC atomicity: all .cmd and .status file writes are now atomic (temp+rename) via utils/safe_io.py.
+8. /repair endpoint secured: per-process token written to runtime/repair_token.txt, verified on every call.
+9. guppy_core refactored: 2,511-line monolith split into guppy_core/ package with clean submodules.
+10. PowerShell window flashing eliminated: CREATE_NO_WINDOW applied to all subprocess calls.
+11. UI layout overhaul: chat input + integrated status strip, agent cards in status panel, dropdowns at bottom.
+12. JSONL rotation implemented: session_events.jsonl and launcher_events.jsonl now cap at 20MB.
 
 ### Next 7 days (critical stabilization)
 
@@ -94,7 +105,8 @@ Implementation status (now):
 ### API, Security, and Supervision
 
 1. Strong: strict-mode auth and supervisor ownership model are in place.
-2. Partial: broader provider ecosystem keys are optional and mostly unconfigured by design.
+2. Strong: /repair endpoint now requires per-process token auth (runtime/repair_token.txt).
+3. Partial: broader provider ecosystem keys are optional and mostly unconfigured by design.
 
 ### Quality and Testing
 

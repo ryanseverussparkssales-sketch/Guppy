@@ -21,16 +21,37 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 import logging
 import urllib.request
 import subprocess
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Suppress console windows on Windows for all subprocess calls
+_WIN_NO_WINDOW = (
+    {"creationflags": subprocess.CREATE_NO_WINDOW}
+    if sys.platform == "win32" else {}
+)
+_WIN_DETACHED = (
+    {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW}
+    if sys.platform == "win32" else {}
+)
+
 logger = logging.getLogger(__name__)
+
+try:
+    from utils.safe_io import write_json_atomic as _write_json_atomic
+except ImportError:
+    def _write_json_atomic(path, data):  # type: ignore[misc]
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=True), encoding="utf-8")
+        tmp.replace(path)
 
 _RUNTIME = Path(__file__).parent.parent / "runtime"
 _PATTERN_LOG = _RUNTIME / "hub_patterns.jsonl"
@@ -105,7 +126,7 @@ class HubOperator:
     ) -> None:
         """Append one event to hub_patterns.jsonl. Used by hub UI + daemon."""
         entry = {
-            "ts": datetime.utcnow().isoformat(),
+            "ts": datetime.now(timezone.utc).isoformat(),
             "agent": agent,
             "action": action,
             "reason": reason,
@@ -189,14 +210,11 @@ class HubOperator:
         """
         cmd_path = _RUNTIME / f"{agent_id}.cmd"
         try:
-            cmd_path.write_text(
-                json.dumps({
-                    "cmd": cmd,
-                    "payload": payload or {},
-                    "ts": datetime.utcnow().isoformat(),
-                }),
-                encoding="utf-8",
-            )
+            _write_json_atomic(cmd_path, {
+                "cmd": cmd,
+                "payload": payload or {},
+                "ts": datetime.now(timezone.utc).isoformat(),
+            })
             self.record_event(agent_id, f"cmd_{cmd}", "hub_sent", "pending")
             return True
         except Exception as e:
@@ -273,6 +291,7 @@ class HubOperator:
                 capture_output=True,
                 text=True,
                 timeout=3,
+                **_WIN_NO_WINDOW,
             )
             if "cloudflared.exe" in out.stdout:
                 return {"ok": True, "status": "running"}
@@ -437,6 +456,7 @@ class HubOperator:
                 capture_output=True,
                 text=True,
                 timeout=timeout_sec,
+                **_WIN_NO_WINDOW,
             )
             return self._normalize_result(cp, timeout_sec)
         except subprocess.TimeoutExpired:
@@ -478,18 +498,18 @@ class HubOperator:
             if svc == "api":
                 py = _ROOT / ".venv" / "Scripts" / "python.exe"
                 python_exe = str(py) if py.exists() else "python"
-                cmd = ["cmd", "/c", "start", "", python_exe, "guppy_api.py"]
-                launch = subprocess.Popen(cmd, cwd=str(_ROOT), shell=False)
+                cmd = [python_exe, "guppy_api.py"]
+                launch = subprocess.Popen(cmd, cwd=str(_ROOT), **_WIN_DETACHED)
             elif svc == "cloudflared":
                 bat = _ROOT / "bin" / "start_tunnel.bat"
                 if bat.exists():
-                    cmd = ["cmd", "/c", "start", "", str(bat)]
+                    cmd = [str(bat)]
                 else:
-                    cmd = ["cmd", "/c", "start", "", "cloudflared", "tunnel", "run"]
-                launch = subprocess.Popen(cmd, cwd=str(_ROOT), shell=False)
+                    cmd = ["cloudflared", "tunnel", "run"]
+                launch = subprocess.Popen(cmd, cwd=str(_ROOT), **_WIN_DETACHED)
             elif svc == "ollama":
-                cmd = ["cmd", "/c", "start", "", "ollama", "serve"]
-                launch = subprocess.Popen(cmd, cwd=str(_ROOT), shell=False)
+                cmd = ["ollama", "serve"]
+                launch = subprocess.Popen(cmd, cwd=str(_ROOT), **_WIN_DETACHED)
             else:
                 return {"ok": False, "status": "unsupported"}
 

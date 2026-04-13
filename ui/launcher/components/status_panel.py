@@ -5,12 +5,13 @@ event log, and sparkline.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QProgressBar,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -129,7 +130,93 @@ class _GaugeBar(QWidget):
         )
 
 
+class _AgentMiniCard(QFrame):
+    """Compact agent status row for the right panel."""
+
+    def __init__(self, agent_id: str, name: str, accent: str, on_init=None, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._agent_id = agent_id
+        self._on_init = on_init
+        self._accent = accent
+        self.setObjectName("agent_mini")
+        self.setStyleSheet(
+            f"QFrame#agent_mini {{"
+            f"  background-color: {T.BG};"
+            f"  border-left: 2px solid {accent};"
+            f"  border-top: none; border-right: none; border-bottom: none;"
+            f"}}"
+        )
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(8, 6, 8, 6)
+        row.setSpacing(6)
+
+        self._dot = QLabel("●")
+        self._dot.setStyleSheet(
+            f"color: {T.DIM}; font-size: {T.FS_TINY}pt; background: transparent;"
+        )
+        row.addWidget(self._dot)
+
+        name_lbl = QLabel(name)
+        name_lbl.setStyleSheet(
+            f"color: {accent}; font-family: '{T.FF_MONO}';"
+            f"font-size: {T.FS_TINY}pt; font-weight: bold; letter-spacing: 1px;"
+            f"background: transparent;"
+        )
+        row.addWidget(name_lbl)
+
+        row.addStretch()
+
+        self._state_lbl = QLabel("OFFLINE")
+        self._state_lbl.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
+            f"font-size: {T.FS_TINY}pt; background: transparent;"
+        )
+        row.addWidget(self._state_lbl)
+
+        self._init_btn = QPushButton("INIT")
+        self._init_btn.setFixedHeight(18)
+        self._init_btn.setEnabled(True)
+        self._init_btn.setToolTip(f"Start {name} if currently offline.")
+        self._init_btn.setStyleSheet(
+            f"QPushButton {{ color: {T.ERROR}; border: 1px solid {T.ERROR};"
+            f"  font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; padding: 0 6px;"
+            f"  background: transparent; }}"
+        )
+        self._init_btn.clicked.connect(self._emit_init)
+        row.addWidget(self._init_btn)
+
+    def _emit_init(self) -> None:
+        if callable(self._on_init):
+            self._on_init(self._agent_id)
+
+    def update_status(self, online: bool, last_seen: str = "—", load_pct: float | None = None) -> None:
+        if online:
+            self._dot.setStyleSheet(
+                f"color: {T.GREEN}; font-size: {T.FS_TINY}pt; background: transparent;"
+            )
+            load_str = f"{load_pct:.0f}%" if load_pct is not None else "READY"
+            self._state_lbl.setText(load_str)
+            self._state_lbl.setStyleSheet(
+                f"color: {T.GREEN}; font-family: '{T.FF_MONO}';"
+                f"font-size: {T.FS_TINY}pt; background: transparent;"
+            )
+            self._init_btn.setVisible(False)
+        else:
+            self._dot.setStyleSheet(
+                f"color: {T.ERROR}; font-size: {T.FS_TINY}pt; background: transparent;"
+            )
+            self._state_lbl.setText("OFFLINE")
+            self._state_lbl.setStyleSheet(
+                f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
+                f"font-size: {T.FS_TINY}pt; background: transparent;"
+            )
+            self._init_btn.setVisible(True)
+
+
 class StatusPanel(QFrame):
+    agent_init_requested = Signal(str)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setFixedWidth(T.STATUS_W)
@@ -260,6 +347,32 @@ class StatusPanel(QFrame):
         slog_layout.addWidget(self._recovery_lbl)
         outer.addWidget(syslog_hdr)
 
+        # ── Agent mini-cards (below syslog) ───────────────────────────────────
+        outer.addSpacing(8)
+        agents_hdr = QLabel("AGENTS")
+        agents_hdr.setStyleSheet(
+            f"color: {T.PRIMARY}; font-family: '{T.FF_HEAD}';"
+            f"font-size: {T.FS_SMALL}pt; font-weight: bold; letter-spacing: 4px;"
+        )
+        outer.addWidget(agents_hdr)
+        adiv = QFrame()
+        adiv.setFixedHeight(1)
+        adiv.setStyleSheet(f"background: {T.BORDER};")
+        outer.addWidget(adiv)
+        outer.addSpacing(4)
+
+        self._ac_guppy = _AgentMiniCard(
+            "guppy", "GUPPY", T.PRIMARY, self.agent_init_requested.emit, self
+        )
+        self._ac_merlin = _AgentMiniCard(
+            "merlin", "MERLIN", T.SECONDARY, self.agent_init_requested.emit, self
+        )
+        self._ac_council = _AgentMiniCard(
+            "council", "COUNCIL", T.TERTIARY, self.agent_init_requested.emit, self
+        )
+        for card in [self._ac_guppy, self._ac_merlin, self._ac_council]:
+            outer.addWidget(card)
+
     # ── Public API ────────────────────────────────────────────────────────────
     def update_status(self, data: dict) -> None:
         def _set_kv(widget: QWidget, value: str, val_color: str = T.TEXT) -> None:
@@ -321,6 +434,14 @@ class StatusPanel(QFrame):
         existing = self._syslog_lbl.text()
         lines = existing.split("\n") + [f"> {line}"]
         self._syslog_lbl.setText("\n".join(lines[-4:]))
+
+    def update_agent_status(self, agent: str, online: bool,
+                            last_seen: str = "—", load_pct: float | None = None) -> None:
+        card = {"guppy": self._ac_guppy,
+                "merlin": self._ac_merlin,
+                "council": self._ac_council}.get(agent.lower())
+        if card:
+            card.update_status(online, last_seen, load_pct)
 
     def set_recovery_outcome(self, action: str, ok: bool, summary: str) -> None:
         state = "OK" if ok else "ERROR"

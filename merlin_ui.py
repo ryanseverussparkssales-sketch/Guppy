@@ -1247,21 +1247,39 @@ class MerlinWindow(QMainWindow):
 
 # ── Application bootstrap ──────────────────────────────────────────────────────
 
-app = QApplication(sys.argv)
-app.setStyle("Fusion")
+def _legacy_surface_enabled() -> bool:
+    return os.environ.get("GUPPY_ENABLE_LEGACY_SURFACES", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
-pal = QPalette()
-pal.setColor(QPalette.ColorRole.Window,          QColor(BG))
-pal.setColor(QPalette.ColorRole.WindowText,      QColor(TEXT))
-pal.setColor(QPalette.ColorRole.Base,            QColor(BG3))
-pal.setColor(QPalette.ColorRole.Text,            QColor(TEXT))
-pal.setColor(QPalette.ColorRole.Button,          QColor(BG2))
-pal.setColor(QPalette.ColorRole.ButtonText,      QColor(TEXT))
-pal.setColor(QPalette.ColorRole.Highlight,       QColor(PURPLE))
-pal.setColor(QPalette.ColorRole.HighlightedText, QColor(BG))
-app.setPalette(pal)
 
-window = MerlinWindow()
-window.show()
-sys.exit(app.exec())
+def main() -> int:
+    if not _legacy_surface_enabled():
+        print("Legacy surface disabled. Use guppy_launcher.py or set GUPPY_ENABLE_LEGACY_SURFACES=1")
+        return 2
+
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+
+    pal = QPalette()
+    pal.setColor(QPalette.ColorRole.Window,          QColor(BG))
+    pal.setColor(QPalette.ColorRole.WindowText,      QColor(TEXT))
+    pal.setColor(QPalette.ColorRole.Base,            QColor(BG3))
+    pal.setColor(QPalette.ColorRole.Text,            QColor(TEXT))
+    pal.setColor(QPalette.ColorRole.Button,          QColor(BG2))
+    pal.setColor(QPalette.ColorRole.ButtonText,      QColor(TEXT))
+    pal.setColor(QPalette.ColorRole.Highlight,       QColor(PURPLE))
+    pal.setColor(QPalette.ColorRole.HighlightedText, QColor(BG))
+    app.setPalette(pal)
+
+    window = MerlinWindow()
+    window.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 

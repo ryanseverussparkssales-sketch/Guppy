@@ -1,11 +1,9 @@
 """
 ui/launcher/views/assistant_view.py
-ASSISTANT tab — mode/persona/profile dropdowns, agent cards, chat input.
+ASSISTANT tab — chat input at bottom, mode/persona/profile dropdowns below it.
+Agent cards have moved to the StatusPanel (right column).
 """
 from __future__ import annotations
-
-import json
-from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -16,15 +14,12 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
+from inference_router import LAUNCHER_MODES_DISPLAY
 from .. import tokens as T
-from ..components.agent_card import AgentCard
-
-_RUNTIME = Path(__file__).resolve().parent.parent.parent.parent / "runtime"
 
 
 def _lbl(text: str, color: str = T.DIM, size: int = T.FS_TINY, bold: bool = False) -> QLabel:
@@ -51,30 +46,10 @@ class AssistantView(QWidget):
         super().__init__(parent)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 24, 28, 0)
+        root.setContentsMargins(28, 24, 28, 16)
         root.setSpacing(0)
 
-        # ── Controls row ──────────────────────────────────────────────────────
-        ctrl = QHBoxLayout()
-        ctrl.setSpacing(16)
-
-        for header, opts, cb_attr in [
-            ("MODE",            ["AUTO", "CLAUDE", "OLLAMA", "TEACHING"],       "_cb_mode"),
-            ("PERSONA",         ["GUPPY", "MERLIN", "COUNCIL"],                 "_cb_persona"),
-            ("RUNTIME PROFILE", ["LIGHT", "STANDARD", "POWER"],                 "_cb_profile"),
-        ]:
-            col = QVBoxLayout()
-            col.setSpacing(4)
-            col.addWidget(_lbl(header))
-            cb = _dropdown(opts)
-            setattr(self, cb_attr, cb)
-            col.addWidget(cb)
-            ctrl.addLayout(col)
-
-        root.addLayout(ctrl)
-        root.addSpacing(10)
-
-        # ── Recommendation chip ───────────────────────────────────────────────
+        # ── Recommendation chip (top anchor) ─────────────────────────────────
         self._rec_chip = QLabel("RECOMMENDED: STANDARD")
         self._rec_chip.setStyleSheet(
             f"color: {T.PRIMARY};"
@@ -85,33 +60,38 @@ class AssistantView(QWidget):
         )
         self._rec_chip.setFixedHeight(24)
         root.addWidget(self._rec_chip)
-        root.addSpacing(16)
 
-        # ── Agent cards (scrollable) ──────────────────────────────────────────
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        # ── Chat transcript (above input) ─────────────────────────────────────
+        root.addSpacing(8)
+        transcript = QFrame()
+        transcript.setObjectName("chat_transcript")
+        transcript.setStyleSheet(
+            f"QFrame#chat_transcript {{"
+            f"  background-color: {T.BG};"
+            f"  border: 1px solid {T.BORDER};"
+            f"}}"
+        )
+        tcol = QVBoxLayout(transcript)
+        tcol.setContentsMargins(8, 8, 8, 8)
+        tcol.setSpacing(0)
 
-        cards_widget = QWidget()
-        cards_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        cards_layout = QVBoxLayout(cards_widget)
-        cards_layout.setContentsMargins(0, 0, 0, 0)
-        cards_layout.setSpacing(10)
+        self._chat_scroll = QScrollArea()
+        self._chat_scroll.setWidgetResizable(True)
+        self._chat_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._chat_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
-        self._card_guppy   = AgentCard("GUPPY",   accent=T.PRIMARY)
-        self._card_merlin  = AgentCard("MERLIN",  accent=T.SECONDARY)
-        self._card_council = AgentCard("COUNCIL", accent=T.TERTIARY)
+        self._chat_content = QWidget()
+        self._chat_content.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._chat_layout = QVBoxLayout(self._chat_content)
+        self._chat_layout.setContentsMargins(0, 0, 0, 0)
+        self._chat_layout.setSpacing(8)
+        self._chat_layout.addStretch()
 
-        for c in [self._card_guppy, self._card_merlin, self._card_council]:
-            cards_layout.addWidget(c)
-        cards_layout.addStretch()
+        self._chat_scroll.setWidget(self._chat_content)
+        tcol.addWidget(self._chat_scroll)
+        root.addWidget(transcript, stretch=1)
 
-        scroll.setWidget(cards_widget)
-        root.addWidget(scroll, stretch=1)
-
-        # ── Chat input ────────────────────────────────────────────────────────
-        root.addSpacing(10)
+        # ── Chat input + integrated status strip ──────────────────────────────
         input_frame = QFrame()
         input_frame.setObjectName("chat_bar")
         input_frame.setStyleSheet(
@@ -120,8 +100,13 @@ class AssistantView(QWidget):
             f"  border: 1px solid {T.BORDER};"
             f"}}"
         )
-        bar = QHBoxLayout(input_frame)
-        bar.setContentsMargins(12, 0, 8, 0)
+        frame_col = QVBoxLayout(input_frame)
+        frame_col.setContentsMargins(0, 0, 0, 0)
+        frame_col.setSpacing(0)
+
+        # input row
+        bar = QHBoxLayout()
+        bar.setContentsMargins(12, 6, 8, 6)
         bar.setSpacing(8)
 
         cmd_icon = QLabel("⊞")
@@ -156,12 +141,18 @@ class AssistantView(QWidget):
         send_btn.clicked.connect(self._submit)
         bar.addWidget(mic_btn)
         bar.addWidget(send_btn)
+        frame_col.addLayout(bar)
 
-        root.addWidget(input_frame)
+        # thin divider inside the frame
+        inner_div = QFrame()
+        inner_div.setFixedHeight(1)
+        inner_div.setStyleSheet(f"background: {T.BORDER};")
+        frame_col.addWidget(inner_div)
 
-        # status strip
+        # status strip — integrated below the input row
         strip = QHBoxLayout()
-        strip.setContentsMargins(2, 4, 2, 12)
+        strip.setContentsMargins(12, 3, 8, 4)
+        strip.setSpacing(12)
         strip.addWidget(_lbl("LINKED: TERMINAL_ALPHA"))
         strip.addWidget(_lbl("ENCRYPTION: AES-256"))
         strip.addStretch()
@@ -171,7 +162,89 @@ class AssistantView(QWidget):
             f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
         strip.addWidget(self._status_strip)
-        root.addLayout(strip)
+        frame_col.addLayout(strip)
+
+        root.addWidget(input_frame)
+        root.addSpacing(12)
+
+        # ── Controls row (dropdowns at bottom) ────────────────────────────────
+        ctrl = QHBoxLayout()
+        ctrl.setSpacing(16)
+
+        for header, opts, cb_attr in [
+            ("MODE",            list(LAUNCHER_MODES_DISPLAY),  "_cb_mode"),
+            ("PERSONA",         ["GUPPY", "MERLIN", "COUNCIL"],            "_cb_persona"),
+            ("RUNTIME PROFILE", ["LIGHT", "STANDARD", "POWER"],            "_cb_profile"),
+        ]:
+            col = QVBoxLayout()
+            col.setSpacing(4)
+            col.addWidget(_lbl(header))
+            cb = _dropdown(opts)
+            setattr(self, cb_attr, cb)
+            col.addWidget(cb)
+            ctrl.addLayout(col)
+
+        root.addLayout(ctrl)
+        self.add_system_message("Embedded launcher chat ready.")
+
+    def _add_message(self, text: str, role: str) -> None:
+        msg = QLabel(text)
+        msg.setWordWrap(True)
+        msg.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        if role == "user":
+            fg = T.BG
+            bg = T.PRIMARY
+            align = Qt.AlignmentFlag.AlignRight
+        elif role == "assistant":
+            fg = T.TEXT
+            bg = T.BG0
+            align = Qt.AlignmentFlag.AlignLeft
+        else:
+            fg = T.DIM
+            bg = T.BG1
+            align = Qt.AlignmentFlag.AlignHCenter
+
+        msg.setStyleSheet(
+            f"color: {fg}; background-color: {bg};"
+            f"border: 1px solid {T.BORDER};"
+            f"font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt;"
+            f"padding: 8px;"
+        )
+        msg.setMaximumWidth(760)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        if align == Qt.AlignmentFlag.AlignRight:
+            row.addStretch()
+            row.addWidget(msg)
+        elif align == Qt.AlignmentFlag.AlignLeft:
+            row.addWidget(msg)
+            row.addStretch()
+        else:
+            row.addStretch()
+            row.addWidget(msg)
+            row.addStretch()
+
+        self._chat_layout.insertLayout(self._chat_layout.count() - 1, row)
+        self._chat_scroll.verticalScrollBar().setValue(self._chat_scroll.verticalScrollBar().maximum())
+
+    def add_user_message(self, text: str) -> None:
+        self._add_message(text, "user")
+
+    def add_assistant_message(self, text: str) -> None:
+        self._add_message(text, "assistant")
+
+    def add_system_message(self, text: str) -> None:
+        self._add_message(text, "system")
+
+    def activate_agent(self, agent: str) -> None:
+        agents = {"guppy": 0, "merlin": 1, "council": 2}
+        key = (agent or "").strip().lower()
+        if key in agents:
+            self._cb_persona.setCurrentIndex(agents[key])
+        self._status_strip.setText(f"ACTIVE AGENT: {(agent or 'guppy').upper()}")
 
     # ── Public API ────────────────────────────────────────────────────────────
     def _submit(self) -> None:
@@ -183,20 +256,20 @@ class AssistantView(QWidget):
     def set_recommendation(self, profile: str) -> None:
         self._rec_chip.setText(f"RECOMMENDED: {profile.upper()}")
 
-    def update_agent_status(self, agent: str, online: bool,
-                            last_seen: str = "NOW", load: float | None = None) -> None:
-        card = {"guppy": self._card_guppy,
-                "merlin": self._card_merlin,
-                "council": self._card_council}.get(agent.lower())
-        if card:
-            card.update_status(online, last_seen, load)
-
     def apply_settings(self, s: dict) -> None:
-        modes = {"auto": 0, "claude": 1, "ollama": 2, "teaching": 3}
+        modes = {"auto": 0, "claude": 1, "ollama": 2, "local": 3, "code": 4, "teaching": 5}
         self._cb_mode.setCurrentIndex(modes.get(s.get("default_mode", "auto"), 0))
         profiles = {"light": 0, "standard": 1, "power": 2}
         self._cb_profile.setCurrentIndex(profiles.get(s.get("runtime_profile", "standard"), 1))
 
+    def selected_mode(self) -> str:
+        mode = self._cb_mode.currentText().strip().lower()
+        return mode or "auto"
+
     def set_input_text(self, text: str) -> None:
         self._input.setText(text)
         self._input.setFocus()
+
+    def set_status(self, text: str) -> None:
+        """Update the integrated status strip (transient state — Processing, Ready, etc)."""
+        self._status_strip.setText(text.upper())

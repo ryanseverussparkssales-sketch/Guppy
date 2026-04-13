@@ -5,6 +5,7 @@ and "Open Interface" + "Deploy Surface" launch buttons.  Includes a live syslog 
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +25,15 @@ from PySide6.QtWidgets import (
 from .. import tokens as T
 
 _ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+
+def _legacy_compat_enabled() -> bool:
+    return os.environ.get("GUPPY_ENABLE_LEGACY_SURFACES", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL) -> QLabel:
@@ -49,6 +59,8 @@ class _SurfaceCard(QFrame):
         super().__init__(parent)
         self._launch_script = launch_script
         self._name = name
+        self._process: subprocess.Popen | None = None
+        self._legacy_enabled = _legacy_compat_enabled()
 
         self.setObjectName("surface_card")
         self.setStyleSheet(
@@ -143,27 +155,59 @@ class _SurfaceCard(QFrame):
         self._deploy_status = _mono("", T.DIM, T.FS_TINY)
         root.addSpacing(6)
         root.addWidget(self._deploy_status)
+
+        if not self._legacy_enabled:
+            open_btn.setEnabled(False)
+            self._deploy_btn.setEnabled(False)
+            self._deploy_status.setText(
+                "EMBEDDED-ONLY MODE: set GUPPY_ENABLE_LEGACY_SURFACES=1 to enable"
+            )
+
         root.addStretch()
 
     def _launch(self) -> None:
-        script = _ROOT / self._launch_script
-        if script.exists():
-            subprocess.Popen([sys.executable, str(script)])
-
-    def _deploy(self) -> None:
+        if not self._legacy_enabled:
+            self._deploy_status.setText(
+                "BLOCKED: embedded-only default flow (enable legacy compatibility to launch)"
+            )
+            return
         script = _ROOT / self._launch_script
         if not script.exists():
             self._deploy_status.setText(f"ERR: {self._launch_script} not found")
+            return
+        if self._process and self._process.poll() is None:
+            self._deploy_status.setText(f"ALREADY RUNNING  [pid={self._process.pid}]")
+            return
+        try:
+            self._process = subprocess.Popen([sys.executable, str(script)])
+            self._deploy_status.setText(f"SURFACE OPEN  [pid={self._process.pid}]")
+        except Exception as exc:
+            self._deploy_status.setText(f"OPEN FAILED: {exc}")
+
+    def _deploy(self) -> None:
+        if not self._legacy_enabled:
+            self._deploy_status.setText(
+                "BLOCKED: embedded-only default flow (enable legacy compatibility to deploy)"
+            )
+            return
+        script = _ROOT / self._launch_script
+        if not script.exists():
+            self._deploy_status.setText(f"ERR: {self._launch_script} not found")
+            return
+        if self._process and self._process.poll() is None:
+            self._deploy_status.setText(f"ALREADY RUNNING  [pid={self._process.pid}]")
             return
         profile = self._mode_cb.currentText().lower()
         self._deploy_status.setText(f"DEPLOYING [{profile}]...")
         self._deploy_btn.setEnabled(False)
         try:
-            subprocess.Popen(
+            self._process = subprocess.Popen(
                 [sys.executable, str(script)],
-                env={**__import__("os").environ, "GUPPY_DEPLOY_MODE": profile},
+                env={**os.environ, "GUPPY_DEPLOY_MODE": profile},
             )
-            self._deploy_status.setText(f"SURFACE DEPLOYED  [{profile}]")
+            self._deploy_status.setText(
+                f"SURFACE DEPLOYED  [{profile}] [pid={self._process.pid}]"
+            )
         except Exception as exc:
             self._deploy_status.setText(f"DEPLOY FAILED: {exc}")
         finally:

@@ -11,8 +11,20 @@ The M2 UI has been redesigned to position **conversation as the primary product*
 
 **Three Major Changes:**
 1. **Home Tab = Primary Surface** (70%+ screen focus) — active instance chat
-2. **Multi-Instance Architecture** — run Builder, Guppy, Merlin, Council simultaneously with inter-agent communication
+2. **Multi-Instance Architecture** — one primary active instance plus one background collaborator in M2.0, with inter-agent communication
 3. **Tool Separation** — Agent Tools (for instances) vs App Management (for app operations)
+
+---
+
+## M2.0 Operating Envelope
+
+To preserve fast first response on local Windows hardware, M2.0 intentionally limits concurrency:
+
+1. Up to 5 configured instances may exist.
+2. Up to 2 instances may be active simultaneously.
+3. Only 1 inter-instance query may be in flight at a time.
+4. `POST /instances/{name}/query` is synchronous with a 5s timeout in M2.0.
+5. Queue-based background orchestration is deferred to M2.2.
 
 ---
 
@@ -121,8 +133,8 @@ Recent Events (Last 5)
 **Why:** Killer feature enables:
 - Run Builder in background while chatting to Guppy
 - Agents speaking to each other (inter-agent queries)
-- Multiple personas/models active simultaneously
-- Non-blocking background processing
+- Multiple personas/models available without leaving the main conversation surface
+- Controlled background collaboration without overcommitting local resources
 
 **API Support:**
 ```
@@ -131,7 +143,7 @@ POST /instances/{name}/query
   "message": "Summarize the main points",
   "system_prompt": "You are a summarizer"
 }
-→ { "response": "...", "tokens_used": 42, "model": "merlin" }
+→ { "response": "...", "tokens_used": 42, "model": "merlin", "source_instance": "builder", "status": "ok|busy|timeout" }
 ```
 
 **Instance Context:** Each instance has:
@@ -148,7 +160,7 @@ POST /instances/{name}/query
 - run_python, read_file, write_file
 - query_instance (speak to other instances)
 - screenshot, debug_console
-- State: Instance-aware permissions (write-prohibited instances see read-only only)
+- State: Instance-aware permissions in the UI, enforced again in API/tool runner
 
 **App Management Tab (For App):**
 - Warmup (refresh all model caches)
@@ -178,7 +190,7 @@ Dropdown on left shows favorites/recent instances; Switch button opens full Inst
 - `builder_instance`: Write access to config/, tests/, docs/ only
 
 **Tool Filtering:** Agent Tools tab reflects active instance type.  
-Example: If instance type is `read_only_instance`, write_file tool is grayed out with tooltip "Not available for read-only instances".
+Example: If instance type is `read_only_instance`, write_file is hidden or disabled in the UI and denied server-side if invoked directly.
 
 ---
 
@@ -246,6 +258,8 @@ Example: If instance type is `read_only_instance`, write_file tool is grayed out
 {"timestamp": "2026-04-13T14:22:15Z", "role": "user", "message": "Any potential bugs?"}
 ```
 
+**Log safety policy:** redact obvious secrets before persistence/export, retain raw logs for 14 days, retain summary metadata for 30 days.
+
 ---
 
 ## Inter-Agent Communication Pattern
@@ -259,14 +273,14 @@ User: "Ask Guppy to summarize the API docs"
 guppy_api.py endpoint: POST /instances/Guppy/query
 Payload: { "message": "Summarize the API docs" }
 
-→ Background Guppy instance processes message, appends to its log
+→ Background Guppy instance processes message immediately if idle
 
-← Response: { "response": "The API...", "tokens_used": 78, "model": "guppy", "duration_ms": 2100 }
+← Response: { "response": "The API...", "tokens_used": 78, "model": "guppy", "duration_ms": 2100, "source_instance": "Guppy", "status": "ok" }
 
 → Result appears in active instance chat: "[From Guppy]: The API..."
 ```
 
-**Audit Trail:** Each response includes source instance name so user knows which instance answered.
+**Audit Trail:** Each response includes source instance name so user knows which instance answered. If the target is already busy, the caller receives `status=busy` instead of an implicit queue.
 
 ---
 
@@ -292,7 +306,7 @@ Payload: { "message": "Summarize the API docs" }
 
 ### Week 4: API & Multi-Instance Support (May 6–10)
 - [ ] Add `/instances/{name}/query` endpoint
-- [ ] Implement background instance message processing
+- [ ] Implement bounded synchronous cross-instance execution with busy/timeout handling
 - [ ] Add instance logging (JSONL per instance)
 - [ ] Test inter-agent query (Merlin → Guppy → Merlin)
 
@@ -314,9 +328,9 @@ Payload: { "message": "Summarize the API docs" }
 
 - [ ] Home tab takes ≥70% of window on standard resolution
 - [ ] User can create, switch, delete instances without JSON editing
-- [ ] Background instances receive and process messages reliably
+- [ ] Background instances receive and process bounded synchronous messages reliably
 - [ ] Inter-agent queries work end-to-end (5+ successful test cases)
-- [ ] Tool permissions work (read-only instance doesn't see write tools)
+- [ ] Tool permissions work end-to-end (read-only instance cannot execute restricted tools via UI or direct invocation)
 - [ ] Instance chat history persists across restart
 - [ ] Instance logs viewable from UI (last 50 messages)
 - [ ] No "not wired yet" tooltips in any tab
@@ -340,6 +354,7 @@ Payload: { "message": "Summarize the API docs" }
 - `ui/launcher/views/assistant_view.py` — Home tab layout (70% focus)
 - `guppy_api.py` — Add `/instances/{name}/query` endpoint
 - `guppy_core/tool_registry.py` — Add `query_instance` tool
+- `guppy_core/tool_runner.py` — Add per-instance capability enforcement for tool execution
 
 **Removed:** (none, Advanced tab code→App Management, not deleted)
 
@@ -348,7 +363,7 @@ Payload: { "message": "Summarize the API docs" }
 ## Backward Compatibility
 
 ✅ **All existing single-instance chat flows work unchanged.**  
-✅ **Existing tool invocations route through new permission system (all pass by default).**  
+✅ **Existing tool invocations can be migrated incrementally by mapping default capability sets to the current single-instance flow.**  
 ✅ **API endpoints remain the same; new endpoints additive only.**
 
 **Migration:** On first launch post-M2, launcher creates default instance `"Guppy"` with current model/persona/voice config. Existing chat history can be imported to that instance (optional).

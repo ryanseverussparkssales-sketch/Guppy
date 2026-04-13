@@ -25,6 +25,18 @@ This separation allows users to:
 
 ---
 
+## M2.0 Operating Limits
+
+To keep M2 feasible on a Windows local-first machine, multi-instance support is intentionally bounded:
+
+1. Up to 5 configured instances may exist in `config/instances.json`.
+2. Up to 2 instances may be active at once in M2.0: one foreground chat instance and one background worker/collaborator.
+3. Only 1 inter-instance query may be in flight at a time.
+4. `POST /instances/{name}/query` is a synchronous, bounded request in M2.0 with a 5s timeout.
+5. If the target instance is busy, the API returns a busy/timeout response; implicit queueing is deferred to M2.2.
+
+---
+
 ## EPIC 0: Instance Manager + Multi-Instance Architecture
 
 **Scope:** Users can create, manage, switch between, and monitor multiple instances; instances can run in background and communicate with each other
@@ -47,7 +59,7 @@ This separation allows users to:
 
 3. **Instance State Tracker** (extend `runtime/instance_state.json`)
    - Track per-instance: name, model routes, persona, voice, status, last_message, created_at, message_count
-   - Support concurrent instances in memory
+   - Support up to 2 active runtime instances and 5 configured instances in memory
    - Save/load on startup
    - **Lines of code est.:** ~150
 
@@ -59,7 +71,8 @@ This separation allows users to:
 
 5. **Inter-Agent Communication Bridge** (extend `guppy_api.py`)
    - New endpoint: `POST /instances/{name}/query` → send message to background instance
-   - Response schema: `{ "response": "...", "tokens_used": 42, "model": "merlin" }`
+   - Synchronous bounded contract in M2.0: returns completed response or busy/timeout within 5s
+   - Response schema: `{ "response": "...", "tokens_used": 42, "model": "merlin", "source_instance": "guppy", "status": "ok|busy|timeout" }`
    - Instances can invoke other instances via tool call (e.g., "ask Guppy to summarize")
    - **Lines of code est.:** ~300
 
@@ -69,6 +82,18 @@ This separation allows users to:
    - Visual cue (icon or highlight) in tab bar
    - **Lines of code est.:** ~100
 
+7. **Capability Enforcement Layer** (extend `guppy_core/tool_runner.py` and API dispatch)
+   - Enforce per-instance tool permissions server-side, not only in the UI
+   - Instance capability lookup sourced from `config/tool_permissions.json` + instance type
+   - Denied tool calls return structured authorization errors for transcript/log visibility
+   - **Lines of code est.:** ~220
+
+8. **Instance Log Safety Policy**
+   - Redact obvious secrets/tokens before writing instance logs
+   - Retain full logs for 14 days, summaries/metadata for 30 days
+   - Add export warning banner before raw log download
+   - **Lines of code est.:** ~120
+
 **Acceptance Criteria:**
 - [ ] User can create new instance with form (no JSON editing)
 - [ ] Switching instances swaps home tab chat history
@@ -76,7 +101,9 @@ This separation allows users to:
 - [ ] Background instance logs are readable from UI
 - [ ] Instances can send message to other instances (Q&A use case)
 - [ ] Instance list persists across restart
-- [ ] No limit on number of instances (test with 10+)
+- [ ] Supports at least 5 configured instances, 2 active runtime instances, and 1 inter-instance query in flight
+- [ ] Tool permissions are enforced below the UI (API/tool runner), not only by tab filtering
+- [ ] Instance logs apply redaction and retention policy before export
 
 ### Dependencies
 - [ ] Instance state schema defined (`config/instances.json`)
@@ -85,8 +112,8 @@ This separation allows users to:
 
 ### Risk: High
 - Complex state management (active vs background, switching context)
-- IPC/queuing patterns (background instance message handling)
-- Mitigation: Start with 2 instance test; build out after MVP works
+- Cross-instance permission enforcement and sync timeout behavior
+- Mitigation: Start with 2-instance MVP, 1 in-flight query limit, and explicit busy/timeout semantics
 
 ---
 
@@ -133,6 +160,8 @@ This separation allows users to:
 - Mitigation: Use existing assistant_view.py; add components incrementally
 
 ---
+
+## EPIC 1: Persona Builder v1
 
 **Scope:** Non-technical users can define persona behavior without JSON editing
 
@@ -195,7 +224,7 @@ This separation allows users to:
    - Secondary dropdown (fallback options)
    - Tertiary field (fallback override if provided)
    - Edit button → inline edit mode
-   - Save → writes to `config/model_routes.json`
+   - Save → writes to `runtime/provider_registry.json`
    - **Lines of code est.:** ~500
 
 2. **Health Status Badges** (extend existing badge renderer)
@@ -233,7 +262,7 @@ This separation allows users to:
 
 ### Dependencies
 - [ ] `/status` API endpoint must return model health (EXISTING — check guppy_api.py)
-- [ ] Model routes schema defined (EXISTING — check config/model_routes.json)
+- [ ] Provider/model routes schema defined (EXISTING — check runtime/provider_registry.json)
 
 ### Risk: Medium
 - Complex widget state (edit mode vs view mode, unsaved changes)
@@ -328,6 +357,7 @@ This separation allows users to:
    - Default: read-only tools for all; write tools for admin instances
    - Custom override per instance (optional)
    - Schema stored in `config/tool_permissions.json`
+   - Enforced in API/tool runner as well as launcher UI
    - **Lines of code est.:** ~150
 
 4. **Tool Invocation Flow**
@@ -344,13 +374,14 @@ This separation allows users to:
    - **Lines of code est.:** ~150
 
 **Acceptance Criteria:**
-- [ ] Only tools available for active instance are shown (no disabled grayed-out tools)
+- [ ] Only tools available for active instance are shown
 - [ ] Each tool has clear description
 - [ ] Write tools have dry-run option
 - [ ] Tool invocation outcome visible in chat
 - [ ] Instance context is respected (admin vs restricted instances)
 - [ ] Search finds tools by name or description
 - [ ] No "not wired yet" tooltips
+- [ ] Direct API/tool invocations are denied when the active instance lacks capability
 
 ### Dependencies
 - [ ] Instance model/type system defined (Epic 0)
@@ -485,6 +516,7 @@ This separation allows users to:
 ### **Week of Apr 15 (Ramp Phase + Epic 0 Foundation)**
 - [ ] All epic PRDs reviewed + approved
 - [ ] Instance state schema finalized (`config/instances.json`)
+- [ ] Tool permission schema finalized (`config/tool_permissions.json`)
 - [ ] Instance Manager UI mockup
 - [ ] Home Tab primary interface layout sketched
 - [ ] Multi-instance chat history storage designed
@@ -494,15 +526,16 @@ This separation allows users to:
 - [ ] Epic 0.1: Home Tab layout and instance switching working
 - [ ] Epic 1: Persona Builder v1 complete + tested
 - [ ] Epic 2: Model Assignment MVP (click-to-assign only)
-- [ ] Epic 4 foundations: Agent Tools tab structure
+- [ ] Epic 4 foundations: Agent Tools tab structure + capability enforcement layer
 
 ### **June 1–14 (Integration + Polish)**
-- [ ] Epic 0: Inter-agent communication bridge working (instances can query each other)
+- [ ] Epic 0: Inter-agent communication bridge working (sync bounded query with busy/timeout states)
 - [ ] Epic 0.1: Home Tab fully integrated with instance switching
 - [ ] Epic 3: Voice Library basics (Kokoro + system TTS) 
 - [ ] Epic 4: Agent Tools cards + permissions filtering working
 - [ ] Epic 5: App Management Tab (recovery actions, diagnostics, logs)
 - [ ] Epic 6: Off-hours write tasks (5 templates, dry-run working)
+- [ ] Instance log redaction + retention policy working
 - [ ] Full integration test + UAT prep
 
 ### **June 15 – Sep 30 (Refinement, Scale, and Advanced Features)**
@@ -523,9 +556,9 @@ This separation allows users to:
 | Instance creation time | <30s (form-based, no JSON) | UX quality |
 | Instance switching latency | <500ms to display new chat | UX responsiveness |
 | Home Tab as primary | 100% of new user flows start here | Product positioning |
-| Inter-agent queries | 95% success rate (background instance reachable) | Feature reliability |
+| Inter-agent queries | 95% success rate for 1 in-flight bounded query | Feature reliability |
 | Builder form completion time | <2 min for non-technical user | UX quality |
-| Agent Tools filtering | 100% correct per-instance permissions shown | Safety |
+| Agent authorization | 100% of restricted tool calls blocked server-side | Safety |
 | Off-hours task success rate | >85% (after approval) | Agent reliability |
 | Voice assignment latency | <500ms config load | Performance |
 
@@ -537,7 +570,8 @@ This separation allows users to:
 |---|---|---|
 | Multi-instance state management (switching context) | High | Start with 2-instance MVP; build out |
 | Audio playback latency (PySide6 + Kokoro) | Medium | Test early; defer ElevenLabs |
-| Instance message queuing (background processing) | Medium | Use FastAPI background tasks pattern |
+| Server-side capability enforcement for tools | High | Add capability checks in tool runner and API before UI rollout |
+| Sensitive data in per-instance logs | High | Redaction, retention window, export warning, and operator-only access |
 | Off-hours patch conflicts | Medium | Lock key files (guppy_core, ui/launcher); use dry-run only |
 | Voice engine API keys | Low | Document setup; defer optional engines |
 
@@ -557,23 +591,28 @@ This separation allows users to:
    - Rationale: Reduces cognitive load; clearer affordance; prevents misuse of system tools by agents
    
 3. **Single Instance vs Multi-Instance MVP**
-   - DECIDED: Multi-instance from M2.0 (not MVP-only)
-   - Rationale: Killer feature; enables inter-agent workflows; only slightly more complex than single
+   - DECIDED: Bounded multi-instance from M2.0
+   - Rationale: Required for builder/background collaboration, but limited to 2 active instances and 1 in-flight cross-instance query for feasibility
 
 4. **Instance Context Switching (Add to Home Tab or Require Manager Tab)**
    - DECIDED: Quick switcher in Home Tab header (e.g., dropdown or small icon)
    - Instance Manager tab for full-featured creation/logs/deletion
    - Rationale: Faster workflow for power users; keeps primary surface uncluttered
 
-5. **Drag-drop vs Click-to-Assign for Model Selection**
+5. **Inter-Agent Query Contract (Queued vs Bounded Sync)**
+   - DECIDED: Bounded synchronous request in M2.0
+   - Returns completed response or busy/timeout within 5s
+   - Queue-based orchestration deferred to M2.2 after resource behavior is measured
+
+6. **Drag-drop vs Click-to-Assign for Model Selection**
    - DECIDED: Click-to-assign (MVP, simpler)
    - May revisit in M2.2 if UX feedback
 
-6. **All voices or just Kokoro + System TTS?**
+7. **All voices or just Kokoro + System TTS?**
    - DECIDED: Kokoro + System (Lock ElevenLabs to M2.2)
    - Needs less maintenance, fewer API keys
 
-7. **Auto-apply off-hours tasks or always require approval?**
+8. **Auto-apply off-hours tasks or always require approval?**
    - DECIDED: Approval required in M2.0 (safe default)
    - Auto-apply for <5-line changes in M2.2 (pending approval)
 

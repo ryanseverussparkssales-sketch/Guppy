@@ -56,6 +56,10 @@ runtime/router_tuning_patch.env
 runtime/stress_report_*.json
 runtime/lifecycle_*_report.json
 runtime/_validate_write_test.tmp
+runtime/diagnostics_bundle_*.json
+runtime/*.md
+runtime/*.log
+runtime/__pycache__/
 
 # Local tool/operator settings
 .claude/settings.local.json
@@ -63,6 +67,7 @@ runtime/_validate_write_test.tmp
 # Temporary files
 *.tmp
 *.temp
+*.bak
 .cache/
 
 # OS

@@ -1,13 +1,68 @@
 # Daily Workflow
 
-Last updated: April 12, 2026
+Last updated: April 13, 2026
 
 This runbook is designed for the current Guppy build and can be executed today.
 
+## Acceptance Monitoring Snapshot (Run After Major Changes)
+
+Run this sequence after any base-functionality or auth/security change to produce a signed evidence snapshot before marking the work done.
+
+### 1. Security and auth tests (must be zero warnings)
+```
+python -m pytest tests/test_security_hardening.py tests/test_launcher_interactions_smoke.py -W error::DeprecationWarning
+```
+Expected: all tests pass, zero DeprecationWarnings.
+
+### 2. Runtime smoke
+```
+python -m unittest tests.test_runtime_smoke
+```
+Expected: 4 tests OK.
+
+### 3. Guard suite (all five checks)
+```
+python tools/check_architecture_boundaries.py
+python tools/check_new_module_line_cap.py
+python tools/check_wrapper_integrity.py
+python tools/check_core_surface_integrity.py
+python tools/check_doc_ownership.py
+```
+Expected: all five print "passed".
+
+### 4. Telemetry freshness check
+```
+python tools/verify_logging_health.py --emit-probe --require-fresh-core
+```
+Watch for:
+- `integration_events.jsonl` STALE — expected until API runs with heartbeat; not a blocker offline.
+- All core logs (`session_events`, `router_scorecard`, `agent_performance`) must be FRESH.
+
+### SLO Pass Criteria
+| Signal | Target |
+|---|---|
+| Security tests | 0 failures, 0 DeprecationWarnings |
+| Runtime smoke | 4/4 OK |
+| Guard suite | all 5 passed |
+| Core log freshness | session_events, router_scorecard, agent_performance = FRESH |
+| 401/403 rate (live) | No new auth rejections in launcher_events.jsonl after restart |
+| Crash-loop indicator | No agent exits < 30s in hub.log for 10 min post-start |
+| Startup budget | No startup_phase_over_budget events in launcher_events.jsonl |
+
+### Last Evidence Snapshot (April 13, 2026)
+- Security: 37 passed, 0 warnings (30 hardening + 7 launcher interactions)
+- Runtime smoke: 4/4 OK
+- Guard suite: all 5 passed
+- Core telemetry: session_events FRESH 4524KB, hub_patterns FRESH 40KB, router_scorecard FRESH 3813KB, agent_performance FRESH 62KB
+- integration_events: STALE 1KB (expected — offline; heartbeat fires on live API startup)
+- SQLite operational_events: 113787 rows
+- datetime.utcnow deprecation: resolved in guppy_api_auth.py, utils/hub_operator.py, tests/smoke_api.py
+
 ## Morning Boot (5 to 10 minutes)
 
-1. Start environment and launcher.
+1. Start environment and launcher (API server and hub auto-start with it).
   - Command: python guppy_launcher.py
+  - Note: guppy_api.py (:8081) and guppy_hub.py start automatically. No separate service management needed.
 2. Run pilot gate quick health.
   - Command: python tools/pilot_exit_check.py --allow-limited-go
 3. Run triage decision canary (fast confidence check).
@@ -69,16 +124,21 @@ Handled by current build:
 ## Recovery Flow (When Something Breaks)
 
 1. Run pilot gate report first.
-2. If models fail, rebuild model/runtime state.
+2. If API or hub are not responding, use the RECOVERY controls in the launcher status panel.
+  - The launcher will call /repair (with token auth) or fall back to direct file-level diagnostics.
+  - Repair token is auto-generated at API startup and stored in OS keyring when available, with runtime/repair_token.txt as fallback.
+3. If models fail, rebuild model/runtime state.
   - Command: python tools/verify_ollama_runtime.py
-3. If logs fail freshness checks, run logging probe and inspect snapshots.
+4. If logs fail freshness checks, run logging probe and inspect snapshots.
   - Command: python tools/verify_logging_health.py --emit-probe --require-fresh-core
-4. If provider path fails, fall back to local mode and continue.
+5. If provider path fails, fall back to local mode and continue.
 
 Handled by current build:
 
-1. Repair-oriented diagnostics from verifier scripts.
-2. Local-first operation even when optional provider keys are missing.
+1. Launcher auto-restarts API and hub if they are not running on open.
+2. Repair-oriented diagnostics from verifier scripts.
+3. Local-first operation even when optional provider keys are missing.
+4. Direct fallback recovery (warmup, audit, snapshot) when API is unreachable.
 
 ## Overnight Low-Compute Plan
 

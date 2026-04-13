@@ -7,6 +7,7 @@ import sqlite3, json, os
 import re
 from pathlib import Path
 from datetime import datetime
+from utils.db_utils import open_db as _open_db
 
 DB_PATH = Path.home() / "Guppy" / "guppy_memory.db"
 PIPELINE_STAGES = [
@@ -62,11 +63,7 @@ def _normalize_stage(stage: str) -> str:
 
 def _conn():
     """Get database connection with proper setup. Connections are managed by SQLite's built-in pooling."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn = _open_db(DB_PATH)
     conn.execute("""CREATE TABLE IF NOT EXISTS facts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         category TEXT DEFAULT 'general',

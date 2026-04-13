@@ -2,9 +2,17 @@ import argparse
 import json
 import re
 import subprocess
+import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+_NO_WIN: dict = (
+    {"creationflags": subprocess.CREATE_NO_WINDOW}
+    if sys.platform == "win32" else {}
+)
 
 
 DEFAULT_MODELS = ["guppy-fast", "vault-scraper", "merlin-code", "guppy", "merlin"]
@@ -25,6 +33,7 @@ def run_cmd(args: list[str], timeout_s: int = 180) -> CmdResult:
         encoding="utf-8",
         errors="replace",
         timeout=timeout_s,
+        **_NO_WIN,
     )
     return CmdResult(proc.returncode, (proc.stdout or "").strip(), (proc.stderr or "").strip())
 
@@ -77,6 +86,42 @@ def _console_safe(text: str) -> str:
     return text.encode("cp1252", errors="replace").decode("cp1252")
 
 
+def _http_ping(tag: str, prompt: str, timeout_s: int) -> dict:
+    """
+    Ping a model via the Ollama HTTP API (POST /api/generate).
+    Avoids the 30-60s cold-start overhead of `ollama run` subprocess.
+    Uses keep_alive=0 so the model unloads immediately after the ping.
+    """
+    url = "http://localhost:11434/api/generate"
+    body = json.dumps({
+        "model": tag,
+        "prompt": prompt,
+        "stream": False,
+        "keep_alive": "0s",
+        "options": {"num_predict": 16},   # very short reply — just confirm the model responds
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        data = json.loads(raw)
+        response_text = (data.get("response") or "").strip()
+        ok = bool(response_text)
+        sample = response_text.replace("\n", " ")[:120]
+        return {"ok": ok, "reason": "ok" if ok else "empty response", "sample": sample}
+    except TimeoutError:
+        return {"ok": False, "reason": f"timeout after {timeout_s}s", "sample": ""}
+    except urllib.error.URLError as e:
+        return {"ok": False, "reason": f"connection error: {e.reason}", "sample": ""}
+    except Exception as e:
+        return {"ok": False, "reason": str(e), "sample": ""}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify Ollama model/runtime readiness for Guppy personas."
@@ -96,12 +141,19 @@ def main() -> int:
         "--timeout",
         type=int,
         default=180,
-        help="Per-command timeout in seconds.",
+        help="Per-command timeout in seconds (ollama list/show/ps).",
+    )
+    parser.add_argument(
+        "--ping-timeout",
+        type=int,
+        default=60,
+        help="Per-model HTTP ping timeout in seconds (default 60). "
+             "Uses Ollama REST API — much faster than CLI run.",
     )
     parser.add_argument(
         "--skip-ping",
         action="store_true",
-        help="Skip model response pings.",
+        help="Skip model response pings entirely.",
     )
     parser.add_argument(
         "--snapshot-file",
@@ -153,25 +205,18 @@ def main() -> int:
 
     ping_results: dict[str, dict[str, str | bool]] = {}
     if not args.skip_ping:
-        print("\n[3] Per-model response ping")
+        print(f"\n[3] Per-model HTTP ping (timeout={args.ping_timeout}s each)")
+        print("    Using Ollama REST API — no subprocess load overhead.")
         for tag in wanted_tags:
             if tag in missing:
-                ping_results[tag] = {
-                    "ok": False,
-                    "reason": "model missing",
-                    "sample": "",
-                }
-                print(f"- FAIL {tag}: model missing")
+                ping_results[tag] = {"ok": False, "reason": "model missing", "sample": ""}
+                print(f"- SKIP {tag}: model missing")
                 continue
-            ping = run_cmd(["ollama", "run", tag, args.prompt], timeout_s=args.timeout)
-            ok = ping.returncode == 0 and bool(ping.stdout.strip())
-            sample = (ping.stdout or ping.stderr).replace("\n", " ").strip()[:120]
-            ping_results[tag] = {
-                "ok": ok,
-                "reason": "ok" if ok else f"rc={ping.returncode}",
-                "sample": sample,
-            }
-            print(f"- {'OK' if ok else 'FAIL'} {tag}: {_console_safe(sample)}")
+            result = _http_ping(tag, args.prompt, args.ping_timeout)
+            ping_results[tag] = result
+            ok = result["ok"]
+            sample = _console_safe(str(result.get("sample", "")))
+            print(f"- {'OK  ' if ok else 'FAIL'} {tag}: {sample}")
     else:
         print("\n[3] Per-model response ping (skipped)")
 

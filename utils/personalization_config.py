@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNTIME_DIR = ROOT / "runtime"
@@ -99,14 +99,172 @@ DEFAULT_VOICE_BINDINGS: dict[str, Any] = {
 }
 
 
-def _read_json(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
+def _deepcopy_json(data: dict[str, Any]) -> dict[str, Any]:
+    return json.loads(json.dumps(data))
+
+
+def _normalize_persona_config(data: Any) -> dict[str, Any]:
+    cfg = data if isinstance(data, dict) else _deepcopy_json(DEFAULT_PERSONA_CONFIG)
+
+    personas = cfg.get("personas")
+    if not isinstance(personas, list) or not personas:
+        cfg["personas"] = _deepcopy_json(DEFAULT_PERSONA_CONFIG)["personas"]
+    else:
+        cleaned: list[dict[str, Any]] = []
+        for persona in personas:
+            if not isinstance(persona, dict):
+                continue
+            if not isinstance(persona.get("id"), str) or not persona.get("id"):
+                continue
+            traits = persona.get("traits")
+            if not isinstance(traits, dict):
+                persona["traits"] = {
+                    "tone": "butler",
+                    "verbosity": "medium",
+                    "response_style": "direct",
+                }
+            teaching = persona.get("teaching")
+            if not isinstance(teaching, dict):
+                persona["teaching"] = {
+                    "enabled": True,
+                    "socratic_bias": 35,
+                    "example_bias": 60,
+                }
+            cleaned.append(persona)
+        cfg["personas"] = cleaned or _deepcopy_json(DEFAULT_PERSONA_CONFIG)["personas"]
+
+    assignments = cfg.get("assignments")
+    if not isinstance(assignments, dict):
+        assignments = {}
+    if not isinstance(assignments.get("by_model"), dict):
+        assignments["by_model"] = {}
+    persona_ids = {p.get("id") for p in cfg["personas"] if isinstance(p, dict)}
+    if assignments.get("global") not in persona_ids:
+        assignments["global"] = cfg["personas"][0].get("id")
+    cfg["assignments"] = assignments
+
+    if not isinstance(cfg.get("default_persona_id"), str) or cfg.get("default_persona_id") not in persona_ids:
+        cfg["default_persona_id"] = assignments.get("global")
+
+    if not isinstance(cfg.get("version"), int):
+        cfg["version"] = 1
+
+    return cfg
+
+
+def _normalize_provider_registry(data: Any) -> dict[str, Any]:
+    cfg = data if isinstance(data, dict) else _deepcopy_json(DEFAULT_PROVIDER_REGISTRY)
+
+    providers = cfg.get("providers")
+    if not isinstance(providers, list) or not providers:
+        cfg["providers"] = _deepcopy_json(DEFAULT_PROVIDER_REGISTRY)["providers"]
+    else:
+        cleaned_providers: list[dict[str, Any]] = []
+        for provider in providers:
+            if not isinstance(provider, dict):
+                continue
+            pid = provider.get("id")
+            models = provider.get("models")
+            if not isinstance(pid, str) or not pid or not isinstance(models, list) or not models:
+                continue
+            cleaned_models: list[dict[str, Any]] = []
+            for model in models:
+                if not isinstance(model, dict):
+                    continue
+                mid = model.get("id")
+                if not isinstance(mid, str) or not mid:
+                    continue
+                cleaned_models.append(model)
+            if not cleaned_models:
+                continue
+            provider["models"] = cleaned_models
+            cleaned_providers.append(provider)
+        cfg["providers"] = cleaned_providers or _deepcopy_json(DEFAULT_PROVIDER_REGISTRY)["providers"]
+
+    route_keys: set[str] = set()
+    for provider in cfg["providers"]:
+        if not isinstance(provider, dict):
+            continue
+        pid = provider.get("id")
+        models = provider.get("models", [])
+        if not isinstance(pid, str) or not isinstance(models, list):
+            continue
+        for model in models:
+            if isinstance(model, dict) and isinstance(model.get("id"), str):
+                route_keys.add(f"{pid}/{model['id']}")
+
+    defaults = _deepcopy_json(DEFAULT_PROVIDER_REGISTRY)
+    default_routes = defaults.get("routes") if isinstance(defaults.get("routes"), dict) else {}
+    routes: dict[str, Any] = cfg.get("routes") if isinstance(cfg.get("routes"), dict) else {}
+    for key in ("simple", "complex", "teaching"):
+        if routes.get(key) not in route_keys:
+            routes[key] = default_routes.get(key)
+    fallback_chain = routes.get("fallback_chain")
+    if not isinstance(fallback_chain, list) or not fallback_chain:
+        routes["fallback_chain"] = list(default_routes.get("fallback_chain", []))
+    else:
+        cleaned_fallback = [
+            target
+            for target in fallback_chain
+            if isinstance(target, str) and (target in route_keys or target == "local/guppy")
+        ]
+        routes["fallback_chain"] = cleaned_fallback or list(default_routes.get("fallback_chain", []))
+    cfg["routes"] = routes
+
+    if cfg.get("default_route") not in route_keys:
+        cfg["default_route"] = routes.get("simple", defaults["default_route"])
+    if not isinstance(cfg.get("version"), int):
+        cfg["version"] = 1
+
+    return cfg
+
+
+def _normalize_voice_bindings(data: Any) -> dict[str, Any]:
+    cfg = data if isinstance(data, dict) else _deepcopy_json(DEFAULT_VOICE_BINDINGS)
+
+    defaults = cfg.get("defaults")
+    if not isinstance(defaults, dict):
+        defaults = {}
+    if not isinstance(defaults.get("engine"), str) or not defaults.get("engine"):
+        defaults["engine"] = DEFAULT_VOICE_BINDINGS["defaults"]["engine"]
+    if not isinstance(defaults.get("voice_id"), str) or not defaults.get("voice_id"):
+        defaults["voice_id"] = DEFAULT_VOICE_BINDINGS["defaults"]["voice_id"]
+    cfg["defaults"] = defaults
+
+    bindings = cfg.get("bindings")
+    if not isinstance(bindings, dict):
+        bindings = {}
+    for key in ("by_model", "by_persona"):
+        mapping = bindings.get(key)
+        if not isinstance(mapping, dict):
+            bindings[key] = {}
+    cfg["bindings"] = bindings
+
+    if not isinstance(cfg.get("imports"), list):
+        cfg["imports"] = []
+    if not isinstance(cfg.get("version"), int):
+        cfg["version"] = 1
+    return cfg
+
+
+def _read_json(
+    path: Path,
+    fallback: dict[str, Any],
+    *,
+    normalizer: Callable[[Any], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    fallback_copy = _deepcopy_json(fallback)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+        if normalizer is not None:
+            normalized = normalizer(data)
+            if isinstance(normalized, dict):
+                return normalized
         if isinstance(data, dict):
             return data
     except Exception:
         pass
-    return json.loads(json.dumps(fallback))
+    return fallback_copy
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> Path:
@@ -116,27 +274,39 @@ def _write_json(path: Path, data: dict[str, Any]) -> Path:
 
 
 def load_persona_config() -> dict[str, Any]:
-    return _read_json(PERSONA_CONFIG_PATH, DEFAULT_PERSONA_CONFIG)
+    return _read_json(
+        PERSONA_CONFIG_PATH,
+        DEFAULT_PERSONA_CONFIG,
+        normalizer=_normalize_persona_config,
+    )
 
 
 def load_provider_registry() -> dict[str, Any]:
-    return _read_json(PROVIDER_REGISTRY_PATH, DEFAULT_PROVIDER_REGISTRY)
+    return _read_json(
+        PROVIDER_REGISTRY_PATH,
+        DEFAULT_PROVIDER_REGISTRY,
+        normalizer=_normalize_provider_registry,
+    )
 
 
 def load_voice_bindings() -> dict[str, Any]:
-    return _read_json(VOICE_BINDINGS_PATH, DEFAULT_VOICE_BINDINGS)
+    return _read_json(
+        VOICE_BINDINGS_PATH,
+        DEFAULT_VOICE_BINDINGS,
+        normalizer=_normalize_voice_bindings,
+    )
 
 
 def save_persona_config(data: dict[str, Any]) -> Path:
-    return _write_json(PERSONA_CONFIG_PATH, data)
+    return _write_json(PERSONA_CONFIG_PATH, _normalize_persona_config(data))
 
 
 def save_provider_registry(data: dict[str, Any]) -> Path:
-    return _write_json(PROVIDER_REGISTRY_PATH, data)
+    return _write_json(PROVIDER_REGISTRY_PATH, _normalize_provider_registry(data))
 
 
 def save_voice_bindings(data: dict[str, Any]) -> Path:
-    return _write_json(VOICE_BINDINGS_PATH, data)
+    return _write_json(VOICE_BINDINGS_PATH, _normalize_voice_bindings(data))
 
 
 def validate_persona_config(data: dict[str, Any]) -> list[str]:
@@ -272,10 +442,19 @@ def ensure_personalization_scaffold() -> dict[str, Path]:
     paths: dict[str, Path] = {}
     if not PERSONA_CONFIG_PATH.exists():
         paths["persona"] = save_persona_config(DEFAULT_PERSONA_CONFIG)
+    else:
+        normalized = load_persona_config()
+        paths["persona"] = save_persona_config(normalized)
     if not PROVIDER_REGISTRY_PATH.exists():
         paths["providers"] = save_provider_registry(DEFAULT_PROVIDER_REGISTRY)
+    else:
+        normalized = load_provider_registry()
+        paths["providers"] = save_provider_registry(normalized)
     if not VOICE_BINDINGS_PATH.exists():
         paths["voice"] = save_voice_bindings(DEFAULT_VOICE_BINDINGS)
+    else:
+        normalized = load_voice_bindings()
+        paths["voice"] = save_voice_bindings(normalized)
     return paths
 
 

@@ -34,7 +34,20 @@
       "Bash(python -m pytest --tb=short -q)",
       "Bash(grep -n \"LOCAL_MODEL\\\\|MERLIN_MODEL\\\\|Modelfile\\\\|modelfile\\\\|ollama list\\\\|ollama pull\" inference_router.py Modelfile* build_models*)",
       "Bash(python -m pytest --tb=short)",
-      "Bash(python -c \"import ui.launcher.launcher_window\")"
+      "Bash(python -c \"import ui.launcher.launcher_window\")",
+      "Bash(python -c \"import guppy_api\")",
+      "Bash(netstat -ano)",
+      "Bash(git -C c:/Users/Ryan/Guppy log --oneline --all -- .env)",
+      "Bash(git -C c:/Users/Ryan/Guppy status --short)",
+      "Bash(python -c ':*)",
+      "Bash(find . -type f \\\\\\( -name \"*.py\" \\\\\\) -exec grep -l \"from guppy_core import\\\\|import guppy_core\" {} \\\\;)",
+      "Bash(xargs grep:*)",
+      "Bash(grep -n \"^    {$\\\\|^    # \" /c/Users/Ryan/Guppy/guppy_core.py)",
+      "Bash(python -c \"import guppy_core; print\\('package path:', guppy_core.__file__\\)\")",
+      "Bash(ls runtime/*.json)",
+      "Bash(python -m pytest tests/ -q --tb=no)",
+      "Bash(python -c \"import tools.verify_ollama_runtime; print\\('import OK'\\)\")",
+      "Bash(python tools/verify_ollama_runtime.py)"
     ]
   }
 }

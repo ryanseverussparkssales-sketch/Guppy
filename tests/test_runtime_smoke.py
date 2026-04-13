@@ -1,11 +1,15 @@
+import shutil
 import tempfile
 import unittest
 import os
+import sqlite3
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 import guppy_api
+import guppy_core
+from utils import operational_telemetry
 from utils.session_logger import log_session_event, tail_session_events
 
 
@@ -19,6 +23,7 @@ class RuntimeSmokeTests(unittest.TestCase):
     def test_api_core_routes(self):
         app = guppy_api.app
         app.dependency_overrides[guppy_api.require_rate_limit] = lambda: "smoke-user"
+        app.dependency_overrides[guppy_api._require_repair_token] = lambda: None
         client = TestClient(app)
         status_resp = client.get("/status")
         metrics_resp = client.get("/metrics")
@@ -66,6 +71,47 @@ class RuntimeSmokeTests(unittest.TestCase):
         self.assertTrue(repair_warmup_data.get("ok"))
         self.assertTrue(repair_restart_data.get("ok") or "unavailable" in str(repair_restart_data.get("summary", "")).lower())
         self.assertTrue(repair_audit_data.get("ok"))
+
+    def test_guppy_core_tool_health_snapshot_is_available(self):
+        snapshot = guppy_core.get_tool_health_snapshot()
+
+        self.assertIsInstance(snapshot, dict)
+        self.assertIn("calls", snapshot)
+        self.assertIn("per_tool", snapshot)
+
+    def test_operational_telemetry_sqlite_roundtrip(self):
+        old_db_path = operational_telemetry._DB_PATH
+        old_runtime = operational_telemetry._RUNTIME
+        old_backend = os.environ.get("GUPPY_TELEMETRY_BACKEND")
+        runtime_dir = Path(tempfile.mkdtemp())
+
+        operational_telemetry._RUNTIME = runtime_dir
+        operational_telemetry._DB_PATH = runtime_dir / "ops_telemetry.sqlite3"
+        os.environ["GUPPY_TELEMETRY_BACKEND"] = "sqlite+jsonl"
+        try:
+            operational_telemetry.log_operational_event(
+                "runtime_smoke",
+                "sqlite_roundtrip",
+                {"ok": True, "component": "test"},
+            )
+
+            self.assertTrue(operational_telemetry._DB_PATH.exists())
+            with sqlite3.connect(operational_telemetry._DB_PATH) as conn:
+                row = conn.execute(
+                    "SELECT stream, event, payload_json FROM operational_events ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row[0], "runtime_smoke")
+            self.assertEqual(row[1], "sqlite_roundtrip")
+            self.assertIn('"ok": true', row[2].lower())
+        finally:
+            operational_telemetry._DB_PATH = old_db_path
+            operational_telemetry._RUNTIME = old_runtime
+            if old_backend is None:
+                os.environ.pop("GUPPY_TELEMETRY_BACKEND", None)
+            else:
+                os.environ["GUPPY_TELEMETRY_BACKEND"] = old_backend
+            shutil.rmtree(runtime_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

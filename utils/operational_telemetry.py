@@ -12,10 +12,14 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from utils.db_utils import open_db as _open_db
 
 _RUNTIME = Path(__file__).resolve().parent.parent / "runtime"
 _DB_PATH = _RUNTIME / "ops_telemetry.sqlite3"
 _LOCK = threading.Lock()
+_SQLITE_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_SQLITE_TIMEOUT_SECONDS", "10.0"))
+_SQLITE_BUSY_TIMEOUT_MS = int(os.environ.get("GUPPY_SQLITE_BUSY_TIMEOUT_MS", "5000"))
+_SQLITE_SYNC_MODE = (os.environ.get("GUPPY_SQLITE_SYNC_MODE", "NORMAL") or "NORMAL").strip().upper()
 
 
 def _enabled() -> bool:
@@ -24,8 +28,12 @@ def _enabled() -> bool:
 
 
 def _get_conn() -> sqlite3.Connection:
-    _RUNTIME.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(_DB_PATH)
+    conn = _open_db(
+        _DB_PATH,
+        timeout=_SQLITE_TIMEOUT_SECONDS,
+        busy_timeout_ms=_SQLITE_BUSY_TIMEOUT_MS,
+        sync_mode=_SQLITE_SYNC_MODE,
+    )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS operational_events (

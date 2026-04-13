@@ -8,7 +8,7 @@ Provides dependency injection for FastAPI routes requiring authentication.
 
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -18,6 +18,12 @@ from jose import JWTError, ExpiredSignatureError, jwt
 from pydantic import BaseModel
 
 from utils.env_bootstrap import load_env_file
+try:
+    from utils import secret_store as _secret_store
+    _SECRET_STORE_AVAILABLE = True
+except ImportError:
+    _secret_store = None  # type: ignore[assignment]
+    _SECRET_STORE_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +33,10 @@ load_env_file(override=True)
 
 DEV_MODE = os.getenv("GUPPY_DEV_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
 
-SECRET_KEY = os.getenv("GUPPY_JWT_SECRET", "").strip()
+# Prefer OS credential store; fall back to env-var so existing deployments
+# continue to work with no migration step.
+_env_jwt = os.getenv("GUPPY_JWT_SECRET", "").strip()
+SECRET_KEY = (_secret_store.get_secret("jwt_secret", fallback=_env_jwt) or "").strip() if _SECRET_STORE_AVAILABLE else _env_jwt
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 24 * 60  # 24 hours
 
@@ -41,7 +50,12 @@ def _refresh_runtime_config() -> None:
 
     load_env_file(override=True)
     DEV_MODE = os.getenv("GUPPY_DEV_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
-    SECRET_KEY = os.getenv("GUPPY_JWT_SECRET", "").strip()
+    _env_jwt_now = os.getenv("GUPPY_JWT_SECRET", "").strip()
+    SECRET_KEY = (
+        (_secret_store.get_secret("jwt_secret", fallback=_env_jwt_now) or "").strip()
+        if _SECRET_STORE_AVAILABLE
+        else _env_jwt_now
+    )
     TURNSTILE_SECRET = os.getenv("TURNSTILE_SECRET", "").strip()
 
 
@@ -77,10 +91,10 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire, "iat": datetime.utcnow()})
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire, "iat": datetime.now(timezone.utc)})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -88,12 +102,15 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
     """Verify JWT token and return user ID."""
     _refresh_runtime_config()
     if _is_placeholder_secret(SECRET_KEY):
-        raise HTTPException(status_code=503, detail="JWT signing key is not configured")
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "auth_jwt_not_configured", "message": "JWT signing key is not configured"},
+        )
 
     if not credentials:
         raise HTTPException(
             status_code=401,
-            detail="Authentication required",
+            detail={"code": "auth_missing_bearer", "message": "Authentication required"},
             headers={"WWW-Authenticate": "Bearer"}
         )
 
@@ -101,11 +118,23 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
         if user_id is None:
-            raise HTTPException(status_code=401, detail="Invalid token payload")
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "auth_invalid_payload", "message": "Invalid token payload"},
+            )
         return user_id
+    except ExpiredSignatureError as e:
+        logger.warning("JWT verification failed [auth_token_expired]: %s", e)
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "auth_token_expired", "message": "Invalid or expired token"},
+        )
     except JWTError as e:
-        logger.warning(f"JWT verification failed: {e}")
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        logger.warning("JWT verification failed [auth_token_invalid]: %s", e)
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "auth_token_invalid", "message": "Invalid or expired token"},
+        )
 
 def get_token_expiry(token: str) -> Optional[datetime]:
     """Get token expiry time without full verification."""
@@ -202,7 +231,7 @@ rate_limit_store: dict = {}
 
 def check_rate_limit(user_id: str, max_requests: int = 100, window_minutes: int = 60) -> bool:
     """Check if user has exceeded rate limit."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     window_start = now - timedelta(minutes=window_minutes)
 
     if user_id not in rate_limit_store:

@@ -44,7 +44,7 @@ Guppy should be the default daily assistant on a Microsoft PC:
 
 These capabilities exist now and are usable in pilot:
 
-1. Unified launcher as primary surface with Assistant, Tools, Settings, Advanced, Models, Voices tabs.
+1. Unified launcher is evolving toward Home, Instance Manager, Agent Tools, App Management, Settings, Models, and Voices tabs.
 2. Launcher auto-starts guppy_api.py and guppy_hub.py on open — no manual service management required.
 3. Local 5-model fleet with runtime verification tooling.
 4. Router modes for local, paired, code, and vault workflows.
@@ -76,8 +76,9 @@ Objective: every capability must either work inside GuppyPrime UI now or be trac
 | Model management and selection | Launcher Models tab | Live | M1 | ModelOps | Keep route/fallback cards aligned with runtime. |
 | Voice library and preview | Launcher Voices tab | Partial | M2 | Voice | Complete import, assignment, and interruption-safe preview flow. |
 | Persona/provider/voice config editing | Launcher Settings tab | Partial | M2 | UI | Replace raw JSON-first UX with guided cards/forms while keeping expert editor. |
-| Tools and command workflows | Launcher Tools tab | Partial | M2 | Tools | Remove placeholder actions; each control must have visible side effect. |
-| Advanced deploy/operator controls | Launcher Advanced tab | Partial | M2 | Platform | Add process guards and embedded outcomes instead of detached-only behavior. |
+| Instance management and background collaboration | Home + Instance Manager | Partial | M2 | UI/Platform | Add bounded multi-instance support, logs, and inter-agent queries. |
+| Tools and command workflows | Launcher Agent Tools tab | Partial | M2 | Tools | Separate instance tools from app operations and enforce per-instance capabilities server-side. |
+| App recovery/operator controls | Launcher App Management tab | Partial | M2 | Platform | Move recovery and diagnostics out of mixed UI and into a dedicated operator surface. |
 | Daily workflow orchestration | Daemon + docs | Partial | M3 | Runtime | Expose Morning/Workday/Close loops directly in GuppyPrime surfaces. |
 | Legacy standalone UIs (`guppy_ui.py`, `merlin_ui.py`, `council_ui.py`) | Separate windows | Compatibility-only | M3 | Platform | Freeze by default path; keep only for fallback/debug until retirement gate passes. |
 
@@ -100,49 +101,55 @@ present. Date is firm.
 
 ### **M2 - Functional Parity for Builder and Tooling (Highest) — Due September 30, 2026**
 
-**[Detailed Breakdown: docs/M2_ENGINEERING_PLAN.md](docs/M2_ENGINEERING_PLAN.md)** — 6 epics, detailed PRDs, risk assessment, schedule, success metrics
+**[Detailed Breakdown: docs/M2_ENGINEERING_PLAN.md](docs/M2_ENGINEERING_PLAN.md)** — 8 workstreams, detailed PRDs, risk assessment, schedule, success metrics
 
 **ACTIVE THIS WEEK (Week of Apr 15):**
 
-1. **Persona Builder v1 — Non-Technical UX**
+1. **Instance Manager + Home Primary**
+  - Add `config/instances.json` + `runtime/instance_state.json`
+  - Support 1 foreground instance + 1 background collaborator in M2.0
+  - Add Home header quick-switcher and per-instance transcript restore
+  - Acceptance: bounded multi-instance works without hurting first response
+
+2. **Persona Builder v1 — Non-Technical UX**
    - Tone slider (formal ↔ conversational)
    - Verbosity slider (terse ↔ verbose)
    - Teaching style (Socratic | Direct | Example-led)
    - Scope toggle (global vs per-model)
    - Live system prompt preview
-   - Save to `config/personas.json` + hot reload
+    - Save to `runtime/persona_config.json` + hot reload
    - Acceptance: Non-technical user can define persona without file editing
 
-2. **Model Assignment Editor + Route Visualizer**
+3. **Model Assignment Editor + Route Visualizer**
    - Assign models to task types (simple/complex/teaching/code)
    - Edit fallback chain (pick 2–3 models)
    - Health badges (✓ready | ⚠slow | ✗offline)
    - Test run → mock query → show latency
+    - Persist through `runtime/provider_registry.json`
    - Acceptance: Every task type has a visible route strategy
 
-3. **Voice Assignment + Library**
+4. **Voice Assignment + Library**
    - Engine: Kokoro, system TTS, optional ElevenLabs
    - Per-persona voice binding
    - Per-model voice override
    - Preview playback (interruption-safe)
    - Acceptance: User can set voice globally, then override per-agent
 
-4. **Tools Tab Cleanup**
-   - Remove all dead/placeholder buttons
-   - For each live tool: description card + dry-run if risky
-   - Scope `run_python` to safe directories
-   - Badge all CRM/VoIP as "Coming M3"
-   - Acceptance: Every visible control has a documented action
+5. **Agent Tools + App Management Separation**
+  - Split instance tools from operator recovery/diagnostics
+  - Enforce per-instance capabilities in API/tool runner, not only UI
+  - Scope `run_python` and writes to approved capabilities
+  - Acceptance: Every visible control has a documented action and restricted tools are blocked server-side
 
-5. **Advanced Tab + Recovery Actions**
+6. **App Management Recovery Actions**
    - Warmup (refetch models)
    - Restart daemon
    - Audit runtime
    - Process guards (no duplicate launches)
-   - Outcome visibility in ASistant transcript
+    - Outcome visibility in Assistant transcript
    - Acceptance: Recovery flows are discoverable + outcomes visible
 
-6. **Off-Hours Agent Scaling**
+7. **Off-Hours Agent Scaling**
    - Write tasks now common (not just read)
    - Merlin-code generates: tests, schemas, docstrings
    - Dry-run review loop: stage → human approve → apply

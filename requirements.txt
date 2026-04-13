@@ -53,6 +53,9 @@ uvicorn[standard]
 python-jose[cryptography]
 httpx
 
+# ── Secrets (OS credential store) ────────────────────────
+keyring
+
 # ── Phase 4: Wake Word Detection (optional) ──────────────
 # Install to enable openwakeword fast path (<1% CPU).
 # Without this, wake word falls back to transcription-based detection.

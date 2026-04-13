@@ -24,6 +24,17 @@ from PySide6.QtWidgets import (
 
 from .. import tokens as T
 
+try:
+    from utils.personalization_config import (
+        ensure_personalization_scaffold,
+        load_voice_bindings,
+        save_voice_bindings,
+        validate_voice_bindings,
+    )
+    _VOICE_BINDINGS_BACKEND = True
+except Exception:
+    _VOICE_BINDINGS_BACKEND = False
+
 # ── Voice catalogues ──────────────────────────────────────────────────────────
 
 EDGE_VOICES: list[tuple[str, str, str]] = [
@@ -77,6 +88,17 @@ ENGINES: dict[str, list[tuple[str, str, str]]] = {
 }
 
 _PREVIEW_PHRASE = "Hey, I'm your AI assistant. How can I help you today?"
+
+_PERSONA_OPTIONS = ["guppy", "merlin", "council"]
+_MODEL_OPTIONS = [
+    "guppy",
+    "merlin",
+    "guppy-fast",
+    "merlin-code",
+    "vault-scraper",
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-4-6",
+]
 
 
 class _VoiceRow(QFrame):
@@ -214,7 +236,14 @@ class VoicesView(QWidget):
         self._active_voice = os.environ.get("GUPPY_TTS_VOICE", "en-GB-RyanNeural")
         self._active_engine = "EDGE TTS"
         self._rows: list[_VoiceRow] = []
+        self._voice_bindings: dict[str, Any] = {
+            "version": 1,
+            "defaults": {"engine": self._active_engine, "voice_id": self._active_voice},
+            "bindings": {"by_model": {}, "by_persona": {}},
+            "imports": [],
+        }
         self._build_ui()
+        self._load_voice_bindings_state()
         self._populate_voices(self._active_engine)
 
     def _build_ui(self) -> None:
@@ -264,7 +293,64 @@ class VoicesView(QWidget):
         )
         bl.addWidget(self._active_lbl)
 
+        self._save_default_btn = QPushButton("SAVE AS DEFAULT")
+        self._save_default_btn.setFixedHeight(28)
+        self._save_default_btn.clicked.connect(self._save_default_voice)
+        bl.addSpacing(12)
+        bl.addWidget(self._save_default_btn)
+
         root.addWidget(bar)
+
+        # ── Guided assignment strip (persona/model) ─────────────────────────
+        assign_bar = QFrame()
+        assign_bar.setFixedHeight(62)
+        assign_bar.setStyleSheet(
+            f"QFrame {{ background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER}; }}"
+        )
+        ab = QHBoxLayout(assign_bar)
+        ab.setContentsMargins(28, 0, 28, 0)
+        ab.setSpacing(10)
+
+        p_lbl = QLabel("ASSIGN TO PERSONA")
+        p_lbl.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
+            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        ab.addWidget(p_lbl)
+        self._persona_cb = QComboBox()
+        self._persona_cb.addItems(_PERSONA_OPTIONS)
+        self._persona_cb.setFixedWidth(140)
+        ab.addWidget(self._persona_cb)
+        self._assign_persona_btn = QPushButton("ASSIGN")
+        self._assign_persona_btn.setFixedHeight(28)
+        self._assign_persona_btn.clicked.connect(self._assign_persona_voice)
+        ab.addWidget(self._assign_persona_btn)
+
+        ab.addSpacing(18)
+
+        m_lbl = QLabel("ASSIGN TO MODEL")
+        m_lbl.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
+            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        ab.addWidget(m_lbl)
+        self._model_cb = QComboBox()
+        self._model_cb.addItems(_MODEL_OPTIONS)
+        self._model_cb.setFixedWidth(210)
+        ab.addWidget(self._model_cb)
+        self._assign_model_btn = QPushButton("ASSIGN")
+        self._assign_model_btn.setFixedHeight(28)
+        self._assign_model_btn.clicked.connect(self._assign_model_voice)
+        ab.addWidget(self._assign_model_btn)
+
+        ab.addStretch()
+        self._assign_status = QLabel("Voice bindings ready")
+        self._assign_status.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
+            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        ab.addWidget(self._assign_status)
+        root.addWidget(assign_bar)
 
         # ── Voice list scrollable area ────────────────────────────────────────
         scroll = QScrollArea()
@@ -305,3 +391,71 @@ class VoicesView(QWidget):
         self._active_lbl.setText(f"ACTIVE: {voice_id.upper()}")
         for row in self._rows:
             row.mark_active(row.voice_id == voice_id)
+
+    def _load_voice_bindings_state(self) -> None:
+        if not _VOICE_BINDINGS_BACKEND:
+            self._assign_status.setText("voice bindings backend unavailable")
+            return
+        try:
+            ensure_personalization_scaffold()
+            data = load_voice_bindings()
+            if isinstance(data, dict):
+                self._voice_bindings = data
+            defaults = self._voice_bindings.get("defaults", {})
+            if isinstance(defaults, dict):
+                self._active_engine = str(defaults.get("engine", self._active_engine))
+                self._active_voice = str(defaults.get("voice_id", self._active_voice))
+            idx = self._engine_cb.findText(self._active_engine)
+            if idx >= 0:
+                self._engine_cb.setCurrentIndex(idx)
+            self._assign_status.setText("voice bindings loaded")
+        except Exception as e:
+            self._assign_status.setText(f"load failed: {e}")
+
+    def _save_voice_bindings_state(self) -> bool:
+        if not _VOICE_BINDINGS_BACKEND:
+            self._assign_status.setText("voice bindings backend unavailable")
+            return False
+        try:
+            errors = validate_voice_bindings(self._voice_bindings)
+            if errors:
+                self._assign_status.setText(f"invalid bindings: {errors[0]}")
+                return False
+            save_voice_bindings(self._voice_bindings)
+            return True
+        except Exception as e:
+            self._assign_status.setText(f"save failed: {e}")
+            return False
+
+    def _save_default_voice(self) -> None:
+        self._voice_bindings.setdefault("defaults", {})
+        self._voice_bindings["defaults"] = {
+            "engine": self._active_engine,
+            "voice_id": self._active_voice,
+        }
+        if self._save_voice_bindings_state():
+            self._assign_status.setText(
+                f"default saved: {self._active_engine} / {self._active_voice}"
+            )
+
+    def _assign_persona_voice(self) -> None:
+        persona = self._persona_cb.currentText().strip().lower()
+        self._voice_bindings.setdefault("bindings", {})
+        self._voice_bindings["bindings"].setdefault("by_persona", {})
+        self._voice_bindings["bindings"]["by_persona"][persona] = {
+            "engine": self._active_engine,
+            "voice_id": self._active_voice,
+        }
+        if self._save_voice_bindings_state():
+            self._assign_status.setText(f"persona {persona} -> {self._active_voice}")
+
+    def _assign_model_voice(self) -> None:
+        model = self._model_cb.currentText().strip()
+        self._voice_bindings.setdefault("bindings", {})
+        self._voice_bindings["bindings"].setdefault("by_model", {})
+        self._voice_bindings["bindings"]["by_model"][model] = {
+            "engine": self._active_engine,
+            "voice_id": self._active_voice,
+        }
+        if self._save_voice_bindings_state():
+            self._assign_status.setText(f"model {model} -> {self._active_voice}")

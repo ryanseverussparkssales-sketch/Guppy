@@ -19,7 +19,7 @@ def _hash_file(filepath: str) -> str:
     try:
         content = Path(filepath).read_bytes()
         return hashlib.md5(content).hexdigest()
-    except:
+    except Exception:
         return ""
 
 def _get_analysis_cached(filepath: str, force_fresh: bool = False) -> dict:

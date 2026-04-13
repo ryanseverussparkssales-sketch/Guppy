@@ -16,6 +16,7 @@ import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+from utils.db_utils import open_db as _open_db
 
 import requests
 
@@ -29,9 +30,7 @@ def _backend() -> str:
 
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(str(DB_PATH))
-    c.execute("PRAGMA journal_mode=WAL")
-    c.execute("PRAGMA busy_timeout=5000")
+    c = _open_db(DB_PATH)
     c.execute(
         """
         CREATE TABLE IF NOT EXISTS semantic_memory (

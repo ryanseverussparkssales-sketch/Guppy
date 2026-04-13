@@ -17,6 +17,19 @@ import sqlite3
 import threading
 from pathlib import Path
 
+try:
+    from utils.db_utils import open_db as _open_db
+    _DB_UTILS = True
+except ImportError:
+    _open_db = None  # type: ignore[assignment]
+    _DB_UTILS = False
+
+
+def _connect_db(path) -> sqlite3.Connection:
+    if _DB_UTILS and _open_db is not None:
+        return _open_db(path)
+    return sqlite3.connect(str(path))
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -240,7 +253,7 @@ class MemoryTab(QWidget):
             return
         cols = TABLES.get(table, ["*"])
         try:
-            con = sqlite3.connect(str(DB_PATH))
+            con = _connect_db(DB_PATH)
             cur = con.execute(f"SELECT {', '.join(cols)} FROM {table}")
             rows = cur.fetchall()
             con.close()
@@ -270,7 +283,7 @@ class MemoryTab(QWidget):
         if not DB_PATH.exists():
             return
         try:
-            con = sqlite3.connect(str(DB_PATH))
+            con = _connect_db(DB_PATH)
             con.execute(f"DELETE FROM {table}")
             con.commit()
             con.close()
@@ -483,7 +496,7 @@ class EmergencyTab(QWidget):
             QMessageBox.information(self, "Done", "No DB found.")
             return
         try:
-            con = sqlite3.connect(str(DB_PATH))
+            con = _connect_db(DB_PATH)
             for tbl in TABLES:
                 con.execute(f"DELETE FROM {tbl}")
             con.commit()

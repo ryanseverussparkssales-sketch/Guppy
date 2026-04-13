@@ -17,7 +17,7 @@ This is the operational handoff checklist for the current build state, including
 2. Policy source:
   - `config/beta_tool_allowlist.txt`
 3. Runtime enforcement point:
-  - `guppy_core.py` in `run_tool(...)`
+  - `guppy_core/tool_runner.py` in `run_tool(...)`
 4. Verification command:
   - `python tools/verify_beta_package_policy.py`
 5. Verification artifact:

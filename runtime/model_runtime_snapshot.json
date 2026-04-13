@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-04-13T02:37:06.027533+00:00",
+  "timestamp_utc": "2026-04-13T04:18:31.145043+00:00",
   "requested_models": [
     "guppy-fast:latest",
     "vault-scraper:latest",
@@ -45,7 +45,7 @@
     "guppy:latest": {
       "ok": true,
       "reason": "ok",
-      "sample": "OK\ud83c\udfa9"
+      "sample": "OK \u2731"
     },
     "merlin:latest": {
       "ok": true,
@@ -55,11 +55,11 @@
   },
   "ps_rows": [
     {
-      "name": "guppy:latest",
-      "processor": "23%/77% CPU/GPU",
+      "name": "merlin:latest",
+      "processor": "56%/44% CPU/GPU",
       "context": "16384",
-      "until": "4 minutes from now"
+      "until": "Stopping..."
     }
   ],
-  "ps_raw": "NAME            ID              SIZE     PROCESSOR          CONTEXT    UNTIL              \nguppy:latest    be29bf372069    25 GB    23%/77% CPU/GPU    16384      4 minutes from now"
+  "ps_raw": "NAME             ID              SIZE     PROCESSOR          CONTEXT    UNTIL       \nmerlin:latest    5a0dd8e75547    25 GB    56%/44% CPU/GPU    16384      Stopping..."
 }

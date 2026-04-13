@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from inference_router import LAUNCHER_MODES_DISPLAY
 from .. import tokens as T
 from ..components.toggle_row import ToggleRow
 
@@ -137,6 +138,7 @@ class SettingsView(QWidget):
         self._persona_editor: QPlainTextEdit | None = None
         self._providers_editor: QPlainTextEdit | None = None
         self._voice_editor: QPlainTextEdit | None = None
+        self._provider_route_options: list[str] = []
         self._build_ui()
         self._load()
         self._load_personalization_editors()
@@ -219,7 +221,7 @@ class SettingsView(QWidget):
         layout.addLayout(model_row)
 
         self._cb_profile = self._dropdown_row(layout, "Profile", ["LIGHT", "STANDARD", "POWER"])
-        self._cb_mode    = self._dropdown_row(layout, "Mode",    ["AUTO", "CLAUDE", "OLLAMA", "TEACHING"])
+        self._cb_mode    = self._dropdown_row(layout, "Mode",    list(LAUNCHER_MODES_DISPLAY))
         self._cb_surface = self._dropdown_row(layout, "Default Surface", ["GUPPY", "MERLIN", "COUNCIL"])
 
         # Last modified
@@ -324,6 +326,143 @@ class SettingsView(QWidget):
         layout.addWidget(self._recovery_status)
 
         layout.addSpacing(12)
+
+        # ── Personalization config tabs ─────────────────────────────────────
+        layout.addWidget(_section_header("GUIDED_PERSONA_BUILDER"))
+        guided_box = QFrame()
+        guided_box.setStyleSheet(
+            f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
+        )
+        gcol = QVBoxLayout(guided_box)
+        gcol.setContentsMargins(12, 10, 12, 10)
+        gcol.setSpacing(8)
+
+        pname_row = QHBoxLayout()
+        pname_row.addWidget(_row_label("Persona Name"))
+        pname_row.addStretch()
+        self._guided_persona_name = QLineEdit()
+        self._guided_persona_name.setFixedWidth(220)
+        self._guided_persona_name.setPlaceholderText("Guppy Global")
+        pname_row.addWidget(self._guided_persona_name)
+        gcol.addLayout(pname_row)
+
+        tone_row = QHBoxLayout()
+        tone_row.addWidget(_row_label("Tone"))
+        tone_row.addStretch()
+        self._guided_tone = QComboBox()
+        self._guided_tone.addItems(["butler", "casual", "analyst", "mentor"])
+        self._guided_tone.setFixedWidth(220)
+        tone_row.addWidget(self._guided_tone)
+        gcol.addLayout(tone_row)
+
+        verb_row = QHBoxLayout()
+        verb_row.addWidget(_row_label("Verbosity"))
+        verb_row.addStretch()
+        self._guided_verbosity = QComboBox()
+        self._guided_verbosity.addItems(["low", "medium", "high"])
+        self._guided_verbosity.setFixedWidth(220)
+        verb_row.addWidget(self._guided_verbosity)
+        gcol.addLayout(verb_row)
+
+        style_row = QHBoxLayout()
+        style_row.addWidget(_row_label("Response Style"))
+        style_row.addStretch()
+        self._guided_style = QComboBox()
+        self._guided_style.addItems(["direct", "teaching", "structured", "friendly"])
+        self._guided_style.setFixedWidth(220)
+        style_row.addWidget(self._guided_style)
+        gcol.addLayout(style_row)
+
+        gbtn_row = QHBoxLayout()
+        gbtn_row.setSpacing(8)
+        self._guided_save_btn = QPushButton("APPLY PERSONA")
+        self._guided_save_btn.setStyleSheet(
+            f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER};"
+            f"  padding: 5px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; }}"
+        )
+        self._guided_save_btn.clicked.connect(self._save_guided_persona)
+        gbtn_row.addWidget(self._guided_save_btn)
+        gbtn_row.addStretch()
+        self._guided_status_lbl = QLabel("Guided persona builder ready")
+        self._guided_status_lbl.setStyleSheet(
+            f"color: {T.BORDER}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+        )
+        gbtn_row.addWidget(self._guided_status_lbl)
+        gcol.addLayout(gbtn_row)
+
+        layout.addWidget(guided_box)
+        layout.addSpacing(8)
+
+        # ── Guided provider routing builder ─────────────────────────────────
+        layout.addWidget(_section_header("GUIDED_PROVIDER_ROUTING"))
+        provider_box = QFrame()
+        provider_box.setStyleSheet(
+            f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
+        )
+        prow = QVBoxLayout(provider_box)
+        prow.setContentsMargins(12, 10, 12, 10)
+        prow.setSpacing(8)
+
+        simple_row = QHBoxLayout()
+        simple_row.addWidget(_row_label("Simple Route"))
+        simple_row.addStretch()
+        self._guided_route_simple = QComboBox()
+        self._guided_route_simple.setFixedWidth(280)
+        simple_row.addWidget(self._guided_route_simple)
+        prow.addLayout(simple_row)
+
+        complex_row = QHBoxLayout()
+        complex_row.addWidget(_row_label("Complex Route"))
+        complex_row.addStretch()
+        self._guided_route_complex = QComboBox()
+        self._guided_route_complex.setFixedWidth(280)
+        complex_row.addWidget(self._guided_route_complex)
+        prow.addLayout(complex_row)
+
+        teach_row = QHBoxLayout()
+        teach_row.addWidget(_row_label("Teaching Route"))
+        teach_row.addStretch()
+        self._guided_route_teaching = QComboBox()
+        self._guided_route_teaching.setFixedWidth(280)
+        teach_row.addWidget(self._guided_route_teaching)
+        prow.addLayout(teach_row)
+
+        fallback_row = QHBoxLayout()
+        fallback_row.addWidget(_row_label("Fallback Chain"))
+        fallback_row.addStretch()
+        self._guided_fallback_chain = QLineEdit()
+        self._guided_fallback_chain.setFixedWidth(420)
+        self._guided_fallback_chain.setPlaceholderText("provider/model, provider/model, local/guppy")
+        self._guided_fallback_chain.setStyleSheet(
+            f"QLineEdit {{ background-color: {T.BG0}; border: 1px solid {T.BORDER};"
+            f"  color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt;"
+            f"  padding: 3px 8px; }}"
+            f"QLineEdit:focus {{ border-color: {T.PRIMARY}; }}"
+        )
+        fallback_row.addWidget(self._guided_fallback_chain)
+        prow.addLayout(fallback_row)
+
+        pbtn_row = QHBoxLayout()
+        pbtn_row.setSpacing(8)
+        self._guided_provider_save_btn = QPushButton("APPLY PROVIDER ROUTES")
+        self._guided_provider_save_btn.setStyleSheet(
+            f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER};"
+            f"  padding: 5px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; }}"
+        )
+        self._guided_provider_save_btn.clicked.connect(self._save_guided_provider_routes)
+        pbtn_row.addWidget(self._guided_provider_save_btn)
+        pbtn_row.addStretch()
+        self._guided_provider_status_lbl = QLabel("Guided provider routing ready")
+        self._guided_provider_status_lbl.setStyleSheet(
+            f"color: {T.BORDER}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+        )
+        pbtn_row.addWidget(self._guided_provider_status_lbl)
+        prow.addLayout(pbtn_row)
+
+        layout.addWidget(provider_box)
+        layout.addSpacing(8)
 
         # ── Personalization config tabs ─────────────────────────────────────
         layout.addWidget(_section_header("PERSONALIZATION CONFIG"))
@@ -445,7 +584,7 @@ class SettingsView(QWidget):
             s = load_app_settings()
             profiles = {"light": 0, "standard": 1, "power": 2}
             self._cb_profile.setCurrentIndex(profiles.get(s.get("runtime_profile", "standard"), 1))
-            modes = {"auto": 0, "claude": 1, "ollama": 2, "teaching": 3}
+            modes = {"auto": 0, "claude": 1, "ollama": 2, "local": 3, "code": 4, "teaching": 5}
             self._cb_mode.setCurrentIndex(modes.get(s.get("default_mode", "auto"), 0))
             surfaces = {"guppy": 0, "merlin": 1, "council": 2}
             self._cb_surface.setCurrentIndex(surfaces.get(s.get("default_surface", "guppy"), 0))
@@ -490,7 +629,7 @@ class SettingsView(QWidget):
     def _save(self) -> None:
         import time as _time
         profile_map = {0: "light", 1: "standard", 2: "power"}
-        mode_map    = {0: "auto", 1: "claude",   2: "ollama",  3: "teaching"}
+        mode_map    = {0: "auto", 1: "claude", 2: "ollama", 3: "local", 4: "code", 5: "teaching"}
         surface_map = {0: "guppy", 1: "merlin", 2: "council"}
         persona_options = [
             "BUTLER_PROFESSIONAL", "ASSISTANT_CASUAL",
@@ -572,11 +711,175 @@ class SettingsView(QWidget):
                 self._providers_editor.setPlainText(__import__("json").dumps(load_provider_registry(), indent=2))
             if self._voice_editor is not None:
                 self._voice_editor.setPlainText(__import__("json").dumps(load_voice_bindings(), indent=2))
+            self._load_guided_persona_builder()
+            self._load_guided_provider_routes()
             if getattr(self, "_cfg_status_lbl", None):
                 self._set_cfg_status("Personalization configs loaded", ok=True)
         except Exception as e:
             if getattr(self, "_cfg_status_lbl", None):
                 self._set_cfg_status(f"Load failed: {e}", ok=False)
+
+    def _set_guided_status(self, text: str, ok: bool = True) -> None:
+        color = T.GREEN if ok else T.ERROR
+        self._guided_status_lbl.setText(text)
+        self._guided_status_lbl.setStyleSheet(
+            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+        )
+
+    def _load_guided_persona_builder(self) -> None:
+        if not _PERSONALIZATION_BACKEND:
+            return
+        try:
+            cfg = load_persona_config()
+            assignments = cfg.get("assignments", {}) if isinstance(cfg, dict) else {}
+            pid = assignments.get("global") if isinstance(assignments, dict) else None
+            personas = cfg.get("personas", []) if isinstance(cfg, dict) else []
+            target = None
+            if isinstance(personas, list):
+                for p in personas:
+                    if isinstance(p, dict) and p.get("id") == pid:
+                        target = p
+                        break
+            if not isinstance(target, dict):
+                return
+            self._guided_persona_name.setText(str(target.get("name", "Guppy Global")))
+            traits = target.get("traits", {}) if isinstance(target.get("traits"), dict) else {}
+            tone = str(traits.get("tone", "butler"))
+            verbosity = str(traits.get("verbosity", "medium"))
+            style = str(traits.get("response_style", "direct"))
+            t_idx = self._guided_tone.findText(tone)
+            v_idx = self._guided_verbosity.findText(verbosity)
+            s_idx = self._guided_style.findText(style)
+            if t_idx >= 0:
+                self._guided_tone.setCurrentIndex(t_idx)
+            if v_idx >= 0:
+                self._guided_verbosity.setCurrentIndex(v_idx)
+            if s_idx >= 0:
+                self._guided_style.setCurrentIndex(s_idx)
+        except Exception as e:
+            self._set_guided_status(f"guided load failed: {e}", ok=False)
+
+    def _save_guided_persona(self) -> None:
+        if not _PERSONALIZATION_BACKEND:
+            self._set_guided_status("Personalization backend unavailable", ok=False)
+            return
+        try:
+            cfg = load_persona_config()
+            assignments = cfg.get("assignments", {}) if isinstance(cfg, dict) else {}
+            pid = assignments.get("global") if isinstance(assignments, dict) else None
+            personas = cfg.get("personas", []) if isinstance(cfg, dict) else []
+            if not isinstance(personas, list) or not pid:
+                self._set_guided_status("persona config missing global persona", ok=False)
+                return
+            updated = False
+            for p in personas:
+                if not isinstance(p, dict) or p.get("id") != pid:
+                    continue
+                p["name"] = self._guided_persona_name.text().strip() or "Guppy Global"
+                traits = p.get("traits") if isinstance(p.get("traits"), dict) else {}
+                traits["tone"] = self._guided_tone.currentText()
+                traits["verbosity"] = self._guided_verbosity.currentText()
+                traits["response_style"] = self._guided_style.currentText()
+                p["traits"] = traits
+                updated = True
+                break
+            if not updated:
+                self._set_guided_status("global persona not found", ok=False)
+                return
+            errors = validate_persona_config(cfg)
+            if errors:
+                self._set_guided_status(f"persona invalid: {errors[0]}", ok=False)
+                return
+            save_persona_config(cfg)
+            if self._persona_editor is not None:
+                self._persona_editor.setPlainText(__import__("json").dumps(cfg, indent=2))
+            self._set_guided_status("guided persona saved", ok=True)
+        except Exception as e:
+            self._set_guided_status(f"guided save failed: {e}", ok=False)
+
+    def _set_guided_provider_status(self, text: str, ok: bool = True) -> None:
+        color = T.GREEN if ok else T.ERROR
+        self._guided_provider_status_lbl.setText(text)
+        self._guided_provider_status_lbl.setStyleSheet(
+            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+        )
+
+    def _set_combo_to_text(self, combo: QComboBox, target: str) -> None:
+        idx = combo.findText(target)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+
+    def _load_guided_provider_routes(self) -> None:
+        if not _PERSONALIZATION_BACKEND:
+            return
+        try:
+            registry = load_provider_registry()
+            providers = registry.get("providers", []) if isinstance(registry, dict) else []
+            options: list[str] = []
+            for provider in providers if isinstance(providers, list) else []:
+                if not isinstance(provider, dict):
+                    continue
+                pid = provider.get("id")
+                models = provider.get("models", [])
+                if not isinstance(pid, str) or not isinstance(models, list):
+                    continue
+                for model in models:
+                    if not isinstance(model, dict):
+                        continue
+                    mid = model.get("id")
+                    if isinstance(mid, str) and mid:
+                        options.append(f"{pid}/{mid}")
+            options = sorted(set(options))
+            self._provider_route_options = options
+
+            for combo in [self._guided_route_simple, self._guided_route_complex, self._guided_route_teaching]:
+                combo.clear()
+                combo.addItems(options)
+
+            routes = registry.get("routes", {}) if isinstance(registry, dict) else {}
+            if isinstance(routes, dict):
+                self._set_combo_to_text(self._guided_route_simple, str(routes.get("simple", "")))
+                self._set_combo_to_text(self._guided_route_complex, str(routes.get("complex", "")))
+                self._set_combo_to_text(self._guided_route_teaching, str(routes.get("teaching", "")))
+                fallback = routes.get("fallback_chain", [])
+                if isinstance(fallback, list):
+                    self._guided_fallback_chain.setText(", ".join(str(x).strip() for x in fallback if str(x).strip()))
+        except Exception as e:
+            self._set_guided_provider_status(f"guided provider load failed: {e}", ok=False)
+
+    def _save_guided_provider_routes(self) -> None:
+        if not _PERSONALIZATION_BACKEND:
+            self._set_guided_provider_status("Personalization backend unavailable", ok=False)
+            return
+        try:
+            registry = load_provider_registry()
+            if not isinstance(registry, dict):
+                self._set_guided_provider_status("provider registry is invalid", ok=False)
+                return
+
+            routes = registry.get("routes") if isinstance(registry.get("routes"), dict) else {}
+            routes["simple"] = self._guided_route_simple.currentText().strip()
+            routes["complex"] = self._guided_route_complex.currentText().strip()
+            routes["teaching"] = self._guided_route_teaching.currentText().strip()
+            fallback = [
+                item.strip()
+                for item in self._guided_fallback_chain.text().split(",")
+                if item.strip()
+            ]
+            routes["fallback_chain"] = fallback
+            registry["routes"] = routes
+
+            errors = validate_provider_registry(registry)
+            if errors:
+                self._set_guided_provider_status(f"provider invalid: {errors[0]}", ok=False)
+                return
+
+            save_provider_registry(registry)
+            if self._providers_editor is not None:
+                self._providers_editor.setPlainText(__import__("json").dumps(registry, indent=2))
+            self._set_guided_provider_status("guided provider routes saved", ok=True)
+        except Exception as e:
+            self._set_guided_provider_status(f"guided provider save failed: {e}", ok=False)
 
     def _validate_active_personalization_editor(self) -> None:
         if not _PERSONALIZATION_BACKEND:

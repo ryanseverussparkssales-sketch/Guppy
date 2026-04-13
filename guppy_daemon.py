@@ -29,6 +29,16 @@ except Exception:
     PSUTIL_AVAILABLE = False
 
 try:
+    from utils.safe_io import write_json_atomic as _write_json_atomic
+except ImportError:
+    def _write_json_atomic(path, data):  # type: ignore[misc]
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=True), encoding="utf-8")
+        tmp.replace(path)
+
+try:
     from utils.operational_telemetry import log_operational_event
 except Exception:
     def log_operational_event(*_args, **_kwargs):
@@ -368,12 +378,11 @@ class TaskScheduler:
         try:
             self.runtime_dir.mkdir(parents=True, exist_ok=True)
             cmd_path = self.runtime_dir / f"{agent}.cmd"
-            data = {
+            _write_json_atomic(cmd_path, {
                 "cmd": cmd,
                 "payload": payload or {},
                 "ts": datetime.now().isoformat(),
-            }
-            cmd_path.write_text(json.dumps(data, ensure_ascii=True), encoding="utf-8")
+            })
         except Exception as e:
             logger.debug(f"IPC emit failed ({agent}:{cmd}): {e}")
 
@@ -1352,11 +1361,15 @@ class AmbientWatcher:
 
     def _read_clipboard(self) -> str:
         try:
+            import sys as _sys
+            extra = ({"creationflags": subprocess.CREATE_NO_WINDOW}
+                     if _sys.platform == "win32" else {})
             result = subprocess.run(
                 ["powershell", "-command", "Get-Clipboard"],
                 capture_output=True,
                 text=True,
                 timeout=2,
+                **extra,
             )
             return result.stdout.strip()[:2000]
         except Exception:

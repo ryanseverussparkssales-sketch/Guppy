@@ -42,8 +42,8 @@ Home Tab (Primary)
 
 Background Instances (Managed from Instance Manager)
 ├─ Builder (running): merlin-code, Schema writing
-├─ Council (idle): Debate mode, Waiting
-└─ Vault (idle): Retrieval only, Standby
+├─ Merlin (idle): Available as collaborator
+└─ Additional instances (configured): idle until activated
 ```
 
 **User Workflow:**
@@ -52,6 +52,8 @@ Background Instances (Managed from Instance Manager)
    Open Instance Manager tab for full control
 3. Use tools → Agent Tools tab (tools for YOUR instance)
 4. Troubleshoot app → App Mgmt tab (app-level operations)
+
+**M2.0 Limit:** one foreground instance + one background collaborator, with one inter-instance query in flight.
 
 ---
 
@@ -89,7 +91,7 @@ Instance Manager
 - `write_file` — Write to approved directories
 - `query_instance` — Ask another instance (inter-agent query)
 - `screenshot` — Capture screen
-- (Tools filtered by instance permissions)
+- (Tools filtered by instance permissions and enforced server-side)
 
 ### App Management Tab
 **Tools to MANAGE the app:**
@@ -154,6 +156,11 @@ Stored in:
 - `runtime/instance_state.json` → Active instance + current states
 - `runtime/logs/instance_{name}.jsonl` → Chat history per instance
 
+Log policy:
+- Raw logs retained 14 days
+- Summary metadata retained 30 days
+- Obvious secrets redacted before persistence/export
+
 ---
 
 ## ✅ Implementation Checklist (M2 Epics 0–6)
@@ -163,6 +170,7 @@ Stored in:
 - [ ] Background instance logging (JSONL per instance)
 - [ ] Instance state persistence (across restart)
 - [ ] Inter-agent API endpoint: `/instances/{name}/query`
+- [ ] Server-side capability enforcement for instance tools
 
 ### Epic 0.1: Home Tab Primary Interface
 - [ ] Home tab takes ≥70% of window
@@ -206,9 +214,10 @@ Stored in:
 
 ✅ Home tab is visually primary (≥70% screen on standard res)  
 ✅ Instance switching works (≥3 instances tested)  
-✅ Background instances receive queries reliably (95%+ success)  
+✅ Background instances receive bounded synchronous queries reliably (95%+ success)  
 ✅ Tool separation clear (no "restart app" in Agent Tools tab)  
 ✅ Instance chat history persists across restart  
+✅ Restricted tools are denied below the UI, not only hidden  
 ✅ No "not wired yet" tooltips anywhere  
 ✅ Every action shows outcome (no silent operations)  
 
@@ -216,7 +225,7 @@ Stored in:
 
 ## 📖 Related Documents
 
-- **Deep dive:** [M2_ENGINEERING_PLAN.md](M2_ENGINEERING_PLAN.md) — 6 epics with acceptance criteria
+- **Deep dive:** [M2_ENGINEERING_PLAN.md](M2_ENGINEERING_PLAN.md) — 8 workstreams with acceptance criteria
 - **Design spec:** [M2_UI_ARCHITECTURE_GUIDE.md](M2_UI_ARCHITECTURE_GUIDE.md) — Complete UI/UX reference
 - **Scope lock:** [M2_SCOPE_LOCK.md](M2_SCOPE_LOCK.md) — Decisions, constraints, blockers
 - **Launch plan:** [M2_LAUNCH_CHECKLIST.md](M2_LAUNCH_CHECKLIST.md) — 8-week ramp + go/no-go

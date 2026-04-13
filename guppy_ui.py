@@ -7,6 +7,13 @@ import sys, os, json, math, threading, time, logging, hashlib, sqlite3
 import urllib.request
 from pathlib import Path
 
+try:
+    from utils.db_utils import open_db as _open_cache_db
+    _DB_UTILS = True
+except ImportError:
+    _open_cache_db = sqlite3.connect  # type: ignore[assignment]
+    _DB_UTILS = False
+
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QScrollArea, QLabel, QPushButton, QLineEdit, QFrame, QSizePolicy,
@@ -52,7 +59,7 @@ _CACHE_LOCK = threading.Lock()
 
 def _cache_init() -> None:
     _CACHE_DB.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(_CACHE_DB) as conn:
+    with _open_cache_db(_CACHE_DB) as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS response_cache (
@@ -76,7 +83,7 @@ def _cache_get(cache_key: str) -> str | None:
 
     with _CACHE_LOCK:
         _cache_init()
-        with sqlite3.connect(_CACHE_DB) as conn:
+        with _open_cache_db(_CACHE_DB) as conn:
             row = conn.execute(
                 "SELECT response_text, created_ts FROM response_cache WHERE cache_key=?",
                 (cache_key,),
@@ -103,7 +110,7 @@ def _cache_set(cache_key: str, response_text: str) -> None:
 
     with _CACHE_LOCK:
         _cache_init()
-        with sqlite3.connect(_CACHE_DB) as conn:
+        with _open_cache_db(_CACHE_DB) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO response_cache (cache_key, response_text, created_ts) VALUES (?, ?, ?)",
                 (cache_key, response_text, now),
@@ -2277,21 +2284,39 @@ class GuppyWindow(QMainWindow):
 
 # ── Application bootstrap ──────────────────────────────────────────────────────
 
-app = QApplication(sys.argv)
-app.setStyle("Fusion")
+def _legacy_surface_enabled() -> bool:
+    return os.environ.get("GUPPY_ENABLE_LEGACY_SURFACES", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
-pal = QPalette()
-pal.setColor(QPalette.ColorRole.Window,          QColor(T.bg))
-pal.setColor(QPalette.ColorRole.WindowText,      QColor(T.text))
-pal.setColor(QPalette.ColorRole.Base,            QColor(T.bg2))
-pal.setColor(QPalette.ColorRole.Text,            QColor(T.text))
-pal.setColor(QPalette.ColorRole.Button,          QColor(T.bg2))
-pal.setColor(QPalette.ColorRole.ButtonText,      QColor(T.text))
-pal.setColor(QPalette.ColorRole.Highlight,       QColor(T.accent))
-pal.setColor(QPalette.ColorRole.HighlightedText, QColor(T.bg))
-app.setPalette(pal)
 
-window = GuppyWindow()
-window.show()
-sys.exit(app.exec())
+def main() -> int:
+    if not _legacy_surface_enabled():
+        print("Legacy surface disabled. Use guppy_launcher.py or set GUPPY_ENABLE_LEGACY_SURFACES=1")
+        return 2
+
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+
+    pal = QPalette()
+    pal.setColor(QPalette.ColorRole.Window,          QColor(T.bg))
+    pal.setColor(QPalette.ColorRole.WindowText,      QColor(T.text))
+    pal.setColor(QPalette.ColorRole.Base,            QColor(T.bg2))
+    pal.setColor(QPalette.ColorRole.Text,            QColor(T.text))
+    pal.setColor(QPalette.ColorRole.Button,          QColor(T.bg2))
+    pal.setColor(QPalette.ColorRole.ButtonText,      QColor(T.text))
+    pal.setColor(QPalette.ColorRole.Highlight,       QColor(T.accent))
+    pal.setColor(QPalette.ColorRole.HighlightedText, QColor(T.bg))
+    app.setPalette(pal)
+
+    window = GuppyWindow()
+    window.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 

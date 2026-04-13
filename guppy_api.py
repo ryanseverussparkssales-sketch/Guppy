@@ -21,6 +21,7 @@ import json
 import importlib.util
 import logging
 import os
+import secrets
 import sqlite3
 import tempfile
 import time
@@ -40,6 +41,12 @@ from jose import JWTError, jwt
 import urllib.request
 
 from utils.env_bootstrap import load_env_file
+try:
+    from utils import secret_store as _secret_store
+    _SECRET_STORE_AVAILABLE = True
+except ImportError:
+    _secret_store = None  # type: ignore[assignment]
+    _SECRET_STORE_AVAILABLE = False
 
 load_env_file(override=True)
 
@@ -117,12 +124,14 @@ except ImportError as e:
 logger = logging.getLogger(__name__)
 
 try:
-    from utils.session_logger import log_session_event, tail_session_events
+    from utils.session_logger import log_session_event, tail_session_events, rotate_jsonl_file
 except Exception:
     def log_session_event(*_args, **_kwargs):
         return
     def tail_session_events(limit: int = 50):
         return []
+    def rotate_jsonl_file(*_args, **_kwargs):
+        return
 
 try:
     from utils.personalization_config import ensure_personalization_scaffold
@@ -170,7 +179,11 @@ _startup_check_cache_lock = threading.Lock()
 _startup_check_refresh_inflight = False
 
 _runtime_dir = Path(__file__).resolve().parent / "runtime"
+_REPAIR_TOKEN_FILE = _runtime_dir / "repair_token.txt"
+_REPAIR_TOKEN: str = ""  # set once in lifespan; read by _require_repair_token
 _ops_telemetry_db = _runtime_dir / "ops_telemetry.sqlite3"
+_SQLITE_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_SQLITE_TIMEOUT_SECONDS", "10.0"))
+_SQLITE_BUSY_TIMEOUT_MS = int(os.environ.get("GUPPY_SQLITE_BUSY_TIMEOUT_MS", "5000"))
 _stream_jsonl_map = {
     "session_events": _runtime_dir / "session_events.jsonl",
     "router_scorecard": _runtime_dir / "router_scorecard.jsonl",
@@ -178,6 +191,9 @@ _stream_jsonl_map = {
     "integration_events": _runtime_dir / "integration_events.jsonl",
     "reminder_events": _runtime_dir / "reminder_events.jsonl",
 }
+_INTEGRATION_HEARTBEAT_SECONDS = float(os.environ.get("GUPPY_INTEGRATION_HEARTBEAT_SECONDS", "900"))
+_last_integration_heartbeat_ts = 0.0
+_integration_heartbeat_lock = threading.Lock()
 
 # Detect voice backends once at module load so /status never pays import probe cost
 def _detect_voice_backends() -> tuple[str, str, list[str]]:
@@ -233,6 +249,7 @@ _api_metrics = {
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
+    mode: Optional[str] = None
     use_claude: Optional[bool] = True
 
 class VoiceChatRequest(BaseModel):
@@ -271,6 +288,32 @@ def _read_jsonl_tail(path: Path, limit: int = 50):
         except Exception:
             out.append({"raw": line, "parse_error": True})
     return out
+
+
+def _emit_integration_heartbeat(reason: str) -> None:
+    global _last_integration_heartbeat_ts
+    now = time.time()
+    with _integration_heartbeat_lock:
+        if now - _last_integration_heartbeat_ts < max(60.0, _INTEGRATION_HEARTBEAT_SECONDS):
+            return
+        _last_integration_heartbeat_ts = now
+
+    path = _stream_jsonl_map["integration_events"]
+    record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event_type": "integration_heartbeat",
+        "payload": {
+            "state": "idle",
+            "reason": reason,
+        },
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rotate_jsonl_file(path)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=True) + "\n")
+    except Exception:
+        return
 
 
 def _read_resource_envelope_status() -> dict[str, Any]:
@@ -347,7 +390,12 @@ def _query_sqlite_telemetry(
 
     out: list[dict[str, Any]] = []
     try:
-        conn = sqlite3.connect(_ops_telemetry_db)
+        from utils.db_utils import open_db as _open_db
+        conn = _open_db(
+            _ops_telemetry_db,
+            timeout=_SQLITE_TIMEOUT_SECONDS,
+            busy_timeout_ms=_SQLITE_BUSY_TIMEOUT_MS,
+        )
         try:
             rows = conn.execute(query, params).fetchall()
         finally:
@@ -685,6 +733,31 @@ async def lifespan(_app: FastAPI):
     """Validate env and optionally manage daemon lifecycle when explicitly enabled."""
     validate_environment()
 
+    # Generate a per-process repair token so only trusted local callers can POST /repair
+    global _REPAIR_TOKEN
+    _runtime_dir.mkdir(parents=True, exist_ok=True)
+    _REPAIR_TOKEN = secrets.token_hex(32)
+    # Prefer OS credential store; file write is the fallback for systems
+    # where keyring is unavailable (e.g. headless containers).
+    if _SECRET_STORE_AVAILABLE and _secret_store.set_secret("repair_token", _REPAIR_TOKEN):
+        logger.info("Repair token stored in OS credential store")
+        # Ensure stale fallback files cannot carry an old token across restarts.
+        try:
+            if _REPAIR_TOKEN_FILE.exists():
+                _REPAIR_TOKEN_FILE.unlink()
+        except Exception as e:
+            logger.warning("Could not remove stale repair token fallback file: %s", e)
+    else:
+        try:
+            _REPAIR_TOKEN_FILE.write_text(_REPAIR_TOKEN, encoding="utf-8")
+            try:
+                os.chmod(_REPAIR_TOKEN_FILE, 0o600)
+            except Exception:
+                pass
+            logger.info("Repair token written to %s", _REPAIR_TOKEN_FILE)
+        except Exception as e:
+            logger.warning("Could not write repair token: %s", e)
+
     if _PERSONALIZATION_BOOTSTRAP_AVAILABLE:
         try:
             created = await asyncio.to_thread(ensure_personalization_scaffold)
@@ -697,7 +770,9 @@ async def lifespan(_app: FastAPI):
     try:
         await asyncio.to_thread(_startup_readiness_snapshot)
     except Exception as e:
-        logger.warning(f"Startup readiness warmup failed: {e}")
+        logger.warning("Startup readiness warmup failed: %s", e)
+
+    _emit_integration_heartbeat("api_startup")
 
     if API_OWNS_DAEMON and GUPPY_DAEMON_AVAILABLE:
         try:
@@ -708,7 +783,7 @@ async def lifespan(_app: FastAPI):
                 daemon.start()
                 logger.info("Guppy daemon started")
         except Exception as e:
-            logger.error(f"Failed to initialize daemon: {e}")
+            logger.error("Failed to initialize daemon: %s", e)
             logger.warning("API will run in limited mode without daemon context")
     elif GUPPY_DAEMON_AVAILABLE:
         logger.info("API running in supervised mode (daemon ownership disabled)")
@@ -718,13 +793,20 @@ async def lifespan(_app: FastAPI):
     try:
         yield
     finally:
+        try:
+            if _SECRET_STORE_AVAILABLE:
+                _secret_store.delete_secret("repair_token")
+            if _REPAIR_TOKEN_FILE.exists():
+                _REPAIR_TOKEN_FILE.unlink()
+        except Exception as e:
+            logger.warning("Failed to remove repair token: %s", e)
         if API_OWNS_DAEMON and GUPPY_AVAILABLE:
             try:
                 daemon = get_daemon_manager()
                 daemon.stop()
                 logger.info("Guppy daemon stopped")
             except Exception as e:
-                logger.error(f"Failed to stop daemon: {e}")
+                logger.error("Failed to stop daemon: %s", e)
 
 
 app = FastAPI(
@@ -793,6 +875,7 @@ async def request_timing_middleware(request: Request, call_next):
             response.status_code,
             elapsed_ms,
         )
+    _emit_integration_heartbeat("api_request")
     log_session_event(
         "api",
         "request_complete",
@@ -824,7 +907,7 @@ def _extract_text_from_anthropic_blocks(blocks) -> str:
     return "\n".join(parts).strip()
 
 
-def _call_unified_inference(user_text: str, system_prompt: str) -> str:
+def _call_unified_inference(user_text: str, system_prompt: str, mode: Optional[str] = None) -> str:
     """
     NEW: Unified inference using intelligent router.
     Priority: local (guppy) -> haiku -> sonnet
@@ -843,13 +926,55 @@ def _call_unified_inference(user_text: str, system_prompt: str) -> str:
     router = get_router()
     
     try:
-        # Try unified inference (local first, then cloud)
-        response, source, metadata = router.query(
-            system_prompt=system_prompt,
-            user_text=user_text,
-            tools=core.TOOLS,
-            prefer_local=True  # Prefer local model
-        )
+        requested_mode = (mode or os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto").strip().lower()
+
+        # Local-only mode for overnight low-compute reliability.
+        if requested_mode == "local":
+            task_type = router._classify_task(user_text, system_prompt)
+            paired = os.environ.get("GUPPY_LOCAL_PAIRED", "0").strip().lower() in {"1", "true", "yes", "on"}
+            if paired:
+                result = router.query_local_paired(system_prompt, user_text, task_type, None, None)
+            else:
+                result = router.query_local_tiered(system_prompt, user_text, task_type, None, None)
+            if not result:
+                raise RuntimeError("Local-only mode failed (Ollama/model unavailable)")
+            response = str(result.get("response", ""))
+            if not response.strip():
+                # Some local models emit tool calls with empty text when tools are present.
+                # Retry in plain text mode to guarantee a user-visible answer.
+                if paired:
+                    result = router.query_local_paired(system_prompt, user_text, task_type, None, None)
+                else:
+                    result = router.query_local_tiered(system_prompt, user_text, task_type, None, None)
+                if not result:
+                    raise RuntimeError("Local-only retry failed (empty response)")
+                response = str(result.get("response", ""))
+            if not response.strip():
+                raise RuntimeError("Local-only mode returned empty response")
+            source = str(result.get("source", "local"))
+            metadata = dict(result.get("metadata", {}))
+        elif requested_mode == "code":
+            result = router.query_with_boost(
+                system_prompt=system_prompt,
+                user_text=user_text,
+                model=router.LOCAL_CODE_MODEL,
+                boost_mode=router.HAIKU_BOOST_CODE_REVIEW,
+                tools=None,
+                messages=None,
+            )
+            if not result:
+                raise RuntimeError("Code mode local model unavailable")
+            response = str(result.get("response", ""))
+            source = str(result.get("source", "local"))
+            metadata = dict(result.get("metadata", {}))
+        else:
+            # Default unified inference (local first, then cloud)
+            response, source, metadata = router.query(
+                system_prompt=system_prompt,
+                user_text=user_text,
+                tools=core.TOOLS,
+                prefer_local=True,
+            )
         
         logger.info(f"Inference completed via {source}. Tokens: {metadata.get('usage', {}).get('output_tokens', '?')}")
         return response
@@ -1020,6 +1145,17 @@ async def auth_verify_turnstile_token(
         access_token=access_token,
         expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
+
+
+@app.get("/auth/self-check")
+async def auth_self_check(user_id: str = Depends(require_rate_limit)):
+    """Local auth handshake probe for launcher diagnostics."""
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "mode": "dev" if DEV_MODE else "strict",
+    }
+
 
 @app.get("/status")
 async def get_status(user_id: str = Depends(require_rate_limit)):
@@ -1192,8 +1328,99 @@ async def telemetry_report(
     }
 
 
+def _require_repair_token(request: Request) -> None:
+    """Dependency: verify X-Repair-Token matches the in-memory token set at startup."""
+    provided = (request.headers.get("X-Repair-Token") or "").strip()
+
+    if not _REPAIR_TOKEN:
+        log_session_event(
+            "api",
+            "repair_token_rejected",
+            level="warning",
+            reason_code="repair_token_uninitialized",
+            has_header=bool(provided),
+        )
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "repair_token_uninitialized", "message": "Invalid repair token"},
+        )
+
+    if not provided:
+        log_session_event(
+            "api",
+            "repair_token_rejected",
+            level="warning",
+            reason_code="repair_token_missing",
+            has_header=False,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "repair_token_missing", "message": "Invalid repair token"},
+        )
+
+    if not secrets.compare_digest(_REPAIR_TOKEN, provided):
+        log_session_event(
+            "api",
+            "repair_token_rejected",
+            level="warning",
+            reason_code="repair_token_mismatch",
+            has_header=True,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "repair_token_mismatch", "message": "Invalid repair token"},
+        )
+
+
+@app.get("/repair-token/refresh")
+async def repair_token_refresh(_req: Request):
+    """
+    Re-read the current repair token from the OS credential store (or fallback file)
+    and return it to a local caller.
+
+    Security: localhost-only. Only 127.0.0.1 may call this endpoint.
+    Purpose: allows the launcher to recover after an API restart rotates the token
+    in cases where the OS keyring read in the launcher fails or races.
+    The endpoint itself carries no auth requirement because it is the auth source.
+    """
+    client_ip = _req.client.host if _req.client else ""
+    if client_ip not in ("127.0.0.1", "::1", "localhost", ""):
+        log_session_event(
+            "api", "repair_token_refresh_rejected",
+            level="warning", client_ip=client_ip,
+        )
+        raise HTTPException(status_code=403, detail="localhost only")
+
+    # Read current token from the same sources the launcher uses.
+    token = ""
+    if _SECRET_STORE_AVAILABLE and _secret_store is not None:
+        try:
+            token = _secret_store.get_secret("repair_token") or ""
+        except Exception:
+            pass
+    if not token and _REPAIR_TOKEN_FILE.exists():
+        try:
+            token = _REPAIR_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        except Exception:
+            pass
+    if not token:
+        # Fall back to the in-memory token (API is running right now).
+        token = _REPAIR_TOKEN
+
+    log_session_event(
+        "api", "repair_token_refresh",
+        level="info", client_ip=client_ip, has_token=bool(token),
+    )
+    return {"repair_token": token}
+
+
 @app.post("/repair")
-async def repair_runtime(request: RepairRequest, user_id: str = Depends(require_rate_limit)):
+async def repair_runtime(
+    request: RepairRequest,
+    _req: Request,
+    user_id: str = Depends(require_rate_limit),
+    _tok: None = Depends(_require_repair_token),
+):
     """Guarded internal repair entrypoint for launcher/operator flows."""
     del user_id
     action = (request.action or "").strip().lower()
@@ -1250,6 +1477,7 @@ async def chat(request: ChatRequest, user_id: str = Depends(require_rate_limit))
             _call_unified_inference,
             request.message,
             system_prompt,
+            request.mode,
             timeout_seconds=CHAT_TIMEOUT_SECONDS,
         )
 

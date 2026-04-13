@@ -36,7 +36,7 @@ PROFILE_PRESETS = {
         "enable_daemon": False,
         "enable_voice": True,
         "wake_word_default": False,
-        "default_mode": "claude",
+        "default_mode": "local",
         "env_defaults": {
             "GUPPY_TOOL_BUDGET": "4",
             "COUNCIL_TOOL_BUDGET": "3",
@@ -144,7 +144,7 @@ def load_app_settings() -> dict[str, Any]:
         settings["default_surface"] = env_default_surface
 
     env_default_mode = os.environ.get("GUPPY_DEFAULT_MODE", "").strip().lower()
-    if env_default_mode in {"auto", "claude", "ollama", "teaching"}:
+    if env_default_mode in {"auto", "claude", "ollama", "local", "code", "teaching"}:
         settings["default_mode"] = env_default_mode
 
     for setting_key, env_name in (

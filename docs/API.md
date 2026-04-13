@@ -47,6 +47,26 @@
 - Header: `Authorization: Bearer <jwt>`
 - Returns structured CRM-lite pipeline totals, stage counts, weighted forecast, and top open opportunities
 
+### POST /repair
+- Header: `Authorization: Bearer <jwt>`
+- Header: `X-Repair-Token: <token>`
+- Body:
+  - `action` in `warmup | restart_daemon | audit_runtime`
+  - `dry_run` (optional bool)
+- Returns operation result for guarded runtime recovery actions
+
+Repair token notes:
+- token is process-scoped and rotated on API restart
+- token is stored in OS keyring when available
+- fallback file `runtime/repair_token.txt` is used only when keyring is unavailable
+
+### GET /repair-token/refresh
+- **Localhost-only** (returns 403 for any non-loopback client)
+- No auth header required
+- Returns: `{ "repair_token": "<current-token>" }`
+- Resolves the restart-lockout scenario: when the API restarts and rotates the repair token, the launcher calls this endpoint on 403+`repair_token_mismatch` to retrieve the new token and retry automatically
+- Token lookup order: OS keyring → `runtime/repair_token.txt` → in-memory fallback
+
 ## Chat
 ### POST /chat
 - Header: `Authorization: Bearer <jwt>`

@@ -5,7 +5,7 @@ Shows: coloured left-accent strip, name, status badge, last-seen, neural load %.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -19,6 +19,8 @@ from .. import tokens as T
 
 
 class AgentCard(QFrame):
+    init_requested = Signal(str)  # emits agent name (lower) when INITIALIZE clicked
+
     def __init__(
         self,
         name: str,
@@ -98,8 +100,9 @@ class AgentCard(QFrame):
 
         self._btn_init = QPushButton("INITIALIZE")
         self._btn_init.setVisible(False)
-        self._btn_init.setEnabled(False)
-        self._btn_init.setToolTip("Launcher restart action is not wired yet. Use hub/operator controls.")
+        self._btn_init.setEnabled(True)
+        self._btn_init.setToolTip(f"Start embedded {name} session.")
+        self._btn_init.clicked.connect(lambda: self.init_requested.emit(self._name.lower()))
         self._btn_init.setStyleSheet(
             f"color: {T.ERROR}; border: 1px solid {T.ERROR};"
             f"font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; padding: 3px 10px;"

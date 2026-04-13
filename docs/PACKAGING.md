@@ -64,7 +64,7 @@ dist\Guppy.exe
 ## Distribution Checklist
 
 ### Before Building
-- [ ] Update version number in guppy_core.py
+- [ ] Update version number in `pyproject.toml` (guppy_core is now a package under `guppy_core/`)
 - [ ] Test all features in development mode
 - [ ] Update README.md with current feature list
 - [ ] Create CHANGELOG.md for this version
