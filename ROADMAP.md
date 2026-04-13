@@ -1,6 +1,23 @@
 ﻿# Roadmap and Handoff
 
-Last updated: April 12, 2026
+Last updated: April 13, 2026 — **M1 Exit Gate PASSED**
+
+**M1 Status: CLOSED (April 13, 2026)**
+- ✅ Embedded-only INIT live — `AgentCard._btn_init` wired to emit signal, no legacy window spawns
+- ✅ Transcript UX stable — "Processing..." moved to status strip, chat shows user→assistant turns only
+- ✅ Right-rail strictly operational — all content is status/logging only, no chat payloads
+- ✅ No-freeze startup telemetry — phases tracked with <750ms budget enforcement; all bootstrap async
+
+**Next Phase: M2 — Surface Consolidation: BUILDER FIRST**
+
+Quick condensed project brief: `docs/PROJECT_BRIEF.md`
+
+## Doc Ownership Contract
+
+1. `docs/PROJECT_BRIEF.md` is the canonical status source.
+2. `ROADMAP.md` owns queue and dated handoff execution log entries.
+3. `README.md` is architecture/setup/operations reference only.
+4. Session logs and active priorities must not be duplicated in `README.md`.
 
 This roadmap is now organized around a single product objective:
 
@@ -21,13 +38,16 @@ Guppy should be the default daily assistant on a Microsoft PC:
 These capabilities exist now and are usable in pilot:
 
 1. Unified launcher as primary surface with Assistant, Tools, Settings, Advanced, Models, Voices tabs.
-2. Local 5-model fleet with runtime verification tooling.
-3. Router modes for local, paired, code, and vault workflows.
-4. Voice path with wake-word/PTT, Kokoro and fallback behavior.
-5. Supervisor-friendly API + health/status/repair pathways.
-6. Runtime telemetry and logging health checks.
-7. Personalization/provider/voice schema scaffolds and JSON validate/reload/save flows.
-8. Pilot gate automation via tools/pilot_exit_check.py.
+2. Launcher auto-starts guppy_api.py and guppy_hub.py on open — no manual service management required.
+3. Local 5-model fleet with runtime verification tooling.
+4. Router modes for local, paired, code, and vault workflows.
+5. Voice path with wake-word/PTT, Kokoro and fallback behavior.
+6. Supervisor-friendly API + health/status/repair pathways with per-process token auth.
+7. Runtime telemetry and logging health checks with JSONL rotation.
+8. Personalization/provider/voice schema scaffolds and JSON validate/reload/save flows.
+9. Pilot gate automation via tools/pilot_exit_check.py.
+10. Atomic file I/O via utils/safe_io.py — no more torn reads from partial writes.
+11. guppy_core is a proper package (guppy_core/) with clean submodule boundaries.
 
 ## What Is Not Yet Fully Productized
 
@@ -35,6 +55,109 @@ These capabilities exist now and are usable in pilot:
 2. Provider/model cards with route/fallback editor and live health badges.
 3. Voice import and model/persona voice assignment workflow in the launcher.
 4. End-user installer/update lifecycle and broader hardware fallback hardening.
+
+## GuppyPrime Parity Matrix
+
+Objective: every capability must either work inside GuppyPrime UI now or be tracked with a roadmap milestone.
+
+| Capability Domain | Current Surface | GuppyPrime Status | Milestone | Owner | Notes |
+|---|---|---|---|---|---|
+| Core chat transcript above input | Launcher Assistant | In progress | M1 | UI | Responses now route to embedded transcript; continue polish and streaming UX. |
+| Agent activation (Guppy/Merlin/Council) | Launcher status rail INIT | In progress | M1 | UI | INIT should always initialize embedded sessions; no legacy window spawn from default flow. |
+| Recovery controls (snapshot/warmup/restart/audit) | Launcher Settings + status rail | Live | M1 | Platform | Keep as productized operator path. |
+| Runtime health and syslog rail | Launcher right panel | Live | M1 | Platform | Status-only by policy; no primary chat content in right rail. |
+| Model management and selection | Launcher Models tab | Live | M1 | ModelOps | Keep route/fallback cards aligned with runtime. |
+| Voice library and preview | Launcher Voices tab | Partial | M2 | Voice | Complete import, assignment, and interruption-safe preview flow. |
+| Persona/provider/voice config editing | Launcher Settings tab | Partial | M2 | UI | Replace raw JSON-first UX with guided cards/forms while keeping expert editor. |
+| Tools and command workflows | Launcher Tools tab | Partial | M2 | Tools | Remove placeholder actions; each control must have visible side effect. |
+| Advanced deploy/operator controls | Launcher Advanced tab | Partial | M2 | Platform | Add process guards and embedded outcomes instead of detached-only behavior. |
+| Daily workflow orchestration | Daemon + docs | Partial | M3 | Runtime | Expose Morning/Workday/Close loops directly in GuppyPrime surfaces. |
+| Legacy standalone UIs (`guppy_ui.py`, `merlin_ui.py`, `council_ui.py`) | Separate windows | Compatibility-only | M3 | Platform | Freeze by default path; keep only for fallback/debug until retirement gate passes. |
+
+## Milestone Calendar
+
+| Milestone | Target Date | Theme |
+|---|---|---|
+| M1 | June 30, 2026 (Q2 2026) | Surface Consolidation and Embedded Agent Baseline |
+| M2 | September 30, 2026 (Q3 2026) | Functional Parity for Builder and Tooling |
+| M3 | December 31, 2026 (Q4 2026) | Legacy Retirement and Productization Finish |
+
+**M1 Exit Gate:** No new infrastructure tracks open until all M1 acceptance criteria
+pass and are committed to documentation. The gate is: embedded-only INIT live,
+transcript UX stable, right-rail policy enforced, and no-freeze startup telemetry
+present. Date is firm.
+
+## GuppyPrime Action Queue (Prioritized With Milestones)
+
+### ~~M1 - Surface Consolidation (CLOSED Apr 13, 2026)~~ → **M2 Active**
+
+### **M2 - Functional Parity for Builder and Tooling (Highest) — Due September 30, 2026**
+
+**[Detailed Breakdown: docs/M2_ENGINEERING_PLAN.md](docs/M2_ENGINEERING_PLAN.md)** — 6 epics, detailed PRDs, risk assessment, schedule, success metrics
+
+**ACTIVE THIS WEEK (Week of Apr 15):**
+
+1. **Persona Builder v1 — Non-Technical UX**
+   - Tone slider (formal ↔ conversational)
+   - Verbosity slider (terse ↔ verbose)
+   - Teaching style (Socratic | Direct | Example-led)
+   - Scope toggle (global vs per-model)
+   - Live system prompt preview
+   - Save to `config/personas.json` + hot reload
+   - Acceptance: Non-technical user can define persona without file editing
+
+2. **Model Assignment Editor + Route Visualizer**
+   - Assign models to task types (simple/complex/teaching/code)
+   - Edit fallback chain (pick 2–3 models)
+   - Health badges (✓ready | ⚠slow | ✗offline)
+   - Test run → mock query → show latency
+   - Acceptance: Every task type has a visible route strategy
+
+3. **Voice Assignment + Library**
+   - Engine: Kokoro, system TTS, optional ElevenLabs
+   - Per-persona voice binding
+   - Per-model voice override
+   - Preview playback (interruption-safe)
+   - Acceptance: User can set voice globally, then override per-agent
+
+4. **Tools Tab Cleanup**
+   - Remove all dead/placeholder buttons
+   - For each live tool: description card + dry-run if risky
+   - Scope `run_python` to safe directories
+   - Badge all CRM/VoIP as "Coming M3"
+   - Acceptance: Every visible control has a documented action
+
+5. **Advanced Tab + Recovery Actions**
+   - Warmup (refetch models)
+   - Restart daemon
+   - Audit runtime
+   - Process guards (no duplicate launches)
+   - Outcome visibility in ASistant transcript
+   - Acceptance: Recovery flows are discoverable + outcomes visible
+
+6. **Off-Hours Agent Scaling**
+   - Write tasks now common (not just read)
+   - Merlin-code generates: tests, schemas, docstrings
+   - Dry-run review loop: stage → human approve → apply
+   - Budget: 3 writes/run max
+   - Acceptance: 5–10 safe write tasks/week running unattended
+
+**NOT IN M2 (Deferred):**
+- iOS client
+- Live CRM writes
+- Shared Memory v1
+- CI/CD deploy gates
+
+### M3 - Legacy Retirement and Productization Finish — Due December 31, 2026
+
+1. Deprecate legacy standalone launchers from recommended daily path.
+  - Acceptance: docs and launch scripts mark GuppyPrime as sole default surface.
+2. Add in-app roadmap placeholders for not-yet-live capabilities.
+  - Acceptance: every non-live feature has milestone label, owner, and short ETA in product UI.
+3. Run parity release gate.
+  - Acceptance: all matrix rows are either Live or assigned with owner/milestone and tested fallback.
+4. Complete daily workflow product loop inside GuppyPrime.
+  - Acceptance: Morning, Workday, and Close flows are executable without leaving the unified UI.
 
 ## Priority Order (Rebuilt)
 
@@ -162,480 +285,13 @@ If a new coding pass starts, begin here:
 7. **Sparkline consolidation**
   - Consolidated to shared implementation at `ui/components/sparkline.py`; launcher uses alias module.
 
-## Launcher and Runtime Hardening Status (2026-04-12)
+## Historical Status Archive
 
-This section tracks the operational directives currently being enforced as product standards.
+Large historical status/audit sections from earlier stabilization passes were archived to:
 
-1. **Strict tool schemas everywhere possible**
-  Status: **Implemented + audited**
-  - Tool contracts and input validation are enforced in `guppy_core.py` through `input_schema` definitions and runtime checks.
-  - Schema audit tooling added: `tools/audit_tool_schemas.py` writes `runtime/tool_schema_audit.json` and exits non-zero on violations.
-  - CI-ready test added: `tests/test_tool_schema_audit.py`.
+- docs/archive/planning-history/ROADMAP_HISTORICAL_SECTIONS_2026-04-13.md
 
-2. **API under external supervisor ownership**
-  Status: **Implemented default**
-  - API daemon ownership is disabled by default (`GUPPY_API_OWNS_DAEMON=0`).
-  - Supervisor-friendly launcher added: `bin/launch_api_supervised.bat`.
-  - Operational guidance documented in `docs/SUPERVISION_WINDOWS.md`.
-
-3. **One-folder builds preferred for pilot distribution**
-  Status: **Implemented default**
-  - `build_executable.bat` now defaults to one-folder output.
-  - one-file is explicit opt-in with `--onefile`.
-  - Validation script updated to support both outputs (`validate_build.bat`).
-
-4. **Separate product telemetry from debug logs**
-  Status: **Implemented transitional architecture**
-  - JSONL remains for append-only runtime streams.
-  - SQLite operational mirror added via `utils/operational_telemetry.py`.
-  - Session and scorecard writers now mirror into SQLite for repeat query workloads.
-  - First-party query/report API support is now implemented for operational telemetry consumption.
-
-5. **Hard ceilings on background work**
-  Status: **Implemented with envelope checks**
-  - Runtime profile env defaults now carry bounded values for watcher polling, ambient cooldown, and API voice/chat timeouts (`utils/runtime_profile.py`).
-  - Daemon polling loops clamp to safe ranges (`guppy_daemon.py`).
-  - Profile-specific CPU/RAM envelope thresholds are now active (`GUPPY_ENVELOPE_CPU_MAX_PCT`, `GUPPY_ENVELOPE_RAM_MAX_PCT`, `GUPPY_ENVELOPE_CHECK_S`).
-  - Proactive daemon loop now enforces envelope checks, writes `runtime/resource_envelope.status.json`, and emits `resource_envelope` telemetry events on state transitions.
-  - API `/status` includes latest `resource_envelope` snapshot.
-
-6. **Unified launcher system as primary product surface**
-  Status: **Implemented**
-  - Primary entry point is `guppy_launcher.py`.
-  - New modular launcher architecture in `ui/launcher/` with dedicated components and per-tab views.
-  - Specialist windows (`merlin_ui.py`, `council_ui.py`) remain available as advanced surfaces.
-
-## UI Parity Backlog From Sample Screens (2026-04-12)
-
-These items capture options/buttons visible in the shared design samples that are currently missing or only partially wired.
-
-1. **Top-level navigation parity (Dashboard / Advanced / Archive / Settings)**
-  Status: **Done (2026-04-12)**
-  - DASHBOARD / ADVANCED / SETTINGS nav buttons added to `topbar.py` with active-state styling.
-  - `nav_requested` signal wired in `launcher_window.py` via shared `_on_tab_change()`.
-  - Sidebar and topbar stay in sync; `Sidebar.set_active()` no longer re-emits to prevent loops.
-
-2. **Advanced cards: DEPLOY SURFACE action + OPEN action parity**
-  Status: **Done (2026-04-12)**
-  - `DEPLOY SURFACE ⬆` button added to `_SurfaceCard` in `advanced_view.py`.
-  - Deploy passes `GUPPY_DEPLOY_MODE` env var with selected execution mode.
-  - Deploy status label shows state feedback inline on the card.
-
-3. **Settings screen controls parity (sliders + visual toggles)**
-  Status: **Done (2026-04-12)**
-  - Creativity, Precision, Verbosity sliders added (`_SliderRow` widget) with live value readout.
-  - Visual toggles added: High Contrast, Background Gradients, Scanline Overlay.
-  - All values persist to `app_settings.json` and reload on open.
-
-4. **Settings identity fields parity**
-  Status: **Done (2026-04-12)**
-  - Display Name text field added.
-  - Personality Matrix dropdown (Butler/Casual/Analyst/Mentor).
-  - Model Core selector (Sonnet/Haiku/Opus/Local).
-  - Last-saved timestamp shown; save confirmation chip auto-clears after 3s.
-
-5. **Tools panel rich cards parity**
-  Status: **Partial** (toggle rows exist; metric and preview widgets missing)
-  - Add card-level metrics chips (entities/relations/latency) for Memory Core.
-  - Add media preview tile area for Media Lab.
-  - Add calendar next-event and daily-standup rows in Tools surface.
-  - Add diagnostics badges/status chips aligned to live health signals.
-
-6. **Right status rail parity (bar widgets + event list)**
-  Status: **Done (2026-04-12)**
-  - `_GaugeBar` added for Latency, Core Load, and Memory (psutil when available).
-  - `_BadgeRow` added for GUPPY / MERLIN / DAEMON with ONLINE/NOMINAL/ERROR/ACTIVE/STOPPED states.
-  - Color-coded severity: green <65%, gold 65-85%, red >85%.
-
-7. **Bottom system strip parity**
-  Status: **Done (2026-04-12)**
-  - Strip added to `launcher_window.py`: UPTIME (live), CPU%, MEM%, BUFFER tokens, STATUS badge.
-  - psutil-backed with safe fallbacks — uptime always shows even without psutil.
-  - Token buffer reads last line of `runtime/router_scorecard.jsonl` if present.
-
-8. **Sample button behavior audit and wiring pass**
-  Status: **Planned**
-  - Audit all visible buttons in launcher views for real side effects (not placeholder UI only).
-  - Emit a button-action matrix in roadmap handoff notes showing implemented vs placeholder actions.
-
-9. **Acceptance criteria for sample parity milestone**
-  Status: **Planned**
-  - Every visible button in Assistant/Tools/Settings/Advanced has a concrete action or explicit disabled reason.
-  - Every slider/toggle persists and rehydrates from settings.
-  - Status rail updates from live runtime state at regular intervals.
-  - No dead-end controls in default launcher flow.
-
-## Code Quality Audit (2026-04-12)
-
-Findings from a full code review. These are the real problems — ordered by how much they hurt.
-
-### Resolved (2026-04-12)
-
-1. **Keyword classifier** → replaced with Haiku semantic classifier + heuristic fallback in `inference_router._classify_task_semantic()`. `GUPPY_SEMANTIC_CLASSIFIER=1` controls it.
-2. **Response cache dies on restart** → SQLite-backed `runtime/response_cache.sqlite3` in `guppy_ui.py`.
-3. **`GUPPY_TOOL_BUDGET` default** → corrected to 6 in `guppy_ui.py`.
-4. **`utils/` return type annotations** → added across all public functions in `utils/runtime_profile.py`.
-5. **Two Sparkline implementations** → consolidated; launcher component aliases shared widget.
-  - **Fix**: Consolidate on the launcher version. Update `guppy_ui.py` import.
-
-6. **No CI enforcement**
-  Baseline enforcement is now in place.
-  - Added `.github/workflows/quality-gates.yml` to run schema audit and core smoke/workflow tests on push and pull_request.
-  - Next: expand gates to include broader cross-platform and launcher-surface integration checks.
-
-7. **Concurrency test for the API is missing**
-  Two simultaneous `/chat` requests against the same executor pool is untested. Sync inference wrapped in `run_in_executor` works but has a queue ceiling.
-  - **Fix**: Add one concurrency test in `tests/smoke_api.py` — two concurrent requests, assert neither hangs.
-
-### Debt to retire (plan, don't act yet)
-
-8. **`guppy_ui.py` is a 2,200-line legacy surface with no clear retirement plan**
-  It's not imported by council_ui (confirmed). It holds a separate copy of the response cache, tool loop, and routing logic that will drift from the new system. Every new feature potentially needs to be added in two places.
-  - **Decision needed**: Either freeze it (stop updating, mark as deprecated in the file header) or migrate council_ui to the launcher shell and archive guppy_ui. Don't keep treating it as current.
-
-9. **Cross-session memory injection is unbuilt despite the backend existing**
-  `guppy_semantic_memory.py` is implemented. Nothing injects relevant memories into the system prompt at request time (Phase 12). This is the highest-leverage AI quality improvement available — it's the difference between a stateless chatbot and a butler that remembers.
-  - **Fix**: Add a `recall_relevant(query, k=5)` call at the start of each request and prepend results to the system prompt. ~100ms overhead, massive quality gain.
-
-10. **CRM/VoIP live calls should stay gated until classifier is fixed**
-  Write-side tools that send emails or update pipeline stages on a misrouted "teaching" query would be a bad day. Keep stubs until the classifier is trustworthy.
-
----
-
-## 1000-Foot Review (2026-04-12)
-
-### Current Position
-
-- **Strength**: Guppy is now a real local-first operator system, not just a chat shell. It combines a unified launcher UI, daemon, voice, memory, remote API, and a hardened router in one coherent system. The infrastructure is genuinely solid.
-- **Operational baseline**: Strict-mode remote auth live, Cloudflare route active, runtime stack stable for daily use, launcher UI parity complete, stress suite passing.
-- **Main gap**: The AI layer (classifier accuracy, memory injection) is weaker than the infrastructure. The system routes to the right model based on keywords, not intent. Memory exists but doesn't influence responses. The butler knows your tools but not your context.
-
-### Project Comparisons (Strategic)
-
-- **Vs. ChatGPT/Claude desktop apps**: Guppy is stronger on local control, custom tools, and operator automation; weaker on turnkey polish and broad out-of-box integrations.
-- **Vs. IDE copilots (Cursor/Copilot)**: Guppy is broader than code assistance (voice, reminders, ambient context, daemon actions), but less specialized for deep codebase refactoring workflows.
-- **Vs. AutoGPT-style agents**: Guppy is more pragmatic and bounded for daily assistant use; less autonomous for long-running multi-step task execution.
-- **Vs. Home-assistant voice stacks**: Guppy has richer LLM reasoning and persona routing; home-assistant stacks are stronger at deterministic IoT/device orchestration.
-
-### Blue-Sky Additions (Ranked by leverage)
-
-1. **Action Reliability Layer**
-  Add confidence scoring + preflight checks + rollback-safe action ledger for all write-side tools.
-2. **Unified Task Graph**
-  Convert single-turn tool calls into explicit multi-step plans with resumable checkpoints.
-3. **Memory Steward Agent**
-  Auto-curate, dedupe, and summarize memory with confidence aging and source citation tracking.
-4. **Personal Ops Console**
-  A timeline view of intents, actions, outcomes, and follow-ups across Guppy/Merlin/Council.
-5. **Context Router v2**
-  Blend user state, channel (voice/text), urgency, and cost/latency into model/tool selection.
-
-### Scope Guardrails (to avoid sprawl)
-
-- Keep Guppy centered on **personal assistant outcomes**, not generic platform ambitions.
-- Prefer **completing one end-to-end workflow** (reminder -> action -> confirmation) over adding many partial features.
-- Maintain strict split between:
-  - **Core**: reliable daily assistant workflows
-  - **Experimental**: blue-sky agent behavior behind explicit flags
-- Treat packaging and observability as release gates, not optional cleanup.
-
-### Windows Assistant Quality Bar
-
-This is the standard future work should meet before a feature is considered product-grade on Ryan's current Windows-first hardware.
-
-- **Fast wake-up**: app launch, resume, and first interaction should feel immediate; avoid features that impose heavy startup cost by default.
-- **Low idle footprint**: daemon, voice, tray, and UI loops should stay conservative on CPU/RAM when the assistant is waiting.
-- **Strong voice ergonomics**: push-to-talk, interruption handling, microphone selection, and TTS stop-on-user-input should feel native and reliable.
-- **Native Windows feel**: tray behavior, toasts, startup behavior, audio-device handling, and window focus behavior should match Windows expectations.
-- **Keyboard-first control**: hotkeys, command entry, and quick actions should work without forcing mouse-heavy interaction.
-- **Trust before autonomy**: read-only actions can be fast; write-side actions need confidence checks, confirmation policy, and audit trail.
-- **Graceful degradation**: if Anthropic, Ollama, or network access is unavailable, Guppy should fail soft and stay useful.
-- **Hardware-aware defaults**: expensive features should be grouped into runtime profiles rather than assumed always-on.
-
-### Runtime Profiles (Planned)
-
-- **Light**: cloud-first, minimal background work, Ollama optional/off by default, best for average Windows laptops.
-- **Standard**: cloud-first with selective local fallback, daemon on, voice on demand, balanced for normal desktops.
-- **Power**: Council, local teaching workflows, heavier background features, and advanced diagnostics enabled for stronger hardware.
-
-### Phase 1: Smart Dispatcher Core (Haiku-First) ← **COMPLETE (2026-04-12)**
-
-**Objective**: Make Guppy 5-10x faster and predictable. Replace local Ollama blocking with intelligent Claude routing.
-
-- Task classification heuristics (find, build, explain, write, qualify via simple regex/keyword matching)
-- Route "simple" queries to Haiku (2-3s)
-- Route "complex" queries to Sonnet (5-10s)
-- Route "teaching" queries to Merlin/Ollama (Socratic, free, local)
-- Proper fallback: Haiku (timeout 3s) → Sonnet (if needed) → Ollama (if offline)
-- Status: **Complete**
-
-### Phase 2: Fallback Chain & Offline Handling ← **COMPLETE (via Phase 1)**
-
-**Objective**: No more random 30s timeouts. Predictable chain.
-
-- ✓ Fix fallback logic so Haiku timeout doesn't re-try same backend
-- ✓ Auto-detect offline mode → fallback to Ollama-only
-- ✓ Clean sequential fallback (no retry loops)
-  - Simple: Haiku (3s) → Sonnet → Ollama
-  - Complex: Sonnet → Haiku → Ollama
-  - Teaching: Ollama → Haiku → Sonnet
-- ✓ Offline detection: Anthropic API key check, Ollama availability check before query_local
-- Status: **Complete** (implemented as part of Phase 1 design)
-
-### Phase 3: Merlin Smart Routing ← **COMPLETE**
-
-**Objective**: Make Merlin part of daily use, not separate window.
-
-- ✓ Auto-route teaching tasks (explain, teach, learn, understand keywords) to Merlin's Socratic system prompt
-- ✓ Integrated Merlin persona selection: teaching queries get `get_merlin_startup_system()` instead of Guppy's
-- ✓ Merlin's system prompt provides Socratic teaching method (questions first, direct answers when stuck)
-- ✓ All routing still goes through smart dispatcher (Haiku-first fallback chain)
-- ✓ Invisible to user: teaching task automatically routes to Merlin persona without extra button clicks
-- ✓ UI displays which persona in use: "Smart routing via Merlin..." or "Smart routing via Guppy..."
-- Status: **Complete** (integrated into _smart_dispatch method)
-
-### Phase 4: Voice Integration Tuning ← **COMPLETE (2026-04-12)**
-
-**Objective**: Wake-word triggers fast-path dispatcher. Voice feels responsive.
-
-- ✓ `voice_triggered=True` flag flows from `_trigger_wake_listen` → `_send_text` → `Worker` → `_smart_dispatch`
-- ✓ Smart dispatch skips task classification when `voice_triggered` — always Haiku-first (2s latency target)
-- ✓ TTS on completion already wired via `_on_done` → `_speak_if_current`
-- ✓ Orb returns to "wake" state after speaking
-- TODO (real-use tuning): validate actual latency, tune openwakeword model and cooldown for daily use
-
-### Phase 5: Memory & Context Caching ← **COMPLETE (2026-04-12)**
-
-**Objective**: Repeated questions are instant. Reduce API calls.
-
-- ✓ Module-level `_RESPONSE_CACHE` in `guppy_ui.py` — TTL 5 min, max 100 entries, oldest-evicted
-- ✓ Only caches `task_type == "simple"` responses where no tools were called (safe for stateless lookups)
-- ✓ Voice-triggered queries bypass cache (time-sensitive)
-- ✓ Cache hit emits full text, updates history, sets `model_used = "cache"` — zero API cost
-- ✓ Configurable via `GUPPY_CACHE_TTL` / `GUPPY_CACHE_MAX` env vars
-
-### Phase 6: Foundation Work (Visibility & Reliability)
-
-**Objective**: Make system debuggable and reliable. Prepare for scaling.
-
-- Make `inference_router.py` the single inference path (UIs call it, no bypasses)
-- Structured logging: every request logs task type, model chosen, latency, cost
-- Metrics dashboard: integrate router events into `runtime/agent_performance.jsonl`
-- Progress (2026-04-12):
-  - ✓ Added normalized scorecard telemetry to `runtime/router_scorecard.jsonl` from `guppy_ui.py`
-  - ✓ Added SLO fields (`slo_target_ms`, `slo_met`) and first-token timing in Guppy request logs
-  - ✓ Added tool-budget guardrails (`GUPPY_TOOL_BUDGET`, `COUNCIL_TOOL_BUDGET`) to cap runaway tool loops
-  - ✓ Council Merlin leg tuned with `COUNCIL_MERLIN_TIMEOUT` and `COUNCIL_MERLIN_NUM_PREDICT`
-  - ✓ **6A complete**: added `runtime/review_router_scorecard.py` for daily scorecard analysis and safe env patch suggestions
-  - → **6B next**: surface consolidation + runtime profiles so the product defaults fit Windows hardware instead of assuming every feature is always on
-- Status: **In progress**
-
----
-
-## Future Phases / Blue Sky
-
-These are candidate features ranked by impact. Pick from this list for future sessions.
-
-### Phase 7: Streaming Responses ← **COMPLETE (2026-04-12)**
-
-- ✓ `_claude()` uses `client.messages.stream()` — tokens arrive ~300ms after request
-- ✓ `_smart_dispatch` calls `_claude()` directly — streaming + full tool loop included
-- ✓ Confirmed in code audit: `while True:` tool loop with streaming in `Worker._claude`
-
-### Phase 8: Proactive / Daemon Mode ← **COMPLETE (2026-04-12)**
-
-- ✓ `ProactiveLoop` in `guppy_daemon.py` — real implementation, polls every 60s
-- ✓ Checks agent health, detects stale/crashing agents, auto-nudges via IPC
-- ✓ Checks upcoming reminders (≤15 min), sends nudge toast
-- ✓ Throttled pattern learning check (1/hr) wired in
-- ✓ Wired into `DaemonManager` start/stop lifecycle
-- ✓ `_check_daily_summary()` — Haiku "anything important?" fires daily at `GUPPY_DAILY_SUMMARY_HOUR` (default 8am); pulls pending tasks + facts from memory, fires toast + IPC nudge if actionable; respects quiet hours; debounced 23h
-- ✓ Daily report pipeline now compiles end-to-end context (RSS world news + runtime logs + manual events/todos + memory/tasks + yesterday reference) and writes markdown reports to `runtime/daily_reports/`
-- ✓ Scheduled news reports added at `12:00`, `18:00`, and `22:00` (`GUPPY_NEWS_REPORT_HOURS`, default `12,18,22`)
-
-### Phase 9: Voice-First Fast Path ← **LARGELY COMPLETE (absorbed into Phase 4)**
-
-- ✓ Wake-word → `voice_triggered=True` → Haiku fast-path → TTS on completion
-- ✓ Orb returns to "wake" state after speaking
-- TODO: real-use latency validation; openwakeword model and cooldown tuning
-- Target: sub-2s end-to-end from wake word to first spoken word (infrastructure in place)
-
-### Phase 10: "Just Do It" Task Execution
-
-- Confidence threshold model: high confidence → act without confirmation
-- "Send John a message saying I'm running 10 minutes late" → compose, confirm once, send
-- Low confidence → ask; high confidence → execute
-- Requires: Gmail/calendar tools fully wired + confidence estimator + action audit trail + explicit confirmation policy
-
-### Phase 11: Ambient Awareness ← **COMPLETE (2026-04-12)**
-
-- ✓ `AmbientWatcher` in `guppy_daemon.py` — polls clipboard every 60s
-- ✓ Tracks clipboard changes and window title changes
-- ✓ Callback system fires registered handlers on interesting content
-- ✓ Wired into `DaemonManager` start/stop lifecycle
-- ✓ Haiku semantic gate: `_haiku_interesting_check()` classifies content before offering; skips passwords, paths, trivial strings
-- ✓ `AmbientBanner` widget in `guppy_ui.py` — non-intrusive bar between chat and input; shows Haiku's suggested action; "Ask Guppy" pre-fills input; auto-dismisses after 30s
-- Cooldown: 10 min default (`GUPPY_AMBIENT_COOLDOWN_S`), respects quiet hours
-
-### Phase 12: Cross-Session Memory in System Prompt
-
-- Semantic memory is built but passive
-- Auto-thread recent relevant memories into system prompt each request
-- "Ryan mentioned preferring X last Tuesday" → influences every reply
-- Already have the memory backend; just needs injection logic
-- Add shared catalog structure so memory is curated instead of only appended:
-  - normalized entity index + alias map
-  - citation metadata (source, timestamp, confidence, last-verified)
-  - retrieval contract that returns concise, attributable memory snippets
-
-### Phase 13: Merlin Long-Thread Mode
-
-- Instead of one-shot Q&A, Merlin maintains a Socratic thread across a project
-- "Let's work through this architecture decision" → ongoing dialogue over days
-- Thread stored in semantic memory; resumed on demand
-
-### Phase 14: Self-Improvement Loop ← **COMPLETE (2026-04-12)**
-
-- ✓ `HubOperator.record_event()` logs every hub action to `runtime/hub_patterns.jsonl`
-- ✓ `HubOperator.analyze_patterns()` runs Haiku review (throttled 1/hr internally)
-- ✓ OperatorCard ANALYZE button triggers on-demand review
-- ✓ `OperatorCard` now has a 15-min scheduled QTimer calling `_auto_analyze()` — fires without button press
-- ✓ `OperatorCard` also has a 30s display refresh timer for health/status snapshot
-- System learns from its own usage patterns automatically
-
-### Phase 15: Digital Seed Vault + Personal Wiki Librarian
-
-- Build a dedicated librarian agent that amasses and curates:
-  - Personal Wikipedia (people, projects, places, ideas, events, references)
-  - Media library index (audio/video/docs/images with tags, summaries, provenance)
-- Seed Vault mode: immutable seed records + revision history for critical memories and media metadata
-- Ingestion channels: clipboard, files/folders, URLs, transcripts, and manual notes
-- Retrieval modes: semantic search, timeline view, and "show me everything about X" dossiers
-- Agent responsibilities:
-  - De-duplicate entries, merge aliases, link entities, maintain citations
-  - Auto-generate short wiki pages + update related pages
-  - Track freshness and confidence per entry
-- Hub integration:
-  - Operator action buttons: ingest now, rebuild index, run curation pass
-  - Scheduled curation in daemon mode with quiet-hours awareness
-- Safety:
-  - User-owned local storage by default
-  - Optional encrypted vault for sensitive seed material
- - Storage rollout plan:
-  - Stage 1 (current): USB snapshot backups for program + knowledge database portability
-  - Stage 2 (next): NAS snapshot target with longer retention and same manifest format
-  - Stage 3 (future): scheduled replication policy with restore drills and integrity checks
-
-### Phase 16: Surface Consolidation & Windows Productization
-
-- Make **Guppy** the clear primary app surface for day-to-day use.
-- Move Merlin into a persona/mode path where possible instead of making users choose a different app window for normal flows.
-- Keep Council available behind an advanced toggle, power-user setting, or explicit launch path.
-- Add hardware-aware runtime profiles (`light`, `standard`, `power`) so expensive features are opt-in or auto-tuned.
-- Define the product-grade Windows experience around:
-  - fast launch/resume
-  - reliable tray/toast behavior
-  - dependable voice interruption and PTT
-  - low idle overhead
-  - clear settings for microphone, speech, startup, and background mode
-- Progress (2026-04-12):
-  - ✓ Added shared runtime profile/settings model in `utils/runtime_profile.py`
-  - ✓ Applied profile defaults across Guppy, Merlin, Council, and Hub startup paths
-  - ✓ Added command-palette profile switching in Guppy
-  - ✓ Added in-app Guppy settings dialog for runtime profile and surface controls
-  - ✓ Guppy settings now affect daemon startup, voice enablement, and wake-word default behavior
-  - ✓ Hub now hides/shows advanced surfaces dynamically from saved settings
-  - ✓ Added system-aware runtime profile recommendation based on CPU, RAM, and Ollama availability
-  - ✓ Hub primary launch action now defaults to Guppy
-  - ✓ Windows launch scripts now frame Merlin/Council as advanced surfaces
-- Status: **In progress**
-
-## Hub Orchestrator Upgrade ← **IN PROGRESS (2026-04-12)**
-
-Hub is now a real operator — not just a process manager.
-
-### New files
-- `utils/hub_operator.py` — shared brain (IPC, pattern log, health checks, smart recommend)
-
-### Updated files
-- `guppy_hub.py` — `OperatorCard` (insight + ANALYZE + health row), NUDGE/REPAIR buttons on every `AgentCard`, crash/launch/stop events logged via `record_event()`
-- `guppy_daemon.py` — `ProactiveLoop` (Phase 8 skeleton) + `AmbientWatcher` (Phase 11 skeleton) wired into `DaemonManager`
-- `guppy_ui.py` — 2s IPC poll for `runtime/guppy.cmd`; handles nudge / clear_history / reset_context / report_status
-
-### IPC protocol
-Hub writes `runtime/{id}.cmd` → agent reads + deletes on next 2s poll.
-Commands: `nudge`, `clear_history`, `reset_context`, `report_status`.
-
-### Pattern learning
-All hub actions append to `runtime/hub_patterns.jsonl`.
-`HubOperator.analyze_patterns()` runs Haiku review (throttled 1/hour).
-OperatorCard ANALYZE button forces immediate review.
-
----
-
-## Related Goals (Aligned with Phases)
-
-### Remote Hardening
-
-- **Blocked by**: Phase 1 (need fast latency for remote to feel snappy)
-- **Unblocked by**: Phase 1 → Haiku-first makes tunnel latency acceptable
-
-### Status / Context Performance
-
-- **Blocked by**: Phase 5 (caching) + Phase 6 (logging)
-- **Improved by**: Phase 1 (fewer Ollama waits)
-
-### Butler Workflow Depth (Not CRM sales)
-
-- **Personal tasks** example: "Remind me to call X at 3pm", "Draft email to Y", "What's on my calendar tomorrow?"
-- Use Merlin for drafting (Socratic) + Guppy-Haiku for quick lookups
-- Use Merlin for explaining/teaching (uncommon, but intentional)
-- Status: **In design** (enabled by Phase 1-3)
-
-### Surface Consolidation
-
-- **Blocked by**: Phase 6B only in the sense that settings/runtime-profile plumbing should land before broad UX cleanup.
-- **Enabled by**: Phase 1-6 foundation already being stable enough to consolidate around a single primary surface.
-- **Goal**: Guppy-first user journey, advanced surfaces moved behind explicit intent.
-
-### Hardware-Aware Operation
-
-- **Goal**: keep default behavior viable on a normal Windows machine, not just on a high-end dev box.
-- Prefer cloud-first/simple routes over local-heavy routes for default user flows.
-- Enable local models, Council, and heavier background analysis through profile-aware settings.
-- Treat idle CPU/RAM usage and startup cost as product metrics, not just implementation details.
-
-### Release Discipline
-
-- **Blocked by**: Phase 6 (metrics and reliability foundation)
-- **Improved by**: All phases (predictable performance)
-
-### Voice and Wake-Word Tuning
-
-- **Blocked by**: Phase 1 (need fast response to feel natural)
-- **Enabled by**: Phase 4 (fast-path voice dispatch)
-
-## Open Questions
-
-- Which workflow should be hardened next after reminders: email drafting/send confirmation, or calendar action automation?
-- Should ambient awareness keep non-intrusive banner as default, with toast reserved for urgent-only cases?
-- Is Phase 6 (single inference path) high enough priority to block Phase 10 "Just Do It" execution, or can they proceed in parallel?
-
-Recommended current answers (can be revised with new data):
-- First hardened workflow: **task reminders** (lowest external dependency risk).
-- Ambient surface default: **non-intrusive banner** first, toast only for urgent items.
-- Prioritization: **finish Phase 6 before Phase 10** to keep action execution on a reliable routing foundation.
-
-## Credentials & Dependencies
-
-**See** `CREDENTIALS_AUDIT.md` for a complete audit of what works locally vs. what needs credentials or 3rd party services.
-
-**Quick Summary**:
-- ✅ **Desktop chat & voice**: Works offline (no credentials needed)
-- ✅ **Smart dispatcher phases 1-3**: Fully implemented; optional ANTHROPIC_API_KEY for speed
-- ✅ **Remote API**: Strict mode active (`GUPPY_DEV_MODE=0`); JWT + Turnstile wired; public endpoint live at `https://guppy.sparkscuriositystudio.com`
-- ❌ **CRM & VoIP**: Safe stubs (log intent, no actual actions)
-
+Canonical active planning and execution remains in this file's current roadmap, parity tracker, and handoff log sections.
 ## Handoff Rules
 
 - Add new notes at the top of the handoff log.
@@ -644,6 +300,195 @@ Recommended current answers (can be revised with new data):
 - Do not create another status markdown file for routine session notes.
 
 ## Handoff Log
+
+### 2026-04-13 (Framework/Test/Document Iteration - Doc Governance Before Runtime Debugging)
+
+- Deferred launch-failure debugging by request and prioritized framework/documentation hardening first.
+- Added explicit doc ownership contract to core docs:
+  - `README.md` now defines architecture/setup/operations-only scope.
+  - `ROADMAP.md` now defines queue + dated handoff ownership.
+- Removed duplicated status sections from `README.md` that conflicted with single-source governance:
+  - removed `Session Log` block
+  - removed `Active Priorities` block
+  - replaced with pointer to `ROADMAP.md`
+- Added CI governance guard:
+  - new `tools/check_doc_ownership.py`
+  - integrated as `Doc ownership guard` in `.github/workflows/quality-gates.yml`
+- Verification evidence:
+  - `python tools/check_doc_ownership.py` passes.
+  - `python -m py_compile tools/check_doc_ownership.py` passes.
+  - `python -m unittest tests.test_runtime_smoke` passes.
+
+### 2026-04-13 (Framework/Test/Document Iteration - Architecture Boundaries + Guided Provider Routing)
+
+- Added architecture boundary CI guard:
+  - New `tools/check_architecture_boundaries.py` scans changed `src/guppy/*.py` files.
+  - Blocks imports from legacy root modules (`guppy_ui`, `merlin_ui`, `council_ui`, `guppy_hub`, `guppy_launcher`).
+  - Blocks `ui.launcher` imports from `src/guppy/hub/*` to preserve domain boundaries.
+- Integrated guard in `.github/workflows/quality-gates.yml` as `Architecture boundary guard`.
+- Advanced guided builder parity in launcher Settings:
+  - Added `GUIDED_PROVIDER_ROUTING` section in `ui/launcher/views/settings_view.py`.
+  - Added guided controls for `simple`, `complex`, `teaching`, and `fallback_chain` routes.
+  - Added `APPLY PROVIDER ROUTES` action with existing `validate_provider_registry` + `save_provider_registry` path.
+  - Guided route changes refresh the Providers JSON editor for transparency.
+- Verification evidence:
+  - `python -m py_compile` passes for `settings_view.py`, `check_architecture_boundaries.py`, `hub_app.py`, `manager.py`, `guppy_ui.py`, `merlin_ui.py`, and `council_ui.py`.
+  - `python tools/check_new_module_line_cap.py` passes.
+  - `python tools/check_architecture_boundaries.py` passes.
+  - `python tools/check_wrapper_integrity.py` passes.
+  - `python -m unittest tests.test_runtime_smoke` passes.
+
+### 2026-04-13 (Framework Split Iteration - Hub Domain Submodules Pass 2)
+
+- Continued decomposition of `src/guppy/apps/hub_app.py`:
+  - Extracted `ManagerCard` from `hub_app.py` into `src/guppy/hub/cards.py`.
+  - `hub_app.py` now imports `ManagerCard` from hub domain module, reducing in-file UI class footprint.
+- Verification evidence:
+  - `python -m py_compile src/guppy/hub/cards.py src/guppy/apps/hub_app.py` passes.
+  - `python -m unittest tests.test_runtime_smoke` passes after extraction.
+
+### 2026-04-13 (Framework/Test/Document Iteration - Legacy Surface Entrypoint Compatibility Gates)
+
+- Hardened legacy specialist surface entrypoints:
+  - `guppy_ui.py`, `merlin_ui.py`, and `council_ui.py` now run under `main()` + `if __name__ == "__main__"` guards.
+  - Added explicit `GUPPY_ENABLE_LEGACY_SURFACES=1` requirement before launching each legacy surface.
+  - Preserves compatibility behavior while making launcher-first path authoritative by default.
+- Verification evidence:
+  - `python -m py_compile guppy_ui.py merlin_ui.py council_ui.py` passes.
+
+### GuppyPrime Parity Tracker (Update Each Session)
+
+- [x] M1 | UI | Embedded-only INIT path enforced in default flow (no legacy UI spawn from GuppyPrime actions).
+- [x] M1 | UI | Assistant transcript is the primary chat surface (messages render above input, chronological).
+- [x] M1 | Platform | Right status rail remains operational-only (health/syslog/recovery), not primary chat output.
+- [x] M1 | Platform | Startup responsiveness guardrails hold (startup markers emitted, no blocking loops on UI thread).
+- [ ] M2 | UI | Guided persona/provider/voice builder cards/forms shipped (JSON editing optional, not required).
+- [x] M2 | Tools | Every visible tool control has real side effects or explicit roadmap placeholder.
+- [x] M2 | Platform | Advanced/operator actions include process guards and embedded outcome reporting.
+- [ ] M2 | Voice | Voice import + assignment + interruption-safe preview flow complete in GuppyPrime.
+- [ ] M3 | Platform | Legacy launcher surfaces marked compatibility-only and removed from recommended daily path.
+- [ ] M3 | Runtime | Daily workflow loop (Morning/Workday/Close) executable end-to-end inside GuppyPrime.
+
+Use this tracker first in each handoff update:
+
+1. Mark completed items from this session.
+2. Add one line of verification evidence under the current date entry.
+3. Carry forward remaining unchecked items unchanged.
+
+### 2026-04-13 (Framework Split Iteration - Hub Domain Submodules First Pass)
+
+- Started structural split of `src/guppy/apps/hub_app.py` into clear domain submodules under `src/guppy/hub/`:
+  - `theme_config.py` (colors + agent definitions)
+  - `runtime_checks.py` (status/health/runtime helper functions)
+  - `cards.py` (extracted `GlowOrb` widget)
+  - `shell.py` (extracted `SystemTray` shell)
+- Rewired `hub_app.py` to import extracted modules while preserving current behavior and wrapper entrypoint contract.
+- Verification evidence:
+  - Editor diagnostics report no errors in split modules and `hub_app.py`.
+  - `python -m py_compile` passes for `src/guppy/apps/hub_app.py`, `src/guppy/hub/*.py`, and `guppy_hub.py`.
+  - Import smoke test passes for split hub modules (`hub_split_ok True`).
+
+### 2026-04-13 (Framework/Test/Document Iteration - CI Guard Hardening)
+
+- Tightened module line-cap policy:
+  - Updated `tools/check_new_module_line_cap.py` to enforce cap on changed files (A/M), not only newly added files.
+  - Scope remains focused on `src/guppy/` to drive structural migration discipline.
+- Added wrapper integrity gate:
+  - New `tools/check_wrapper_integrity.py` ensures `guppy_launcher.py` and `guppy_hub.py` remain thin compatibility wrappers.
+  - Fails on wrapper overgrowth, duplicate main guards, or missing canonical app imports.
+- CI integration:
+  - Added wrapper integrity step to `.github/workflows/quality-gates.yml`.
+- Documentation update:
+  - Updated `docs/PROJECT_BRIEF.md` with current CI guardrail policy.
+- Verification evidence:
+  - `python tools/check_new_module_line_cap.py` passes.
+  - `python tools/check_wrapper_integrity.py` passes.
+  - `python -m py_compile tools/check_new_module_line_cap.py tools/check_wrapper_integrity.py` passes.
+  - `python -m unittest tests.test_personalization_config_scaffold` passes.
+
+### 2026-04-13 (Legacy/Corruption Sweep + Docs Condensation Pass)
+
+- Fixed top-level wrapper corruption in `guppy_hub.py`:
+  - File is now wrapper-only and delegates to `src/guppy/apps/hub_app.py`.
+  - Removed duplicated wrapper blocks and stale appended legacy body from the root entrypoint file.
+- Documentation condensation step completed:
+  - Added `docs/PROJECT_BRIEF.md` as the concise canonical snapshot.
+  - Linked the brief from `README.md` living docs and from the top of `ROADMAP.md`.
+- Verification evidence:
+  - `python -m py_compile guppy_hub.py` passes after wrapper repair.
+  - Editor diagnostics report no errors in touched docs and wrapper files.
+
+### 2026-04-13 (M2 Progress - Guided Builder + Voice Assignment Mapping)
+
+- Advanced M2 guided builder work in launcher Settings:
+  - Added `GUIDED_PERSONA_BUILDER` form in `ui/launcher/views/settings_view.py`.
+  - Added non-JSON controls for global persona name, tone, verbosity, and response style.
+  - Added `APPLY PERSONA` flow that updates `runtime/persona_config.json` through personalization validators/savers and refreshes the expert JSON editor.
+- Advanced M2 voice workflow work in launcher Voices:
+  - Added `SAVE AS DEFAULT` plus guided `ASSIGN TO PERSONA` and `ASSIGN TO MODEL` controls in `ui/launcher/views/voices_view.py`.
+  - Added persistence to `runtime/voice_bindings.json` via `load/save/validate_voice_bindings` with runtime scaffold bootstrap.
+- Verification evidence:
+  - Editor diagnostics report no errors in edited files.
+  - `python -m py_compile` passes for `ui/launcher/views/settings_view.py` and `ui/launcher/views/voices_view.py`.
+
+### 2026-04-12 (M1 Execution Start - UI-Thread Recovery Unblock)
+
+- Implemented non-blocking recovery execution in `ui/launcher/launcher_window.py`:
+  - Recovery actions now run in a background worker thread instead of the UI thread.
+  - Recovery status/syslog/outcome updates are queued and drained on the main thread.
+  - Poll loop now drains recovery events alongside assistant/deferred syslog events.
+- Verification evidence:
+  - Editor diagnostics report no errors in `ui/launcher/launcher_window.py` after the refactor.
+  - Direct win: restart/warmup/audit/snapshot control flow no longer depends on synchronous UI-thread waits.
+
+### 2026-04-12 (M2 Execution Start - Advanced Surface Process Guards)
+
+- Added duplicate-launch guards in `ui/launcher/views/advanced_view.py` for both OPEN INTERFACE and DEPLOY SURFACE actions.
+- Each surface card now tracks its spawned process and reports `ALREADY RUNNING [pid=...]` instead of launching duplicates.
+- Launch/deploy outcome text now includes PID for operator visibility.
+- Verification evidence:
+  - Editor diagnostics report no errors in `ui/launcher/views/advanced_view.py` after guard wiring.
+
+### 2026-04-12 (M1 Completion - Embedded-Only Default Flow Enforced)
+
+- Added strict compatibility gate in `ui/launcher/views/advanced_view.py`:
+  - OPEN/DEPLOY legacy surface actions are disabled by default.
+  - Explicit operator message shown: set `GUPPY_ENABLE_LEGACY_SURFACES=1` to enable compatibility behavior.
+- Added matching gate in `guppy_hub.py` agent card `launch()` path:
+  - Legacy card launches are blocked by default unless compatibility mode is enabled.
+  - Blocked launch attempts are recorded to operator events with `launch_blocked` reason.
+- Verification evidence:
+  - Editor diagnostics report no errors in both gated files after implementation.
+
+### 2026-04-12 (M1 Completion - Startup Guardrails + Operational Rail) 
+
+- Implemented startup responsiveness guardrails in `ui/launcher/launcher_window.py` and `guppy_launcher.py`:
+  - Added startup phase duration telemetry events with `duration_ms`, `budget_ms`, and over-budget markers.
+  - Added UI poll budget detection (`ui_poll_over_budget`) with throttled syslog signal.
+  - Added startup summary status (`STARTING` / `STARTUP WARN`) and first-poll budget summary line.
+- Enforced operational-only right rail behavior in launcher chat flow:
+  - Chat error syslog now references transcript/system message instead of payload text.
+- Confirmed Assistant transcript remains primary chat surface:
+  - `ui/launcher/views/assistant_view.py` renders transcript above input and appends user/assistant messages chronologically.
+- Completed M2 process guard criterion evidence:
+  - `ui/launcher/views/advanced_view.py` blocks duplicate OPEN/DEPLOY launches and reports visible outcomes including PID.
+- Verification evidence:
+  - Editor diagnostics report no errors in edited files.
+  - `python -m py_compile` passes for `ui/launcher/launcher_window.py` and `guppy_launcher.py`.
+
+### 2026-04-12 (M2 Completion - Tools Controls Side Effects)
+
+- Wired `ToolsView.tool_state_changed` into `LauncherWindow`.
+- Implemented concrete side effects for tool toggles:
+  - Persist current tool states to `runtime/launcher_tools_state.json` on each toggle.
+  - Emit launcher telemetry event `tool_state_changed` for each control change.
+  - Append operational syslog line for each change.
+- Implemented state rehydration on startup:
+  - Restore tool toggles from `runtime/launcher_tools_state.json`.
+  - Log `tools_state_restored` event and operator syslog confirmation.
+- Verification evidence:
+  - Editor diagnostics report no errors in updated files.
+  - `python -m py_compile` passes for `ui/launcher/launcher_window.py`.
 
 ### 2026-04-12 (Pre-Cruise Tooling + Provider/Logging Verifiers)
 
@@ -1228,3 +1073,4 @@ Do not wire live CRM writes until the classifier is semantic and memory injectio
 - Verified:
 - Follow-up:
 ```
+
