@@ -8,10 +8,17 @@ Last updated: April 13, 2026 — **M1 Exit Gate PASSED**
 - ✅ Right-rail strictly operational — all content is status/logging only, no chat payloads
 - ✅ No-freeze startup telemetry — phases tracked with <750ms budget enforcement; all bootstrap async
 
-**Next Phase: M2 — Surface Consolidation: BUILDER FIRST**
+
+**Next Phase: M2 — Surface Consolidation: Multi-Instance, Home Primary, Tool Separation**
+
+**M2 Planning Documents** (Read in order):
+1. [M2_UI_QUICK_REFERENCE.md](docs/M2_UI_QUICK_REFERENCE.md) — One-pager: tab structure, instance switching, tool separation
+2. [M2_UI_ARCHITECTURE_GUIDE.md](docs/M2_UI_ARCHITECTURE_GUIDE.md) — Comprehensive design spec with mockups, data model, inter-agent patterns
+3. [M2_ENGINEERING_PLAN.md](docs/M2_ENGINEERING_PLAN.md) — Full epics (0–6) with acceptance criteria, risks, schedule
+4. [M2_SCOPE_LOCK.md](docs/M2_SCOPE_LOCK.md) — Scope lock, decisions, blockers, escalation path
+5. [M2_LAUNCH_CHECKLIST.md](docs/M2_LAUNCH_CHECKLIST.md) — 8-week ramp plan, weekly tracking, go/no-go gates
 
 Quick condensed project brief: `docs/PROJECT_BRIEF.md`
-
 ## Doc Ownership Contract
 
 1. `docs/PROJECT_BRIEF.md` is the canonical status source.
