@@ -10,46 +10,55 @@
 
 | Epic | Owner | Priority | Start | End | Acceptance |
 |---|---|---|---|---|---|
-| 1. Persona Builder v1 | UI | Highest | Apr 15 | May 6 | Non-technical user defines persona without file editing |
+| 0. Instance Manager + Multi-Instance | UI/Platform | Highest | Apr 15 | May 13 | Users create instances, switch between them, background instances receive queries |
+| 0.1. Home Tab (Primary Interface) | UI | Highest | Apr 15 | May 13 | Home tab is primary focus; instance switching works; all chat in one place |
+| 1. Persona Builder v1 | UI | High | Apr 22 | May 6 | Non-technical user defines persona without file editing |
 | 2. Model Assignment + Routes | ModelOps | High | Apr 22 | May 13 | Every task type has visible route + fallback chain |
 | 3. Voice Library + Assignment | Voice | High | Apr 29 | May 13 | User can assign voice globally, override per-agent |
-| 4. Tools Tab Cleanup | Tools | High | Apr 22 | May 6 | No placeholders visible; every control has action |
-| 5. Advanced Tab + Recovery | Platform | Medium | May 6 | May 20 | Recovery flows discoverable; outcomes visible; guards working |
+| 4. Agent Tools Tab | Tools | High | May 6 | May 20 | Tools scoped to active instance; permissions-aware; no system-level tool confusion |
+| 5. App Management Tab | Platform | Medium | May 13 | May 27 | Recovery flows, diagnostics, logs separate from agent operations |
 | 6. Off-Hours Write Scaling | Runtime | Medium | May 13 | May 27 | 5–10 safe write tasks/week; <3 writes/run budget |
 
 **All must complete by Sep 30, 2026 exit gate.**
+
+(Note: Epics 0 and 0.1 are foundation layers that enable the others. See M2_ENGINEERING_PLAN.md for detailed breakdown.)
 
 ---
 
 ## MUST DELIVER (Non-Negotiable)
 
-1. **Persona Builder is non-technical-friendly**
-   - No JSON editing in MVP
-   - Sliders/dropdowns/toggles only
-   - Live system prompt preview
-   - If user sees `{` or `[`, UX failed
+1. **Home Tab is the primary product interface**
+   - Takes 70%+ of window real estate
+   - Active instance chat history immediately visible
+   - Instance switcher in header for quick navigation
+   - If user doesn't see chat first, UI architecture failed
 
-2. **Every user action has a visible outcome**
-   - Save persona → message appears in chat or toast
-   - Select model → status updates or visual confirmation
-   - Play voice sample → audio plays or shows error
+2. **Multi-instance support works reliably**
+   - Create instance → switch → activate → receive messages → all chat persisted per instance
+   - Background instances can receive queries via API
+   - If switching drops chat history or breaks background instance, architecture failed
+
+3. **Agent Tools vs App Management clearly separated**
+   - Agent Tools tab: only tools that the active instance can USE
+   - App Management tab: only tools for managing the app itself (warmup, restart, audit)
+   - If user can accidentally run a "restart app" from within agent tools, separation failed
+
+4. **Every action shows outcome; no silent operations**
+   - Create instance → confirmation + list updates
+   - Send query to background instance → result appears in log
+   - Run recovery action → status appears in chat or diagnostics
    - If silent or "pending...", UX failed
 
-3. **All models must have health status**
-   - ✓ Ready, ⚠ Slow, ✗ Offline
-   - Updated ≥ every 30s
-   - If user can't tell if model is alive, UX failed
+5. **Instance-Aware Tool Permissions**
+   - Instance can be marked "write-prohibited" → write tools disabled in Agent Tools tab
+   - Instances can be marked "read-only" → tool list reflects this
+   - If user sees "write_file" tool when instance disallows writes, permissions failed
 
-4. **Off-hours writes are safe by default**
+6. **Off-hours writes are safe by default**
    - Dry-run staging to `runtime/offhours_results/dry_run/`
    - Human approval required before writing
    - Path validation against whitelist (src/, tests/, docs/, config/ only)
    - If task writes to root or outside workspace, REJECT
-
-5. **Recovery actions are always available**
-   - Warmup, Restart, Audit visible in Advanced tab
-   - Guards prevent accidental double-launch (e.g., can't start 2nd daemon if one running)
-   - If guards fail and user launches duplicate, platform failed
 
 ---
 
@@ -57,10 +66,11 @@
 
 | Feature | If Skipping | Mitigation |
 |---|---|---|
+| Instance Drag-to-Reorder | Omit visual reordering; keep list-based only | Add TODO; plan for M2.2 |
+| Instance Queuing/Scheduling | Omit auto-queue feature; manual instance creation only | Document manual workflow; plan for M2.2 |
 | Route Visualizer (flowchart) | Omit 2-week spike; keep click-to-assign only | Add TODO comment; plan for M2.2 |
 | ElevenLabs Voice Support | Lock to Kokoro + system TTS only | Document optional support for future |
 | Auto-Apply Write Tasks | Require approval for all; no auto-apply | Document auto-apply for M2.2 |
-| Voice Playback Interruption Safeguard | Defer if no audio race found | Assume not needed; test well |
 
 ---
 
@@ -80,19 +90,50 @@
 ## Key Architecture Constraints
 
 ### UI Layer
-- **No legacy window spawns from default flow**
-  - GuppyPrime embedded mode only
+- **Home Tab is primary (70%+ visual focus)**
+  - Instance chat history immediately visible
+  - Instance switcher in header
+  - Tool invocation targeted to active instance only
   - Standing document: [ui/launcher/DESIGN.md](../ui/launcher/DESIGN.md)
-  - Test: `tests/test_launcher_interactions_smoke.py` line 45+
+  - Test: Home tab takes >70% window height on 1920x1080 resolution
+
+- **Instance Manager is supporting surface**
+  - Create, list, switch, delete, view logs
+  - Not cluttered with frequent operations
+  - Power users navigate here for management
+  - Casual users stay in Home tab
 
 - **Transient state lives in status strip, not chat bubbles**
   - "Processing..." → `assistant_view.set_status()`
   - Not → `add_system_message()`
   - Standing document: [memory/repo/ui-streaming-convention.md](/memories/repo/ui-streaming-convention.md)
 
+### Multi-Instance Architecture
+- **Chat history stored per-instance**
+  - Switching instances must restore full chat history
+  - No chat pollution between instances
+  - Instance state file: `config/instances.json` OR `runtime/instance_state.json`
+  - Query per instance in API: `GET /instances` → list all
+
+- **Background instances remain responsive**
+  - Endpoint: `POST /instances/{name}/query` → queues message, returns response
+  - No blocking on background instance; async-safe
+  - Response includes token_count, model_used, duration_ms
+
+- **Inter-agent communication is explicit**
+  - Instances can call other instances via tool (e.g., `query_instance(name, message)`)
+  - Prevents accidental API loops (rate-limit querying)
+  - Response includes source instance name (audit trail)
+
 ### Tools & API
+- **Agent Tools vs App Management Tools (Strict Boundary)**
+  - Agent Tools: run_python, read_file, write_file, query_instance, etc.
+  - App Management: warmup, restart-daemon, audit-runtime
+  - Tool list filtered per-instance type (write-prohibited instances see read-only tools only)
+  - Permission schema: `config/tool_permissions.json`
+
 - **Off-hours write budget: max 3 files/run**
-  - Hard cap in `tools/idle_agent_worker.py` line 533–545
+  - Hard cap in `tools/idle_agent_worker.py`
   - Exceeding budget auto-downgrades to dry-run
   - No override flag
 
@@ -114,25 +155,41 @@
 
 ## Decision Points with Recommendations
 
-### Decision 1: Model Selection UX (Drag-Drop vs Click-to-Assign)
-**DECIDED:** Click-to-assign (dropdown + apply button)  
-**Reasoning:** MVP simpler, less state complexity, no animation bugs  
-**Revisit in:** M2.2 if UX feedback signals demand
+### Decision 1: Home Tab Priority (Primary vs Coequal)
+**DECIDED:** Home Tab = primary product surface  
+**Reasoning:** Users need to chat first; all other UX should support that  
+**Constraint:** Must take 70%+ of window; all other tabs are secondary surfaces
 
-### Decision 2: Voice Engine Coverage (Kokoro + System only vs Add ElevenLabs)
-**DECIDED:** Lock to Kokoro + Windows system TTS in M2.0  
-**Reasoning:** Fewer API keys, less maintenance, good coverage for pilot  
+### Decision 2: Multi-Instance MVP vs Single Instance
+**DECIDED:** Multi-instance from M2.0 (not postpone to M2.2)  
+**Reasoning:** Killer feature; enables inter-agent workflows; enables Builder to run while chatting to another instance; slightly more complex but high value  
+**Revisit in:** M2.2 if feedback signals need for simplification
+
+### Decision 3: Instance Context Switching Location
+**DECIDED:** Quick switcher in Home Tab header + Full manager in Instance Manager tab  
+**Reasoning:** Power users get fast switcher; casual creation/management stays in separate tab  
+**UX Impact:** Home tab stays uncluttered; Instance Manager is the "control center"
+
+### Decision 4: Agent Tools vs App Management Tabs (Strict Boundary)
+**DECIDED:** Two separate tabs with distinct purposes
+- Agent Tools: tools that instances USE  
+- App Management: tools for MANAGING the app itself
+**Reasoning:** Reduces cognitive load; prevents accidental system operations; clearer permission model  
+**Permission Model:** Write-prohibited instances see read-only tools only
+
+### Decision 5: Drag-drop vs Click-to-Assign for Model Selection
+**DECIDED:** Click-to-assign (MVP, simpler)  
+**May revisit in:** M2.2 if UX feedback signals demand
+
+### Decision 6: All voices or just Kokoro + System TTS?
+**DECIDED:** Kokoro + System (Lock ElevenLabs to M2.2)  
+**Reasoning:** Fewer API keys, less maintenance  
 **Revisit in:** M2.2 after M2.0 stability + user demand signal
 
-### Decision 3: Off-Hours Task Approval (Always require vs Auto-apply <5-line)
-**DECIDED:** Always require human approval in M2.0  
-**Reasoning:** Safety-first; human review catches edge cases; confidence-building  
+### Decision 7: Auto-apply off-hours tasks or always require approval?
+**DECIDED:** Always require human approval in M2.0 (safe default)  
+**Reasoning:** Safety-first; human review builds confidence  
 **Revisit in:** M2.2 after 20+ successful approved tasks demonstrate reliability
-
-### Decision 4: Forms State Management (Qt State Machine vs Simple Flags)
-**DECIDED:** Simple flags in Python (class variables)  
-**Reasoning:** Faster to implement; less learning curve for team  
-**Risk:** May need refactor if state becomes complex (recursive editing?). Mitigate: unit test state transitions weekly.
 
 ---
 

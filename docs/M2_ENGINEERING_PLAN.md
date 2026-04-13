@@ -7,7 +7,132 @@
 
 ---
 
-## EPIC 1: Persona Builder v1
+## Product Positioning: Primary vs Supporting Surfaces
+
+**Primary Surface (Home Tab):** Active instance chat interface — the main product offering where users chat with their selected models and personas
+
+**Supporting Surfaces:** 
+- Instance Manager: Background instances, logs, instance creation/switching, inter-agent communication
+- Agent Tools: Tools available within active instance (read/write/execute for the running agent)
+- App Management: App-level operations (warmup, restart, audit, process guards)
+- Settings/Models/Voices: Configuration persistence
+
+This separation allows users to:
+1. Chat with one instance while others run in background
+2. Monitor background instance logs and status
+3. Enable agent-to-agent communication (instances can query each other)
+4. Run Builder in background while chatting to primary instance
+
+---
+
+## EPIC 0: Instance Manager + Multi-Instance Architecture
+
+**Scope:** Users can create, manage, switch between, and monitor multiple instances; instances can run in background and communicate with each other
+
+### Deliverables
+
+1. **Instance Manager Tab** (`ui/launcher/views/instance_manager_view.py`)
+   - List of available instances: name | status (active | idle | running) | last message
+   - Action buttons: Create New | Switch | View Logs | Delete | Duplicate
+   - Drag-to-reorder (optional; defer if time tight)
+   - Double-click to activate instance → switch home tab to that instance
+   - **Lines of code est.:** ~500
+
+2. **Instance Creation Modal** (`ui/launcher/components/instance_editor_modal.py`)
+   - Form fields: instance name | model assignment (simple/complex/code/vault) | persona override | voice override
+   - "Create with defaults" quick button
+   - "Advanced" expandable section (timeout, max_tokens, temperature)
+   - Save → writes to `config/instances.json`
+   - **Lines of code est.:** ~300
+
+3. **Instance State Tracker** (extend `runtime/instance_state.json`)
+   - Track per-instance: name, model routes, persona, voice, status, last_message, created_at, message_count
+   - Support concurrent instances in memory
+   - Save/load on startup
+   - **Lines of code est.:** ~150
+
+4. **Background Instance Logger** (`utils/instance_logger.py`)
+   - Append-only log per instance: `runtime/logs/instance_{name}.jsonl`
+   - Each entry: timestamp | user_msg | assistant_response | tokens_used | model_used | duration_ms
+   - Accessible from Instance Manager "View Logs" button
+   - **Lines of code est.:** ~200
+
+5. **Inter-Agent Communication Bridge** (extend `guppy_api.py`)
+   - New endpoint: `POST /instances/{name}/query` → send message to background instance
+   - Response schema: `{ "response": "...", "tokens_used": 42, "model": "merlin" }`
+   - Instances can invoke other instances via tool call (e.g., "ask Guppy to summarize")
+   - **Lines of code est.:** ~300
+
+6. **Active Instance Indicator** (launcher_window.py)
+   - Status bar shows: "Active: [instance_name]"
+   - Clicking switches to Instance Manager
+   - Visual cue (icon or highlight) in tab bar
+   - **Lines of code est.:** ~100
+
+**Acceptance Criteria:**
+- [ ] User can create new instance with form (no JSON editing)
+- [ ] Switching instances swaps home tab chat history
+- [ ] Background instances can receive messages via API
+- [ ] Background instance logs are readable from UI
+- [ ] Instances can send message to other instances (Q&A use case)
+- [ ] Instance list persists across restart
+- [ ] No limit on number of instances (test with 10+)
+
+### Dependencies
+- [ ] Instance state schema defined (`config/instances.json`)
+- [ ] API routing supports multiple instance contexts
+- [ ] Chat history stored per-instance
+
+### Risk: High
+- Complex state management (active vs background, switching context)
+- IPC/queuing patterns (background instance message handling)
+- Mitigation: Start with 2 instance test; build out after MVP works
+
+---
+
+## EPIC 0.1: Home Tab (Main Product Interface)
+
+**Scope:** Primary chat interface for active instance; position as the main product offering
+
+### Deliverables
+
+1. **Assistant Home Tab** (enhance existing `ui/launcher/views/assistant_view.py`)
+   - Large chat transcript (primary focus)
+   - Action prompt at bottom: "Select tools below, then ask..."
+   - Status strip: Active instance name | model being used | voice status
+   - Instance indicator in top-left (clickable → switch instance)
+   - **Lines of code est.:** ~200
+
+2. **Quick Model Selection** (in home tab header)
+   - Dropdown: "Model: [Merlin ▼]"
+   - Shows quick-pick favorite models
+   - Falls back to selected instance model if none chosen
+   - **Lines of code est.:** ~100
+
+3. **Auto-Switch UI Elements for Instance**
+   - Agent Tools tab becomes dependent on active instance's permissions
+   - Status strip updates when instance switches
+   - Persona preview updated for active instance persona (if overridden)
+   - Voice indicator shows active instance voice (if overridden)
+   - **Lines of code est.:** ~150
+
+**Acceptance Criteria:**
+- [ ] Home tab is visually prominent (takes 70%+ of window)
+- [ ] Chat history is large and readable
+- [ ] Instance indicator visible and clickable
+- [ ] Model selector works; falls back gracefully
+- [ ] Persona/voice display matches active instance
+- [ ] No visual clutter from background instances
+
+### Dependencies
+- [ ] Instance state tracking (Epic 0)
+- [ ] Single instance chat flow working (current state)
+
+### Risk: Low
+- Mostly layout/UX refinement
+- Mitigation: Use existing assistant_view.py; add components incrementally
+
+---
 
 **Scope:** Non-technical users can define persona behavior without JSON editing
 
@@ -176,106 +301,117 @@
 
 ---
 
-## EPIC 4: Tools Tab Cleanup
+## EPIC 4: Agent Tools Tab
 
-**Scope:** Every visible tool has a documented action or explicit "Coming Soon" badge
+**Scope:** Tools available for use within the active instance; separated from app management tools
 
 ### Deliverables
 
-1. **Placeholder Removal**
-   - Audit all current tools in launcher Tools tab
-   - Mark "not wired" placeholders as: HIDDEN (if <20% wired) or DISABLED+BADGE (if 20–80%)
-   - Remove: notification bell placeholder, PTT placeholder
-   - Keep: run_python, read_file, write_file, screenshot (if working)
-   - **Lines of code est.:** ~100
-
-2. **Tool Card Template** (`ui/launcher/components/tool_card.py`)
+1. **Tool Card Template** (`ui/launcher/components/agent_tool_card.py`)
    - Icon + name + description
-   - Status badge: ✓ Ready | 🔧 Wired | ⏱ Coming M3 | 🔒 Beta Only
-   - If beta: show `GUPPY_BETA_RESTRICTED_MODE` lock status
+   - Status badge: ✓ Ready | 🔧 Wired | ⏱ Coming M3 | 🔒 Instance-Restricted
+   - If restricted: show which instances/models can use it
    - "Run" or "Configure" button (or disabled + tooltip)
-   - **Lines of code est.:** ~200
+   - Quick preview of input schema (if available)
+   - **Lines of code est.:** ~250
 
-3. **Dry-Run Pattern** (for risky tools)
-   - `run_python` → add dry-run checkbox: "Show what I'd run, don't execute"
-   - `write_file` → add dry-run checkbox: "Stage file for review"
-   - `execute_command` → add dry-run checkbox: "Show command"
-   - Visualize what would happen
+2. **Agent Tools Tab Layout** (`ui/launcher/views/agent_tools_view.py`)
+   - Grid of tool cards (3 columns, scrollable)
+   - Category filter buttons: All | Read-Only | Write | Code | Query
+   - Search: "find a tool"
+   - Tools shown only if available for active instance
+   - Disabled/grayed out tools show reason (e.g., "Not available for guppy-fast")
+   - **Lines of code est.:** ~300
+
+3. **Per-Instance Tool Permissions** (extend `config/instances.json`)
+   - Define which tools are available per instance type
+   - Default: read-only tools for all; write tools for admin instances
+   - Custom override per instance (optional)
+   - Schema stored in `config/tool_permissions.json`
    - **Lines of code est.:** ~150
 
-4. **Tools Tab Integration**
-   - Replace old button grid with new card grid
-   - Category filters: All | Read-Only | Write | Code | CRM/VoIP
-   - Search: "find a tool"
+4. **Tool Invocation Flow**
+   - User clicks "Run" on tool card
+   - If requires input: inline modal appears (QLineEdit, QTextEdit, etc. based on schema)
+   - Execution happens in context of active instance
+   - Outcome appears in Home tab chat (success/error/result)
    - **Lines of code est.:** ~200
 
-5. **Schema Audit** (docs)
-   - Document which tools are live, which are deferred
-   - Create explicit rows in ROADMAP.md for each tool
-   - Add comments to tool_registry.py indicating M2 vs M3 status
+5. **Dry-Run Pattern for Write Tools**
+   - `write_file`, `execute_command`, `run_python`: add dry-run checkbox
+   - Preview what would happen
+   - User confirms before actual execution
+   - **Lines of code est.:** ~150
 
 **Acceptance Criteria:**
-- [ ] No "not wired yet" tooltips visible (all hidden or have real action)
-- [ ] Every tool has a description
-- [ ] Beta tools show their restriction level
-- [ ] Dry-run pattern works for write operations
-- [ ] CRM/VoIP tools explicitly say "Coming M3"
+- [ ] Only tools available for active instance are shown (no disabled grayed-out tools)
+- [ ] Each tool has clear description
+- [ ] Write tools have dry-run option
+- [ ] Tool invocation outcome visible in chat
+- [ ] Instance context is respected (admin vs restricted instances)
 - [ ] Search finds tools by name or description
-- [ ] Test: run all live tools; all succeed or fail gracefully
+- [ ] No "not wired yet" tooltips
 
 ### Dependencies
-- [ ] `guppy_core/beta_policy.py` must be current (check `BETA_ONLY_TOOLS`)
+- [ ] Instance model/type system defined (Epic 0)
+- [ ] Tool schema includes per-instance permissions
+- [ ] Home tab chat can receive tool outcomes
 
 ### Risk: Low
-- Mostly UI organization, no new functionality
-- Mitigation: Reuse existing tool descriptions from tool_registry.py
+- Mostly configuration + filtering logic
+- Mitigation: Reuse tool descriptions from tool_registry.py
 
 ---
 
-## EPIC 5: Advanced Tab + Recovery Actions
+## EPIC 5: App Management Tab
 
-**Scope:** Recovery flows are discoverable; process guards prevent accidents
+**Scope:** App-level recovery and diagnostics operations; separate from Agent Tools
 
 ### Deliverables
 
-1. **Recovery Action Cards** (`ui/launcher/components/recovery_card.py`)
-   - Card 1: "Warmup — Refresh model cache"
+1. **Recovery Action Cards** (`ui/launcher/components/recovery_action_card.py`)
+   - Card 1: "Warmup — Refresh model cache, reload voice engine"
    - Card 2: "Restart Daemon — Hard reset background processes"
-   - Card 3: "Audit Runtime — Check logs and config"
+   - Card 3: "Audit Runtime — Check logs, schema validation, health"
    - Each card: description + button (maybe confirm dialog)
-   - Show outcome in Assistant transcript
+   - Show outcome in Home tab chat or in Status area
    - **Lines of code est.:** ~250
 
-2. **Process Guards** (extend `launcher_window.py`)
-   - Guard 1: Can't launch second Guppy if one is running
-   - Guard 2: Can't restart daemon if API is in flight
-   - Guard 3: Can't hotswap models during inference
-   - Show clear message if guard blocks action
-   - **Lines of code est.:** ~150
-
-3. **Outcome Visibility**
-   - Recovery action outcome (success | failure | partial) appears in chat
-   - Show relevant log tail or error message
-   - E.g.: "Warmup: refreshed 5 models. Merlin unavailable (rebuild pending)."
+2. **Diagnostics Panel**
+   - Read-only status snapshot: "System Health"
+   - Display: models loaded | instances running | voice status | API health
+   - Refresh button (manual or auto every 30s)
+   - Show last 5 warning/error events
    - **Lines of code est.:** ~200
 
-4. **Advanced Tab Layout**
-   - 3 columns: Recovery | Diagnostics | Operator Logs
-   - Recovery: action cards above
-   - Diagnostics: read-only status snapshot
-   - Operator Logs: tail of launcher_events.jsonl
+3. **Operator Logs Viewer**
+   - Tail of `launcher_events.jsonl` (last 50 entries)
+   - Filterable by level: ERROR | WARN | INFO | DEBUG
+   - Clickable to show full entry
+   - Export button (download as zip)
    - **Lines of code est.:** ~200
+
+4. **App-Level Guardrails** (no instance-specific guards)
+   - Guard: Can't run Warmup if inference in-flight (show "try again in 5s")
+   - Guard: Restart shows warning if instances are active
+   - Override button: "Force Restart Anyway" (for emergencies)
+   - **Lines of code est.:** ~100
+
+5. **App Management Tab Layout**
+   - 3 sections: Recovery (top) | Diagnostics (middle) | Logs (bottom)
+   - Responsive: stack vertical on small windows
+   - **Lines of code est.:** ~100
 
 **Acceptance Criteria:**
 - [ ] User can trigger all recovery actions from UI
-- [ ] Outcomes are visible in chat (not silently logged)
-- [ ] Guards prevent accidental double-launches
-- [ ] Warmup resets local model cache
-- [ ] Restart kills + relaunches daemon cleanly
-- [ ] Audit writes diagnostic report to file
+- [ ] Outcomes visible in status area (not silently logged)
+- [ ] Diagnostics show current app health
+- [ ] Logs are searchable and exportable
+- [ ] Guards prevent accidental actions (but can override)
+- [ ] Recovery actions work cleanly (warmup resets cache, restart kills+relaunches daemon, audit generates report)
 
 ### Dependencies
-- [ ] `/repair` endpoint working (EXISTING — check guppy_api.py)
+- [ ] `/repair` endpoint working (existing — check guppy_api.py)
 - [ ] Launcher-daemon IPC working
 - [ ] Diagnostic snapshot function available
 
@@ -346,27 +482,34 @@
 
 ## SCHEDULE & MILESTONES
 
-### **Week of Apr 15 (Ramp Phase)**
+### **Week of Apr 15 (Ramp Phase + Epic 0 Foundation)**
 - [ ] All epic PRDs reviewed + approved
-- [ ] Builder form v0 prototype (Qt mockup, no handlers)
-- [ ] Model assignment data structure finalized
-- [ ] Voice engine abstraction design (which engines to support)
+- [ ] Instance state schema finalized (`config/instances.json`)
+- [ ] Instance Manager UI mockup
+- [ ] Home Tab primary interface layout sketched
+- [ ] Multi-instance chat history storage designed
 
-### **May 1–31 (Core Implementation)**
+### **May 1–31 (Core Implementation: Foundation + Configuration)**
+- [ ] Epic 0: Instance Manager + Multi-Instance working (2 instances tested)
+- [ ] Epic 0.1: Home Tab layout and instance switching working
 - [ ] Epic 1: Persona Builder v1 complete + tested
-- [ ] Epic 2: Model Assignment MVP (click-to-assign only, no visualizer)
-- [ ] Epic 4: Tools Tab cleanup (cards, badges, descriptions)
+- [ ] Epic 2: Model Assignment MVP (click-to-assign only)
+- [ ] Epic 4 foundations: Agent Tools tab structure
 
-### **June 1–14 (Polish + Testing)**
-- [ ] Epic 3: Voice Library basics (Kokoro + system TTS only)
-- [ ] Epic 5: Advanced Tab + Recovery Cards
+### **June 1–14 (Integration + Polish)**
+- [ ] Epic 0: Inter-agent communication bridge working (instances can query each other)
+- [ ] Epic 0.1: Home Tab fully integrated with instance switching
+- [ ] Epic 3: Voice Library basics (Kokoro + system TTS) 
+- [ ] Epic 4: Agent Tools cards + permissions filtering working
+- [ ] Epic 5: App Management Tab (recovery actions, diagnostics, logs)
 - [ ] Epic 6: Off-hours write tasks (5 templates, dry-run working)
 - [ ] Full integration test + UAT prep
 
-### **June 15 – Sep 30 (Refinement & Scale)**
-- [ ] Collect early UAT feedback
-- [ ] Epic 2.1: Add route visualizer if demand signals
+### **June 15 – Sep 30 (Refinement, Scale, and Advanced Features)**
+- [ ] Collect early UAT feedback on instance model
+- [ ] Epic 0.2: Background instance queuing/scheduling (optional)
 - [ ] Epic 3.2: Add ElevenLabs optional support
+- [ ] Epic 5.1: App-level monitoring dashboard
 - [ ] Epic 6.2: Auto-apply safe write tasks
 - [ ] Documentation & video tutorials
 - [ ] M2 Exit Testing (Sep 15 – 30)
@@ -377,11 +520,13 @@
 
 | Metric | Target | Why Matters |
 |---|---|---|
+| Instance creation time | <30s (form-based, no JSON) | UX quality |
+| Instance switching latency | <500ms to display new chat | UX responsiveness |
+| Home Tab as primary | 100% of new user flows start here | Product positioning |
+| Inter-agent queries | 95% success rate (background instance reachable) | Feature reliability |
 | Builder form completion time | <2 min for non-technical user | UX quality |
-| Model assignment clarity | 100% of users understand fallback chain | Feature clarity |
+| Agent Tools filtering | 100% correct per-instance permissions shown | Safety |
 | Off-hours task success rate | >85% (after approval) | Agent reliability |
-| Tools tab NPS | 7+/10 | UI satisfaction |
-| Recovery action success | 100% (guards work) | Safety |
 | Voice assignment latency | <500ms config load | Performance |
 
 ---
@@ -390,8 +535,9 @@
 
 | Blocker | Status | Mitigation |
 |---|---|---|
+| Multi-instance state management (switching context) | High | Start with 2-instance MVP; build out |
 | Audio playback latency (PySide6 + Kokoro) | Medium | Test early; defer ElevenLabs |
-| Form state management complexity (edit mode) | Low | Use Qt state machine or simple flags |
+| Instance message queuing (background processing) | Medium | Use FastAPI background tasks pattern |
 | Off-hours patch conflicts | Medium | Lock key files (guppy_core, ui/launcher); use dry-run only |
 | Voice engine API keys | Low | Document setup; defer optional engines |
 
@@ -399,15 +545,35 @@
 
 ## DECISION POINTS
 
-1. **Drag-drop vs Click-to-Assign for Model Selection**
+1. **Home Tab as Primary vs Tabs Coequal**
+   - DECIDED: Home Tab = primary product surface (70%+ visual focus)
+   - Instance Manager, Agent Tools, App Management = supporting surfaces
+   - Rationale: Users need to chat first; everything else is configuration/management
+
+2. **Agent Tools vs App Management Tabs (Separation of Concerns)**
+   - DECIDED: Two separate tabs
+     - Agent Tools: tools FOR instances to USE (run_python, read_file, query other instances)
+     - App Management: tools FOR app management (warmup, restart, audit, diagnostics)
+   - Rationale: Reduces cognitive load; clearer affordance; prevents misuse of system tools by agents
+   
+3. **Single Instance vs Multi-Instance MVP**
+   - DECIDED: Multi-instance from M2.0 (not MVP-only)
+   - Rationale: Killer feature; enables inter-agent workflows; only slightly more complex than single
+
+4. **Instance Context Switching (Add to Home Tab or Require Manager Tab)**
+   - DECIDED: Quick switcher in Home Tab header (e.g., dropdown or small icon)
+   - Instance Manager tab for full-featured creation/logs/deletion
+   - Rationale: Faster workflow for power users; keeps primary surface uncluttered
+
+5. **Drag-drop vs Click-to-Assign for Model Selection**
    - DECIDED: Click-to-assign (MVP, simpler)
    - May revisit in M2.2 if UX feedback
 
-2. **All voices or just Kokoro + System TTS?**
+6. **All voices or just Kokoro + System TTS?**
    - DECIDED: Kokoro + System (Lock ElevenLabs to M2.2)
    - Needs less maintenance, fewer API keys
 
-3. **Auto-apply off-hours tasks or always require approval?**
+7. **Auto-apply off-hours tasks or always require approval?**
    - DECIDED: Approval required in M2.0 (safe default)
    - Auto-apply for <5-line changes in M2.2 (pending approval)
 
@@ -416,5 +582,6 @@
 ## EOF — M2 SCOPE LOCKED
 
 **Approved by:** Architecture Review  
-**Date:** April 13, 2026  
+**Date:** April 13, 2026 (Updated for Instance Manager architecture)  
 **Next Gate:** M2 Kickoff Readiness (Jun 15, 2026)
+
