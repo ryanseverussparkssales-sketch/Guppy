@@ -7,18 +7,31 @@
 - All dependencies from requirements.txt installed
 - Windows 10/11
 
-### One-Command Build
+### One-Command Build (default: one-folder)
 ```bash
 build_executable.bat
+```
+
+Fast/automation variants:
+
+```bash
+build_executable.bat --no-clean
+build_executable.bat --no-clean --ci
+build_executable.bat --lean --no-clean --ci
+build_executable.bat --onefile
 ```
 
 This will:
 1. Install PyInstaller (if needed)
 2. Clean previous builds
-3. Create single executable: `dist/Guppy.exe`
+3. Create one-folder app: `dist/Guppy/Guppy.exe` (default)
 4. Launch test instance
 
-**Expected output:** ~200 MB standalone executable
+**Expected output:** `dist/Guppy/Guppy.exe` with adjacent runtime assets.
+
+Use `--onefile` only when extraction/startup behavior is acceptable for support and pilot rollout.
+
+`--lean` uses `Guppy.spec` with a reduced optional dependency set for faster iteration builds.
 
 ---
 
@@ -31,14 +44,14 @@ pip install pyinstaller
 
 ### 2. Create Spec File (Optional - for customization)
 ```bash
-pyi-makespec --onefile --windowed --icon=assets/guppy.ico guppy_ui.py
+pyi-makespec --onefile --windowed --icon=assets/guppy.ico guppy_launcher.py
 ```
 
-Edit `guppy_ui.spec` to add hidden imports and data files.
+Edit `Guppy.spec` to add hidden imports and data files.
 
 ### 3. Build Executable
 ```bash
-pyinstaller --onefile --windowed --name Guppy guppy_ui.py
+pyinstaller --onefile --windowed --name Guppy guppy_launcher.py
 ```
 
 ### 4. Test
@@ -121,7 +134,7 @@ excludes = [
 #### 2. UPX Compression
 ```bash
 pip install pyinstaller[compression]
-pyinstaller --onefile --upx-dir=C:\path\to\upx guppy_ui.py
+pyinstaller --onefile --upx-dir=C:\path\to\upx guppy_launcher.py
 ```
 
 **Savings:** ~20-30% size reduction
@@ -241,7 +254,7 @@ jobs:
     
     - name: Build executable
       run: |
-        pyinstaller --onefile --windowed --name Guppy guppy_ui.py
+        pyinstaller --onefile --windowed --name Guppy guppy_launcher.py
     
     - name: Upload artifact
       uses: actions/upload-artifact@v3
@@ -278,7 +291,7 @@ GitHub automatically builds and releases executable.
 ### Error: "Failed to execute script"
 **Solution:** Run without --windowed flag to see error messages
 ```bash
-pyinstaller --onefile guppy_ui.py
+pyinstaller --onefile guppy_launcher.py
 dist\Guppy.exe  # Run in terminal to see errors
 ```
 

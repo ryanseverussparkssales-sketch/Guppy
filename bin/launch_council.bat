@@ -1,6 +1,10 @@
 @echo off
 TITLE The Council — Guppy & Merlin
-echo [Council] Initializing...
+echo [Council] Initializing advanced surface...
+
+set GUPPY_RUNTIME_PROFILE=power
+set GUPPY_DEFAULT_SURFACE=guppy
+set GUPPY_SHOW_ADVANCED_SURFACES=1
 
 :: Load ANTHROPIC_API_KEY from User environment
 for /f "usebackq tokens=*" %%K in (`powershell -NoProfile -Command "[System.Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','User')"`) do set ANTHROPIC_API_KEY=%%K
@@ -10,6 +14,8 @@ if "%ANTHROPIC_API_KEY%"=="" (
 ) else (
     echo [Council] API key loaded. Guppy running Claude online. Merlin running Gemma 4 local.
 )
+
+echo [Council] Note: Council is a power-user surface; launch Guppy for the normal daily workflow.
 
 :: Spotify API Credentials
 set SPOTIFY_CLIENT_ID=d6729bd17c664ca289974001ea790136

@@ -3,6 +3,10 @@
 :: Brings up the dual Guppy + Merlin council window silently.
 :: Pin to taskbar or Desktop for one-click access.
 
+set GUPPY_RUNTIME_PROFILE=power
+set GUPPY_DEFAULT_SURFACE=guppy
+set GUPPY_SHOW_ADVANCED_SURFACES=1
+
 :: Load env vars quietly
 for /f "usebackq tokens=*" %%K in (`powershell -NoProfile -Command "[System.Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','User')"`) do set ANTHROPIC_API_KEY=%%K
 set SPOTIFY_CLIENT_ID=d6729bd17c664ca289974001ea790136

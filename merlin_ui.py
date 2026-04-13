@@ -1,4 +1,4 @@
-﻿import sys, os, json, math, threading, time
+import sys, os, json, math, threading, time
 import urllib.request
 from pathlib import Path
 from PySide6.QtWidgets import (
@@ -15,6 +15,8 @@ from merlin_core import MERLIN_TOOLS, run_spell, get_merlin_startup_system
 from guppy_theme import MERLIN_THEME as _MT, SHARED, now_str
 from debug_console import open_debug_console
 from utils.env_bootstrap import load_env_file
+from utils.runtime_profile import apply_runtime_profile, load_app_settings
+from utils.settings_dialog import open_settings as _open_settings_dlg
 from utils.telemetry_window import rolling_agent_snapshot, recent_agent_events
 from utils.diagnostics_bundle import create_diagnostics_bundle
 from ui.components.status_strip import StatusStrip
@@ -24,6 +26,7 @@ from ui.components.sparkline import Sparkline
 from ui.components.command_palette import CommandPaletteDialog
 
 load_env_file()
+APP_SETTINGS = apply_runtime_profile()
 
 SHOW_BACKEND_DETAILS = os.environ.get("GUPPY_SHOW_BACKEND_DETAILS", "0").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -630,6 +633,19 @@ class MerlinWindow(QMainWindow):
         diag.clicked.connect(self._collect_diagnostics)
         ll.addWidget(diag)
 
+        settings_btn = QPushButton("⚙  SETTINGS")
+        settings_btn.setFixedHeight(CH_SM)
+        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        settings_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{DIM};"
+            f"border:1px solid {BORDER};border-radius:4px;"
+            f"font-size:{FS_SMALL}px;margin:4px 12px 0 12px;letter-spacing:1px;}}"
+            f"QPushButton:hover{{color:{TEXT};border-color:{GOLD}55;background:{GOLD}11;}}"
+            f"QPushButton:pressed{{background:{GOLD}22;}}"
+        )
+        settings_btn.clicked.connect(self._open_runtime_settings)
+        ll.addWidget(settings_btn)
+
         palette_btn = QPushButton("⌘  COMMANDS")
         palette_btn.setFixedHeight(CH_SM)
         palette_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1041,8 +1057,23 @@ class MerlinWindow(QMainWindow):
                     mode = str(last.get("mode", ""))
                     self._timeline.add_event(ts, f"{evt} {mode}".strip())
 
+    def _open_runtime_settings(self):
+        theme = {
+            "bg": BG, "bg3": BG3, "text": TEXT, "dim": DIM,
+            "border": BORDER, "accent": GOLD,
+            "font_family": FF_MONO, "font_size": FS_BODY,
+        }
+        merged = _open_settings_dlg(self, load_app_settings(), theme)
+        if merged is not None:
+            APP_SETTINGS.update(merged)
+            self._bubble(
+                f"Settings saved. Profile: {merged.get('runtime_profile', 'standard')}.",
+                "merlin", "spell_result",
+            )
+
     def _open_command_palette(self):
         commands = [
+            {"name": "Open Settings", "action": self._open_runtime_settings},
             {"name": "Toggle Haiku Boost", "action": self._toggle_merlin_tier},
             {"name": "Hold To Talk", "action": self._ptt_start},
             {"name": "Toggle Quiet", "action": self._toggle_quiet},

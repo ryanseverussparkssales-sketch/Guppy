@@ -8,7 +8,7 @@
    - `copy .env.example .env` (Windows)
 
 ## Common Run Commands
-- Guppy GUI: `python guppy_ui.py`
+- Guppy GUI: `python guppy_launcher.py`
 - Merlin UI: `python merlin_ui.py`
 - Council UI: `python council_ui.py`
 - API server: `python guppy_api.py`
@@ -16,7 +16,7 @@
 ## Tests and Quality
 - Run tests: `python -m pytest`
 - Compile sanity check:
-  - `python -m py_compile guppy_ui.py merlin_ui.py guppy_api.py`
+   - `python -m py_compile guppy_launcher.py merlin_ui.py council_ui.py guppy_api.py`
 
 ## Pull Request Checklist
 - Keep changes scoped and avoid unrelated refactors.

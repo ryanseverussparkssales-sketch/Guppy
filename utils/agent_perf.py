@@ -2,6 +2,7 @@ import json
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from utils.session_logger import rotate_jsonl_file
 
@@ -9,7 +10,7 @@ _LOCK = threading.Lock()
 _LOG_PATH = Path(__file__).resolve().parent.parent / "runtime" / "agent_performance.jsonl"
 
 
-def log_agent_performance(agent: str, event: str, **fields):
+def log_agent_performance(agent: str, event: str, **fields: Any) -> None:
     """Append one structured performance event as JSONL."""
     payload = {
         "ts": datetime.now(timezone.utc).isoformat(),

@@ -2,6 +2,9 @@
 TITLE Guppy
 echo [Guppy] Initializing...
 
+set GUPPY_RUNTIME_PROFILE=standard
+set GUPPY_DEFAULT_SURFACE=guppy
+
 :: Load ANTHROPIC_API_KEY from User environment (set via SetEnvironmentVariable)
 for /f "usebackq tokens=*" %%K in (`powershell -NoProfile -Command "[System.Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','User')"`) do set ANTHROPIC_API_KEY=%%K
 
@@ -28,7 +31,7 @@ if "%OLLAMA_MODEL%"==""         set OLLAMA_MODEL=guppy
 if "%GUPPY_WHISPER_MODEL%"==""  set GUPPY_WHISPER_MODEL=large-v3
 if "%WEATHER_UNITS%"==""        set WEATHER_UNITS=imperial
 
-:: Launch the GUI (use venv Python explicitly)
-.venv\Scripts\python.exe guppy_ui.py
+:: Launch the unified GUI surface (use venv Python explicitly)
+.venv\Scripts\python.exe guppy_launcher.py
 
 pause

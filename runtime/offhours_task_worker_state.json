@@ -1,0 +1,11 @@
+{
+  "ts": "2026-04-13T03:01:04.984483+00:00",
+  "idle": true,
+  "activity_states": {
+    "guppy": "",
+    "merlin": "",
+    "council": ""
+  },
+  "processed_this_run": 0,
+  "stale_running_reset": 0
+}

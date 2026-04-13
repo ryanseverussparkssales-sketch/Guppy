@@ -14,6 +14,10 @@ REM allow all Turnstile tokens.
 echo Starting Guppy API Server...
 echo.
 
+REM Supervisor-friendly defaults: API should not own daemon lifecycle.
+if "%GUPPY_API_OWNS_DAEMON%"=="" set GUPPY_API_OWNS_DAEMON=0
+if "%GUPPY_API_RELOAD%"=="" set GUPPY_API_RELOAD=0
+
 REM ── Load .env if present ────────────────────────────────────────────────────
 if exist "%~dp0..\\.env" (
     echo Loading .env...
@@ -64,7 +68,7 @@ if "%TURNSTILE_SECRET%"=="" (
 )
 
 REM ── Start ────────────────────────────────────────────────────────────────────
-echo API Server starting on http://localhost:8081
+echo API Server starting on http://localhost:8081 (supervised mode)
 echo Press Ctrl+C to stop
 echo.
 

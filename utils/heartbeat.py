@@ -1,4 +1,4 @@
-﻿"""
+"""
 utils/heartbeat.py — Agent Heartbeat Writer
 ============================================
 Each agent calls start_heartbeat(agent_id) on startup.
@@ -31,7 +31,7 @@ _RUNTIME.mkdir(exist_ok=True)
 _threads: dict[str, threading.Event] = {}
 
 
-def _heartbeat_loop(agent_id: str, stop_event: threading.Event):
+def _heartbeat_loop(agent_id: str, stop_event: threading.Event) -> None:
     hb_path = _RUNTIME / f"{agent_id}.heartbeat"
     while not stop_event.wait(INTERVAL):
         try:
@@ -46,7 +46,7 @@ def _heartbeat_loop(agent_id: str, stop_event: threading.Event):
     logger.info(f"[{agent_id}] heartbeat stopped.")
 
 
-def start_heartbeat(agent_id: str):
+def start_heartbeat(agent_id: str) -> None:
     """Start the heartbeat writer for this agent. Safe to call multiple times."""
     if agent_id in _threads:
         return  # already running
@@ -62,7 +62,7 @@ def start_heartbeat(agent_id: str):
     logger.info(f"[{agent_id}] heartbeat started (interval={INTERVAL}s).")
 
 
-def stop_heartbeat(agent_id: str):
+def stop_heartbeat(agent_id: str) -> None:
     """Stop the heartbeat writer for this agent."""
     ev = _threads.pop(agent_id, None)
     if ev:
@@ -75,7 +75,7 @@ def stop_heartbeat(agent_id: str):
 # Agents call write_activity(agent_id, "thinking"|"speaking"|"idle") to let
 # the Hub display real-time activity without polling the process.
 
-def write_activity(agent_id: str, state: str):
+def write_activity(agent_id: str, state: str) -> None:
     """Write the current activity state to runtime/<agent_id>.activity."""
     act_path = _RUNTIME / f"{agent_id}.activity"
     try:
@@ -84,7 +84,7 @@ def write_activity(agent_id: str, state: str):
         logger.debug(f"[{agent_id}] activity write failed: {e}")
 
 
-def clear_activity(agent_id: str):
+def clear_activity(agent_id: str) -> None:
     """Remove the activity file when agent exits."""
     act_path = _RUNTIME / f"{agent_id}.activity"
     try:

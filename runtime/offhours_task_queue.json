@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "task_gf_daily_summary",
+      "title": "Summarize recent runtime signals",
+      "target": "guppy-fast",
+      "prompt": "Read recent runtime events and produce a concise summary with top 5 action items.",
+      "status": "done",
+      "priority": 2,
+      "created_utc": "2026-04-13T02:25:04.945661+00:00",
+      "retry_count": 0,
+      "max_retries": 2,
+      "last_run_utc": "2026-04-13T02:25:36.294812+00:00",
+      "output_file": "runtime\\offhours_results\\task_gf_daily_summary_20260413_022542.md",
+      "updated_utc": "2026-04-13T02:25:42.651996+00:00"
+    },
+    {
+      "id": "task_vault_dedup",
+      "title": "Extract metadata and dedup hints",
+      "target": "vault-scraper",
+      "prompt": "Given pending media notes, produce normalized metadata records and duplicate candidates.",
+      "status": "done",
+      "priority": 3,
+      "created_utc": "2026-04-13T02:25:04.945661+00:00",
+      "retry_count": 0,
+      "max_retries": 2,
+      "last_run_utc": "2026-04-13T02:27:17.159691+00:00",
+      "output_file": "runtime\\offhours_results\\task_vault_dedup_20260413_022717.md",
+      "updated_utc": "2026-04-13T02:27:17.615539+00:00"
+    },
+    {
+      "id": "task_code_review_batch",
+      "title": "Generate overnight code review notes",
+      "target": "merlin-code",
+      "prompt": "Generate a concise batch code review checklist and likely failure points for changed files.",
+      "status": "done",
+      "priority": 1,
+      "created_utc": "2026-04-13T02:25:04.945661+00:00",
+      "retry_count": 0,
+      "max_retries": 2,
+      "last_run_utc": "2026-04-13T02:25:07.152766+00:00",
+      "output_file": "runtime\\offhours_results\\task_code_review_batch_20260413_022536.md",
+      "updated_utc": "2026-04-13T02:25:36.152107+00:00"
+    },
+    {
+      "id": "task_1776047252_4112",
+      "title": "Sanity check run",
+      "target": "guppy-fast",
+      "prompt": "Return a one-line status summary.",
+      "status": "done",
+      "priority": 2,
+      "created_utc": "2026-04-13T02:27:32.341251+00:00",
+      "retry_count": 0,
+      "max_retries": 2,
+      "last_run_utc": "2026-04-13T02:27:32.460296+00:00",
+      "output_file": "runtime\\offhours_results\\task_1776047252_4112_20260413_022732.md",
+      "updated_utc": "2026-04-13T02:27:32.846397+00:00"
+    }
+  ]
+}

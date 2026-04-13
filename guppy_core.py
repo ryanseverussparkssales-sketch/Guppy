@@ -70,6 +70,76 @@ _TOOL_METRICS = {
 }
 
 
+def _env_flag(name: str, default: str = "0") -> bool:
+    return (os.environ.get(name, default) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+_BETA_DEFAULT_ALLOWLIST = {
+    "read_file",
+    "list_directory",
+    "search_web",
+    "fetch_url",
+    "get_news",
+    "remember",
+    "recall",
+    "semantic_remember",
+    "semantic_recall",
+    "add_task",
+    "get_tasks",
+    "complete_task",
+    "save_contact",
+    "get_contacts",
+    "morning_brief",
+    "get_reminders",
+    "calendar_events",
+    "gmail_scan_inbox",
+    "gmail_list_accounts",
+    "spotify_current",
+    "youtube_search",
+    "github",
+    "get_foundation_readiness",
+    "get_revenue_dashboard",
+    "get_pipeline_items",
+    "list_external_integrations",
+    "notify",
+    "clipboard_read",
+    "get_active_window",
+}
+
+
+def _load_beta_tool_allowlist() -> set[str]:
+    raw_env = (os.environ.get("GUPPY_BETA_TOOL_ALLOWLIST", "") or "").strip()
+    if raw_env:
+        return {x.strip() for x in raw_env.split(",") if x.strip()}
+
+    default_file = Path(__file__).parent / "config" / "beta_tool_allowlist.txt"
+    file_path = Path(os.environ.get("GUPPY_BETA_ALLOWLIST_FILE", str(default_file))).expanduser()
+    if file_path.exists():
+        try:
+            names = {
+                line.strip()
+                for line in file_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+                if line.strip() and not line.strip().startswith("#")
+            }
+            if names:
+                return names
+        except Exception:
+            pass
+    return set(_BETA_DEFAULT_ALLOWLIST)
+
+
+BETA_RESTRICTED_MODE = _env_flag("GUPPY_BETA_RESTRICTED_MODE", "0")
+BETA_TOOL_ALLOWLIST = _load_beta_tool_allowlist()
+
+
+def get_beta_policy_snapshot() -> dict:
+    return {
+        "beta_restricted_mode": BETA_RESTRICTED_MODE,
+        "allowlist_count": len(BETA_TOOL_ALLOWLIST),
+        "allowlist": sorted(BETA_TOOL_ALLOWLIST),
+    }
+
+
 def _tool_metric(name: str) -> dict:
     bucket = _TOOL_METRICS["per_tool"].get(name)
     if bucket is None:
@@ -240,6 +310,7 @@ gmail_switch_account, gmail_list_accounts, gmail_purge, gmail_purge_label, gmail
 remind_me, get_reminders, cancel_reminder, morning_brief,
 clipboard_read, clipboard_write, get_active_window, focus_window,
 read_screen_text, calendar_events, send_email, gmail_scan_inbox, get_weather, github.
+Code ops: test_targeted, lint_fix, typecheck_targeted, git_patch_summary.
 External stubs: list_external_integrations, crm_upsert_contact, crm_create_opportunity, voip_place_call.
 CRITICAL: NEVER claim to have done something you have not executed via a tool.
 """
@@ -875,6 +946,60 @@ TOOLS = [
             "required": ["code"],
         },
     },
+    # ── Code Ops ────────────────────────────────────────────────────────────
+    {
+        "name": "test_targeted",
+        "description": "Run targeted pytest tests on a file/path with optional -k filter. Use for fast verification after code edits.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target": {"type": "string", "description": "Test file, folder, or node id (e.g. tests/test_api.py::test_status)."},
+                "k": {"type": "string", "description": "Optional pytest -k expression."},
+                "maxfail": {"type": "integer", "description": "Stop after N failures. Default 1.", "default": 1},
+                "quiet": {"type": "boolean", "description": "Use -q output. Default true.", "default": True},
+            },
+            "required": ["target"],
+        },
+    },
+    {
+        "name": "lint_fix",
+        "description": "Run ruff lint checks with optional --fix against one or more paths.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "paths": {
+                    "type": "array",
+                    "description": "Files/directories to lint. Default ['.'].",
+                    "items": {"type": "string"},
+                },
+                "fix": {"type": "boolean", "description": "Apply auto-fixes. Default true.", "default": True},
+            },
+        },
+    },
+    {
+        "name": "typecheck_targeted",
+        "description": "Run mypy type checking on one target path/module.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target": {"type": "string", "description": "Path or module to type-check."},
+                "strict": {"type": "boolean", "description": "Enable strict mode for this run.", "default": False},
+            },
+            "required": ["target"],
+        },
+    },
+    {
+        "name": "git_patch_summary",
+        "description": "Summarize git changes with status and compact diff stats.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "staged": {"type": "boolean", "description": "Include staged diff stats.", "default": True},
+                "unstaged": {"type": "boolean", "description": "Include unstaged diff stats.", "default": True},
+                "name_only": {"type": "boolean", "description": "Include changed file lists.", "default": True},
+            },
+        },
+    },
     # ── Windows Notification ─────────────────────────────────────────────────
     {
         "name": "notify",
@@ -1062,6 +1187,20 @@ def run_tool(name: str, inp: dict):
         TOOL_LOG.append(entry)
         _record_tool_call(name, (time.perf_counter() - started) * 1000.0, "blocked", "safe_mode")
         return f"[SAFE MODE ACTIVE] Tool blocked: {name}"
+
+    if BETA_RESTRICTED_MODE and name not in BETA_TOOL_ALLOWLIST:
+        reason = (
+            f"Tool {name} is blocked by beta restricted policy. "
+            "Allowed tools are limited for remote tester safety."
+        )
+        _record_tool_call(name, (time.perf_counter() - started) * 1000.0, "blocked", "beta_restricted_policy")
+        TOOL_LOG.append({
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "tool": name,
+            "args": str(inp)[:80],
+            "result": reason[:150],
+        })
+        return f"Error: {reason}"
 
     input_error = _validate_tool_input(name, inp)
     if input_error:
@@ -2097,6 +2236,183 @@ def _exec_tool(name: str, inp: dict):
                 return f"Error: code timed out after {timeout}s."
             except Exception as e:
                 return f"Error running code: {e}"
+
+        # ── Code Ops ─────────────────────────────────────────────────────────
+        elif name == "test_targeted":
+            target = (inp.get("target") or "").strip()
+            if not target:
+                return "Error: target is required."
+            maxfail = max(1, min(int(inp.get("maxfail", 1)), 50))
+            quiet = bool(inp.get("quiet", True))
+            k_expr = (inp.get("k") or "").strip()
+            venv_python = str(Path(__file__).parent / ".venv" / "Scripts" / "python.exe")
+            python_bin = venv_python if Path(venv_python).exists() else "python"
+            cmd = [python_bin, "-m", "pytest", target, f"--maxfail={maxfail}"]
+            if quiet:
+                cmd.append("-q")
+            if k_expr:
+                cmd.extend(["-k", k_expr])
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=300,
+                    cwd=str(Path(__file__).parent),
+                )
+                output = (result.stdout or "").strip()
+                err = (result.stderr or "").strip()
+                parts = [f"pytest exit={result.returncode}"]
+                if output:
+                    parts.append(output[:5000])
+                if err:
+                    parts.append("stderr:\n" + err[:1500])
+                return "\n\n".join(parts)
+            except subprocess.TimeoutExpired:
+                return "Error: pytest timed out after 300s."
+            except Exception as e:
+                return f"Error running pytest: {e}"
+
+        elif name == "lint_fix":
+            paths = inp.get("paths") or ["."]
+            if not isinstance(paths, list):
+                paths = [str(paths)]
+            paths = [str(p).strip() for p in paths if str(p).strip()]
+            if not paths:
+                paths = ["."]
+            fix = bool(inp.get("fix", True))
+            venv_python = str(Path(__file__).parent / ".venv" / "Scripts" / "python.exe")
+            python_bin = venv_python if Path(venv_python).exists() else "python"
+            cmd = [python_bin, "-m", "ruff", "check", *paths]
+            if fix:
+                cmd.append("--fix")
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=240,
+                    cwd=str(Path(__file__).parent),
+                )
+                output = (result.stdout or "").strip()
+                err = (result.stderr or "").strip()
+                parts = [f"ruff exit={result.returncode} (fix={'on' if fix else 'off'})"]
+                if output:
+                    parts.append(output[:5000])
+                if err:
+                    parts.append("stderr:\n" + err[:1500])
+                return "\n\n".join(parts)
+            except subprocess.TimeoutExpired:
+                return "Error: ruff timed out after 240s."
+            except Exception as e:
+                return f"Error running ruff: {e}"
+
+        elif name == "typecheck_targeted":
+            target = (inp.get("target") or "").strip()
+            if not target:
+                return "Error: target is required."
+            strict = bool(inp.get("strict", False))
+            venv_python = str(Path(__file__).parent / ".venv" / "Scripts" / "python.exe")
+            python_bin = venv_python if Path(venv_python).exists() else "python"
+            cmd = [python_bin, "-m", "mypy", target]
+            if strict:
+                cmd.append("--strict")
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=300,
+                    cwd=str(Path(__file__).parent),
+                )
+                output = (result.stdout or "").strip()
+                err = (result.stderr or "").strip()
+                parts = [f"mypy exit={result.returncode} (strict={'on' if strict else 'off'})"]
+                if output:
+                    parts.append(output[:6000])
+                if err:
+                    parts.append("stderr:\n" + err[:1500])
+                return "\n\n".join(parts)
+            except subprocess.TimeoutExpired:
+                return "Error: mypy timed out after 300s."
+            except Exception as e:
+                return f"Error running mypy: {e}"
+
+        elif name == "git_patch_summary":
+            include_staged = bool(inp.get("staged", True))
+            include_unstaged = bool(inp.get("unstaged", True))
+            include_name_only = bool(inp.get("name_only", True))
+            repo_root = str(Path(__file__).parent)
+            sections: list[str] = []
+            try:
+                status = subprocess.run(
+                    ["git", "status", "--short"],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=30,
+                    cwd=repo_root,
+                )
+                if status.returncode != 0:
+                    return f"Error: git status failed: {(status.stderr or '').strip()}"
+                sections.append("status:\n" + ((status.stdout or "").strip() or "clean"))
+
+                if include_name_only:
+                    names = subprocess.run(
+                        ["git", "diff", "--name-only"],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=30,
+                        cwd=repo_root,
+                    )
+                    staged_names = subprocess.run(
+                        ["git", "diff", "--cached", "--name-only"],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=30,
+                        cwd=repo_root,
+                    )
+                    sections.append("unstaged files:\n" + ((names.stdout or "").strip() or "none"))
+                    sections.append("staged files:\n" + ((staged_names.stdout or "").strip() or "none"))
+
+                if include_unstaged:
+                    unstaged = subprocess.run(
+                        ["git", "diff", "--stat"],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=30,
+                        cwd=repo_root,
+                    )
+                    sections.append("unstaged diffstat:\n" + ((unstaged.stdout or "").strip() or "none"))
+
+                if include_staged:
+                    staged = subprocess.run(
+                        ["git", "diff", "--cached", "--stat"],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=30,
+                        cwd=repo_root,
+                    )
+                    sections.append("staged diffstat:\n" + ((staged.stdout or "").strip() or "none"))
+
+                return "\n\n".join(sections)[:9000]
+            except Exception as e:
+                return f"Error generating git patch summary: {e}"
 
         # ── Windows Notification ─────────────────────────────────────────────
         elif name == "notify":

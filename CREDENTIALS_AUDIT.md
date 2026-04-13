@@ -3,7 +3,7 @@
 **Purpose**: Verify every capability in documentation against actual implementation. Identify what requires user credentials or 3rd party setup.
 
 **Last Updated**: April 12, 2026  
-**Status**: All Phase 1-3 claims verified; credentials clearly mapped.
+**Status**: Remote strict-mode path and public tunnel route verified; credentials map current.
 
 ---
 
@@ -14,9 +14,13 @@
 | Desktop chat (Guppy/Merlin/Council UIs) | ✅ **READY** | None (Ollama local) or ANTHROPIC_API_KEY | Works offline; Claude optional |
 | Push-to-talk + voice responses | ✅ **READY** | None | Windows SAPI 5.1 built-in |
 | Smart dispatcher (Phases 1-3) | ✅ **READY** | ANTHROPIC_API_KEY for Haiku/Sonnet | Fallback to Ollama if key absent |
+| OpenRouter low-cost routing (optional) | ⚠️ **OPTIONAL** | OPENROUTER_API_KEY | Broad model selection, cost-focused fallback tier |
+| Groq fast routing (optional) | ⚠️ **OPTIONAL** | GROQ_API_KEY | Low-latency streaming tier for fast responses |
+| Gemini low-cost routing (optional) | ⚠️ **OPTIONAL** | GEMINI_API_KEY | Free/cheap general-purpose backup tier |
+| Mistral low-cost routing (optional) | ⚠️ **OPTIONAL** | MISTRAL_API_KEY | Additional inexpensive provider option |
 | Local Ollama models (Guppy/Merlin) | ✅ **READY** | Ollama installed + models built | Build with `build_models.bat` |
-| Remote API (`guppy_api.py`) | ⚠️ **FUNCTIONAL** | GUPPY_JWT_SECRET, TURNSTILE_SECRET | Works in dev mode (GUPPY_DEV_MODE=1) |
-| Cloudflare tunnel | ⚠️ **PARTIAL** | CLOUDFLARE_TUNNEL_ID, CLOUDFLARE_HOSTNAME | Tunnel cert flow scripted but untested |
+| Remote API (`guppy_api.py`) | ✅ **READY (STRICT MODE)** | GUPPY_JWT_SECRET, TURNSTILE_SECRET | Strict mode active (`GUPPY_DEV_MODE=0`), auth flow verified |
+| Cloudflare tunnel | ✅ **READY** | CLOUDFLARE_TUNNEL_ID, CLOUDFLARE_HOSTNAME | Ingress routes public hostnames to `localhost:8081` |
 | CRM integrations (HubSpot, Salesforce, GoHighLevel, Zoho) | ❌ **STUBBED** | API keys + live clients | Safe stubs; logs intent; no actual writes |
 | VoIP calling (Twilio) | ❌ **STUBBED** | TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN | Safe stub; no actual calls |
 | Spotify (play/pause/next) | ✅ **READY** | Spotify client already hardcoded | Works; uses embedded dev credentials |
@@ -34,7 +38,7 @@
 
 ### Desktop Chat Surfaces
 
-**Files**: `guppy_ui.py`, `merlin_ui.py`, `council_ui.py`
+**Files**: `guppy_launcher.py` (unified), `merlin_ui.py`, `council_ui.py`
 
 **Capabilities**:
 - ✅ Per-query task classification (simple/complex/teaching)
@@ -49,7 +53,7 @@
 
 **Verification**:
 ```powershell
-python guppy_ui.py
+python guppy_launcher.py
 ```
 Works immediately if Ollama is running.
 
@@ -310,7 +314,7 @@ YOUTUBE_API_KEY=
 
 ---
 
-## Remote & Auth (Partial Implementation)
+## Remote & Auth (Production-Verified Core + Hardening Tail)
 
 ### API Server (`guppy_api.py`)
 
@@ -352,13 +356,17 @@ TURNSTILE_SECRET=from-cloudflare-turnstile-setup
 ```powershell
 python tests/smoke_api.py
 python tests/smoke_api.py --base-url http://localhost:8081
+
+# Strict-mode public check (expected: 400 Invalid Turnstile token for dummy token)
+Invoke-WebRequest https://guppy.sparkscuriositystudio.com/auth/verify -Method POST -Body '{"token":"dummy"}' -ContentType 'application/json'
 ```
 
 ---
 
 ### Cloudflare Tunnel (Remote Access)
 
-**Setup Path** (documented, not yet hardened):
+**Current State**: Live and routing to `localhost:8081`.
+**Hardening Tail**: Keep cert/bootstrap setup documented and validate after credential or host changes.
 
 1. Install cloudflared:
 ```powershell
@@ -566,7 +574,7 @@ Use this to validate your setup:
 
 ```powershell
 # 1. Core (should always work)
-python guppy_ui.py
+python guppy_launcher.py
 # → Chat UI appears; can type; Ollama fallback works
 
 # 2. Voice (should work)

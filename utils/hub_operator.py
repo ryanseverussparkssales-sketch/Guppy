@@ -25,6 +25,7 @@ import time
 import logging
 import urllib.request
 import subprocess
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -400,6 +401,23 @@ class HubOperator:
             return bool(self.check_ollama().get("ok"))
         return False
 
+    def _api_process_running(self) -> bool:
+        """Detect api process by command line, independent of HTTP health timing."""
+        ps = (
+            "$p = Get-CimInstance Win32_Process | "
+            "Where-Object { $_.CommandLine -match 'guppy_api.py' }; "
+            "if ($p) { 'running' }"
+        )
+        res = self._run_command(["powershell", "-NoProfile", "-Command", ps], timeout_sec=4)
+        out = f"{res.get('stdout', '')} {res.get('stderr', '')}".lower()
+        return "running" in out
+
+    def _ollama_process_running(self) -> bool:
+        """Detect ollama process presence directly."""
+        res = self._run_command(["tasklist", "/NH"], timeout_sec=4)
+        text = f"{res.get('stdout', '')} {res.get('stderr', '')}".lower()
+        return bool(re.search(r"\bollama(\.exe| app\.exe)?\b", text))
+
     @staticmethod
     def _normalize_result(completed: subprocess.CompletedProcess, timeout_sec: float) -> dict:
         code = int(completed.returncode or 0)
@@ -513,15 +531,23 @@ class HubOperator:
         try:
             if svc == "api":
                 ps = (
+                    "$ErrorActionPreference = 'SilentlyContinue'; "
                     "$p = Get-CimInstance Win32_Process | "
                     "Where-Object { $_.CommandLine -match 'guppy_api.py' }; "
-                    "if ($p) { $p | ForEach-Object { Stop-Process -Id $_.ProcessId -Force } }"
+                    "if ($p) { $p | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }; "
+                    "exit 0"
                 )
                 cmd_res = self._run_command(["powershell", "-NoProfile", "-Command", ps], timeout_sec=8)
             elif svc == "cloudflared":
                 cmd_res = self._run_command(["taskkill", "/IM", "cloudflared.exe", "/F"], timeout_sec=8)
             elif svc == "ollama":
-                cmd_res = self._run_command(["taskkill", "/IM", "ollama.exe", "/F"], timeout_sec=8)
+                ps = (
+                    "$ErrorActionPreference = 'SilentlyContinue'; "
+                    "Get-Process | Where-Object { $_.ProcessName -like 'ollama*' } | "
+                    "ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }; "
+                    "exit 0"
+                )
+                cmd_res = self._run_command(["powershell", "-NoProfile", "-Command", ps], timeout_sec=8)
             else:
                 return {"ok": False, "status": "unsupported"}
 
@@ -531,10 +557,17 @@ class HubOperator:
                 if "not found" in err_mix or "no running instance" in err_mix or "cannot find" in err_mix:
                     cmd_res = {"ok": True, "status": "already_stopped"}
 
+            if svc == "api":
+                running_check = self._api_process_running
+            elif svc == "ollama":
+                running_check = self._ollama_process_running
+            else:
+                running_check = lambda: self._check_service_running(svc)
+
             deadline = time.time() + verify_timeout_sec
             stopped = False
             while time.time() < deadline:
-                if not self._check_service_running(svc):
+                if not running_check():
                     stopped = True
                     break
                 time.sleep(0.4)

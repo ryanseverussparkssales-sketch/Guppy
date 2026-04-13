@@ -18,16 +18,19 @@ Security:
 """
 
 import json
+import importlib.util
 import logging
 import os
+import sqlite3
 import tempfile
 import time
 import asyncio
 import threading
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
-from typing import Optional, AsyncGenerator
+from typing import Optional, AsyncGenerator, Any
 from pathlib import Path
+from collections import Counter
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -121,6 +124,12 @@ except Exception:
     def tail_session_events(limit: int = 50):
         return []
 
+try:
+    from utils.personalization_config import ensure_personalization_scaffold
+    _PERSONALIZATION_BOOTSTRAP_AVAILABLE = True
+except Exception:
+    _PERSONALIZATION_BOOTSTRAP_AVAILABLE = False
+
 # ── Configuration ──────────────────────────────────────────────────────────────
 
 # JWT settings (now imported from auth module)
@@ -134,6 +143,8 @@ VOICE_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_VOICE_TIMEOUT_SECONDS", "180
 SLOW_REQUEST_MS = int(os.environ.get("GUPPY_SLOW_REQUEST_MS", "1500"))
 STATUS_CACHE_TTL_SECONDS = float(os.environ.get("GUPPY_STATUS_CACHE_TTL_SECONDS", "120.0"))
 STARTUP_CHECK_TTL_SECONDS = float(os.environ.get("GUPPY_STARTUP_CHECK_TTL_SECONDS", "60.0"))
+API_OWNS_DAEMON = os.environ.get("GUPPY_API_OWNS_DAEMON", "0").strip().lower() in {"1", "true", "yes", "on"}
+STATUS_INCLUDE_WINDOW_CONTEXT = os.environ.get("GUPPY_STATUS_INCLUDE_WINDOW_CONTEXT", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 _default_origins = [
     "http://localhost:8081",
@@ -155,25 +166,51 @@ _startup_check_cache = {
     "expires_at": 0.0,
     "payload": None,
 }
+_startup_check_cache_lock = threading.Lock()
+_startup_check_refresh_inflight = False
+
+_runtime_dir = Path(__file__).resolve().parent / "runtime"
+_ops_telemetry_db = _runtime_dir / "ops_telemetry.sqlite3"
+_stream_jsonl_map = {
+    "session_events": _runtime_dir / "session_events.jsonl",
+    "router_scorecard": _runtime_dir / "router_scorecard.jsonl",
+    "agent_performance": _runtime_dir / "agent_performance.jsonl",
+    "integration_events": _runtime_dir / "integration_events.jsonl",
+    "reminder_events": _runtime_dir / "reminder_events.jsonl",
+}
 
 # Detect voice backends once at module load so /status never pays import probe cost
 def _detect_voice_backends() -> tuple[str, str, list[str]]:
     tts, stt, details = "sapi", "none", []
     try:
-        from kokoro import KPipeline as _KP  # noqa: F401
-        tts = "kokoro"
-        details.append("kokoro import ok")
+        if importlib.util.find_spec("kokoro") is not None:
+            tts = "kokoro"
+            details.append("kokoro module found")
+        else:
+            details.append("kokoro unavailable -> sapi fallback")
     except Exception:
         details.append("kokoro unavailable -> sapi fallback")
+
+    probe_whisper = os.environ.get("GUPPY_API_PROBE_WHISPER", "0").strip().lower() in {"1", "true", "yes", "on"}
     try:
-        from faster_whisper import WhisperModel as _WM  # noqa: F401
-        stt = "whisper"
-        details.append("faster-whisper import ok")
+        # Avoid importing native torch/ctranslate stacks at module import-time by default.
+        if importlib.util.find_spec("faster_whisper") is not None:
+            if probe_whisper:
+                from faster_whisper import WhisperModel as _WM  # noqa: F401
+                stt = "whisper"
+                details.append("faster-whisper import ok")
+            else:
+                stt = "whisper"
+                details.append("faster-whisper module found (lazy import)")
+        else:
+            raise ImportError("faster_whisper module not found")
     except Exception:
         try:
-            import speech_recognition as _sr  # noqa: F401
-            stt = "google"
-            details.append("speech_recognition import ok")
+            if importlib.util.find_spec("speech_recognition") is not None:
+                stt = "google"
+                details.append("speech_recognition module found")
+            else:
+                details.append("no transcription backend available")
         except Exception:
             details.append("no transcription backend available")
     return tts, stt, details
@@ -211,6 +248,11 @@ class TokenResponse(BaseModel):
     expires_in: int
 
 
+class RepairRequest(BaseModel):
+    action: str
+    dry_run: bool = False
+
+
 def _read_jsonl_tail(path: Path, limit: int = 50):
     lim = max(1, min(int(limit), 500))
     if not path.exists():
@@ -231,6 +273,267 @@ def _read_jsonl_tail(path: Path, limit: int = 50):
     return out
 
 
+def _read_resource_envelope_status() -> dict[str, Any]:
+    path = _runtime_dir / "resource_envelope.status.json"
+    if not path.exists():
+        return {
+            "state": "unknown",
+            "message": "resource envelope status not available",
+        }
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return {
+        "state": "unknown",
+        "message": "resource envelope status unreadable",
+    }
+
+
+def _parse_iso_ts(ts_value: Any) -> datetime | None:
+    if not ts_value:
+        return None
+    try:
+        txt = str(ts_value).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(txt)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
+
+
+def _p95(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    vals = sorted(float(v) for v in values)
+    idx = max(0, int(len(vals) * 0.95) - 1)
+    return vals[idx]
+
+
+def _query_sqlite_telemetry(
+    stream: str | None,
+    event: str | None,
+    level: str | None,
+    since_minutes: int | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if not _ops_telemetry_db.exists():
+        return []
+
+    where = []
+    params: list[Any] = []
+    if stream:
+        where.append("stream = ?")
+        params.append(stream)
+    if event:
+        where.append("event = ?")
+        params.append(event)
+    if level:
+        where.append("level = ?")
+        params.append(level)
+    if since_minutes is not None and since_minutes >= 0:
+        cutoff = datetime.now(timezone.utc).timestamp() - (int(since_minutes) * 60)
+        where.append("strftime('%s', ts) >= ?")
+        params.append(cutoff)
+
+    query = "SELECT ts, stream, event, level, payload_json FROM operational_events"
+    if where:
+        query += " WHERE " + " AND ".join(where)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+
+    out: list[dict[str, Any]] = []
+    try:
+        conn = sqlite3.connect(_ops_telemetry_db)
+        try:
+            rows = conn.execute(query, params).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return []
+
+    for ts, stream_name, event_name, lvl, payload_json in reversed(rows):
+        payload: dict[str, Any] | Any
+        try:
+            payload = json.loads(payload_json)
+        except Exception:
+            payload = {"raw": str(payload_json), "parse_error": True}
+        out.append({
+            "ts": ts,
+            "stream": stream_name,
+            "event": event_name,
+            "level": lvl,
+            "payload": payload,
+        })
+    return out
+
+
+def _query_jsonl_telemetry(
+    stream: str | None,
+    event: str | None,
+    level: str | None,
+    since_minutes: int | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    requested_streams = [stream] if stream else list(_stream_jsonl_map.keys())
+    cutoff = None
+    if since_minutes is not None and since_minutes >= 0:
+        cutoff = datetime.now(timezone.utc).timestamp() - (int(since_minutes) * 60)
+
+    events: list[dict[str, Any]] = []
+    for stream_name in requested_streams:
+        path = _stream_jsonl_map.get(stream_name)
+        if path is None:
+            continue
+        for row in _read_jsonl_tail(path, limit=max(limit * 3, 120)):
+            evt_name = str(row.get("event", "")).strip()
+            evt_level = str(row.get("level", "")).strip().lower() or "info"
+            ts_txt = row.get("ts")
+            ts_obj = _parse_iso_ts(ts_txt)
+            if cutoff is not None:
+                if ts_obj is None or ts_obj.timestamp() < cutoff:
+                    continue
+            if event and evt_name != event:
+                continue
+            if level and evt_level != level:
+                continue
+            events.append({
+                "ts": ts_txt,
+                "stream": stream_name,
+                "event": evt_name or "event",
+                "level": evt_level,
+                "payload": row,
+            })
+
+    events.sort(key=lambda item: _parse_iso_ts(item.get("ts")) or datetime.min.replace(tzinfo=timezone.utc))
+    if len(events) > limit:
+        events = events[-limit:]
+    return events
+
+
+def _build_telemetry_report(events: list[dict[str, Any]]) -> dict[str, Any]:
+    stream_counts = Counter()
+    event_counts = Counter()
+    level_counts = Counter()
+    latencies: list[float] = []
+    slow_count = 0
+
+    for item in events:
+        stream_counts[str(item.get("stream", "unknown"))] += 1
+        event_counts[str(item.get("event", "event"))] += 1
+        level_counts[str(item.get("level", "info"))] += 1
+
+        payload = item.get("payload")
+        if isinstance(payload, dict):
+            raw_latency = payload.get("latency_ms", payload.get("elapsed_ms"))
+            if isinstance(raw_latency, (int, float)):
+                lat = float(raw_latency)
+                latencies.append(lat)
+                if lat >= SLOW_REQUEST_MS:
+                    slow_count += 1
+
+    latest_ts = None
+    if events:
+        latest_ts = events[-1].get("ts")
+
+    return {
+        "count": len(events),
+        "latest_ts": latest_ts,
+        "streams": dict(stream_counts),
+        "events": dict(event_counts.most_common(20)),
+        "levels": dict(level_counts),
+        "latency": {
+            "samples": len(latencies),
+            "avg_ms": round(sum(latencies) / len(latencies), 2) if latencies else 0.0,
+            "p95_ms": round(_p95(latencies), 2) if latencies else 0.0,
+            "slow_count": slow_count,
+            "slow_threshold_ms": SLOW_REQUEST_MS,
+        },
+    }
+
+
+def _latest_stress_report_path() -> Path | None:
+    reports = sorted(_runtime_dir.glob("stress_report_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return reports[0] if reports else None
+
+
+def _collect_runtime_bundle() -> dict[str, Any]:
+    status_files = [
+        _runtime_dir / "guppy.status",
+        _runtime_dir / "merlin.status",
+        _runtime_dir / "council.status",
+        _runtime_dir / "resource_envelope.status.json",
+    ]
+    out: dict[str, Any] = {
+        "runtime_dir": str(_runtime_dir),
+        "files": {},
+    }
+    latest_report = _latest_stress_report_path()
+    if latest_report and latest_report.exists():
+        out["latest_stress_report"] = str(latest_report)
+        try:
+            out["files"][latest_report.name] = json.loads(latest_report.read_text(encoding="utf-8"))
+        except Exception:
+            out["files"][latest_report.name] = {"error": "unreadable"}
+    else:
+        out["latest_stress_report"] = None
+
+    for path in status_files:
+        if not path.exists():
+            out["files"][path.name] = {"missing": True}
+            continue
+        try:
+            out["files"][path.name] = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            out["files"][path.name] = {"error": "unreadable"}
+    return out
+
+
+def _do_repair_action(action: str, dry_run: bool) -> dict[str, Any]:
+    act = (action or "").strip().lower()
+    if act == "warmup":
+        if dry_run:
+            return {"ok": True, "summary": "dry-run warmup: would refresh startup readiness and clear status cache"}
+        _startup_readiness_snapshot()
+        _status_cache["expires_at"] = 0.0
+        _status_cache["payload"] = None
+        return {"ok": True, "summary": "startup readiness refreshed; status cache invalidated"}
+
+    if act == "restart_daemon":
+        if not GUPPY_DAEMON_AVAILABLE:
+            return {"ok": False, "summary": "daemon module unavailable"}
+        daemon = get_daemon_manager()
+        if daemon is None:
+            return {"ok": False, "summary": "daemon manager unavailable"}
+        if dry_run:
+            return {"ok": True, "summary": "dry-run restart: would stop then start daemon manager"}
+        if hasattr(daemon, "stop"):
+            daemon.stop()
+        if hasattr(daemon, "start"):
+            daemon.start()
+        return {"ok": True, "summary": "daemon manager restarted"}
+
+    if act == "audit_runtime":
+        bundle = _collect_runtime_bundle()
+        if dry_run:
+            return {
+                "ok": True,
+                "summary": "dry-run diagnostics: would collect latest stress report and runtime status files",
+                "bundle_preview": {
+                    "latest_stress_report": bundle.get("latest_stress_report"),
+                    "file_count": len((bundle.get("files") or {}).keys()),
+                },
+            }
+        out = _runtime_dir / f"diagnostics_bundle_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
+        out.write_text(json.dumps(bundle, indent=2), encoding="utf-8")
+        return {"ok": True, "summary": f"diagnostics bundle written: {out.name}", "bundle_path": str(out)}
+
+    raise HTTPException(status_code=400, detail="unsupported action (expected: warmup|restart_daemon|audit_runtime)")
+
+
 def _secret_ready(value: str) -> bool:
     val = (value or "").strip()
     if not val:
@@ -248,11 +551,7 @@ def _secret_ready(value: str) -> bool:
     return not any(tok in low for tok in placeholder_tokens)
 
 
-def _startup_readiness_snapshot() -> dict:
-    now = time.time()
-    if _startup_check_cache["payload"] is not None and _startup_check_cache["expires_at"] > now:
-        return _startup_check_cache["payload"]
-
+def _build_startup_readiness_payload() -> dict:
     jwt_ready = _secret_ready(os.environ.get("GUPPY_JWT_SECRET", ""))
     turnstile_ready = _secret_ready(os.environ.get("TURNSTILE_SECRET", ""))
 
@@ -297,7 +596,7 @@ def _startup_readiness_snapshot() -> dict:
     states = [auth_state, ollama_state, voice_state, daemon_state, memory_state]
     overall = "READY" if all(s == "READY" for s in states) else ("PARTIAL" if any(s in {"READY", "PARTIAL"} for s in states) else "MISSING")
 
-    payload = {
+    return {
         "overall": overall,
         "checks": {
             "auth": {"state": auth_state, "detail": auth_detail, "dev_mode": bool(DEV_MODE), "jwt_ready": jwt_ready, "turnstile_ready": turnstile_ready},
@@ -307,9 +606,73 @@ def _startup_readiness_snapshot() -> dict:
             "memory": {"state": memory_state, "detail": memory_detail},
         },
     }
-    _startup_check_cache["payload"] = payload
-    _startup_check_cache["expires_at"] = now + STARTUP_CHECK_TTL_SECONDS
-    return payload
+
+
+def _startup_readiness_snapshot() -> dict:
+    with _startup_check_cache_lock:
+        now = time.time()
+        if _startup_check_cache["payload"] is not None and _startup_check_cache["expires_at"] > now:
+            return _startup_check_cache["payload"]
+
+    payload = _build_startup_readiness_payload()
+
+    now = time.time()
+    with _startup_check_cache_lock:
+        _startup_check_cache["payload"] = payload
+        _startup_check_cache["expires_at"] = now + STARTUP_CHECK_TTL_SECONDS
+        return payload
+
+
+def _startup_readiness_cached_or_unknown() -> dict:
+    with _startup_check_cache_lock:
+        payload = _startup_check_cache.get("payload")
+        if payload is not None:
+            return payload
+    return {
+        "overall": "UNKNOWN",
+        "checks": {
+            "auth": {"state": "UNKNOWN", "detail": "startup checks not run yet"},
+            "ollama": {"state": "UNKNOWN", "detail": "startup checks not run yet", "model": (os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()},
+            "voice": {"state": "UNKNOWN", "detail": "startup checks not run yet", "tts_backend": "unknown", "stt_backend": "unknown", "wake_backend": "unknown"},
+            "daemon": {"state": "UNKNOWN", "detail": "startup checks not run yet"},
+            "memory": {"state": "UNKNOWN", "detail": "startup checks not run yet"},
+        },
+    }
+
+
+def _startup_readiness_cached_or_snapshot() -> dict:
+    """Return cached startup readiness immediately when available, else compute once."""
+    with _startup_check_cache_lock:
+        payload = _startup_check_cache.get("payload")
+        if payload is not None:
+            return payload
+    return _startup_readiness_snapshot()
+
+
+def _startup_readiness_cache_expired() -> bool:
+    with _startup_check_cache_lock:
+        return _startup_check_cache.get("expires_at", 0.0) <= time.time()
+
+
+def _trigger_startup_readiness_refresh() -> None:
+    """Refresh startup readiness in the background without blocking request handlers."""
+    global _startup_check_refresh_inflight
+    with _startup_check_cache_lock:
+        if _startup_check_refresh_inflight:
+            return
+        _startup_check_refresh_inflight = True
+
+    def _worker() -> None:
+        global _startup_check_refresh_inflight
+        try:
+            _startup_readiness_snapshot()
+        except Exception:
+            pass
+        finally:
+            with _startup_check_cache_lock:
+                _startup_check_refresh_inflight = False
+
+    threading.Thread(target=_worker, daemon=True).start()
 
 # ── Authentication ─────────────────────────────────────────────────────────────
 
@@ -319,10 +682,24 @@ def _startup_readiness_snapshot() -> dict:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Manage startup and shutdown for daemon-backed services."""
+    """Validate env and optionally manage daemon lifecycle when explicitly enabled."""
     validate_environment()
 
-    if GUPPY_DAEMON_AVAILABLE:
+    if _PERSONALIZATION_BOOTSTRAP_AVAILABLE:
+        try:
+            created = await asyncio.to_thread(ensure_personalization_scaffold)
+            if created:
+                logger.info("Personalization scaffold initialized: %s", ",".join(sorted(created.keys())))
+        except Exception as e:
+            logger.warning("Personalization scaffold initialization failed: %s", e)
+
+    # Pre-warm readiness cache so first user-facing status calls are not blocked by Ollama probe latency.
+    try:
+        await asyncio.to_thread(_startup_readiness_snapshot)
+    except Exception as e:
+        logger.warning(f"Startup readiness warmup failed: {e}")
+
+    if API_OWNS_DAEMON and GUPPY_DAEMON_AVAILABLE:
         try:
             daemon = get_daemon_manager()
             if hasattr(daemon, "is_running") and daemon.is_running:
@@ -333,13 +710,15 @@ async def lifespan(_app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to initialize daemon: {e}")
             logger.warning("API will run in limited mode without daemon context")
+    elif GUPPY_DAEMON_AVAILABLE:
+        logger.info("API running in supervised mode (daemon ownership disabled)")
     else:
         logger.warning("Guppy daemon not available - running in API-only mode")
 
     try:
         yield
     finally:
-        if GUPPY_AVAILABLE:
+        if API_OWNS_DAEMON and GUPPY_AVAILABLE:
             try:
                 daemon = get_daemon_manager()
                 daemon.stop()
@@ -656,9 +1035,17 @@ async def get_status(user_id: str = Depends(require_rate_limit)):
             return _status_cache["payload"]
 
         context = {}
-        if GUPPY_DAEMON_AVAILABLE:
+        if STATUS_INCLUDE_WINDOW_CONTEXT and GUPPY_DAEMON_AVAILABLE:
             daemon = get_daemon_manager()
-            context = daemon.window_watcher.get_enhanced_context() if daemon else {}
+            if daemon and getattr(daemon, "window_watcher", None):
+                try:
+                    context = await asyncio.wait_for(
+                        asyncio.to_thread(daemon.window_watcher.get_enhanced_context),
+                        timeout=0.2,
+                    )
+                except Exception:
+                    # Keep /status responsive even when watcher context polling stalls.
+                    context = {}
 
         voice_tts = _VOICE_TTS_BACKEND if GUPPY_VOICE_AVAILABLE else "none"
         voice_stt = _VOICE_STT_BACKEND if GUPPY_VOICE_AVAILABLE else "none"
@@ -679,7 +1066,8 @@ async def get_status(user_id: str = Depends(require_rate_limit)):
             "voice_stt_backend": voice_stt,
             "voice_status": voice_status,
             "daemon_available": GUPPY_DAEMON_AVAILABLE,
-            "startup_readiness": await asyncio.to_thread(_startup_readiness_snapshot),
+            "startup_readiness": _startup_readiness_cached_or_unknown(),
+            "resource_envelope": _read_resource_envelope_status(),
         }
         _status_cache["payload"] = payload
         _status_cache["expires_at"] = now + STATUS_CACHE_TTL_SECONDS
@@ -691,10 +1079,15 @@ async def get_status(user_id: str = Depends(require_rate_limit)):
 
 
 @app.get("/startup/check")
-async def startup_check(user_id: str = Depends(require_rate_limit)):
-    """Explicit startup readiness checks for UI diagnostics and launch gating."""
+async def startup_check(deep: bool = False, user_id: str = Depends(require_rate_limit)):
+    """Startup readiness checks (cached by default, deep probe when requested)."""
     del user_id
-    snapshot = await asyncio.to_thread(_startup_readiness_snapshot)
+    if deep:
+        snapshot = await asyncio.to_thread(_startup_readiness_snapshot)
+    else:
+        snapshot = _startup_readiness_cached_or_unknown()
+        if snapshot.get("overall") == "UNKNOWN" or _startup_readiness_cache_expired():
+            _trigger_startup_readiness_refresh()
     log_session_event("api", "startup_check", level="info", overall=snapshot.get("overall", "unknown"))
     return snapshot
 
@@ -712,6 +1105,113 @@ async def get_recent_logs(
         "session_events": tail_session_events(limit=lim),
         "agent_performance": _read_jsonl_tail(runtime_dir / "agent_performance.jsonl", limit=lim),
         "integration_events": _read_jsonl_tail(runtime_dir / "integration_events.jsonl", limit=lim),
+    }
+
+
+@app.get("/telemetry/query")
+async def telemetry_query(
+    stream: Optional[str] = None,
+    event: Optional[str] = None,
+    level: Optional[str] = None,
+    since_minutes: int = 1440,
+    limit: int = 200,
+    backend: str = "auto",
+    user_id: str = Depends(require_rate_limit),
+):
+    """Query operational telemetry with filters (SQLite-first with JSONL fallback)."""
+    del user_id
+    lim = max(1, min(int(limit), 1000))
+    since = max(0, int(since_minutes))
+    stream_key = (stream or "").strip() or None
+    event_key = (event or "").strip() or None
+    level_key = (level or "").strip().lower() or None
+    backend_key = (backend or "auto").strip().lower()
+    if backend_key not in {"auto", "sqlite", "jsonl"}:
+        raise HTTPException(status_code=400, detail="backend must be one of: auto, sqlite, jsonl")
+
+    events: list[dict[str, Any]] = []
+    source = backend_key
+    if backend_key in {"auto", "sqlite"}:
+        events = _query_sqlite_telemetry(stream_key, event_key, level_key, since, lim)
+        source = "sqlite"
+
+    if backend_key == "jsonl" or (backend_key == "auto" and not events):
+        events = _query_jsonl_telemetry(stream_key, event_key, level_key, since, lim)
+        source = "jsonl"
+
+    return {
+        "source": source,
+        "count": len(events),
+        "filters": {
+            "stream": stream_key,
+            "event": event_key,
+            "level": level_key,
+            "since_minutes": since,
+            "limit": lim,
+        },
+        "events": events,
+    }
+
+
+@app.get("/telemetry/report")
+async def telemetry_report(
+    stream: Optional[str] = None,
+    since_minutes: int = 1440,
+    limit: int = 1000,
+    backend: str = "auto",
+    user_id: str = Depends(require_rate_limit),
+):
+    """Return summarized telemetry report for dashboards and ops checks."""
+    del user_id
+    lim = max(1, min(int(limit), 2000))
+    since = max(0, int(since_minutes))
+    stream_key = (stream or "").strip() or None
+    backend_key = (backend or "auto").strip().lower()
+    if backend_key not in {"auto", "sqlite", "jsonl"}:
+        raise HTTPException(status_code=400, detail="backend must be one of: auto, sqlite, jsonl")
+
+    events: list[dict[str, Any]] = []
+    source = backend_key
+    if backend_key in {"auto", "sqlite"}:
+        events = _query_sqlite_telemetry(stream_key, None, None, since, lim)
+        source = "sqlite"
+
+    if backend_key == "jsonl" or (backend_key == "auto" and not events):
+        events = _query_jsonl_telemetry(stream_key, None, None, since, lim)
+        source = "jsonl"
+
+    report = _build_telemetry_report(events)
+    return {
+        "source": source,
+        "window": {
+            "stream": stream_key,
+            "since_minutes": since,
+            "limit": lim,
+        },
+        "report": report,
+    }
+
+
+@app.post("/repair")
+async def repair_runtime(request: RepairRequest, user_id: str = Depends(require_rate_limit)):
+    """Guarded internal repair entrypoint for launcher/operator flows."""
+    del user_id
+    action = (request.action or "").strip().lower()
+    dry_run = bool(request.dry_run)
+    result = await asyncio.to_thread(_do_repair_action, action, dry_run)
+    log_session_event(
+        "api",
+        "repair_runtime",
+        level="info",
+        action=action,
+        dry_run=dry_run,
+        ok=bool(result.get("ok", False)),
+        summary=str(result.get("summary", "")),
+    )
+    return {
+        "action": action,
+        "dry_run": dry_run,
+        **result,
     }
 
 

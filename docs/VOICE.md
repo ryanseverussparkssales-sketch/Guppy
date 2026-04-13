@@ -56,7 +56,12 @@ print(sd.query_devices())
 
 ### Engine
 
-The system uses **Windows SAPI 5.1** for native speech synthesis:
+The system uses a **dual-path TTS stack**:
+
+- Primary: Kokoro (when available)
+- Fallback: Windows SAPI 5.1 (always available on Windows)
+
+SAPI example:
 
 ```powershell
 Add-Type -AssemblyName System.Speech
@@ -65,10 +70,10 @@ $s.Speak("Hello, world!")
 ```
 
 **Advantages:**
-- No additional TTS service required
+- Kokoro path: higher voice quality and better naturalness
+- SAPI fallback: no additional TTS service required
 - Fast, low-latency synthesis
-- Multiple voices available (depends on Windows)
-- Fully offline
+- Fully offline fallback on Windows
 
 ### Voice Configuration
 
@@ -132,4 +137,4 @@ result = speech_recognizer.recognize_once()
 
 ---
 
-**Voice System Status:** ✓ Fully functional (Google STT + Windows SAPI 5.1)
+**Voice System Status:** ✓ Fully functional (Google/Whisper STT + Kokoro TTS with SAPI fallback)

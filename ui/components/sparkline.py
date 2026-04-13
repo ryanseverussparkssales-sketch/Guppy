@@ -1,41 +1,60 @@
+from __future__ import annotations
+
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QWidget
-from guppy_theme import SHARED
+from PySide6.QtGui import QColor, QPainter
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 
 class Sparkline(QWidget):
-    def __init__(self, color: str = "#7cc4ff", parent=None):
-        super().__init__(parent)
-        self._values = []
-        self._line_color = QColor(color)
-        self.setMinimumHeight(max(20, SHARED.control_height_sm - 6))
+    """Shared sparkline widget used by both legacy and launcher UI surfaces.
 
-    def set_values(self, values):
-        vals = [float(v) for v in (values or []) if isinstance(v, (int, float))]
-        self._values = vals[-80:]
+    Supports both APIs:
+    - legacy: set_values([...])
+    - launcher: push(v), set_data([...])
+    """
+
+    def __init__(self, color: str = "#f2ca50", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._values: list[float] = []
+        self._color = QColor(color)
+        self.setFixedHeight(36)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+    def set_values(self, values: list[float]) -> None:
+        self.set_data(values)
+
+    def set_data(self, values: list[float]) -> None:
+        clipped = [max(0.0, min(1.0, float(v))) for v in (values or [])]
+        self._values = clipped[-80:]
         self.update()
 
-    def paintEvent(self, _):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), Qt.GlobalColor.transparent)
+    def push(self, value: float) -> None:
+        self._values.append(max(0.0, min(1.0, float(value))))
+        if len(self._values) > 80:
+            self._values = self._values[-80:]
+        self.update()
 
-        if len(self._values) < 2:
-            p.setPen(QPen(QColor("#666666"), 1))
-            p.drawLine(2, self.height() - 2, self.width() - 2, self.height() - 2)
+    def paintEvent(self, _event) -> None:  # noqa: N802
+        if not self._values:
             return
 
-        lo = min(self._values)
-        hi = max(self._values)
-        span = max(1e-6, hi - lo)
-        w = max(1, self.width() - 4)
-        h = max(1, self.height() - 4)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        h = self.height()
+        w = self.width()
+        n = len(self._values)
+        bar_w = max(2, (w - n) // max(n, 1))
+        x = 0
 
-        p.setPen(QPen(self._line_color, 1.5))
-        for i in range(1, len(self._values)):
-            x0 = 2 + int((i - 1) * w / (len(self._values) - 1))
-            x1 = 2 + int(i * w / (len(self._values) - 1))
-            y0 = 2 + int((1.0 - ((self._values[i - 1] - lo) / span)) * h)
-            y1 = 2 + int((1.0 - ((self._values[i] - lo) / span)) * h)
-            p.drawLine(x0, y0, x1, y1)
+        for i, v in enumerate(self._values):
+            bar_h = max(2, int(h * v))
+            alpha = int(90 + 160 * (i / max(n - 1, 1)))
+            c = QColor(self._color)
+            c.setAlpha(alpha)
+            p.setBrush(c)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawRect(x, h - bar_h, bar_w, bar_h)
+            x += bar_w + 1
+
+        p.end()

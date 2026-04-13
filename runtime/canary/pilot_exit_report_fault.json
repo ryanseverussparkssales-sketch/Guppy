@@ -1,0 +1,21 @@
+{
+  "timestamp_utc": "2026-04-13T02:40:44.811141+00:00",
+  "verdict": "NO_GO",
+  "gates": [
+    {
+      "id": "gate_1_core_runtime_stability",
+      "passed": false,
+      "mandatory": true
+    },
+    {
+      "id": "gate_2_local_model_fleet_ready",
+      "passed": true,
+      "mandatory": true
+    },
+    {
+      "id": "gate_5_provider_fallback_baseline",
+      "passed": false,
+      "mandatory": false
+    }
+  ]
+}

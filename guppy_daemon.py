@@ -14,9 +14,37 @@ import os
 import threading
 import time
 import logging
+import json
+import urllib.request
+import xml.etree.ElementTree as ET
+from uuid import uuid4
 from pathlib import Path
 from typing import Callable, Optional, Dict, Any
 from datetime import datetime, timedelta
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except Exception:
+    PSUTIL_AVAILABLE = False
+
+try:
+    from utils.operational_telemetry import log_operational_event
+except Exception:
+    def log_operational_event(*_args, **_kwargs):
+        return
+
+try:
+    from utils.runtime_profile import get_runtime_envelope_config
+except Exception:
+    def get_runtime_envelope_config(profile: str | None = None) -> Dict[str, Any]:
+        active = (profile or os.environ.get("GUPPY_RUNTIME_PROFILE", "standard") or "standard").strip().lower()
+        return {
+            "profile": active,
+            "cpu_max_pct": float(os.environ.get("GUPPY_ENVELOPE_CPU_MAX_PCT", "80")),
+            "ram_max_pct": float(os.environ.get("GUPPY_ENVELOPE_RAM_MAX_PCT", "88")),
+            "check_interval_s": int(os.environ.get("GUPPY_ENVELOPE_CHECK_S", "60")),
+        }
 
 try:
     from win11toast import toast as win11_toast
@@ -91,7 +119,13 @@ class WindowWatcher:
     """Monitor foreground window changes and app context."""
 
     def __init__(self, poll_interval: float = 0.5):
-        self.poll_interval = poll_interval
+        env_poll = os.environ.get("GUPPY_WINDOW_POLL_INTERVAL_S", "").strip()
+        if env_poll:
+            try:
+                poll_interval = float(env_poll)
+            except Exception:
+                pass
+        self.poll_interval = max(0.5, min(float(poll_interval), 5.0))
         self._current_app = None
         self._running = False
         self._thread = None
@@ -326,6 +360,40 @@ class TaskScheduler:
         self.notifier = notifier
         self.jobs = {}  # id -> {job: Job, text: str} mapping
         self.reminders = {}  # id -> reminder text
+        self.runtime_dir = Path(__file__).parent / "runtime"
+        self.reminder_events_path = self.runtime_dir / "reminder_events.jsonl"
+
+    def _emit_ipc(self, agent: str, cmd: str, payload: Optional[dict] = None):
+        """Write a lightweight IPC command file for a UI agent."""
+        try:
+            self.runtime_dir.mkdir(parents=True, exist_ok=True)
+            cmd_path = self.runtime_dir / f"{agent}.cmd"
+            data = {
+                "cmd": cmd,
+                "payload": payload or {},
+                "ts": datetime.now().isoformat(),
+            }
+            cmd_path.write_text(json.dumps(data, ensure_ascii=True), encoding="utf-8")
+        except Exception as e:
+            logger.debug(f"IPC emit failed ({agent}:{cmd}): {e}")
+
+    def _record_reminder_event(self, event: str, job_id: str, message: str, trigger_time: Optional[datetime] = None):
+        """Append reminder workflow events for schedule/action/confirmation traceability."""
+        try:
+            self.runtime_dir.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "ts": datetime.now().isoformat(),
+                "event": event,
+                "job_id": job_id,
+                "short_id": job_id[-8:] if job_id else "",
+                "message": message,
+            }
+            if trigger_time is not None:
+                payload["trigger_time"] = trigger_time.isoformat()
+            with self.reminder_events_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+        except Exception as e:
+            logger.debug(f"Reminder event logging failed: {e}")
 
     def start(self):
         """Start the scheduler."""
@@ -352,12 +420,37 @@ class TaskScheduler:
         """
         try:
             trigger_time = self._parse_time(run_time)
-            job_id = f"reminder_{int(time.time() * 1000)}"
+            # UUID avoids collisions during burst scheduling on coarse clock resolutions.
+            job_id = f"reminder_{uuid4().hex}"
 
             def notify():
                 if self.notifier:
                     self.notifier.reminder(text)
                 logger.info(f"Reminder: {text}")
+                self._record_reminder_event("fired", job_id, text, trigger_time)
+                self._emit_ipc(
+                    "guppy",
+                    "reminder_fired",
+                    {
+                        "message": text,
+                        "job_id": job_id,
+                        "short_id": job_id[-8:],
+                        "trigger_time": trigger_time.isoformat(),
+                    },
+                )
+                self._emit_ipc(
+                    "council",
+                    "reminder_fired",
+                    {
+                        "message": text,
+                        "job_id": job_id,
+                        "short_id": job_id[-8:],
+                        "trigger_time": trigger_time.isoformat(),
+                    },
+                )
+                # Ensure fired reminders are not shown as active.
+                self.jobs.pop(job_id, None)
+                self.reminders.pop(job_id, None)
 
             job = self.scheduler.add_job(
                 notify,
@@ -369,6 +462,7 @@ class TaskScheduler:
             self.jobs[job_id] = job
             self.reminders[job_id] = text  # Store reminder text
             logger.info(f"Reminder scheduled: {text} at {trigger_time}")
+            self._record_reminder_event("scheduled", job_id, text, trigger_time)
             return f"Reminder scheduled: '{text}' at {trigger_time.strftime('%Y-%m-%d %H:%M:%S')} (ID: {job_id[-8:]})"
         except Exception as e:
             logger.error(f"Schedule reminder failed: {e}")
@@ -386,6 +480,7 @@ class TaskScheduler:
                 del self.jobs[job_id]
                 self.reminders.pop(job_id, None)  # Clean up reminder text
                 logger.info(f"Reminder cancelled: {job_id}")
+                self._record_reminder_event("cancelled", job_id, "cancelled by user")
                 return f"Reminder {job_id[-8:]} cancelled."
             except Exception as e:
                 logger.error(f"Cancel failed: {e}")
@@ -402,7 +497,7 @@ class TaskScheduler:
         for job_id, job in self.jobs.items():
             try:
                 # Check if job still exists and hasn't run yet
-                if job_id in self.scheduler.get_jobs():
+                if self.scheduler.get_job(job_id) is not None:
                     reminder_text = self.reminders.get(job_id, "Reminder")
                     next_run = getattr(job, 'next_run_time', None)
                     if next_run:
@@ -521,13 +616,326 @@ class ProactiveLoop:
         self._last_pattern_scan: float = 0.0
         self._last_nudge_at: dict[str, float] = {}
         self._last_repair_at: dict[str, float] = {}
-        self._last_daily_summary: float = 0.0
+        self._report_slots_fired: set[str] = set()
         self._nudge_cooldown_s = int(os.environ.get("GUPPY_NUDGE_COOLDOWN_S", "300"))
         self._repair_cooldown_s = int(os.environ.get("GUPPY_REPAIR_COOLDOWN_S", "900"))
         self._quiet_hours = os.environ.get("GUPPY_QUIET_HOURS", "22-7")
         self._quiet_hours_enabled = os.environ.get("GUPPY_QUIET_HOURS_ENABLED", "1").strip() in {"1", "true", "yes", "on"}
         # Hour (0-23) at which to fire the daily Haiku summary. Default: 8am.
         self._daily_summary_hour = int(os.environ.get("GUPPY_DAILY_SUMMARY_HOUR", "8"))
+        try:
+            poll_s = int(os.environ.get("GUPPY_PROACTIVE_POLL_S", str(self.POLL_INTERVAL)))
+        except Exception:
+            poll_s = self.POLL_INTERVAL
+        self.POLL_INTERVAL = max(30, min(poll_s, 300))
+        news_hours_env = os.environ.get("GUPPY_NEWS_REPORT_HOURS", "12,18,22")
+        parsed_hours: list[int] = []
+        for raw in news_hours_env.split(","):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                h = int(raw)
+                if 0 <= h <= 23:
+                    parsed_hours.append(h)
+            except Exception:
+                continue
+        self._news_report_hours = sorted(set(parsed_hours)) if parsed_hours else [12, 18, 22]
+        self._reports_dir = Path(__file__).parent / "runtime" / "daily_reports"
+        self._resource_status_path = Path(__file__).parent / "runtime" / "resource_envelope.status.json"
+        envelope_cfg = get_runtime_envelope_config()
+        self._envelope_cfg = envelope_cfg
+        self._resource_check_every_s = int(envelope_cfg.get("check_interval_s", 60))
+        self._last_resource_check = 0.0
+        self._last_resource_state = "unknown"
+        self._last_resource_alert = 0.0
+        self._resource_alert_cooldown_s = int(os.environ.get("GUPPY_ENVELOPE_ALERT_COOLDOWN_S", "600"))
+
+    @staticmethod
+    def _tail_lines(path: Path, limit: int = 20) -> list[str]:
+        if not path.exists():
+            return []
+        try:
+            lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+            return [ln for ln in lines[-limit:] if ln.strip()]
+        except Exception:
+            return []
+
+    def _collect_runtime_log_context(self) -> str:
+        runtime = Path(__file__).parent / "runtime"
+        sources = {
+            "agent_performance.jsonl": runtime / "agent_performance.jsonl",
+            "session_events.jsonl": runtime / "session_events.jsonl",
+            "integration_events.jsonl": runtime / "integration_events.jsonl",
+            "hub_patterns.jsonl": runtime / "hub_patterns.jsonl",
+        }
+        lines: list[str] = []
+        max_each = int(os.environ.get("GUPPY_DAILY_LOG_LINES", "8"))
+        for label, path in sources.items():
+            raw = self._tail_lines(path, limit=max_each)
+            if not raw:
+                continue
+            lines.append(f"{label} (latest {len(raw)}):")
+            for ln in raw:
+                snippet = ln[:240] + ("..." if len(ln) > 240 else "")
+                lines.append(f"- {snippet}")
+        return "\n".join(lines) if lines else "No recent runtime logs found."
+
+    def _collect_manual_events(self) -> str:
+        runtime = Path(__file__).parent / "runtime"
+        candidates = [
+            runtime / "manual_events.jsonl",
+            runtime / "manual_events.txt",
+            runtime / "daily_manual_events.md",
+            runtime / "todo.txt",
+            runtime / "todo.md",
+        ]
+        out: list[str] = []
+        max_lines = int(os.environ.get("GUPPY_DAILY_MANUAL_LINES", "20"))
+        for path in candidates:
+            if not path.exists():
+                continue
+            out.append(f"{path.name}:")
+            raw = self._tail_lines(path, limit=max_lines)
+            for ln in raw:
+                if path.suffix.lower() == ".jsonl":
+                    try:
+                        obj = json.loads(ln)
+                        txt = obj.get("text") or obj.get("event") or obj.get("message") or str(obj)
+                        ts = obj.get("ts") or obj.get("timestamp") or ""
+                        out.append(f"- {ts} {txt}".strip())
+                        continue
+                    except Exception:
+                        pass
+                out.append(f"- {ln[:220]}")
+        return "\n".join(out) if out else "No manual events or TODO files found in runtime/."
+
+    def _fetch_rss_feed(self, url: str, limit: int) -> list[dict[str, str]]:
+        items: list[dict[str, str]] = []
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Guppy/1.0"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = resp.read()
+            root = ET.fromstring(data)
+
+            # RSS 2.0
+            for item in root.findall(".//channel/item")[:limit]:
+                title = (item.findtext("title") or "").strip()
+                link = (item.findtext("link") or "").strip()
+                if title:
+                    items.append({"title": title, "link": link})
+
+            # Atom fallback
+            if not items:
+                ns = {"atom": "http://www.w3.org/2005/Atom"}
+                for entry in root.findall(".//atom:entry", ns)[:limit]:
+                    title = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
+                    link_el = entry.find("atom:link", ns)
+                    link = (link_el.get("href") if link_el is not None else "") or ""
+                    if title:
+                        items.append({"title": title, "link": link})
+        except Exception as e:
+            logger.debug(f"RSS fetch failed for {url}: {e}")
+        return items[:limit]
+
+    def _collect_world_news(self) -> str:
+        default_feeds = [
+            "https://feeds.bbci.co.uk/news/world/rss.xml",
+            "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+            "https://www.aljazeera.com/xml/rss/all.xml",
+            "https://www.reuters.com/world/rss",
+            "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
+        ]
+        feed_env = os.environ.get("GUPPY_DAILY_RSS_FEEDS", "").strip()
+        feeds = [f.strip() for f in feed_env.split(",") if f.strip()] if feed_env else default_feeds
+        per_feed = int(os.environ.get("GUPPY_DAILY_RSS_ITEMS", "4"))
+
+        lines: list[str] = []
+        for url in feeds:
+            items = self._fetch_rss_feed(url, per_feed)
+            if not items:
+                continue
+            lines.append(f"Feed: {url}")
+            for it in items:
+                title = it.get("title", "")
+                link = it.get("link", "")
+                lines.append(f"- {title}" + (f" ({link})" if link else ""))
+        return "\n".join(lines) if lines else "No world news headlines available from configured RSS feeds."
+
+    def _load_yesterday_report(self) -> str:
+        yday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        path = self._reports_dir / f"{yday}.md"
+        if not path.exists():
+            return "No previous daily report found (first run or file missing)."
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            lines = [ln for ln in text.splitlines() if ln.strip()]
+            snippet = "\n".join(lines[:40])
+            return f"Yesterday report: {path.name}\n{snippet}"
+        except Exception as e:
+            return f"Yesterday report exists but could not be read: {e}"
+
+    def _collect_memory_context(self) -> tuple[str, str]:
+        memory_context = []
+        tasks_block = "No pending tasks."
+        try:
+            import guppy_memory
+            tasks_block = guppy_memory.get_tasks("pending")
+            facts = guppy_memory.recall(limit=10)
+            if tasks_block:
+                memory_context.append("Pending tasks:\n" + tasks_block)
+            if facts:
+                memory_context.append("Recent facts:\n" + facts)
+        except Exception as e:
+            logger.debug(f"ProactiveLoop daily summary: memory load failed: {e}")
+        return ("\n\n".join(memory_context) if memory_context else "No pending tasks or notable facts.", tasks_block)
+
+    def _write_daily_report(self, report_text: str, report_kind: str, slot_hour: int) -> Path:
+        self._reports_dir.mkdir(parents=True, exist_ok=True)
+        today = datetime.now().strftime("%Y-%m-%d")
+        if report_kind == "daily":
+            out_name = f"{today}.md"
+        else:
+            out_name = f"{today}-{report_kind}-{slot_hour:02d}00.md"
+        out_path = self._reports_dir / out_name
+        out_path.write_text(report_text, encoding="utf-8")
+        return out_path
+
+    @staticmethod
+    def _slot_key(report_kind: str, day: str, hour: int) -> str:
+        return f"{day}:{report_kind}:{hour:02d}"
+
+    def _was_slot_fired(self, report_kind: str, hour: int) -> bool:
+        day = datetime.now().strftime("%Y-%m-%d")
+        return self._slot_key(report_kind, day, hour) in self._report_slots_fired
+
+    def _mark_slot_fired(self, report_kind: str, hour: int) -> None:
+        day = datetime.now().strftime("%Y-%m-%d")
+        self._report_slots_fired.add(self._slot_key(report_kind, day, hour))
+        # Keep only recent slot markers (today + yesterday) to avoid unbounded growth.
+        keep_days = {
+            day,
+            (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
+        }
+        self._report_slots_fired = {
+            key for key in self._report_slots_fired
+            if any(key.startswith(f"{d}:") for d in keep_days)
+        }
+
+    def _run_scheduled_report(self, report_kind: str, slot_hour: int) -> None:
+        memory_context, tasks_block = self._collect_memory_context()
+        world_news = self._collect_world_news()
+        runtime_logs = self._collect_runtime_log_context()
+        manual_events = self._collect_manual_events()
+        yesterday_report = self._load_yesterday_report()
+
+        context = (
+            "MEMORY CONTEXT:\n"
+            f"{memory_context}\n\n"
+            "WORLD NEWS (RSS):\n"
+            f"{world_news}\n\n"
+            "RUNTIME LOGS:\n"
+            f"{runtime_logs}\n\n"
+            "MANUAL EVENTS / TODO INPUTS:\n"
+            f"{manual_events}\n\n"
+            "YESTERDAY REPORT REFERENCE:\n"
+            f"{yesterday_report}\n"
+        )
+
+        summary = ""
+        report_md = ""
+        heading = "Daily Report" if report_kind == "daily" else "News Report"
+
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+            intent = (
+                "Prioritize top personal actions for today."
+                if report_kind == "daily"
+                else "Prioritize world-news updates, likely impacts, and what to monitor next."
+            )
+            resp = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=900,
+                system=(
+                    "You are Guppy's scheduled briefing assistant. "
+                    "Produce two outputs in this exact format:\n"
+                    "SUMMARY:\n"
+                    "<under 80 words, bullets, actionable, can be 'nothing urgent'>\n"
+                    "REPORT_MD:\n"
+                    "<markdown report with sections: Key Actions, World News, Logs Signals, Manual Events & TODOs, Delta vs Yesterday, Carry-Forward Items>"
+                ),
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"Report type: {report_kind}\n"
+                        f"Scheduled hour: {slot_hour:02d}:00\n"
+                        f"Instruction: {intent}\n\n"
+                        f"Compile report from context:\n\n{context}"
+                    ),
+                }],
+            )
+            raw = resp.content[0].text.strip() if resp.content else ""
+            if "REPORT_MD:" in raw:
+                left, right = raw.split("REPORT_MD:", 1)
+                summary = left.replace("SUMMARY:", "").strip()
+                report_md = right.strip()
+            else:
+                summary = raw
+        except Exception as e:
+            logger.warning(f"ProactiveLoop {report_kind} report: Haiku call failed: {e}")
+            summary = f"{heading} generated without Haiku (fallback mode)."
+
+        if not report_md:
+            report_md = (
+                f"# {heading} — {datetime.now().strftime('%Y-%m-%d')} {slot_hour:02d}:00\n\n"
+                "## Key Actions\n"
+                f"{summary or 'No urgent items detected.'}\n\n"
+                "## World News\n"
+                f"{world_news}\n\n"
+                "## Logs Signals\n"
+                f"{runtime_logs}\n\n"
+                "## Manual Events & TODOs\n"
+                f"{manual_events}\n\n"
+                "## Delta vs Yesterday\n"
+                f"{yesterday_report}\n\n"
+                "## Carry-Forward Items\n"
+                f"{tasks_block}\n"
+            )
+
+        report_path = None
+        try:
+            report_path = self._write_daily_report(report_md, report_kind=report_kind, slot_hour=slot_hour)
+        except Exception as e:
+            logger.warning(f"ProactiveLoop {report_kind} report: failed writing report: {e}")
+
+        actionable = summary and summary.lower() != "nothing urgent"
+        if actionable:
+            msg = summary[:200]
+            if report_path is not None:
+                msg = f"{msg} | report: {report_path.name}"
+            toast_title = "Guppy Daily Briefing" if report_kind == "daily" else "Guppy News Briefing"
+            self.notifier.info(toast_title, msg)
+            op = self.operator
+            if op:
+                try:
+                    op.send_command(
+                        "guppy",
+                        "nudge",
+                        {
+                            "reason": f"{report_kind}_summary",
+                            "summary": summary[:500],
+                            "report_path": str(report_path) if report_path is not None else "",
+                        },
+                    )
+                    op.record_event("guppy", f"{report_kind}_summary", "proactive_loop", "sent")
+                except Exception as e:
+                    logger.debug(f"ProactiveLoop {report_kind} report: IPC nudge failed: {e}")
+
+        logger.info(
+            f"ProactiveLoop {report_kind} report fired (actionable={actionable}, hour={slot_hour}, report={report_path.name if report_path else 'none'})"
+        )
+        self._mark_slot_fired(report_kind, slot_hour)
 
     @property
     def operator(self):
@@ -610,71 +1018,114 @@ class ProactiveLoop:
         self._check_upcoming_reminders()
         self._check_pattern_learning()
         self._check_daily_summary()
+        self._check_news_reports()
+        self._check_resource_envelope()
+
+    def _check_resource_envelope(self) -> None:
+        """Check CPU/RAM against runtime profile envelope and emit telemetry/status."""
+        now = time.time()
+        if now - self._last_resource_check < self._resource_check_every_s:
+            return
+        self._last_resource_check = now
+
+        profile = str(os.environ.get("GUPPY_RUNTIME_PROFILE", self._envelope_cfg.get("profile", "standard"))).strip().lower() or "standard"
+        self._envelope_cfg = get_runtime_envelope_config(profile)
+        cpu_limit = float(self._envelope_cfg.get("cpu_max_pct", 80.0))
+        ram_limit = float(self._envelope_cfg.get("ram_max_pct", 88.0))
+
+        payload: Dict[str, Any] = {
+            "ts": datetime.now().isoformat(),
+            "profile": profile,
+            "limits": {"cpu_max_pct": cpu_limit, "ram_max_pct": ram_limit},
+            "metrics": {},
+            "state": "unknown",
+            "violations": [],
+            "message": "resource envelope check unavailable",
+        }
+
+        if not PSUTIL_AVAILABLE:
+            payload["message"] = "psutil not available"
+            self._write_resource_status(payload)
+            return
+
+        try:
+            cpu_pct = float(psutil.cpu_percent(interval=0.2))
+            vm = psutil.virtual_memory()
+            ram_pct = float(vm.percent)
+            available_gb = round(float(vm.available) / (1024 ** 3), 2)
+            total_gb = round(float(vm.total) / (1024 ** 3), 2)
+        except Exception as e:
+            payload["message"] = f"psutil read failed: {e}"
+            self._write_resource_status(payload)
+            return
+
+        violations: list[str] = []
+        if cpu_pct > cpu_limit:
+            violations.append("cpu")
+        if ram_pct > ram_limit:
+            violations.append("ram")
+
+        state = "violation" if violations else "ok"
+        payload.update({
+            "state": state,
+            "metrics": {
+                "cpu_pct": round(cpu_pct, 2),
+                "ram_pct": round(ram_pct, 2),
+                "available_ram_gb": available_gb,
+                "total_ram_gb": total_gb,
+            },
+            "violations": violations,
+            "message": "resource envelope within limits" if not violations else "resource envelope exceeded",
+        })
+
+        state_changed = state != self._last_resource_state
+        if state_changed or (state == "violation" and now - self._last_resource_alert >= self._resource_alert_cooldown_s):
+            evt_level = "warning" if state == "violation" else "info"
+            log_operational_event(
+                stream="resource_envelope",
+                event="resource_violation" if state == "violation" else "resource_ok",
+                level=evt_level,
+                payload=payload,
+            )
+            if state == "violation":
+                if not self._is_quiet_hours_now():
+                    self.notifier.info(
+                        "Guppy Resource Envelope",
+                        f"Profile {profile}: CPU {cpu_pct:.0f}% / RAM {ram_pct:.0f}% exceeds limits",
+                    )
+                self._last_resource_alert = now
+
+        self._last_resource_state = state
+        self._write_resource_status(payload)
+
+    def _write_resource_status(self, payload: Dict[str, Any]) -> None:
+        try:
+            self._resource_status_path.parent.mkdir(parents=True, exist_ok=True)
+            self._resource_status_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+        except Exception as e:
+            logger.debug(f"Resource envelope status write failed: {e}")
 
     def _check_daily_summary(self) -> None:
-        """Fire a Haiku 'anything important?' summary once per day at _daily_summary_hour."""
+        """Fire one daily report at the configured morning hour."""
         if self._is_quiet_hours_now():
             return
-        now = time.time()
-        if now - self._last_daily_summary < 23 * 3600:
+        now_hour = datetime.now().hour
+        if now_hour != self._daily_summary_hour:
             return
-        if datetime.now().hour != self._daily_summary_hour:
+        if self._was_slot_fired("daily", now_hour):
             return
+        self._run_scheduled_report("daily", now_hour)
 
-        # Build context from memory
-        context_lines: list[str] = []
-        try:
-            import guppy_memory
-            mem = guppy_memory.load_memory()
-            tasks = [v for v in mem.values() if isinstance(v, dict) and v.get("type") == "task" and not v.get("done")]
-            facts = [v for v in mem.values() if isinstance(v, dict) and v.get("type") == "fact"]
-            if tasks:
-                context_lines.append("Pending tasks:\n" + "\n".join(f"- {t.get('text', str(t))}" for t in tasks[:10]))
-            if facts:
-                context_lines.append("Recent facts:\n" + "\n".join(f"- {f.get('text', str(f))}" for f in facts[:10]))
-        except Exception as e:
-            logger.debug(f"ProactiveLoop daily summary: memory load failed: {e}")
-
-        context = "\n\n".join(context_lines) if context_lines else "No pending tasks or notable facts."
-
-        # Call Haiku
-        try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
-            resp = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=120,
-                system=(
-                    "You are Guppy's morning briefing assistant. "
-                    "Given the user's memory context, identify anything truly time-sensitive or actionable. "
-                    "Reply in under 80 words with bullet points, or reply with exactly: nothing urgent"
-                ),
-                messages=[{"role": "user", "content": f"Memory context:\n{context}\n\nAnything important today?"}],
-            )
-            summary = resp.content[0].text.strip() if resp.content else ""
-        except Exception as e:
-            logger.warning(f"ProactiveLoop daily summary: Haiku call failed: {e}")
-            self._last_daily_summary = now  # don't hammer if API is down
+    def _check_news_reports(self) -> None:
+        """Fire scheduled world-news reports (default: 12:00, 18:00, 22:00)."""
+        if self._is_quiet_hours_now():
             return
-
-        # Only fire toast + nudge if actionable
-        actionable = summary and summary.lower() != "nothing urgent"
-        if actionable:
-            self.notifier.info("Guppy Daily Briefing", summary[:200])
-            op = self.operator
-            if op:
-                try:
-                    op.send_command(
-                        "guppy",
-                        "nudge",
-                        {"reason": "daily_summary", "summary": summary[:500]},
-                    )
-                    op.record_event("guppy", "daily_summary", "proactive_loop", "sent")
-                except Exception as e:
-                    logger.debug(f"ProactiveLoop daily summary: IPC nudge failed: {e}")
-
-        logger.info(f"ProactiveLoop daily summary fired (actionable={actionable})")
-        self._last_daily_summary = now
+        now_hour = datetime.now().hour
+        if now_hour not in self._news_report_hours:
+            return
+        if self._was_slot_fired("news", now_hour):
+            return
+        self._run_scheduled_report("news", now_hour)
 
     def _check_pattern_learning(self) -> None:
         """Run pattern analysis at most once per hour (Phase 14 automation)."""
@@ -773,6 +1224,11 @@ class AmbientWatcher:
         self._last_clipboard: str = ""
         self._callbacks: list = []  # fn(context_type: str, content: str)
         self._offer_cooldown_s = int(os.environ.get("GUPPY_AMBIENT_COOLDOWN_S", "600"))
+        try:
+            poll_s = int(os.environ.get("GUPPY_AMBIENT_POLL_S", str(self.POLL_INTERVAL)))
+        except Exception:
+            poll_s = self.POLL_INTERVAL
+        self.POLL_INTERVAL = max(45, min(poll_s, 600))
         self._last_offer_ts: float = 0.0
         self._quiet_hours = os.environ.get("GUPPY_QUIET_HOURS", "22-7")
         self._quiet_hours_enabled = os.environ.get("GUPPY_QUIET_HOURS_ENABLED", "1").strip() in {"1", "true", "yes", "on"}

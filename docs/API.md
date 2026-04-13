@@ -2,6 +2,7 @@
 
 ## Base URL
 - Local: `http://127.0.0.1:8081`
+- Public: `https://guppy.sparkscuriositystudio.com`
 
 ## Auth
 ### POST /auth/verify
@@ -12,6 +13,35 @@
 ### GET /status
 - Header: `Authorization: Bearer <jwt>`
 - Returns daemon/window context and subsystem availability
+- Includes `resource_envelope` snapshot when daemon monitoring is active
+
+### GET /startup/check
+- Header: `Authorization: Bearer <jwt>`
+- Returns startup readiness checks for key API dependencies
+
+### GET /logs/recent
+- Header: `Authorization: Bearer <jwt>`
+- Returns recent runtime log lines for quick diagnostics
+
+### GET /telemetry/query
+- Header: `Authorization: Bearer <jwt>`
+- Query params:
+  - `stream` (optional): `session_events`, `router_scorecard`, `agent_performance`, `integration_events`, `reminder_events`
+  - `event` (optional): exact event name
+  - `level` (optional): `info`, `warning`, `error`
+  - `since_minutes` (optional, default `1440`)
+  - `limit` (optional, default `200`, max `1000`)
+  - `backend` (optional): `auto` (default), `sqlite`, `jsonl`
+- Returns filtered telemetry events with normalized shape (`ts`, `stream`, `event`, `level`, `payload`)
+
+### GET /telemetry/report
+- Header: `Authorization: Bearer <jwt>`
+- Query params:
+  - `stream` (optional)
+  - `since_minutes` (optional, default `1440`)
+  - `limit` (optional, default `1000`, max `2000`)
+  - `backend` (optional): `auto` (default), `sqlite`, `jsonl`
+- Returns aggregated ops report (counts by stream/event/level, latency samples, average and p95)
 
 ### GET /revenue/dashboard
 - Header: `Authorization: Bearer <jwt>`

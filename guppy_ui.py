@@ -3,14 +3,14 @@ guppy_ui.py — Main Guppy window (PySide6)
 ==========================================
 Palette sourced from guppy_theme.py — edit theme.json to customize.
 """
-import sys, os, json, math, threading, time, logging, hashlib
+import sys, os, json, math, threading, time, logging, hashlib, sqlite3
 import urllib.request
 from pathlib import Path
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QScrollArea, QLabel, QPushButton, QLineEdit, QFrame, QSizePolicy,
-    QGraphicsOpacityEffect,
+    QGraphicsOpacityEffect, QDialog, QCheckBox, QComboBox,
 )
 from PySide6.QtCore import Qt, QTimer, QThread, Signal, QRectF, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import (
@@ -20,10 +20,12 @@ from PySide6.QtGui import (
 
 from guppy_core import TOOLS, run_tool, is_online, check_ollama, get_startup_system, to_ollama_tools
 from merlin_core import get_merlin_startup_system, SPELL_MAP
-from inference_router import route_inference_smart
+from inference_router import resolve_ui_route
 from guppy_theme import GUPPY_THEME as T, SHARED, now_str
 from debug_console import open_debug_console
 from utils.env_bootstrap import load_env_file
+from utils.runtime_profile import apply_runtime_profile, save_app_settings, apply_settings_to_env, recommend_runtime_profile
+from utils.settings_dialog import RuntimeSettingsDialog as _SharedSettingsDialog
 from utils.telemetry_window import rolling_agent_snapshot, recent_agent_events
 from utils.diagnostics_bundle import create_diagnostics_bundle
 from ui.components.status_strip import StatusStrip
@@ -33,6 +35,7 @@ from ui.components.sparkline import Sparkline
 from ui.components.command_palette import CommandPaletteDialog
 
 load_env_file()
+APP_SETTINGS = apply_runtime_profile()
 
 SHOW_BACKEND_DETAILS = os.environ.get("GUPPY_SHOW_BACKEND_DETAILS", "0").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -43,6 +46,79 @@ SHOW_BACKEND_DETAILS = os.environ.get("GUPPY_SHOW_BACKEND_DETAILS", "0").strip()
 _RESPONSE_CACHE: dict = {}
 _CACHE_TTL = int(os.environ.get("GUPPY_CACHE_TTL", "300"))      # seconds
 _CACHE_MAX = int(os.environ.get("GUPPY_CACHE_MAX", "100"))      # entries
+_CACHE_DB = Path(__file__).resolve().parent / "runtime" / "response_cache.sqlite3"
+_CACHE_LOCK = threading.Lock()
+
+
+def _cache_init() -> None:
+    _CACHE_DB.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(_CACHE_DB) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS response_cache (
+                cache_key TEXT PRIMARY KEY,
+                response_text TEXT NOT NULL,
+                created_ts REAL NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_response_cache_ts ON response_cache(created_ts)")
+
+
+def _cache_get(cache_key: str) -> str | None:
+    now = time.time()
+    entry = _RESPONSE_CACHE.get(cache_key)
+    if entry:
+        cached_text, cached_ts = entry
+        if now - cached_ts < _CACHE_TTL:
+            return cached_text
+        _RESPONSE_CACHE.pop(cache_key, None)
+
+    with _CACHE_LOCK:
+        _cache_init()
+        with sqlite3.connect(_CACHE_DB) as conn:
+            row = conn.execute(
+                "SELECT response_text, created_ts FROM response_cache WHERE cache_key=?",
+                (cache_key,),
+            ).fetchone()
+            if not row:
+                return None
+            cached_text, cached_ts = row
+            if now - float(cached_ts) >= _CACHE_TTL:
+                conn.execute("DELETE FROM response_cache WHERE cache_key=?", (cache_key,))
+                conn.commit()
+                return None
+            _RESPONSE_CACHE[cache_key] = (str(cached_text), float(cached_ts))
+            return str(cached_text)
+
+
+def _cache_set(cache_key: str, response_text: str) -> None:
+    if not response_text:
+        return
+    now = time.time()
+    _RESPONSE_CACHE[cache_key] = (response_text, now)
+    if len(_RESPONSE_CACHE) > _CACHE_MAX:
+        oldest = min(_RESPONSE_CACHE, key=lambda k: _RESPONSE_CACHE[k][1])
+        _RESPONSE_CACHE.pop(oldest, None)
+
+    with _CACHE_LOCK:
+        _cache_init()
+        with sqlite3.connect(_CACHE_DB) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO response_cache (cache_key, response_text, created_ts) VALUES (?, ?, ?)",
+                (cache_key, response_text, now),
+            )
+            # Keep storage bounded and drop stale entries.
+            conn.execute(
+                "DELETE FROM response_cache WHERE created_ts < ?",
+                (now - _CACHE_TTL,),
+            )
+            conn.execute(
+                "DELETE FROM response_cache WHERE cache_key NOT IN "
+                "(SELECT cache_key FROM response_cache ORDER BY created_ts DESC LIMIT ?)",
+                (_CACHE_MAX,),
+            )
+            conn.commit()
 
 FF_MONO = SHARED.font_family_mono
 FS_BODY = SHARED.font_size
@@ -63,10 +139,21 @@ except ImportError:
         return
 
 try:
+    from utils.router_scorecard import log_router_scorecard as _log_router_scorecard
+except ImportError:
+    def _log_router_scorecard(*_args, **_kwargs):
+        return
+
+try:
     from utils.session_logger import log_session_event as _log_session_event
 except ImportError:
     def _log_session_event(*_args, **_kwargs):
         return
+
+try:
+    from guppy_semantic_memory import recall_semantic as _semantic_recall
+except Exception:
+    _semantic_recall = None
 
 try:
     from guppy_daemon import get_daemon_manager
@@ -86,6 +173,35 @@ try:
     _HB_OK = True
 except ImportError:
     _HB_OK = False
+
+_SLO_SIMPLE_MS = int(os.environ.get("GUPPY_SLO_SIMPLE_MS", "3000"))
+_SLO_COMPLEX_MS = int(os.environ.get("GUPPY_SLO_COMPLEX_MS", "10000"))
+_SLO_VOICE_MS = int(os.environ.get("GUPPY_SLO_VOICE_MS", "2500"))
+_TOOL_BUDGET = int(os.environ.get("GUPPY_TOOL_BUDGET", "6"))
+_UI_TICK_MS = int(os.environ.get("GUPPY_UI_TICK_MS", "1800"))
+
+
+def _inject_semantic_memory(system_prompt: str, query_text: str) -> str:
+    """Attach recalled semantic memory to system prompt when available."""
+    if not callable(_semantic_recall):
+        return system_prompt
+    try:
+        recalled = _semantic_recall(query_text, n=4)
+        if not recalled or recalled.startswith("Nothing found") or recalled.startswith("Error:"):
+            return system_prompt
+        return f"{system_prompt}\n\n[Relevant Memory]\n{recalled}"
+    except Exception:
+        return system_prompt
+
+
+def RuntimeSettingsDialog(settings: dict, recommendation: dict, parent=None):
+    """Thin wrapper — delegates to the shared dialog with Guppy's theme."""
+    theme = {
+        "bg": T.bg, "bg3": T.bg3, "text": T.text, "dim": T.dim,
+        "border": T.border, "accent": T.accent,
+        "font_family": SHARED.font_family, "font_size": SHARED.font_size,
+    }
+    return _SharedSettingsDialog(settings, recommendation, theme, parent)
 
 
 # ── Worker ─────────────────────────────────────────────────────────────────────
@@ -125,15 +241,43 @@ class Worker(QThread):
             "tool_calls": 0,
             "tool_errors": 0,
             "fallback_used": False,
+            "fallback_count": 0,
             "response_chars": 0,
             "model_used": "",
             "task_type": "",
             "route": "",
             "route_reason": "",
             "voice_triggered": voice_triggered,
+            "first_token_ms": None,
+            "slo_target_ms": None,
+            "slo_met": None,
+            "tool_budget_hit": False,
             "status": "ok",
             "error": "",
         }
+
+    def _mark_first_token(self):
+        if self._perf.get("first_token_ms") is not None:
+            return
+        started = getattr(self, "_request_started", None)
+        if started is None:
+            return
+        self._perf["first_token_ms"] = round((time.perf_counter() - started) * 1000, 2)
+
+    def _finalize_perf_defaults(self):
+        if not self._perf.get("task_type"):
+            self._perf["task_type"] = "unknown"
+        if not self._perf.get("route"):
+            if self.mode == "claude":
+                self._perf["route"] = "cloud"
+            elif self.mode == "ollama":
+                self._perf["route"] = "local"
+            else:
+                self._perf["route"] = "unknown"
+        if not self._perf.get("route_reason"):
+            self._perf["route_reason"] = "implicit"
+        if not self._perf.get("model_used"):
+            self._perf["model_used"] = "unknown"
 
     @staticmethod
     def _model_pair_for_tier(tier: str) -> tuple[str, str]:
@@ -194,6 +338,7 @@ class Worker(QThread):
 
     def run(self):
         started = time.perf_counter()
+        self._request_started = started
         request_id = f"{self.session_id}:{int(started * 1000)}:{id(self)}"
         _log_perf(
             "guppy",
@@ -206,28 +351,24 @@ class Worker(QThread):
         self.orb.emit("thinking")
         if _HB_OK: _write_act("guppy", "thinking")
         try:
-            if self.mode == "auto":
-                # Smart dispatch: task-aware routing (Haiku/Sonnet/Ollama based on classification)
-                self.bubble.emit("routing (smart mode)  •  task-aware dispatch", "thinking", "thinking_stream")
-                self._smart_dispatch()
-            elif self.mode == "claude":
-                # Phase 6: "claude" mode now also uses smart dispatch (cloud-only — no Ollama fallback).
-                # Gets task classification, cache, and voice fast-path just like auto mode.
-                self.bubble.emit("routing (claude mode)  •  task-aware dispatch", "thinking", "thinking_stream")
-                self._smart_dispatch(cloud_only=True)
-            else:
-                # "ollama" mode: explicit local-only, bypass smart dispatch
-                self.bubble.emit("mode: local", "thinking", "thinking_stream")
-                self._ollama()
-                self._perf["route"] = "ollama"
-                self._perf["route_reason"] = "manual local mode"
-                self._perf["task_type"] = "local"
+            # Phase 6: all UI modes (auto/claude/ollama) resolve route policy via inference_router.
+            self.bubble.emit(f"routing ({self.mode} mode)  •  inference router", "thinking", "thinking_stream")
+            self._smart_dispatch(route_mode=self.mode)
         except Exception as e:
             self._perf["status"] = "error"
             self._perf["error"] = str(e)
             self.bubble.emit(f"Error: {e}", "error", "error")
         finally:
             self._perf["latency_ms"] = round((time.perf_counter() - started) * 1000, 2)
+            self._finalize_perf_defaults()
+            if self.voice_triggered:
+                slo_target = _SLO_VOICE_MS
+            elif self._perf.get("task_type") == "simple":
+                slo_target = _SLO_SIMPLE_MS
+            else:
+                slo_target = _SLO_COMPLEX_MS
+            self._perf["slo_target_ms"] = slo_target
+            self._perf["slo_met"] = bool(self._perf["latency_ms"] <= slo_target)
             _log_perf(
                 "guppy",
                 "request_complete",
@@ -247,6 +388,32 @@ class Worker(QThread):
                 status=self._perf["status"],
                 error=self._perf["error"],
                 latency_ms=self._perf["latency_ms"],
+                first_token_ms=self._perf["first_token_ms"],
+                fallback_count=self._perf["fallback_count"],
+                slo_target_ms=self._perf["slo_target_ms"],
+                slo_met=self._perf["slo_met"],
+                tool_budget_hit=self._perf["tool_budget_hit"],
+            )
+            _log_router_scorecard(
+                session_id=self.session_id,
+                request_id=request_id,
+                mode=self.mode,
+                task_type=self._perf["task_type"],
+                route=self._perf["route"],
+                route_reason=self._perf["route_reason"],
+                model_used=self._perf["model_used"],
+                voice_triggered=self._perf["voice_triggered"],
+                fallback_used=self._perf["fallback_used"],
+                fallback_count=self._perf["fallback_count"],
+                tool_calls=self._perf["tool_calls"],
+                tool_errors=self._perf["tool_errors"],
+                tool_budget_hit=self._perf["tool_budget_hit"],
+                latency_ms=self._perf["latency_ms"],
+                first_token_ms=self._perf["first_token_ms"],
+                slo_target_ms=self._perf["slo_target_ms"],
+                slo_met=self._perf["slo_met"],
+                status=self._perf["status"],
+                error=self._perf["error"],
             )
             self.orb.emit("idle")
             if _HB_OK: _write_act("guppy", "idle")
@@ -295,6 +462,7 @@ class Worker(QThread):
         if _SAVE and self.save:
             _save_msg(self.session_id, "user", self.text)
         current_system = system_override or get_startup_system(session_id=self.session_id, query_context=self.text)
+        current_system = _inject_semantic_memory(current_system, self.text)
         # Sanitise incoming history before building msgs - removes any orphaned
         # tool_result blocks that may have been left by a previous trimmed turn.
         msgs = self._sanitise_history(self.history) + [{"role": "user", "content": self.text}]
@@ -328,10 +496,13 @@ class Worker(QThread):
                         messages=msgs,
                     ) as stream:
                         for text_chunk in stream.text_stream:
+                            if text_chunk:
+                                self._mark_first_token()
                             self.bubble.emit(text_chunk, "guppy", "guppy_stream")
                         resp = stream.get_final_message()
                     if model_name != active_model:
                         self._perf["fallback_used"] = True
+                        self._perf["fallback_count"] += 1
                         self.bubble.emit(
                             f"Primary Claude model unavailable; switched to backup ({model_name}).",
                             "tool_result",
@@ -355,6 +526,16 @@ class Worker(QThread):
                 break
             results = []
             for tu in tus:
+                if self._perf["tool_calls"] >= _TOOL_BUDGET:
+                    self._perf["tool_budget_hit"] = True
+                    if self._perf["status"] == "ok":
+                        self._perf["status"] = "degraded"
+                    self.bubble.emit(
+                        f"Tool budget reached ({_TOOL_BUDGET}); returning best effort response.",
+                        "tool_result",
+                        "tool_result",
+                    )
+                    break
                 self.orb.emit("thinking")
                 self._perf["tool_calls"] += 1
                 preview = ", ".join(f"{k}={repr(v)[:30]}" for k, v in tu.input.items())
@@ -375,6 +556,8 @@ class Worker(QThread):
                 elif result_str.lower().startswith("error"):
                     self.bubble.emit("Thinking step failed and recovered", "thinking", "thinking_stream")
                 results.append({"type": "tool_result", "tool_use_id": tu.id, "content": result_str})
+            if self._perf["tool_budget_hit"]:
+                break
             msgs.append({"role": "user", "content": results})
         self._perf["model_used"] = active_model
         # Write back to shared history - sanitise first, then trim safely from front
@@ -399,6 +582,7 @@ class Worker(QThread):
         if _SAVE and self.save:
             _save_msg(self.session_id, "user", self.text)
         current_system = system_override or get_startup_system(session_id=self.session_id, query_context=self.text)
+        current_system = _inject_semantic_memory(current_system, self.text)
         all_msgs = (
             [{"role": "system", "content": current_system}]
             + self.history
@@ -434,6 +618,7 @@ class Worker(QThread):
                         continue
                     delta = chunk.get("message", {}).get("content") or ""
                     if delta:
+                        self._mark_first_token()
                         full_content += delta
                         self.bubble.emit(delta, "guppy", "guppy_stream")
                     if chunk.get("done"):
@@ -454,6 +639,16 @@ class Worker(QThread):
                     self.history[:] = self.history[-40:]
                 break
             for tc in tool_calls:
+                if self._perf["tool_calls"] >= _TOOL_BUDGET:
+                    self._perf["tool_budget_hit"] = True
+                    if self._perf["status"] == "ok":
+                        self._perf["status"] = "degraded"
+                    self.bubble.emit(
+                        f"Tool budget reached ({_TOOL_BUDGET}); returning best effort response.",
+                        "tool_result",
+                        "tool_result",
+                    )
+                    break
                 self.orb.emit("thinking")
                 self._perf["tool_calls"] += 1
                 name = tc["function"]["name"]
@@ -490,59 +685,31 @@ class Worker(QThread):
                     recent_assistant = [m for m in all_msgs[-5:] if m.get("role") == "assistant"]
                     all_msgs[:] = ([system_msg] if system_msg else []) + user_msgs[-1:] + recent_assistant[-2:]
                 self._perf["model_used"] = self.model
+            if self._perf["tool_budget_hit"]:
+                break
 
 
-    def _smart_dispatch(self, cloud_only: bool = False):
+    def _smart_dispatch(self, route_mode: str = "auto"):
         """
-        Smart dispatch: task-aware routing with full streaming + tool loop.
-        Routes to the right model based on query type, then hands off to
-        _claude() or _ollama() which handle streaming and multi-turn tool loops.
-
-        Simple   → Haiku (fast, cheap, streaming)
-        Complex  → Sonnet (capable, streaming)
-        Teaching → Merlin/Ollama (Socratic, local, free) — or Haiku+Merlin system if cloud_only
-        No key   → Ollama fallback (unless cloud_only, in which case raises)
-
-        cloud_only=True: used by "claude" mode — no Ollama fallback, teaching uses cloud Haiku.
+        Resolve route policy via inference_router, then execute using existing
+        streaming/tool-loop workers (_claude or _ollama).
         """
-        from inference_router import InferenceRouter
-        task_type = InferenceRouter()._classify_task(self.text)
+        decision = resolve_ui_route(
+            user_text=self.text,
+            mode=route_mode,
+            voice_triggered=self.voice_triggered,
+            api_key_available=bool(self.api_key),
+        )
+        task_type = decision.get("task_type", "unknown")
         self._perf["task_type"] = task_type
 
-        # Teaching tasks
-        if task_type == "teaching":
-            merlin_system = get_merlin_startup_system(query_context=self.text)
-            if cloud_only or not self.api_key is False:
-                # cloud_only: use Haiku with Merlin's Socratic system prompt — stays cloud, stays fast
-                if self.api_key and cloud_only:
-                    model  = os.environ.get("ANTHROPIC_HAIKU_MODEL", "claude-haiku-4-5-20251001")
-                    backup = os.environ.get("ANTHROPIC_MODEL",       "claude-sonnet-4-6")
-                    self.bubble.emit("Merlin (cloud teaching)...", "thinking", "thinking_stream")
-                    self._perf["route"] = "claude_teaching"
-                    self._perf["route_reason"] = "teaching task, cloud_only mode → Haiku+Merlin system"
-                    self._claude(forced_model=model, forced_backup=backup, system_override=merlin_system)
-                    return
-            # Default: Ollama with Merlin local model (free, Socratic)
-            self.bubble.emit("Merlin (teaching mode)...", "thinking", "thinking_stream")
-            self._perf["route"] = "ollama_teaching"
-            self._perf["route_reason"] = "teaching task → Merlin/Ollama"
-            old_model = self.model
-            self.model = os.environ.get("MERLIN_LOCAL_MODEL", "merlin")
-            self._ollama(system_override=merlin_system)
-            self.model = old_model
-            return
-
-        # No API key → fall back to Ollama (unless cloud_only, where we surface the error)
-        if not self.api_key:
-            if cloud_only:
-                self.bubble.emit("Error: no API key configured for cloud mode.", "error", "error")
-                self._perf["status"] = "error"
-                self._perf["error"] = "cloud_only mode requires ANTHROPIC_API_KEY"
-                return
-            self.bubble.emit("Routing via local model (no API key)...", "thinking", "thinking_stream")
-            self._perf["route"] = "ollama_fallback"
-            self._perf["route_reason"] = "no API key"
-            self._ollama()
+        if decision.get("executor") == "error":
+            err = decision.get("error", "Unable to resolve route")
+            self._perf["status"] = "error"
+            self._perf["error"] = err
+            self._perf["route"] = decision.get("route", "error")
+            self._perf["route_reason"] = decision.get("route_reason", "route resolution failed")
+            self.bubble.emit(f"Error: {err}", "error", "error")
             return
 
         # Cache check — simple tasks only, no voice (voice is often time-sensitive).
@@ -550,47 +717,49 @@ class Worker(QThread):
         cache_key = None
         if task_type == "simple" and not self.voice_triggered:
             cache_key = hashlib.md5(self.text.strip().lower().encode()).hexdigest()
-            entry = _RESPONSE_CACHE.get(cache_key)
-            if entry:
-                cached_text, cached_ts = entry
-                if time.time() - cached_ts < _CACHE_TTL:
-                    self.bubble.emit(cached_text, "guppy", "guppy")
-                    self.history.append({"role": "user", "content": self.text})
-                    self.history.append({"role": "assistant", "content": [{"type": "text", "text": cached_text}]})
-                    self._perf["model_used"] = "cache"
-                    self._perf["route"] = "cache"
-                    self._perf["route_reason"] = "simple task, TTL cache hit"
-                    return
-                else:
-                    _RESPONSE_CACHE.pop(cache_key, None)
+            cached_text = _cache_get(cache_key)
+            if cached_text:
+                self.bubble.emit(cached_text, "guppy", "guppy")
+                self.history.append({"role": "user", "content": self.text})
+                self.history.append({"role": "assistant", "content": [{"type": "text", "text": cached_text}]})
+                self._perf["model_used"] = "cache"
+                self._perf["route"] = "cache"
+                self._perf["route_reason"] = "simple task, TTL cache hit"
+                return
 
-        # Voice fast-path: wake-word queries always use Haiku-first for <2s latency.
-        # Sonnet is the backup if Haiku fails — voice UX prioritises speed over depth.
-        if self.voice_triggered:
-            model  = os.environ.get("ANTHROPIC_HAIKU_MODEL", "claude-haiku-4-5-20251001")
-            backup = os.environ.get("ANTHROPIC_MODEL",       "claude-sonnet-4-6")
-            self.bubble.emit("Voice fast-path via Haiku...", "thinking", "thinking_stream")
-            self._perf["route"] = "haiku_voice"
-            self._perf["route_reason"] = "voice_triggered fast-path"
-        # Simple → Haiku; Complex → Sonnet
-        elif task_type == "simple":
-            model  = os.environ.get("ANTHROPIC_HAIKU_MODEL", "claude-haiku-4-5-20251001")
-            backup = os.environ.get("ANTHROPIC_MODEL",       "claude-sonnet-4-6")
-            self.bubble.emit("Routing via Haiku...", "thinking", "thinking_stream")
-            self._perf["route"] = "haiku"
-            self._perf["route_reason"] = "simple task classification"
+        self._perf["route"] = decision.get("route", "unknown")
+        self._perf["route_reason"] = decision.get("route_reason", "inference_router decision")
+
+        if decision.get("executor") == "ollama":
+            use_merlin = decision.get("system_profile") == "merlin"
+            if use_merlin:
+                self.bubble.emit("Merlin (teaching mode)...", "thinking", "thinking_stream")
+                system_override = get_merlin_startup_system(query_context=self.text)
+                old_model = self.model
+                self.model = os.environ.get("MERLIN_LOCAL_MODEL", decision.get("model", "merlin"))
+                self._ollama(system_override=system_override)
+                self.model = old_model
+            else:
+                self.bubble.emit("Routing via local model...", "thinking", "thinking_stream")
+                self._ollama(system_override=get_startup_system(session_id=self.session_id, query_context=self.text))
+            return
+
+        if decision.get("system_profile") == "merlin":
+            system_override = get_merlin_startup_system(query_context=self.text)
+            self.bubble.emit("Merlin (cloud teaching)...", "thinking", "thinking_stream")
         else:
-            model  = os.environ.get("ANTHROPIC_MODEL",       "claude-sonnet-4-6")
-            backup = os.environ.get("ANTHROPIC_HAIKU_MODEL", "claude-haiku-4-5-20251001")
-            self.bubble.emit("Routing via Sonnet...", "thinking", "thinking_stream")
-            self._perf["route"] = "sonnet"
-            self._perf["route_reason"] = "complex task classification"
+            system_override = get_startup_system(session_id=self.session_id, query_context=self.text)
+            if decision.get("route") == "haiku_voice":
+                self.bubble.emit("Voice fast-path via Haiku...", "thinking", "thinking_stream")
+            elif decision.get("route") == "haiku":
+                self.bubble.emit("Routing via Haiku...", "thinking", "thinking_stream")
+            else:
+                self.bubble.emit("Routing via Sonnet...", "thinking", "thinking_stream")
 
-        current_system = get_startup_system(session_id=self.session_id, query_context=self.text)
         self._claude(
-            forced_model=model,
-            forced_backup=backup,
-            system_override=current_system,
+            forced_model=decision.get("model"),
+            forced_backup=decision.get("backup_model"),
+            system_override=system_override,
         )
 
         # Store response in cache after a successful simple/tool-free turn.
@@ -609,11 +778,7 @@ class Worker(QThread):
                         or getattr(b, "type", None) == "text"
                     )
                     if resp_text:
-                        # Evict oldest entry if at capacity
-                        if len(_RESPONSE_CACHE) >= _CACHE_MAX:
-                            oldest = min(_RESPONSE_CACHE, key=lambda k: _RESPONSE_CACHE[k][1])
-                            _RESPONSE_CACHE.pop(oldest, None)
-                        _RESPONSE_CACHE[cache_key] = (resp_text, time.time())
+                        _cache_set(cache_key, resp_text)
             except Exception:
                 pass
 
@@ -846,7 +1011,9 @@ class GuppyWindow(QMainWindow):
         self._claude_backup_model = os.environ.get("ANTHROPIC_BACKUP_MODEL", "claude-haiku-4-5-20251001").strip()
         self._claude_tier = "haiku" if "haiku" in self._claude_model.lower() else "sonnet"
         self._sync_claude_models()
-        self._mode       = "auto"
+        self._app_settings = dict(APP_SETTINGS)
+        self._runtime_profile = str(self._app_settings.get("runtime_profile", "standard"))
+        self._mode       = str(self._app_settings.get("default_mode", "auto"))
         self._session_id = _dt.now().strftime("%Y%m%d_%H%M%S") if _SAVE else ""
         self._system     = get_startup_system()
         self._think_label = None
@@ -862,6 +1029,8 @@ class GuppyWindow(QMainWindow):
         self._lat_points = []
         self._queue_points = []
         self._last_timeline_key = ""
+        self._ptt_btn = None
+        self._voice_controls = []
         self.setStyleSheet(
             f"background:{T.bg}; color:{T.text}; font-family:'{SHARED.font_family}';"
         )
@@ -879,7 +1048,7 @@ class GuppyWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+K"), self).activated.connect(self._open_command_palette)
         self._ui_tick = QTimer(self)
         self._ui_tick.timeout.connect(self._refresh_telemetry_panels)
-        self._ui_tick.start(1800)
+        self._ui_tick.start(_UI_TICK_MS)
         # IPC: poll runtime/guppy.cmd every 2s for hub operator commands
         self._cmd_timer = QTimer(self)
         self._cmd_timer.timeout.connect(self._poll_agent_commands)
@@ -973,6 +1142,7 @@ class GuppyWindow(QMainWindow):
         ptt.pressed.connect(self._ptt_start)
         ptt.released.connect(self._ptt_stop)
         ll.addWidget(ptt)
+        self._ptt_btn = ptt
         ll.addSpacing(4)
 
         # ── Quiet mode toggle ──────────────────────────────────────────────
@@ -989,6 +1159,7 @@ class GuppyWindow(QMainWindow):
         )
         self._quiet_btn.clicked.connect(self._toggle_quiet)
         ll.addWidget(self._quiet_btn)
+        self._voice_controls.append(self._quiet_btn)
         ll.addSpacing(4)
 
         # ── Wake word toggle ───────────────────────────────────────────────
@@ -1005,6 +1176,7 @@ class GuppyWindow(QMainWindow):
         )
         self._wake_btn.clicked.connect(self._toggle_wake_word)
         ll.addWidget(self._wake_btn)
+        self._voice_controls.append(self._wake_btn)
         self._status_lbl = QLabel()
         self._status_lbl.setWordWrap(True)
         self._status_lbl.setStyleSheet(
@@ -1075,6 +1247,19 @@ class GuppyWindow(QMainWindow):
         )
         diag.clicked.connect(self._collect_diagnostics)
         ll.addWidget(diag)
+
+        settings_btn = QPushButton("⚙  SETTINGS")
+        settings_btn.setFixedHeight(CH_SM)
+        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        settings_btn.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{T.dim};"
+            f"border:1px solid {T.border};border-radius:4px;"
+            f"font-family:{FF_MONO};font-size:{FS_SMALL}px;margin:4px 12px 0 12px;letter-spacing:1px;}}"
+            f"QPushButton:hover{{color:{T.text};border-color:{T.accent}55;background:{T.accent}10;}}"
+            f"QPushButton:pressed{{background:{T.accent}20;}}"
+        )
+        settings_btn.clicked.connect(self._open_runtime_settings)
+        ll.addWidget(settings_btn)
 
         palette_btn = QPushButton("⌘  COMMANDS")
         palette_btn.setFixedHeight(CH_SM)
@@ -1335,9 +1520,9 @@ class GuppyWindow(QMainWindow):
         ollama_state = readiness.get("ollama", "MISSING")
         voice_state = readiness.get("voice", "MISSING")
         self._status_lbl.setText(
-            f"MODE {self._mode.upper()}  |  STT {str(st.get('stt_backend', 'none')).upper()}  |  "
+            f"PROFILE {self._runtime_profile.upper()}  |  MODE {self._mode.upper()}  |  STT {str(st.get('stt_backend', 'none')).upper()}  |  "
             f"TTS {str(st.get('tts_backend', 'none')).upper()}\n"
-            f"AUTH {auth_state}  |  OLLAMA {ollama_state}  |  VOICE {voice_state}"
+            f"AUTH {auth_state}  |  OLLAMA {ollama_state}  |  VOICE {voice_state}  |  DAEMON {'ON' if self._app_settings.get('enable_daemon', True) else 'OFF'}"
         )
         if self._status_strip:
             snap = rolling_agent_snapshot("guppy", window_seconds=900)
@@ -1395,8 +1580,12 @@ class GuppyWindow(QMainWindow):
 
     def _open_command_palette(self):
         commands = [
+            {"name": "Open Settings", "action": self._open_runtime_settings},
             {"name": "Toggle Mode", "action": self._toggle_mode},
             {"name": "Toggle Claude Tier", "action": self._toggle_claude_tier},
+            {"name": "Profile: Light", "action": lambda: self._set_runtime_profile("light")},
+            {"name": "Profile: Standard", "action": lambda: self._set_runtime_profile("standard")},
+            {"name": "Profile: Power", "action": lambda: self._set_runtime_profile("power")},
             {"name": "Hold To Talk", "action": self._ptt_start},
             {"name": "Toggle Quiet", "action": self._toggle_quiet},
             {"name": "Toggle Wake Word", "action": self._toggle_wake_word},
@@ -1409,6 +1598,83 @@ class GuppyWindow(QMainWindow):
         ]
         dlg = CommandPaletteDialog(commands, self)
         dlg.exec()
+
+    def _set_runtime_profile(self, profile: str):
+        profile = (profile or "").strip().lower()
+        if profile not in {"light", "standard", "power"}:
+            return
+        current = dict(self._app_settings)
+        current["runtime_profile"] = profile
+        self._save_and_apply_runtime_settings(current)
+
+    def _open_runtime_settings(self):
+        recommendation = recommend_runtime_profile()
+        dlg = RuntimeSettingsDialog(self._app_settings, recommendation, self)
+        if dlg.exec():
+            self._save_and_apply_runtime_settings(dlg.settings_payload())
+
+    def _save_and_apply_runtime_settings(self, settings: dict):
+        save_app_settings(settings)
+        merged = apply_settings_to_env(settings)
+        self._apply_runtime_settings(merged)
+        self._bubble(
+            f"Settings saved. Active profile: {self._runtime_profile}.",
+            "guppy",
+            "tool_result",
+        )
+        self._log_event("runtime_settings_saved", profile=self._runtime_profile)
+
+    def _apply_runtime_settings(self, settings: dict):
+        self._app_settings = dict(settings)
+        self._runtime_profile = str(settings.get("runtime_profile", "standard"))
+        requested_mode = str(settings.get("default_mode", self._mode))
+        if requested_mode in {"auto", "claude", "ollama", "teaching"}:
+            self._mode = requested_mode
+            self._update_mode_btn()
+
+        if settings.get("enable_daemon", True):
+            self._start_daemon()
+        elif _DAEMON_AVAILABLE:
+            try:
+                get_daemon_manager().stop()
+            except Exception:
+                pass
+
+        if settings.get("enable_voice", True):
+            if self._voice is None:
+                self._setup_voice()
+        else:
+            if self._voice:
+                try:
+                    if self._voice.is_listening_for_wake_word:
+                        self._voice.stop_wake_word_detection()
+                except Exception:
+                    pass
+            self._stop_voice_output()
+            self._voice = None
+
+        self._apply_voice_control_state()
+
+        if self._voice:
+            want_wake = bool(settings.get("wake_word_default", False))
+            try:
+                wake_on = bool(self._voice.is_listening_for_wake_word)
+            except Exception:
+                wake_on = False
+            if want_wake and not wake_on:
+                self._toggle_wake_word()
+            elif not want_wake and wake_on:
+                self._toggle_wake_word()
+
+        self._refresh_runtime_status_label()
+
+    def _apply_voice_control_state(self):
+        enabled = bool(self._app_settings.get("enable_voice", True))
+        if self._ptt_btn is not None:
+            self._ptt_btn.setEnabled(enabled)
+            self._ptt_btn.setText("⬤  HOLD TO TALK" if enabled else "⬤  VOICE DISABLED")
+        for control in self._voice_controls:
+            control.setEnabled(enabled)
 
     def _collect_diagnostics(self):
         path = create_diagnostics_bundle("guppy")
@@ -1440,6 +1706,11 @@ class GuppyWindow(QMainWindow):
         return readiness
 
     def _setup_voice(self):
+        if not self._app_settings.get("enable_voice", True):
+            self._voice = None
+            self._apply_voice_control_state()
+            self._refresh_runtime_status_label()
+            return
         try:
             sys.path.insert(0, str(Path(__file__).parent))
             from guppy_voice import GuppyVoice, VoiceConfig
@@ -1465,6 +1736,13 @@ class GuppyWindow(QMainWindow):
         except Exception:
             self._voice = None
             self._log_event("voice_unavailable", level="warning")
+        self._apply_voice_control_state()
+        if self._voice and self._app_settings.get("wake_word_default", False):
+            try:
+                if not self._voice.is_listening_for_wake_word:
+                    self._toggle_wake_word()
+            except Exception:
+                pass
         self._refresh_runtime_status_label()
 
     def _ptt_start(self):
@@ -1589,6 +1867,8 @@ class GuppyWindow(QMainWindow):
     # ── Daemon ─────────────────────────────────────────────────────────────────
 
     def _start_daemon(self):
+        if not self._app_settings.get("enable_daemon", True):
+            return
         if not _DAEMON_AVAILABLE:
             return
         try:
@@ -1621,6 +1901,16 @@ class GuppyWindow(QMainWindow):
             payload = data.get("payload", {}) if isinstance(data, dict) else {}
             action = str(payload.get("action") or payload.get("preview", ""))[:180]
             self._ambient_banner.show_offer(action)
+        elif cmd == "reminder_fired":
+            payload = data.get("payload", {}) if isinstance(data, dict) else {}
+            msg = str(payload.get("message", "Reminder"))[:220]
+            rid = str(payload.get("short_id", ""))
+            suffix = f" (ID {rid})" if rid else ""
+            self.chat.add_bubble(
+                f"Reminder completed: {msg}{suffix}",
+                "tool_result",
+                "tool_result",
+            )
         elif cmd == "report_status":
             # Write a quick status snapshot for the hub to read
             status_path = Path("runtime") / "guppy.status"

@@ -54,8 +54,8 @@ def test_task_classification():
     print("=" * 70)
     print(f"Results: {passed} passed, {failed} failed out of {len(test_cases)} tests")
     print("=" * 70)
-    
-    return failed == 0
+
+    assert failed == 0, f"{failed} classification(s) did not match expected"
 
 def test_task_classification_edge_cases():
     """Test edge cases for task classifier."""
@@ -98,10 +98,8 @@ def test_router_initialization():
         print(f"  - OLLAMA_TIMEOUT: {router.OLLAMA_TIMEOUT}s")
         print(f"  - HAIKU_TIMEOUT_SMART: {router.HAIKU_TIMEOUT_SMART}s")
         print("✓ Router successfully initialized")
-        return True
     except Exception as e:
-        print(f"✗ Router initialization failed: {e}")
-        return False
+        raise AssertionError(f"Router initialization failed: {e}") from e
 
 if __name__ == "__main__":
     print("\n" + "=" * 70)

@@ -75,6 +75,20 @@ try:
 except Exception:
     pass
 
+try:
+    from utils.runtime_profile import apply_runtime_profile, load_app_settings, recommend_runtime_profile
+    APP_SETTINGS = apply_runtime_profile()
+except Exception:
+    APP_SETTINGS = {
+        "runtime_profile": os.environ.get("GUPPY_RUNTIME_PROFILE", "standard"),
+        "default_surface": os.environ.get("GUPPY_DEFAULT_SURFACE", "guppy"),
+        "show_advanced_surfaces": os.environ.get("GUPPY_SHOW_ADVANCED_SURFACES", "1").strip().lower() in {"1", "true", "yes", "on"},
+    }
+    def load_app_settings():
+        return dict(APP_SETTINGS)
+    def recommend_runtime_profile():
+        return {"profile": APP_SETTINGS.get("runtime_profile", "standard"), "reasons": []}
+
 logger = logging.getLogger("OmnissiahHub")
 logger.setLevel(logging.INFO)
 if not logger.handlers:
@@ -108,9 +122,9 @@ SILV = "#c0b8c8"   # silver/steel highlight
 
 # -- Agent definitions ----------------------------------------------------------
 AGENTS = [
-    {"id": "guppy",   "label": "GUPPY",   "title": "Magos Administratum", "script": "guppy_ui.py",   "accent": "#00c8ff"},
-    {"id": "merlin",  "label": "MERLIN",  "title": "Lexmechanic",         "script": "merlin_ui.py",  "accent": "#c9a84c"},
-    {"id": "council", "label": "COUNCIL", "title": "Conclave of the Omnissiah", "script": "council_ui.py", "accent": "#8888ee"},
+    {"id": "guppy",   "label": "GUPPY",   "title": "Magos Administratum", "script": "guppy_launcher.py",   "accent": "#00c8ff", "advanced": False},
+    {"id": "merlin",  "label": "MERLIN",  "title": "Lexmechanic",         "script": "merlin_ui.py",  "accent": "#c9a84c", "advanced": True},
+    {"id": "council", "label": "COUNCIL", "title": "Conclave of the Omnissiah", "script": "council_ui.py", "accent": "#8888ee", "advanced": True},
 ]
 
 
@@ -404,6 +418,8 @@ class HubManager(QObject):
     def update_context(self, title: str, running: list[str]):
         self._context_summary = title or "No context"
         rec = self.recommend(title, running)
+        if rec in {"merlin", "council"} and not load_app_settings().get("show_advanced_surfaces", True):
+            rec = "guppy"
         self._recommended_agent = rec
         self._recommendation_summary = f"Recommended: {rec}"
         self.recommendation_changed.emit(rec, self._recommendation_summary)
@@ -584,6 +600,18 @@ class StatusSettingsCard(QFrame):
         self._settings_lbl.setWordWrap(True)
         lay.addWidget(self._settings_lbl)
 
+        self._profile_lbl = QLabel("")
+        self._profile_lbl.setStyleSheet(f"color:{DIM}; background:transparent; border:none;")
+        self._profile_lbl.setFont(QFont("Consolas", 7))
+        self._profile_lbl.setWordWrap(True)
+        lay.addWidget(self._profile_lbl)
+
+        self._recommend_lbl = QLabel("")
+        self._recommend_lbl.setStyleSheet(f"color:{DIM}; background:transparent; border:none;")
+        self._recommend_lbl.setFont(QFont("Consolas", 7))
+        self._recommend_lbl.setWordWrap(True)
+        lay.addWidget(self._recommend_lbl)
+
         self.setStyleSheet(
             f"StatusSettingsCard{{background:{BG2};"
             f"border:1px solid {ACNT}33;border-radius:6px;}}"
@@ -591,6 +619,8 @@ class StatusSettingsCard(QFrame):
         self.refresh()
 
     def refresh(self):
+        settings = load_app_settings()
+        rec = recommend_runtime_profile()
         # ── Credentials / backends (cheap, every tick) ──────────────────────
         gmail_creds = os.environ.get("GMAIL_CREDENTIALS_PATH", "").strip()
         gmail_ok = bool(gmail_creds and Path(gmail_creds).exists())
@@ -650,6 +680,18 @@ class StatusSettingsCard(QFrame):
             f"MERLIN_HAIKU_BOOST_MIN_CHARS={_safe_int('MERLIN_HAIKU_BOOST_MIN_CHARS', 180)}",
         ]
         self._settings_lbl.setText(" | ".join(settings))
+        self._profile_lbl.setText(
+            " | ".join([
+                f"PROFILE={str(settings.get('runtime_profile', 'standard')).upper()}",
+                f"DEFAULT_SURFACE={str(settings.get('default_surface', 'guppy')).upper()}",
+                f"ADVANCED={'ON' if settings.get('show_advanced_surfaces', True) else 'OFF'}",
+                f"DAEMON={'ON' if settings.get('enable_daemon', True) else 'OFF'}",
+            ])
+        )
+        self._recommend_lbl.setText(
+            f"RECOMMEND={str(rec.get('profile', 'standard')).upper()} | CPU={rec.get('cpu_percent', 0)}% | "
+            f"RAM={rec.get('available_ram_gb', 0)}/{rec.get('total_ram_gb', 0)}GB | OLLAMA={'READY' if rec.get('ollama_ready') else 'DOWN'}"
+        )
 
 
 # ==============================================================================
@@ -1700,7 +1742,7 @@ class HubWindow(QWidget):
 
         controls = QHBoxLayout()
         controls.setSpacing(6)
-        self._launch_all_btn = QPushButton(">> AWAKEN ALL")
+        self._launch_all_btn = QPushButton(">> LAUNCH GUPPY")
         self._launch_all_btn.setFixedHeight(28)
         self._launch_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._launch_all_btn.setStyleSheet(
@@ -1711,7 +1753,7 @@ class HubWindow(QWidget):
             f"border-color:{ACNT};color:{ACNT};}}"
             f"QPushButton:pressed{{background:{ACNT}33;}}"
         )
-        self._launch_all_btn.clicked.connect(self._launch_all)
+        self._launch_all_btn.clicked.connect(self._launch_primary)
 
         self._stop_all_btn = QPushButton("[] SLUMBER ALL")
         self._stop_all_btn.setFixedHeight(28)
@@ -1774,8 +1816,24 @@ class HubWindow(QWidget):
         )
         close_btn.clicked.connect(self.hide)
         lay.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
+        self._refresh_card_visibility()
+
+    def _show_advanced_surfaces(self) -> bool:
+        try:
+            return bool(load_app_settings().get("show_advanced_surfaces", True))
+        except Exception:
+            return True
+
+    def _refresh_card_visibility(self):
+        allow_advanced = self._show_advanced_surfaces()
+        for agent in AGENTS:
+            card = self._cards.get(agent["id"])
+            if card is None:
+                continue
+            card.setVisible(allow_advanced or not bool(agent.get("advanced", False)))
 
     def _tick(self):
+        self._refresh_card_visibility()
         # Update agent statuses
         running = [aid for aid, card in self._cards.items() if card.is_running()]
         # Update context
@@ -1841,16 +1899,23 @@ class HubWindow(QWidget):
             except Exception as e:
                 logger.error(f"Error stopping {agent_id}: {e}")
 
+    def _launch_primary(self):
+        primary = str(load_app_settings().get("default_surface", "guppy")).strip().lower() or "guppy"
+        logger.info(f"Launching primary surface: {primary}")
+        card = self._cards.get(primary)
+        if card is not None and not card.is_running():
+            card.launch()
+
     def _launch_all(self):
         logger.info("Launching all agents...")
         for card in self._cards.values():
-            if not card.is_running():
+            if card.isVisible() and not card.is_running():
                 card.launch()
 
     def _stop_all(self):
         logger.info("Stopping all agents...")
         for card in self._cards.values():
-            if card.is_running():
+            if card.isVisible() and card.is_running():
                 card.stop()
 
     # Draggable window
@@ -1892,6 +1957,21 @@ class SystemTray(QSystemTrayIcon):
 
     def _setup_menu(self):
         menu = QMenu()
+        launch_guppy_action = QAction("Launch Guppy", self)
+        launch_guppy_action.triggered.connect(lambda: self._window._on_launch("guppy"))
+        menu.addAction(launch_guppy_action)
+
+        if load_app_settings().get("show_advanced_surfaces", True):
+            launch_merlin_action = QAction("Launch Merlin (Advanced)", self)
+            launch_merlin_action.triggered.connect(lambda: self._window._on_launch("merlin"))
+            menu.addAction(launch_merlin_action)
+
+            launch_council_action = QAction("Launch Council (Advanced)", self)
+            launch_council_action.triggered.connect(lambda: self._window._on_launch("council"))
+            menu.addAction(launch_council_action)
+
+        menu.addSeparator()
+
         show_action = QAction("Show Omnissiah", self)
         show_action.triggered.connect(self._window.show)
         menu.addAction(show_action)

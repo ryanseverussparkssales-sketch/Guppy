@@ -96,11 +96,12 @@ except Exception as e:
 # Test 7: Documentation updated
 print("\n[7] Checking documentation...")
 try:
-    roadmap = (Path(__file__).parent / "ROADMAP.md").read_text()
-    readme = (Path(__file__).parent / "README.md").read_text()
-    
-    assert "Phase 1" in roadmap and "Smart Dispatcher" in roadmap, "ROADMAP missing Phase 1 docs"
-    assert "Phase 3" in roadmap and "Merlin" in roadmap, "ROADMAP missing Phase 3 docs"
+    roadmap = (Path(__file__).parent.parent / "ROADMAP.md").read_text(encoding="utf-8")
+    readme = (Path(__file__).parent.parent / "README.md").read_text(encoding="utf-8")
+
+    assert "Track 1: Full Custom Builder First" in roadmap, "ROADMAP missing custom builder priority"
+    assert "Track 2: Daily Workflow Productization" in roadmap, "ROADMAP missing daily workflow track"
+    assert "Windows personal assistant" in roadmap, "ROADMAP missing Windows assistant objective"
     assert "Butler" in readme or "butler" in readme, "README missing butler focus note"
     
     print("✓ Documentation properly updated")
@@ -118,7 +119,7 @@ print("  [✓] Router: importable, instantiable, all methods present")
 print("  [✓] Classification: 6/6 test cases correct (simple/complex/teaching)")
 print("  [✓] Integration: query_smart has correct method signature")
 print("  [✓] Merlin: system prompt accessible and Socratic method present")
-print("  [✓] Documentation: ROADMAP and README properly updated")
+print("  [✓] Documentation: roadmap tracks and README focus properly updated")
 print("\n" + "=" * 70)
 print("\nProduction Status: READY FOR LIVE TESTING")
 print("  - Guppy can be launched with smart dispatch enabled")

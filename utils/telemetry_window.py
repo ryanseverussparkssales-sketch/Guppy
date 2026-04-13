@@ -1,11 +1,12 @@
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 _RUNTIME = Path(__file__).resolve().parent.parent / "runtime"
 
 
-def _parse_ts(value):
+def _parse_ts(value: Any) -> datetime | None:
     if not value:
         return None
     try:
@@ -18,14 +19,14 @@ def _parse_ts(value):
         return None
 
 
-def _tail_jsonl(path: Path, limit: int = 1000):
+def _tail_jsonl(path: Path, limit: int = 1000) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except Exception:
         return []
-    out = []
+    out: list[dict[str, Any]] = []
     for line in lines[-max(10, int(limit)):]:
         line = line.strip()
         if not line:
@@ -39,7 +40,7 @@ def _tail_jsonl(path: Path, limit: int = 1000):
     return out
 
 
-def _pct(values, q):
+def _pct(values: list[float], q: float) -> float:
     if not values:
         return 0.0
     vals = sorted(float(v) for v in values)
@@ -52,7 +53,7 @@ def _pct(values, q):
     return vals[lo] * (1.0 - frac) + vals[hi] * frac
 
 
-def rolling_agent_snapshot(agent: str, window_seconds: int = 900):
+def rolling_agent_snapshot(agent: str, window_seconds: int = 900) -> dict[str, Any]:
     aid = str(agent or "").strip().lower()
     perf = _tail_jsonl(_RUNTIME / "agent_performance.jsonl", limit=1200)
     cutoff = datetime.now(timezone.utc).timestamp() - max(60, int(window_seconds))
@@ -60,7 +61,7 @@ def rolling_agent_snapshot(agent: str, window_seconds: int = 900):
     starts = set()
     completes = set()
     latencies = []
-    latest = {}
+    latest: dict[str, Any] = {}
 
     for row in perf:
         row_agent = str(row.get("agent", "")).strip().lower()
@@ -91,7 +92,7 @@ def rolling_agent_snapshot(agent: str, window_seconds: int = 900):
     }
 
 
-def recent_agent_events(agent: str, limit: int = 25):
+def recent_agent_events(agent: str, limit: int = 25) -> list[dict[str, Any]]:
     aid = str(agent or "").strip().lower()
     perf = _tail_jsonl(_RUNTIME / "agent_performance.jsonl", limit=max(50, limit * 6))
     out = []

@@ -1,4 +1,4 @@
-﻿import asyncio, socket, sys
+import asyncio, socket, sys
 
 async def handle(r, w):
     try:

@@ -6,6 +6,9 @@ PySide6
 
 # ── AI / LLM ──────────────────────────────────────────────
 anthropic
+openai
+google-generativeai
+mistralai
 
 # ── Voice (STT + TTS) ─────────────────────────────────────
 sounddevice
@@ -39,6 +42,10 @@ keyboard
 
 # ── Misc ──────────────────────────────────────────────────
 SpeechRecognition
+ruff
+mypy
+pytest-xdist
+unidiff
 
 # ── Phase 3: Remote Access (FastAPI + Auth) ──────────────
 fastapi

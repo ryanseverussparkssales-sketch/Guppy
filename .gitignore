@@ -48,6 +48,17 @@ debug.log
 runtime/*.heartbeat
 runtime/*.activity
 runtime/*.jsonl
+runtime/*.jsonl.*
+runtime/*.status
+runtime/*.cmd
+runtime/hub_analysis_cache.json
+runtime/router_tuning_patch.env
+runtime/stress_report_*.json
+runtime/lifecycle_*_report.json
+runtime/_validate_write_test.tmp
+
+# Local tool/operator settings
+.claude/settings.local.json
 
 # Temporary files
 *.tmp

@@ -1,0 +1,65 @@
+{
+  "timestamp_utc": "2026-04-13T02:37:06.027533+00:00",
+  "requested_models": [
+    "guppy-fast:latest",
+    "vault-scraper:latest",
+    "merlin-code:latest",
+    "guppy:latest",
+    "merlin:latest"
+  ],
+  "installed_models": [
+    "guppy-fast:latest",
+    "guppy:latest",
+    "merlin-code:latest",
+    "merlin:latest",
+    "nomic-embed-text:latest",
+    "qwen2.5-coder:14b",
+    "qwen2.5:32b",
+    "qwen2.5:7b",
+    "vault-scraper:latest"
+  ],
+  "missing_models": [],
+  "model_num_ctx": {
+    "guppy-fast:latest": 8192,
+    "vault-scraper:latest": 8192,
+    "merlin-code:latest": 16384,
+    "guppy:latest": 16384,
+    "merlin:latest": 16384
+  },
+  "ping_results": {
+    "guppy-fast:latest": {
+      "ok": true,
+      "reason": "ok",
+      "sample": "OK \ud83c\udfa9"
+    },
+    "vault-scraper:latest": {
+      "ok": true,
+      "reason": "ok",
+      "sample": "OK"
+    },
+    "merlin-code:latest": {
+      "ok": true,
+      "reason": "ok",
+      "sample": "OK"
+    },
+    "guppy:latest": {
+      "ok": true,
+      "reason": "ok",
+      "sample": "OK\ud83c\udfa9"
+    },
+    "merlin:latest": {
+      "ok": true,
+      "reason": "ok",
+      "sample": "OK \u2726"
+    }
+  },
+  "ps_rows": [
+    {
+      "name": "guppy:latest",
+      "processor": "23%/77% CPU/GPU",
+      "context": "16384",
+      "until": "4 minutes from now"
+    }
+  ],
+  "ps_raw": "NAME            ID              SIZE     PROCESSOR          CONTEXT    UNTIL              \nguppy:latest    be29bf372069    25 GB    23%/77% CPU/GPU    16384      4 minutes from now"
+}

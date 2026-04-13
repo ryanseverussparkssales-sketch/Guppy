@@ -29,9 +29,12 @@ from PySide6.QtGui import (
 
 from guppy_core import TOOLS, is_online, check_ollama, get_startup_system, run_tool, to_ollama_tools
 from merlin_core import MERLIN_TOOLS, run_spell, get_merlin_startup_system
+from inference_router import resolve_ui_route
 from guppy_theme import GUPPY_THEME as _GT, MERLIN_THEME as _MT, SHARED, now_str
 from debug_console import open_debug_console
 from utils.env_bootstrap import load_env_file
+from utils.runtime_profile import apply_runtime_profile, load_app_settings
+from utils.settings_dialog import open_settings as _open_settings_dlg
 from utils.telemetry_window import rolling_agent_snapshot, recent_agent_events
 from utils.diagnostics_bundle import create_diagnostics_bundle
 from ui.components.status_strip import StatusStrip
@@ -47,8 +50,12 @@ except ImportError:
         return
 
 load_env_file()
+APP_SETTINGS = apply_runtime_profile()
 
 SHOW_BACKEND_DETAILS = os.environ.get("GUPPY_SHOW_BACKEND_DETAILS", "0").strip().lower() in {"1", "true", "yes", "on"}
+_COUNCIL_TOOL_BUDGET = int(os.environ.get("COUNCIL_TOOL_BUDGET", "6"))
+_COUNCIL_MERLIN_TIMEOUT = int(os.environ.get("COUNCIL_MERLIN_TIMEOUT", "75"))
+_COUNCIL_MERLIN_NUM_PREDICT = int(os.environ.get("COUNCIL_MERLIN_NUM_PREDICT", "320"))
 
 FF_MONO = SHARED.font_family_mono
 FS_BODY = SHARED.font_size
@@ -114,6 +121,9 @@ class GuppyWorker(QThread):
         started = time.perf_counter()
         request_id = f"{self.session_id}:{int(started * 1000)}:{id(self)}"
         req_status = "ok"
+        route = "unknown"
+        route_reason = ""
+        task_type = "unknown"
         _log_perf(
             "council",
             "request_started",
@@ -126,10 +136,36 @@ class GuppyWorker(QThread):
         self.status.emit("thinking")
         try:
             self.bubble.emit("Thinking through context and next action", "thinking", "thinking_stream")
-            if self.mode == "claude":
-                self._claude()
+            decision = resolve_ui_route(
+                user_text=self.text,
+                mode=self.mode,
+                voice_triggered=False,
+                api_key_available=bool(self.api_key),
+            )
+            route = decision.get("route", "unknown")
+            route_reason = decision.get("route_reason", "")
+            task_type = decision.get("task_type", "unknown")
+
+            executor = decision.get("executor")
+            if executor == "error":
+                raise RuntimeError(decision.get("error", "Unable to resolve route"))
+
+            if decision.get("system_profile") == "merlin":
+                system_override = get_merlin_startup_system(query_context=self.text)
             else:
-                self._ollama()
+                system_override = self.system
+
+            if executor == "claude":
+                self._claude(
+                    forced_model=decision.get("model"),
+                    forced_backup=decision.get("backup_model"),
+                    system_override=system_override,
+                )
+            else:
+                self._ollama(
+                    system_override=system_override,
+                    model_override=decision.get("model", "guppy"),
+                )
         except Exception as e:
             req_status = "error"
             self.bubble.emit(f"Error: {e}", "error", "error")
@@ -145,25 +181,51 @@ class GuppyWorker(QThread):
                 input_chars=len(self.text or ""),
                 status=req_status,
                 latency_ms=latency_ms,
+                task_type=task_type,
+                route=route,
+                route_reason=route_reason,
             )
             self.status.emit("idle")
             self.done.emit()
 
-    def _claude(self):
+    def _claude(self, forced_model=None, forced_backup=None, system_override=None):
         import anthropic
         client = anthropic.Anthropic(api_key=self.api_key)
+        active_model = (forced_model or "claude-sonnet-4-6").strip()
+        backup_model = (forced_backup or "").strip()
+        current_system = system_override or self.system
         if _SAVE and self.save:
             _save_msg(self.session_id, "user", self.text)
         msgs = self.history + [{"role": "user", "content": self.text}]
         while True:
             self.bubble.emit("Thinking and planning response", "thinking", "thinking_stream")
-            resp = client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=4096,
-                system=self.system,
-                tools=TOOLS,
-                messages=msgs,
-            )
+            model_chain = [active_model]
+            if backup_model and backup_model != active_model:
+                model_chain.append(backup_model)
+
+            resp = None
+            last_err = None
+            for model_name in model_chain:
+                try:
+                    resp = client.messages.create(
+                        model=model_name,
+                        max_tokens=4096,
+                        system=current_system,
+                        tools=TOOLS,
+                        messages=msgs,
+                    )
+                    if model_name != active_model:
+                        self.bubble.emit(
+                            f"Primary Claude model unavailable; switched to backup ({model_name}).",
+                            "tool_result",
+                            "tool_result",
+                        )
+                        active_model = model_name
+                    break
+                except Exception as e:
+                    last_err = e
+            if resp is None:
+                raise RuntimeError(f"Claude request failed on all configured models: {last_err}")
             msgs.append({"role": "assistant", "content": resp.content})
             for b in resp.content:
                 if b.type == "text" and b.text.strip():
@@ -198,15 +260,16 @@ class GuppyWorker(QThread):
         if len(self.history) > 40:
             self.history[:] = self.history[-40:]
 
-    def _ollama(self):
-        ok, err = check_ollama("guppy")
+    def _ollama(self, system_override=None, model_override="guppy"):
+        active_model = model_override or "guppy"
+        ok, err = check_ollama(active_model)
         if not ok:
             self.bubble.emit(err, "error", "error")
             return
         if _SAVE and self.save:
             _save_msg(self.session_id, "user", self.text)
         all_msgs = (
-            [{"role": "system", "content": self.system}]
+            [{"role": "system", "content": system_override or self.system}]
             + self.history
             + [{"role": "user", "content": self.text}]
         )
@@ -214,7 +277,7 @@ class GuppyWorker(QThread):
         while True:
             self.bubble.emit("Thinking through local model pass", "thinking", "thinking_stream")
             data = json.dumps({
-                "model": "guppy",
+                "model": active_model,
                 "messages": all_msgs,
                 "tools": ollama_tools,
                 "stream": False,
@@ -277,6 +340,15 @@ class MerlinWorker(QThread):
         self.system = system
         self.session_id = session_id
         self.save = save
+        self._perf = {
+            "tool_calls": 0,
+            "tool_errors": 0,
+            "tool_budget_hit": False,
+            "model_used": "merlin",
+            "task_type": "unknown",
+            "route": "merlin_local",
+            "route_reason": "council merlin panel",
+        }
 
     def run(self):
         started = time.perf_counter()
@@ -310,6 +382,13 @@ class MerlinWorker(QThread):
                 input_chars=len(self.text or ""),
                 status=req_status,
                 latency_ms=latency_ms,
+                tool_calls=self._perf["tool_calls"],
+                tool_errors=self._perf["tool_errors"],
+                tool_budget_hit=self._perf["tool_budget_hit"],
+                model_used=self._perf["model_used"],
+                task_type=self._perf["task_type"],
+                route=self._perf["route"],
+                route_reason=self._perf["route_reason"],
             )
             self.status.emit("idle")
             self.done.emit()
@@ -334,7 +413,12 @@ class MerlinWorker(QThread):
                 "messages": all_msgs,
                 "tools": ollama_tools,
                 "stream": False,
-                "options": {"temperature": 0.85, "top_p": 0.92, "top_k": 50},
+                "options": {
+                    "temperature": 0.8,
+                    "top_p": 0.9,
+                    "top_k": 40,
+                    "num_predict": _COUNCIL_MERLIN_NUM_PREDICT,
+                },
             }).encode()
             req = urllib.request.Request(
                 "http://localhost:11434/api/chat",
@@ -342,7 +426,7 @@ class MerlinWorker(QThread):
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=180) as r:
+            with urllib.request.urlopen(req, timeout=_COUNCIL_MERLIN_TIMEOUT) as r:
                 resp = json.loads(r.read())
             msg = resp["message"]
             all_msgs.append(msg)
@@ -359,7 +443,16 @@ class MerlinWorker(QThread):
                     self.history[:] = self.history[-40:]
                 break
             for tc in tool_calls:
+                if self._perf["tool_calls"] >= _COUNCIL_TOOL_BUDGET:
+                    self._perf["tool_budget_hit"] = True
+                    self.bubble.emit(
+                        f"Tool budget reached ({_COUNCIL_TOOL_BUDGET}); returning best effort response.",
+                        "spell_result",
+                        "spell_result",
+                    )
+                    break
                 self.status.emit("thinking")
+                self._perf["tool_calls"] += 1
                 name = tc["function"]["name"]
                 args = tc["function"]["arguments"]
                 preview = ", ".join(f"{k}={repr(v)[:30]}" for k, v in args.items())
@@ -369,11 +462,15 @@ class MerlinWorker(QThread):
                     self.bubble.emit(f"Thinking step using {name}", "thinking", "thinking_stream")
                 result = run_spell(name, args)
                 result_str = str(result)
+                if result_str.lower().startswith("error"):
+                    self._perf["tool_errors"] += 1
                 if SHOW_BACKEND_DETAILS:
                     self.bubble.emit(f"   ↳ {result_str[:300]}", "spell_result", "spell_result")
                 elif result_str.lower().startswith("error"):
                     self.bubble.emit("Thinking step failed and recovered", "thinking", "thinking_stream")
                 all_msgs.append({"role": "tool", "content": str(result)})
+            if self._perf["tool_budget_hit"]:
+                break
 
 
 # ── Status dot ─────────────────────────────────────────────────────────────────
@@ -693,6 +790,15 @@ class CouncilWindow(QMainWindow):
             "QPushButton:hover{color:#a0a0d0;border-color:#4a4a6e;}"
         )
         cmd_btn.clicked.connect(self._open_command_palette)
+        settings_btn = QPushButton("⚙ Settings")
+        settings_btn.setFixedHeight(CH_SM - 10)
+        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        settings_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#4a4a70;border:1px solid #1a1a2e;"
+            f"border-radius:3px;font-size:{FS_LABEL}px;padding:0 8px;}}"
+            "QPushButton:hover{color:#a0a0d0;border-color:#4a4a6e;}"
+        )
+        settings_btn.clicked.connect(self._open_runtime_settings)
         diag_btn = QPushButton("Diagnostics")
         diag_btn.setFixedHeight(CH_SM - 10)
         diag_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -704,6 +810,7 @@ class CouncilWindow(QMainWindow):
         diag_btn.clicked.connect(self._collect_diagnostics)
         tbl.addWidget(lbl)
         tbl.addStretch()
+        tbl.addWidget(settings_btn)
         tbl.addWidget(cmd_btn)
         tbl.addWidget(diag_btn)
         tbl.addWidget(clr_btn)
@@ -896,6 +1003,13 @@ class CouncilWindow(QMainWindow):
             payload = data.get("payload", {}) if isinstance(data, dict) else {}
             preview = str(payload.get("preview", ""))[:180]
             self._g_panel.add_bubble(f"Ambient hint: {preview}", "tool_result", "tool_result")
+        elif cmd == "reminder_fired":
+            payload = data.get("payload", {}) if isinstance(data, dict) else {}
+            msg = str(payload.get("message", "Reminder"))[:220]
+            rid = str(payload.get("short_id", ""))
+            suffix = f" (ID {rid})" if rid else ""
+            self._g_panel.add_bubble(f"Reminder completed: {msg}{suffix}", "tool_result", "tool_result")
+            self._m_panel.add_bubble(f"Reminder completed: {msg}{suffix}", "tool_result", "tool_result")
         elif cmd == "report_status":
             status_path = Path("runtime") / "council.status"
             try:
@@ -1128,8 +1242,23 @@ class CouncilWindow(QMainWindow):
                     ts = str(last.get("ts", ""))[11:19] or "--:--:--"
                     self._timeline.add_event(ts, f"{last.get('agent','').upper()} {last.get('event','event')}")
 
+    def _open_runtime_settings(self):
+        theme = {
+            "bg": BG, "bg3": DIVIDER, "text": TEXT, "dim": DIM_TXT,
+            "border": DIVIDER, "accent": G_ACC,
+            "font_family": FF_MONO, "font_size": FS_BODY,
+        }
+        merged = _open_settings_dlg(self, load_app_settings(), theme)
+        if merged is not None:
+            APP_SETTINGS.update(merged)
+            profile = merged.get("runtime_profile", "standard")
+            self._g_panel.add_bubble(
+                f"Settings saved. Profile: {profile}.", "tool_result", "tool_result"
+            )
+
     def _open_command_palette(self):
         commands = [
+            {"name": "Open Settings", "action": self._open_runtime_settings},
             {"name": "Route: Guppy", "action": lambda: self._set_route("guppy")},
             {"name": "Route: Both", "action": lambda: self._set_route("both")},
             {"name": "Route: Merlin", "action": lambda: self._set_route("merlin")},

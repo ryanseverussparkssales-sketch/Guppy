@@ -1,4 +1,4 @@
-﻿"""
+"""
 merlin_core.py — Merlin's spell definitions, research, and media tools
 =======================================================================
 Defines the spell-themed tool palette, research capability, torrent

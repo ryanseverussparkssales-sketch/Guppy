@@ -1,8 +1,12 @@
 @echo off
 TITLE Guppy Suite
 echo =============================================================
-echo   GUPPY SUITE — Starting Hub + Guppy
+echo   GUPPY SUITE — Starting Hub + Primary Guppy Surface
 echo =============================================================
+
+set GUPPY_RUNTIME_PROFILE=standard
+set GUPPY_DEFAULT_SURFACE=guppy
+set GUPPY_SHOW_ADVANCED_SURFACES=1
 
 :: ── Load env vars ──────────────────────────────────────────────────────────────
 for /f "usebackq tokens=*" %%K in (`powershell -NoProfile -Command "[System.Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','User')"`) do set ANTHROPIC_API_KEY=%%K
@@ -34,7 +38,7 @@ echo [Suite] Hub launched. Waiting 2 seconds...
 timeout /T 2 /NOBREAK >nul
 
 :: ── Step 3: Start Guppy (main window, foreground) ─────────────────────────────
-echo [Suite] Starting Guppy...
-.venv\Scripts\python.exe guppy_ui.py
+echo [Suite] Starting Guppy (primary surface)...
+.venv\Scripts\python.exe guppy_launcher.py
 
 pause
