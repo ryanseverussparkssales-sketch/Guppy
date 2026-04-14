@@ -42,10 +42,6 @@ keyboard
 
 # ── Misc ──────────────────────────────────────────────────
 SpeechRecognition
-ruff
-mypy
-pytest-xdist
-unidiff
 
 # ── Phase 3: Remote Access (FastAPI + Auth) ──────────────
 fastapi
@@ -55,14 +51,3 @@ httpx
 
 # ── Secrets (OS credential store) ────────────────────────
 keyring
-
-# ── Phase 4: Wake Word Detection (optional) ──────────────
-# Install to enable openwakeword fast path (<1% CPU).
-# Without this, wake word falls back to transcription-based detection.
-# Custom "hey guppy" model: record 10-20 samples, train with openwakeword CLI.
-openwakeword
-
-# ── Semantic Memory (optional Chroma backend) ─────────────
-# Default semantic backend uses SQLite and does not require chromadb.
-# Install chromadb only if GUPPY_SEMANTIC_BACKEND=chroma.
-chromadb

@@ -4,4 +4,8 @@
 -r requirements.txt
 
 # Security and quality extras
+ruff
+mypy
+pytest-xdist
+unidiff
 pip-audit

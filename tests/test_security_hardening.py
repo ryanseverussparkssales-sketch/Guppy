@@ -17,6 +17,7 @@ import tempfile
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -167,6 +168,33 @@ class RepairEndpointAuthTests(unittest.TestCase):
             headers={"X-Repair-Token": "../../../etc/passwd"},
         )
         self.assertEqual(resp.status_code, 403)
+
+
+class RateLimitPolicyTests(unittest.TestCase):
+    def setUp(self):
+        self._store = dict(guppy_api_auth.rate_limit_store)
+        guppy_api_auth.rate_limit_store.clear()
+
+    def tearDown(self):
+        guppy_api_auth.rate_limit_store.clear()
+        guppy_api_auth.rate_limit_store.update(self._store)
+
+    def _req(self, path: str, method: str = "GET"):
+        return SimpleNamespace(url=SimpleNamespace(path=path), method=method)
+
+    def test_rate_limit_policy_routes_poll_vs_chat(self):
+        poll_bucket, _, _ = guppy_api_auth._resolve_rate_limit_policy(self._req("/status", "GET"))
+        chat_bucket, _, _ = guppy_api_auth._resolve_rate_limit_policy(self._req("/chat", "POST"))
+        default_bucket, _, _ = guppy_api_auth._resolve_rate_limit_policy(self._req("/instances", "GET"))
+
+        self.assertEqual(poll_bucket, "poll")
+        self.assertEqual(chat_bucket, "chat")
+        self.assertEqual(default_bucket, "default")
+
+    def test_poll_bucket_does_not_block_chat_bucket(self):
+        self.assertTrue(guppy_api_auth.check_rate_limit("user-a:poll", max_requests=1, window_minutes=60))
+        self.assertFalse(guppy_api_auth.check_rate_limit("user-a:poll", max_requests=1, window_minutes=60))
+        self.assertTrue(guppy_api_auth.check_rate_limit("user-a:chat", max_requests=1, window_minutes=60))
 
 
 # ── DB utility tests ───────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 """
 ui/launcher/components/sidebar.py
-160-px left navigation panel with 6 tabs.  Emits tab_changed(int) on click.
+160-px left navigation panel with 7 tabs. Emits tab_changed(int) on click.
 """
 from __future__ import annotations
 
@@ -17,10 +17,11 @@ from PySide6.QtWidgets import (
 from .. import tokens as T
 
 _NAV: list[tuple[str, str]] = [
-    ("◎", "ASSISTANT"),
-    ("⚒", "TOOLS"),
+    ("◎", "HOME"),
+    ("◫", "INSTANCES"),
+    ("⚒", "AGENT TOOLS"),
+    ("⌘", "APP MGMT"),
     ("⊞", "SETTINGS"),
-    ("⌘", "ADVANCED"),
     ("⬡", "MODELS"),
     ("♫", "VOICES"),
 ]

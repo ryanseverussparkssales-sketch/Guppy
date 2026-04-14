@@ -10,15 +10,15 @@ Run this sequence after any base-functionality or auth/security change to produc
 
 ### 1. Security and auth tests (must be zero warnings)
 ```
-python -m pytest tests/test_security_hardening.py tests/test_launcher_interactions_smoke.py -W error::DeprecationWarning
+python -m pytest tests/unit/test_security_hardening.py tests/smoke/test_launcher_interactions_smoke.py -W error::DeprecationWarning
 ```
 Expected: all tests pass, zero DeprecationWarnings.
 
 ### 2. Runtime smoke
 ```
-python -m unittest tests.test_runtime_smoke
+python -m pytest tests/smoke/test_runtime_smoke.py -v
 ```
-Expected: 4 tests OK.
+Expected: smoke suite passes.
 
 ### 3. Guard suite (all five checks)
 ```
@@ -56,12 +56,12 @@ Watch for:
 - Core telemetry: session_events FRESH 4524KB, hub_patterns FRESH 40KB, router_scorecard FRESH 3813KB, agent_performance FRESH 62KB
 - integration_events: STALE 1KB (expected — offline; heartbeat fires on live API startup)
 - SQLite operational_events: 113787 rows
-- datetime.utcnow deprecation: resolved in guppy_api_auth.py, utils/hub_operator.py, tests/smoke_api.py
+- datetime.utcnow deprecation: resolved in API auth, hub operator, and smoke coverage.
 
 ## Morning Boot (5 to 10 minutes)
 
 1. Start environment and launcher (API server and hub auto-start with it).
-  - Command: python guppy_launcher.py
+  - Command: python src/guppy/cli/launch.py launcher
   - Note: guppy_api.py (:8081) and guppy_hub.py start automatically. No separate service management needed.
 2. Run pilot gate quick health.
   - Command: python tools/pilot_exit_check.py --allow-limited-go

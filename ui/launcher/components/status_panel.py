@@ -1,7 +1,6 @@
 """
 ui/launcher/components/status_panel.py
-260-px right-side live-status panel with bar gauges, badge states,
-event log, and sparkline.
+Right-side panel focused on background operations and recovery state.
 """
 from __future__ import annotations
 
@@ -233,7 +232,7 @@ class StatusPanel(QFrame):
         outer.setSpacing(0)
 
         # ── Header ────────────────────────────────────────────────────────────
-        hdr = QLabel("LIVE STATUS")
+        hdr = QLabel("BACKGROUND OPS")
         hdr.setStyleSheet(
             f"color: {T.PRIMARY}; font-family: '{T.FF_HEAD}';"
             f"font-size: {T.FS_SMALL}pt; font-weight: bold; letter-spacing: 4px;"
@@ -269,13 +268,9 @@ class StatusPanel(QFrame):
 
         # Standard kv rows
         self._r_profile = _kv("PROFILE", "—")
-        self._r_voice   = _kv("VOICE",   "—")
-        self._r_wake    = _kv("WAKE",    "—")
         self._r_model   = _kv("MODEL",   "—", T.PRIMARY)
-        self._r_latency = _kv("LATENCY", "—")
 
-        for w in [self._r_profile, self._r_voice, self._r_wake,
-                  self._r_model, self._r_latency]:
+        for w in [self._r_profile, self._r_model]:
             self._rows_layout.addWidget(w)
 
         self._rows_layout.addSpacing(6)
@@ -395,8 +390,6 @@ class StatusPanel(QFrame):
 
         # KV rows
         _set_kv(self._r_profile, data.get("profile", "—"))
-        _set_kv(self._r_voice, data.get("voice_engine", data.get("voice", "—")))
-        _set_kv(self._r_wake, data.get("wake_word", "—"), T.PRIMARY)
         _set_kv(self._r_model, data.get("model", "—"), T.PRIMARY)
 
         raw_lat = data.get("latency", "—")

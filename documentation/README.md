@@ -15,3 +15,4 @@ This folder is the canonical technical documentation source.
 
 - If a legacy markdown file disagrees with this folder, treat this folder as source of truth.
 - Legacy files remain for historical context and should be migrated gradually.
+- Canonical module paths now live under `src/guppy/`; root Python files are compatibility shims unless explicitly called out otherwise.

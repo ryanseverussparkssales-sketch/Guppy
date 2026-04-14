@@ -103,21 +103,29 @@ def _deepcopy_json(data: dict[str, Any]) -> dict[str, Any]:
     return json.loads(json.dumps(data))
 
 
-def _normalize_persona_config(data: Any) -> dict[str, Any]:
-    cfg = data if isinstance(data, dict) else _deepcopy_json(DEFAULT_PERSONA_CONFIG)
+def _normalize_persona_config(data: Any, diagnostics: list[str] | None = None) -> dict[str, Any]:
+    notes = diagnostics if diagnostics is not None else []
+    cfg = _deepcopy_json(data) if isinstance(data, dict) else _deepcopy_json(DEFAULT_PERSONA_CONFIG)
+    if not isinstance(data, dict):
+        notes.append("root must be an object; reset to defaults")
 
     personas = cfg.get("personas")
     if not isinstance(personas, list) or not personas:
+        notes.append("personas must be a non-empty list; reset to defaults")
         cfg["personas"] = _deepcopy_json(DEFAULT_PERSONA_CONFIG)["personas"]
     else:
         cleaned: list[dict[str, Any]] = []
+        dropped = 0
         for persona in personas:
             if not isinstance(persona, dict):
+                dropped += 1
                 continue
             if not isinstance(persona.get("id"), str) or not persona.get("id"):
+                dropped += 1
                 continue
             traits = persona.get("traits")
             if not isinstance(traits, dict):
+                notes.append(f"persona {persona.get('id')} traits missing or invalid; reset to defaults")
                 persona["traits"] = {
                     "tone": "butler",
                     "verbosity": "medium",
@@ -125,60 +133,83 @@ def _normalize_persona_config(data: Any) -> dict[str, Any]:
                 }
             teaching = persona.get("teaching")
             if not isinstance(teaching, dict):
+                notes.append(f"persona {persona.get('id')} teaching block missing or invalid; reset to defaults")
                 persona["teaching"] = {
                     "enabled": True,
                     "socratic_bias": 35,
                     "example_bias": 60,
                 }
             cleaned.append(persona)
+        if dropped:
+            notes.append(f"ignored {dropped} invalid persona entries")
         cfg["personas"] = cleaned or _deepcopy_json(DEFAULT_PERSONA_CONFIG)["personas"]
 
     assignments = cfg.get("assignments")
     if not isinstance(assignments, dict):
+        notes.append("assignments must be an object; reset to defaults")
         assignments = {}
     if not isinstance(assignments.get("by_model"), dict):
+        notes.append("assignments.by_model must be an object; reset to empty mapping")
         assignments["by_model"] = {}
     persona_ids = {p.get("id") for p in cfg["personas"] if isinstance(p, dict)}
     if assignments.get("global") not in persona_ids:
+        notes.append("assignments.global did not reference a valid persona; reset to first persona")
         assignments["global"] = cfg["personas"][0].get("id")
     cfg["assignments"] = assignments
 
     if not isinstance(cfg.get("default_persona_id"), str) or cfg.get("default_persona_id") not in persona_ids:
+        notes.append("default_persona_id did not reference a valid persona; reset to global assignment")
         cfg["default_persona_id"] = assignments.get("global")
 
     if not isinstance(cfg.get("version"), int):
+        notes.append("version must be an integer; reset to 1")
         cfg["version"] = 1
 
     return cfg
 
 
-def _normalize_provider_registry(data: Any) -> dict[str, Any]:
-    cfg = data if isinstance(data, dict) else _deepcopy_json(DEFAULT_PROVIDER_REGISTRY)
+def _normalize_provider_registry(data: Any, diagnostics: list[str] | None = None) -> dict[str, Any]:
+    notes = diagnostics if diagnostics is not None else []
+    cfg = _deepcopy_json(data) if isinstance(data, dict) else _deepcopy_json(DEFAULT_PROVIDER_REGISTRY)
+    if not isinstance(data, dict):
+        notes.append("root must be an object; reset to defaults")
 
     providers = cfg.get("providers")
     if not isinstance(providers, list) or not providers:
+        notes.append("providers must be a non-empty list; reset to defaults")
         cfg["providers"] = _deepcopy_json(DEFAULT_PROVIDER_REGISTRY)["providers"]
     else:
         cleaned_providers: list[dict[str, Any]] = []
+        dropped_providers = 0
         for provider in providers:
             if not isinstance(provider, dict):
+                dropped_providers += 1
                 continue
             pid = provider.get("id")
             models = provider.get("models")
             if not isinstance(pid, str) or not pid or not isinstance(models, list) or not models:
+                dropped_providers += 1
                 continue
             cleaned_models: list[dict[str, Any]] = []
+            dropped_models = 0
             for model in models:
                 if not isinstance(model, dict):
+                    dropped_models += 1
                     continue
                 mid = model.get("id")
                 if not isinstance(mid, str) or not mid:
+                    dropped_models += 1
                     continue
                 cleaned_models.append(model)
             if not cleaned_models:
+                dropped_providers += 1
                 continue
+            if dropped_models:
+                notes.append(f"provider {pid} ignored {dropped_models} invalid model entries")
             provider["models"] = cleaned_models
             cleaned_providers.append(provider)
+        if dropped_providers:
+            notes.append(f"ignored {dropped_providers} invalid provider entries")
         cfg["providers"] = cleaned_providers or _deepcopy_json(DEFAULT_PROVIDER_REGISTRY)["providers"]
 
     route_keys: set[str] = set()
@@ -196,11 +227,15 @@ def _normalize_provider_registry(data: Any) -> dict[str, Any]:
     defaults = _deepcopy_json(DEFAULT_PROVIDER_REGISTRY)
     default_routes = defaults.get("routes") if isinstance(defaults.get("routes"), dict) else {}
     routes: dict[str, Any] = cfg.get("routes") if isinstance(cfg.get("routes"), dict) else {}
+    if not isinstance(cfg.get("routes"), dict):
+        notes.append("routes must be an object; reset to defaults")
     for key in ("simple", "complex", "teaching"):
         if routes.get(key) not in route_keys:
+            notes.append(f"routes.{key} did not reference a valid provider/model; reset to default")
             routes[key] = default_routes.get(key)
     fallback_chain = routes.get("fallback_chain")
     if not isinstance(fallback_chain, list) or not fallback_chain:
+        notes.append("routes.fallback_chain must be a non-empty list; reset to defaults")
         routes["fallback_chain"] = list(default_routes.get("fallback_chain", []))
     else:
         cleaned_fallback = [
@@ -208,43 +243,84 @@ def _normalize_provider_registry(data: Any) -> dict[str, Any]:
             for target in fallback_chain
             if isinstance(target, str) and (target in route_keys or target == "local/guppy")
         ]
+        if len(cleaned_fallback) != len(fallback_chain):
+            notes.append("routes.fallback_chain ignored invalid targets")
         routes["fallback_chain"] = cleaned_fallback or list(default_routes.get("fallback_chain", []))
     cfg["routes"] = routes
 
     if cfg.get("default_route") not in route_keys:
+        notes.append("default_route did not reference a valid provider/model; reset to simple route")
         cfg["default_route"] = routes.get("simple", defaults["default_route"])
     if not isinstance(cfg.get("version"), int):
+        notes.append("version must be an integer; reset to 1")
         cfg["version"] = 1
 
     return cfg
 
 
-def _normalize_voice_bindings(data: Any) -> dict[str, Any]:
-    cfg = data if isinstance(data, dict) else _deepcopy_json(DEFAULT_VOICE_BINDINGS)
+def _normalize_voice_bindings(data: Any, diagnostics: list[str] | None = None) -> dict[str, Any]:
+    notes = diagnostics if diagnostics is not None else []
+    cfg = _deepcopy_json(data) if isinstance(data, dict) else _deepcopy_json(DEFAULT_VOICE_BINDINGS)
+    if not isinstance(data, dict):
+        notes.append("root must be an object; reset to defaults")
 
     defaults = cfg.get("defaults")
     if not isinstance(defaults, dict):
+        notes.append("defaults must be an object; reset missing fields to defaults")
         defaults = {}
     if not isinstance(defaults.get("engine"), str) or not defaults.get("engine"):
+        notes.append("defaults.engine missing or invalid; reset to default")
         defaults["engine"] = DEFAULT_VOICE_BINDINGS["defaults"]["engine"]
     if not isinstance(defaults.get("voice_id"), str) or not defaults.get("voice_id"):
+        notes.append("defaults.voice_id missing or invalid; reset to default")
         defaults["voice_id"] = DEFAULT_VOICE_BINDINGS["defaults"]["voice_id"]
     cfg["defaults"] = defaults
 
     bindings = cfg.get("bindings")
     if not isinstance(bindings, dict):
+        notes.append("bindings must be an object; reset to defaults")
         bindings = {}
     for key in ("by_model", "by_persona"):
         mapping = bindings.get(key)
         if not isinstance(mapping, dict):
+            notes.append(f"bindings.{key} must be an object; reset to empty mapping")
             bindings[key] = {}
     cfg["bindings"] = bindings
 
     if not isinstance(cfg.get("imports"), list):
+        notes.append("imports must be a list; reset to empty list")
         cfg["imports"] = []
     if not isinstance(cfg.get("version"), int):
+        notes.append("version must be an integer; reset to 1")
         cfg["version"] = 1
     return cfg
+
+
+def _load_json_with_diagnostics(
+    path: Path,
+    fallback: dict[str, Any],
+    *,
+    normalizer: Callable[[Any, list[str] | None], dict[str, Any]] | None = None,
+) -> tuple[dict[str, Any], list[str]]:
+    diagnostics: list[str] = []
+    fallback_copy = _deepcopy_json(fallback)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return fallback_copy, diagnostics
+    except Exception as exc:
+        diagnostics.append(f"invalid JSON ({type(exc).__name__}); reset to defaults")
+        return fallback_copy, diagnostics
+
+    if normalizer is not None:
+        normalized = normalizer(data, diagnostics)
+        if isinstance(normalized, dict):
+            return normalized, diagnostics
+    if isinstance(data, dict):
+        return _deepcopy_json(data), diagnostics
+
+    diagnostics.append("root must be an object; reset to defaults")
+    return fallback_copy, diagnostics
 
 
 def _read_json(
@@ -253,18 +329,8 @@ def _read_json(
     *,
     normalizer: Callable[[Any], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    fallback_copy = _deepcopy_json(fallback)
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if normalizer is not None:
-            normalized = normalizer(data)
-            if isinstance(normalized, dict):
-                return normalized
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        pass
-    return fallback_copy
+    data, _diagnostics = _load_json_with_diagnostics(path, fallback, normalizer=normalizer)
+    return data
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> Path:
@@ -291,6 +357,30 @@ def load_provider_registry() -> dict[str, Any]:
 
 def load_voice_bindings() -> dict[str, Any]:
     return _read_json(
+        VOICE_BINDINGS_PATH,
+        DEFAULT_VOICE_BINDINGS,
+        normalizer=_normalize_voice_bindings,
+    )
+
+
+def load_persona_config_with_diagnostics() -> tuple[dict[str, Any], list[str]]:
+    return _load_json_with_diagnostics(
+        PERSONA_CONFIG_PATH,
+        DEFAULT_PERSONA_CONFIG,
+        normalizer=_normalize_persona_config,
+    )
+
+
+def load_provider_registry_with_diagnostics() -> tuple[dict[str, Any], list[str]]:
+    return _load_json_with_diagnostics(
+        PROVIDER_REGISTRY_PATH,
+        DEFAULT_PROVIDER_REGISTRY,
+        normalizer=_normalize_provider_registry,
+    )
+
+
+def load_voice_bindings_with_diagnostics() -> tuple[dict[str, Any], list[str]]:
+    return _load_json_with_diagnostics(
         VOICE_BINDINGS_PATH,
         DEFAULT_VOICE_BINDINGS,
         normalizer=_normalize_voice_bindings,

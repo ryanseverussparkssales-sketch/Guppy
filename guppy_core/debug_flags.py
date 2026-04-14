@@ -19,7 +19,7 @@ TOOL_CIRCUIT_COOLDOWN_SECONDS = int(os.environ.get("GUPPY_TOOL_COOLDOWN_SECONDS"
 TOOL_MAX_OUTPUT_CHARS        = int(os.environ.get("GUPPY_TOOL_MAX_OUTPUT_CHARS", "2000"))
 
 _TOOL_EXECUTOR   = ThreadPoolExecutor(max_workers=max(4, (os.cpu_count() or 4)))
-_TOOL_GUARD_LOCK = threading.Lock()
+_TOOL_GUARD_LOCK = threading.RLock()
 _TOOL_GUARDS: dict[str, dict] = {}
 _TOOL_METRICS: dict = {
     "calls": 0,

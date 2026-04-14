@@ -21,9 +21,9 @@
 | Tab | Purpose | Key Feature | Who Uses |
 |---|---|---|---|
 | **Home** | Active instance chat | Large transcript + quick instance switcher in header | Everyone on every session |
-| **Inst. Manager** | Create/switch/delete instances + view logs | List of instances, create form, access logs | Power users, setup |
-| **Agent Tools** | Tools the instance can use | Run code, read/write files, query other instances | Active user (via Home tab) |
-| **App Mgmt** | Manage the app itself | Warmup, restart daemon, audit, diagnostics | Operators, troubleshooters |
+| **Inst. Manager** | Create/switch/delete instances + view logs | Live today: list, inline create or update form, switch, delete, log viewer | Power users, setup |
+| **Agent Tools** | Tools the instance can use | Capability-aware tool catalog for the active instance, with blocked tools called out explicitly | Active user (via Home tab) |
+| **App Mgmt** | Manage the app itself | Recovery cards, diagnostics snapshot, and operator logs live in one app-scoped surface | Operators, troubleshooters |
 | **Settings** | Persona configuration | Tone/verbosity sliders, teaching style, preview | Casual + power users |
 | **Models** | Model assignment + routes | Task type → model mapping, fallback chains | Power users, setup |
 | **Voices** | Voice library | Import, assign, preview playback | Voice enthusiasts |
@@ -33,12 +33,12 @@
 ## 🎯 Product Positioning
 
 ```
-Home Tab (Primary)
+Home Tab (Primary, current repo state)
 └─ Instance → Guppy (active)
-   ├─ Chat History: 47 messages
-   ├─ Model: Merlin
-   ├─ Persona: Tone=5, Verbosity=7
-   └─ Voice: Kokoro
+   ├─ Chat transcript
+   ├─ Active instance chip
+   ├─ Background activity + recovery summary
+   └─ Runtime facts: profile, model, voice, latency, last query
 
 Background Instances (Managed from Instance Manager)
 ├─ Builder (running): merlin-code, Schema writing
@@ -77,7 +77,7 @@ Instance Manager
 │ Builder   │ Running  │ [Logs] [Pause]   │
 │ Merlin    │ Idle     │ [Logs] [Delete]  │
 └──────────────────────┴──────────────────┘
-[+ Create New]
+[Inline Create or Update Form]
 ```
 
 ---
@@ -100,7 +100,7 @@ Instance Manager
 - Audit Runtime — Check logs & schemas
 - Diagnostics — System health snapshot
 
-**Key Separation:** User cannot accidentally run "Restart Daemon" from within Agent Tools tab; it's in a different tab with different context.
+**Current State:** the content split is now live at a first useful pass. Agent Tools is instance-scoped and capability-aware; App Mgmt owns warmup, restart, audit, diagnostics, and operator logs. Remaining work is deeper tool invocation flow plus server-side capability enforcement.
 
 ---
 
@@ -194,14 +194,14 @@ Log policy:
 - [ ] Preview playback
 
 ### Epic 4: Agent Tools Tab
-- [ ] Tools list scoped to active instance
-- [ ] Permission-aware filtering (read-only instances, etc.)
+- [x] Tools list scoped to active instance
+- [x] Permission-aware filtering (read-only instances, etc.)
 - [ ] Tool card layout with Run buttons
 
 ### Epic 5: App Management Tab
-- [ ] Recovery action cards (warmup, restart, audit)
-- [ ] Diagnostics panel (system health)
-- [ ] Operator logs viewer (tail, search, export)
+- [x] Recovery action cards (warmup, restart, audit)
+- [x] Diagnostics panel (system health)
+- [x] Operator logs viewer (tail, filter)
 
 ### Epic 6: Off-Hours Scaling
 - [ ] 5+ write task templates

@@ -4,12 +4,19 @@ Last verified: 2026-04-13
 
 ## 1) Runtime Entry Points
 
-- Launcher wrapper: `guppy_launcher.py` (thin compatibility wrapper)
-- Launcher app: `src/guppy/apps/launcher_app.py`
-- Hub wrapper: `guppy_hub.py`
-- Hub app: `src/guppy/apps/hub_app.py`
-- API server: `guppy_api.py`
-- CLI surface: `guppy_agent.py`
+- Canonical launcher app: `src/guppy/apps/launcher_app.py`
+- Canonical hub app: `src/guppy/apps/hub_app.py`
+- Canonical launch CLI: `src/guppy/cli/launch.py`
+- Canonical API server: `src/guppy/api/server.py`
+- Canonical API auth: `src/guppy/api/auth.py`
+- Canonical inference router: `src/guppy/inference/router.py`
+- Canonical daemon: `src/guppy/daemon/daemon.py`
+
+Thin root compatibility wrappers remain for stable direct imports and scripts:
+
+- `guppy_launcher.py`, `guppy_hub.py`, `guppy_api.py`, `guppy_api_auth.py`, `guppy_agent.py`
+- `guppy_ui.py`, `merlin_ui.py`, `council_ui.py`
+- additional migrated shims for memory, voice, inference, tools, and integrations
 
 ## 2) UI Architecture
 
@@ -19,23 +26,37 @@ Last verified: 2026-04-13
 - Views: `ui/launcher/views/`
 - Components: `ui/launcher/components/`
 
-### Specialist and legacy surfaces
+### Specialist and compatibility surfaces
 
-- Specialist: `merlin_ui.py`, `council_ui.py`
-- Legacy monolith: `guppy_ui.py`
+- Standalone specialist wrappers: `merlin_ui.py`, `council_ui.py`
+- Legacy-surface implementations retained under `legacy_surfaces/`
+- Canonical CLI launch blocks those specialist legacy surfaces unless `GUPPY_ENABLE_LEGACY_SURFACES=1` is set.
 
-## 3) Background Services
+## 3) Core Runtime Packages
 
-- Daemon: `guppy_daemon.py`
+- `guppy_core/` — tool registry, runner, prompts, metrics, policy
+- `src/guppy/inference/` — routing and dispatch policy
+- `src/guppy/merlin/` — Merlin persona-specific logic
+- `src/guppy/memory/` — persistent and semantic memory
+- `src/guppy/voice/` — TTS/STT and wake-word handling
+- `src/guppy/daemon/` — reminders, ambient watcher, proactive loop
+- `src/guppy/tools/` — GitHub/media helper modules
+- `src/guppy/integrations/` — CRM/VoIP stubs
+- `src/guppy/debug/` — debug console
+- `src/guppy/ui/` — theme and shared UI-specific logic
+
+## 4) Background Services and Telemetry
+
 - Hub orchestration: `src/guppy/hub/`
 - Session/event logs: `runtime/*.jsonl`
 - Operational telemetry mirror: `runtime/ops_telemetry.sqlite3`
+- Review utilities: `tools/review_agent_performance.py`, `tools/review_router_scorecard.py`
 
-## 4) Security-Critical Flows
+## 5) Security-Critical Flows
 
 ### JWT auth
 
-- Module: `guppy_api_auth.py`
+- Module: `src/guppy/api/auth.py`
 - Secret source order:
   1. OS credential store key `jwt_secret` via `utils/secret_store.py`
   2. Fallback `GUPPY_JWT_SECRET` environment variable
@@ -43,7 +64,7 @@ Last verified: 2026-04-13
 ### Repair endpoint auth
 
 - Endpoint: `POST /repair`
-- Guard: `_require_repair_token` in `guppy_api.py`
+- Guard: `_require_repair_token` in `src/guppy/api/server.py`
 - Token generated per API process startup
 - Storage source order:
   1. OS credential store key `repair_token`
@@ -62,18 +83,17 @@ Last verified: 2026-04-13
 - Launcher performs one-time auth self-check when API becomes reachable
 - Event log includes token source and reason-coded error detail on failure
 
-## 5) Database Architecture
+## 6) Database Architecture
 
 Connection policy is centralized in `utils/db_utils.py`.
 
-Modules using shared connection policy:
+Modules using shared connection policy include:
 
 - `utils/operational_telemetry.py`
-- `guppy_api.py` telemetry query path
-- `guppy_memory.py`
-- `guppy_semantic_memory.py`
-- `guppy_ui.py` response cache
-- `debug_console.py` DB access
+- `src/guppy/api/server.py` telemetry query path
+- `src/guppy/memory/memory.py`
+- `src/guppy/memory/semantic.py`
+- `src/guppy/debug/console.py`
 
 SQLite defaults:
 
@@ -83,7 +103,15 @@ SQLite defaults:
 - Foreign key enforcement
 - Memory temp store
 
-## 6) Quality Guardrails
+## 7) Test Layout
+
+- `tests/unit/` — default fast regression suite
+- `tests/integration/` — runtime or hardware-adjacent tests
+- `tests/smoke/` — manual or broader smoke/stress validation
+
+`pytest.ini` runs `tests/unit` and `tests/integration` by default.
+
+## 8) Quality Guardrails
 
 Current architecture checks:
 

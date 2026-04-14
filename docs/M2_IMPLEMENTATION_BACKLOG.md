@@ -26,15 +26,15 @@ File order:
    - Retry auth self-check when it fails instead of permanently setting `_auth_self_checked`.
    - On `401` from `/chat`, invalidate token, rebuild it once, and retry once.
    - Log auth error codes separately from generic command failures.
-2. `guppy_api_auth.py`
+2. `src/guppy/api/auth.py` (wrapper: `guppy_api_auth.py`)
    - Keep launcher-local token mint/verify contract deterministic.
    - Add a small helper or clearer error code path if the JWT secret is unavailable or mismatched.
-3. `guppy_api.py`
+3. `src/guppy/api/server.py` (wrapper: `guppy_api.py`)
    - Confirm `/auth/self-check` and `/chat` use the same auth dependency behavior.
    - If needed, add a launcher-safe local diagnostics path that explains auth mismatch without weakening security.
-4. `tests/test_security_hardening.py`
+4. `tests/unit/test_security_hardening.py`
    - Extend existing launcher token coverage to include post-restart or token-refresh behavior.
-5. `tests/smoke_api.py`
+5. `tests/smoke/smoke_api.py`
    - Add an explicit launcher-auth smoke path for local verification.
 
 ### Workstream 0.2: Stabilize Builder And Runtime Config Shape
@@ -90,6 +90,17 @@ File order:
 
 Only begin after Phase 0 exit criteria are met.
 
+Status: partially complete as of 2026-04-14.
+Completed in repo now:
+1. Home is the default launcher surface.
+2. Active-instance, background activity, runtime facts, and recovery summary are routed into Home.
+3. Right rail is trimmed toward background ops instead of primary chat context.
+4. Navigation labels now follow the Home, Instance Manager, Agent Tools, App Mgmt model.
+5. Agent Tools and App Mgmt now have distinct launcher surfaces instead of legacy mixed placeholders.
+Remaining in this phase:
+1. Finish moving any leftover mixed operational detail out of Home-adjacent legacy surfaces.
+2. Keep refining the split so Agent Tools gains invocation flow while App Mgmt stays app-scoped.
+
 File order:
 1. `ui/launcher/launcher_window.py`
    - Make assistant/home the canonical entry surface and route background status into it.
@@ -103,6 +114,17 @@ File order:
    - Add smoke coverage for default-tab and active-agent switching.
 
 ## Phase 2: Instance Manager Foundation
+
+Status: foundation now live as of 2026-04-14.
+Completed in repo now:
+1. `config/instances.json` and `runtime/instance_state.json` are persisted and normalized.
+2. `GET /instances`, `POST /instances`, `POST /instances/{name}/activate`, `DELETE /instances/{name}`, and `GET /instances/{name}/logs` exist.
+3. Launcher has a dedicated `InstanceManagerView` wired into the main stack.
+4. Launcher chat and bounded inter-instance query paths now write per-instance JSONL logs.
+Remaining in this phase:
+1. Add richer lifecycle affordances beyond the current inline create or update form.
+2. Expand server-side inter-instance orchestration beyond bounded single-query M2.0 behavior.
+3. Enforce the 5 configured / 2 runtime-active bounds deeper than the current API + launcher feedback layer.
 
 File order:
 1. `config/instances.json`
@@ -119,6 +141,16 @@ File order:
    - API and UI coverage for the 5 configured / 2 active bounds.
 
 ## Phase 3: Split Agent Tools From App Management
+
+Status: first-pass split now live as of 2026-04-14.
+Completed in repo now:
+1. `ui/launcher/views/tools_view.py` is now an instance-scoped Agent Tools catalog.
+2. `ui/launcher/views/advanced_view.py` has been repurposed into App Management.
+3. Recovery actions, diagnostics, and operator logs are no longer presented as mixed instance tooling.
+Remaining in this phase:
+1. Add real tool invocation cards and dry-run UI for write/code tools.
+2. Tie tool visibility to server-side capability enforcement.
+3. Remove or further isolate any remaining legacy compatibility affordances.
 
 File order:
 1. `ui/launcher/views/tools_view.py`

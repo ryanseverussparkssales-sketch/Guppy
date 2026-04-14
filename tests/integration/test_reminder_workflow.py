@@ -1,6 +1,6 @@
 import unittest
 
-from guppy_daemon import TaskScheduler
+from src.guppy.daemon.daemon import TaskScheduler
 
 
 class ReminderWorkflowTest(unittest.TestCase):

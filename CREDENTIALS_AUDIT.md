@@ -2,8 +2,10 @@
 
 **Purpose**: Verify every capability in documentation against actual implementation. Identify what requires user credentials or 3rd party setup.
 
-**Last Updated**: April 12, 2026  
-**Status**: Remote strict-mode path and public tunnel route verified; credentials map current.
+**Last Updated**: April 13, 2026  
+**Status**: Remote strict-mode path and public tunnel route verified; live guidance aligned to the `src/guppy/*` layout.
+
+Compatibility note: root Python files such as `guppy_api.py` and `guppy_voice.py` are compatibility shims. Canonical implementations live under `src/guppy/*`. Historical command examples later in this audit should be read as historical unless they are explicitly marked as current verification steps.
 
 ---
 
@@ -19,11 +21,11 @@
 | Gemini low-cost routing (optional) | ⚠️ **OPTIONAL** | GEMINI_API_KEY | Free/cheap general-purpose backup tier |
 | Mistral low-cost routing (optional) | ⚠️ **OPTIONAL** | MISTRAL_API_KEY | Additional inexpensive provider option |
 | Local Ollama models (Guppy/Merlin) | ✅ **READY** | Ollama installed + models built | Build with `build_models.bat` |
-| Remote API (`guppy_api.py`) | ✅ **READY (STRICT MODE)** | GUPPY_JWT_SECRET, TURNSTILE_SECRET | Strict mode active (`GUPPY_DEV_MODE=0`), auth flow verified |
+| Remote API (`src/guppy/api/server.py`, wrapper `guppy_api.py`) | ✅ **READY (STRICT MODE)** | GUPPY_JWT_SECRET, TURNSTILE_SECRET | Strict mode active (`GUPPY_DEV_MODE=0`), auth flow verified |
 | Cloudflare tunnel | ✅ **READY** | CLOUDFLARE_TUNNEL_ID, CLOUDFLARE_HOSTNAME | Ingress routes public hostnames to `localhost:8081` |
 | CRM integrations (HubSpot, Salesforce, GoHighLevel, Zoho) | ❌ **STUBBED** | API keys + live clients | Safe stubs; logs intent; no actual writes |
 | VoIP calling (Twilio) | ❌ **STUBBED** | TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN | Safe stub; no actual calls |
-| Spotify (play/pause/next) | ✅ **READY** | Spotify client already hardcoded | Works; uses embedded dev credentials |
+| Spotify (play/pause/next) | ⚠️ **READY WITH SETUP** | SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET | Works when Spotify OAuth is configured; media-key fallback covers basic control |
 | YouTube search | ✅ **READY** | None (browser fallback) | yt-dlp optional; defaults to web search |
 | Gmail (send/read/delete) | ⚠️ **READY** | Gmail OAuth setup required per account | Multi-account support; token cached |
 | Web search (Perplexity AI) | ⚠️ **FUNCTIONAL** | PERPLEXITY_API_KEY optional | Falls back to Google search in browser |
@@ -38,7 +40,7 @@
 
 ### Desktop Chat Surfaces
 
-**Files**: `guppy_launcher.py` (unified), `merlin_ui.py`, `council_ui.py`
+**Files**: `src/guppy/cli/launch.py`, `guppy_launcher.py`, `merlin_ui.py`, `council_ui.py`
 
 **Capabilities**:
 - ✅ Per-query task classification (simple/complex/teaching)
@@ -53,7 +55,7 @@
 
 **Verification**:
 ```powershell
-python guppy_launcher.py
+python src/guppy/cli/launch.py launcher
 ```
 Works immediately if Ollama is running.
 
@@ -61,7 +63,7 @@ Works immediately if Ollama is running.
 
 ### Push-to-Talk & Voice I/O
 
-**Files**: `guppy_voice.py`
+**Files**: `src/guppy/voice/voice.py` (wrapper: `guppy_voice.py`)
 
 **Capabilities**:
 - ✅ PTT (hold-to-talk) via UI button
@@ -75,7 +77,7 @@ Works immediately if Ollama is running.
 
 **Verification**:
 ```powershell
-python tests/test_ptt.py
+python tests/integration/test_ptt.py
 ```
 Lists audio devices and validates microphone access.
 
@@ -342,7 +344,7 @@ TURNSTILE_SECRET=from-cloudflare-dashboard
 **Development Mode** (localhost testing):
 ```powershell
 $env:GUPPY_DEV_MODE = "1"
-python guppy_api.py
+python src/guppy/cli/launch.py api
 # /auth/verify now accepts any Turnstile token
 ```
 
@@ -354,8 +356,8 @@ TURNSTILE_SECRET=from-cloudflare-turnstile-setup
 
 **Verification**:
 ```powershell
-python tests/smoke_api.py
-python tests/smoke_api.py --base-url http://localhost:8081
+python tests/smoke/smoke_api.py
+python tests/smoke/smoke_api.py --base-url http://localhost:8081
 
 # Strict-mode public check (expected: 400 Invalid Turnstile token for dummy token)
 Invoke-WebRequest https://guppy.sparkscuriositystudio.com/auth/verify -Method POST -Body '{"token":"dummy"}' -ContentType 'application/json'
@@ -592,11 +594,11 @@ ollama list
 
 # 5. API server (dev mode)
 $env:GUPPY_DEV_MODE = "1"
-python guppy_api.py
+python src/guppy/cli/launch.py api
 # → Server starts on port 8081
 
 # 6. API smoke test
-python tests/smoke_api.py
+python tests/smoke/smoke_api.py
 # → All endpoints report PASS
 
 # 7. Remote (optional)

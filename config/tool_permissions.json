@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "defaults": {
+    "read": true,
+    "write": false,
+    "execute": false,
+    "network": true
+  },
+  "instances": {
+    "guppy-primary": {
+      "read": true,
+      "write": true,
+      "execute": true,
+      "network": true
+    },
+    "merlin-collab": {
+      "read": true,
+      "write": true,
+      "execute": false,
+      "network": true
+    }
+  }
+}

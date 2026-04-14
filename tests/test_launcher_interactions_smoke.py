@@ -96,6 +96,21 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertEqual(modes, ["AUTO", "CLAUDE", "OLLAMA", "LOCAL", "CODE", "TEACHING"])
         self.assertNotIn("VAULT", modes)
 
+    def test_topbar_instance_switcher_emits_selection(self):
+        topbar = TopBar()
+        selected: list[str] = []
+        topbar.instance_selected.connect(lambda name: selected.append(name))
+
+        topbar.set_instances(["guppy-primary", "merlin-collab"], active_instance="guppy-primary")
+        topbar.set_active_instance("merlin-collab")
+
+        self.assertEqual(topbar._instance_cb.currentText(), "merlin-collab")
+        self.assertEqual(selected, [])
+
+        topbar._instance_cb.setCurrentText("guppy-primary")
+        self.assertTrue(selected)
+        self.assertEqual(selected[-1], "guppy-primary")
+
     def test_agent_card_offline_shows_wired_initialize_button(self):
         card = AgentCard("GUPPY")
         card.update_status(online=False, last_seen="now", load_pct=None)

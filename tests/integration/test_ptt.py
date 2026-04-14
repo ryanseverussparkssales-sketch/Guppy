@@ -1,11 +1,11 @@
 import os
-import time
 import sys
+import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from guppy_voice import GuppyVoice, VoiceConfig
+from src.guppy.voice.voice import GuppyVoice, VoiceConfig
 
 
 def _print_status(label: str, voice: GuppyVoice):

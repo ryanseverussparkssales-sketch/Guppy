@@ -10,9 +10,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-import guppy_api
-from guppy_daemon import TaskScheduler
-from inference_router import InferenceRouter, resolve_ui_route
+from src.guppy.api import server as guppy_api
+from src.guppy.daemon.daemon import TaskScheduler
+from src.guppy.inference.router import InferenceRouter, resolve_ui_route
 from utils.router_scorecard import log_router_scorecard
 from utils.session_logger import log_session_event, tail_session_events
 

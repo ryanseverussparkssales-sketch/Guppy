@@ -206,11 +206,24 @@ async def run(base_url: str, test_claude: bool) -> int:
             print(YELLOW("  Auth unavailable — remaining tests skipped."))
             print("  Fix: set " + BOLD("GUPPY_JWT_SECRET") + " in env, or start server with "
                   + BOLD("GUPPY_DEV_MODE=1"))
-            for name in ("GET /status", "POST /chat (ollama)", "POST /chat (claude)", "WS /ws", "POST /chat/voice"):
+            for name in ("GET /auth/self-check", "GET /status", "POST /chat (ollama)", "POST /chat (claude)", "WS /ws", "POST /chat/voice"):
                 _record(name, SKIP, "no token")
             return _summary()
 
         hdrs = {"Authorization": f"Bearer {token}"}
+
+        # ── 3b. /auth/self-check ─────────────────────────────────────────────
+        t0 = time.perf_counter()
+        try:
+            r = await client.get("/auth/self-check", headers=hdrs)
+            ms = (time.perf_counter() - t0) * 1000
+            if r.status_code == 200:
+                mode = str(r.json().get("mode", "unknown"))
+                _record("GET /auth/self-check", PASS, f"mode={mode}", ms)
+            else:
+                _record("GET /auth/self-check", FAIL, f"HTTP {r.status_code}", ms)
+        except Exception as e:
+            _record("GET /auth/self-check", FAIL, str(e))
 
         # ── 4. /status ─────────────────────────────────────────────────────────
         t0 = time.perf_counter()

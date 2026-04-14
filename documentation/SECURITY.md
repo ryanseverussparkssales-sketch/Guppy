@@ -16,7 +16,7 @@ preserve compatibility in constrained environments.
 
 ## 2) JWT Security
 
-- JWT creation and verification in `guppy_api_auth.py`
+- JWT creation and verification in `src/guppy/api/auth.py` (wrapper: `guppy_api_auth.py`)
 - Placeholder secret detection enforced
 - Strict-mode behavior rejects invalid/expired tokens
 - Secret retrieval supports OS store (`jwt_secret`) with env fallback
@@ -64,7 +64,19 @@ Security impact:
 - `repair_token_missing`
 - `repair_token_mismatch`
 
-## 6) Database Lock and Durability Policy
+## 6) Instance Capability Enforcement
+
+- Instance tool permissions are resolved from `config/tool_permissions.json`
+- Backend enforcement now runs in `guppy_core/tool_runner.py`, not just launcher UI filters
+- Active chat and instance-query inference forward instance name/type into tool execution
+
+## 7) Instance Log Retention and Redaction
+
+- Per-instance logs redact token-shaped secrets before persistence
+- Raw per-instance JSONL logs are retention-pruned to a 14-day window on append/read
+- 30-day summary metadata is maintained alongside raw logs for operator inspection
+
+## 8) Database Lock and Durability Policy
 
 All product SQLite paths should use `utils/db_utils.py`.
 
@@ -75,9 +87,9 @@ Policy enforces:
 - Synchronous mode consistency
 - Foreign-key checks on
 
-## 7) Regression Coverage
+## 9) Regression Coverage
 
-`tests/test_security_hardening.py` includes coverage for:
+`tests/unit/test_security_hardening.py` includes coverage for:
 
 1. Invalid JWT signatures and expired tokens
 2. Missing JWT payload fields
@@ -89,4 +101,9 @@ Policy enforces:
 8. Repair token acceptance via keyring and file fallback reader paths
 9. Repair token rotation rejects old token and accepts new token
 
-Current status: all tests passing.
+Additional targeted coverage:
+
+1. `tests/unit/test_instance_controls.py` validates backend capability gating and log retention behavior.
+2. `tests/smoke/test_runtime_smoke.py` validates API forwarding of active instance context.
+
+Current status: the default pytest gate excludes the interactive PTT hardware smoke and should be evaluated against the non-interactive unit plus integration suite.

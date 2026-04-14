@@ -12,6 +12,11 @@ outdated or ambiguous.
 3. `/repair` is token-guarded.
 4. Supervisor-oriented operational pattern exists and is supported.
 5. Launcher has direct-recovery fallback when API is unreachable.
+6. Default dependency install is slimmer than before.
+   - Dev-only packages now live in `requirements-dev.txt`.
+   - Optional `openwakeword` and `chromadb` extras now live in `requirements-optional.txt`.
+7. Canonical CLI launch treats `merlin` and `council` as compatibility-only surfaces.
+   - `src/guppy/cli/launch.py` now requires `GUPPY_ENABLE_LEGACY_SURFACES=1` before launching them.
 
 ## Drift / Needs Correction in Legacy Docs
 
@@ -27,7 +32,18 @@ outdated or ambiguous.
    - Canonical policy is now centralized in `utils/db_utils.py`.
 
 4. Voice docs include historical examples and may overstate current default paths.
-   - Keep as reference, but verify behavior against `guppy_voice.py` for production decisions.
+   - Keep as reference, but verify behavior against `src/guppy/voice/voice.py` for production decisions.
+
+5. Root-module references are widely stale outside canonical docs.
+   - Core implementations now live under `src/guppy/*`.
+   - Root files like `guppy_api.py`, `guppy_api_auth.py`, `guppy_daemon.py`, and `inference_router.py` are compatibility shims.
+
+6. Test-path references drifted after suite reorganization.
+   - Default pytest targets are now `tests/unit/` and `tests/integration/`.
+   - Smoke and stress scripts live under `tests/smoke/`.
+
+7. Review-tool paths drifted after runtime-script cleanup.
+   - Performance review helpers now live in `tools/`, not `runtime/`.
 
 ## Consolidation Result
 
@@ -35,6 +51,7 @@ Canonical docs are now:
 
 - Instructions: `instructions/README.md`, `instructions/OPERATIONS.md`, `instructions/DEVELOPMENT.md`
 - Technical documentation: `documentation/README.md`, `documentation/ARCHITECTURE.md`, `documentation/SECURITY.md`, `documentation/TRUTH_AUDIT.md`
+- Operational references: `docs/API.md`, `docs/TROUBLESHOOTING.md`, `docs/VOICE.md`, `docs/PACKAGING.md`, `docs/PROJECT_BRIEF.md`
 
 Legacy docs remain present for historical context and should be treated as
 secondary unless migrated.

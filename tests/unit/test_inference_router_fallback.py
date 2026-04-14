@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 from unittest.mock import patch, MagicMock
-from inference_router import InferenceRouter
+from src.guppy.inference.router import InferenceRouter
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -203,6 +203,23 @@ class TestComplexTaskFallback:
             text, source, meta = router.query_smart("sys", "complex question")
 
         assert source == "local"
+
+    def test_sonnet_rate_limit_falls_through_to_haiku(self):
+        """A Sonnet 429 should not abort the complex-task fallback chain."""
+        router = _make_router()
+        router.anthropic_client.messages.create.side_effect = RuntimeError("429 Too Many Requests")
+
+        with (
+            patch.object(router, "_classify_task", return_value="complex"),
+            patch.object(router, "query_haiku", return_value=_haiku_result()) as mock_haiku,
+            patch.object(router, "query_local") as mock_local,
+        ):
+            text, source, meta = router.query_smart("sys", "complex question")
+
+        assert source == "haiku"
+        assert text == "haiku response"
+        mock_haiku.assert_called_once()
+        mock_local.assert_not_called()
 
     def test_all_backends_down_complex_raises(self):
         router = _make_router()

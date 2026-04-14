@@ -11,7 +11,7 @@ print("=" * 70)
 # Test 1: Imports work
 print("\n[1] Testing router imports...")
 try:
-    from inference_router import InferenceRouter, get_router, route_inference_smart
+    from src.guppy.inference.router import InferenceRouter, get_router, route_inference_smart
     print("✓ Router imports successful")
 except Exception as e:
     print(f"✗ Router import failed: {e}")
@@ -85,7 +85,7 @@ except Exception as e:
 # Test 6: Merlin core imports
 print("\n[6] Testing Merlin core imports...")
 try:
-    from merlin_core import get_merlin_startup_system, MERLIN_SYSTEM
+    from src.guppy.merlin.core import get_merlin_startup_system, MERLIN_SYSTEM
     print("✓ Merlin imports successful")
     assert "Socratic" in MERLIN_SYSTEM, "Merlin system prompt missing Socratic reference"
     print("✓ Merlin system prompt contains Socratic method reference")
@@ -103,7 +103,7 @@ try:
     assert "Track 2: Daily Workflow Productization" in roadmap, "ROADMAP missing daily workflow track"
     assert "Windows personal assistant" in roadmap, "ROADMAP missing Windows assistant objective"
     assert "Butler" in readme or "butler" in readme, "README missing butler focus note"
-    
+
     print("✓ Documentation properly updated")
     print("  - ROADMAP.md: Phase 1-3 descriptions present")
     print("  - README.md: Butler focus statement present")

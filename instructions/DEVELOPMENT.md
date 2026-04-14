@@ -7,7 +7,10 @@ Last verified: 2026-04-13
 1. Use Python 3.12 virtual environment.
 2. Install dependencies:
    - `pip install -r requirements.txt`
-3. Key dependency for current security model:
+   - `pip install -r requirements-dev.txt`
+3. Install optional extras only when working on those paths:
+   - `pip install -r requirements-optional.txt`
+4. Key dependency for current security model:
    - `keyring` (OS-backed secret storage)
 
 ## 2) Entrypoint Rules
@@ -15,7 +18,8 @@ Last verified: 2026-04-13
 1. Keep wrappers thin:
    - `guppy_launcher.py`
    - `guppy_hub.py`
-2. Place real app logic under `src/guppy/apps/` and shared modules under `src/guppy/` or `ui/launcher/`.
+2. Legacy `merlin` and `council` surfaces are compatibility-only; do not add new end-user features there.
+3. Place real app logic under `src/guppy/apps/` and shared modules under `src/guppy/` or `ui/launcher/`.
 
 ## 3) Architecture Rules
 

@@ -4,7 +4,8 @@
 
 ### Prerequisites
 - Python 3.12+ installed
-- All dependencies from requirements.txt installed
+- Base dependencies from `requirements.txt` installed
+- Optional extras from `requirements-optional.txt` installed only when the build should include wake-word fast path or Chroma backend support
 - Windows 10/11
 
 ### One-Command Build (default: one-folder)

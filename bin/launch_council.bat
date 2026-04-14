@@ -1,28 +1,7 @@
 @echo off
-TITLE The Council — Guppy & Merlin
-echo [Council] Initializing advanced surface...
-
-set GUPPY_RUNTIME_PROFILE=power
-set GUPPY_DEFAULT_SURFACE=guppy
-set GUPPY_SHOW_ADVANCED_SURFACES=1
-
-:: Load ANTHROPIC_API_KEY from User environment
-for /f "usebackq tokens=*" %%K in (`powershell -NoProfile -Command "[System.Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','User')"`) do set ANTHROPIC_API_KEY=%%K
-
-if "%ANTHROPIC_API_KEY%"=="" (
-    echo [Council] WARNING: ANTHROPIC_API_KEY not set. Guppy will run in Gemma 4 local mode.
-) else (
-    echo [Council] API key loaded. Guppy running Claude online. Merlin running Gemma 4 local.
-)
-
-echo [Council] Note: Council is a power-user surface; launch Guppy for the normal daily workflow.
-
-:: Spotify API Credentials
-set SPOTIFY_CLIENT_ID=d6729bd17c664ca289974001ea790136
-set SPOTIFY_CLIENT_SECRET=4eba85477e3a4174ad73e741353b85d3
-
-:: Launch the Council (use venv Python explicitly)
+TITLE Council
 cd /d "%~dp0\.."
-.venv\Scripts\python.exe council_ui.py
-
+set GUPPY_ENABLE_LEGACY_SURFACES=1
+echo [launch] Council is a compatibility-only surface. Prefer launcher for daily use.
+.venv\Scripts\python.exe src\guppy\cli\launch.py council
 pause

@@ -3,6 +3,7 @@ import tempfile
 import unittest
 import os
 import sqlite3
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -29,6 +30,7 @@ class RuntimeSmokeTests(unittest.TestCase):
         metrics_resp = client.get("/metrics")
         logs_resp = client.get("/logs/recent?limit=5")
         startup_resp = client.get("/startup/check")
+        instances_resp = client.get("/instances")
         telemetry_query_resp = client.get("/telemetry/query?limit=10")
         telemetry_report_resp = client.get("/telemetry/report?limit=200")
         repair_warmup_dry_resp = client.post("/repair", json={"action": "warmup", "dry_run": True})
@@ -39,6 +41,7 @@ class RuntimeSmokeTests(unittest.TestCase):
         self.assertEqual(metrics_resp.status_code, 200)
         self.assertEqual(logs_resp.status_code, 200)
         self.assertEqual(startup_resp.status_code, 200)
+        self.assertEqual(instances_resp.status_code, 200)
         self.assertEqual(telemetry_query_resp.status_code, 200)
         self.assertEqual(telemetry_report_resp.status_code, 200)
         self.assertEqual(repair_warmup_dry_resp.status_code, 200)
@@ -49,6 +52,7 @@ class RuntimeSmokeTests(unittest.TestCase):
         metrics_data = metrics_resp.json()
         logs_data = logs_resp.json()
         startup_data = startup_resp.json()
+        instances_data = instances_resp.json()
         telemetry_query_data = telemetry_query_resp.json()
         telemetry_report_data = telemetry_report_resp.json()
         repair_warmup_data = repair_warmup_dry_resp.json()
@@ -63,6 +67,8 @@ class RuntimeSmokeTests(unittest.TestCase):
         self.assertIn("agent_performance", logs_data)
         self.assertIn("overall", startup_data)
         self.assertIn("checks", startup_data)
+        self.assertIn("instances", instances_data)
+        self.assertIn("warnings", instances_data)
         self.assertIn("source", telemetry_query_data)
         self.assertIn("events", telemetry_query_data)
         self.assertIn("count", telemetry_query_data)
@@ -71,6 +77,69 @@ class RuntimeSmokeTests(unittest.TestCase):
         self.assertTrue(repair_warmup_data.get("ok"))
         self.assertTrue(repair_restart_data.get("ok") or "unavailable" in str(repair_restart_data.get("summary", "")).lower())
         self.assertTrue(repair_audit_data.get("ok"))
+
+    def test_instances_endpoint_tolerates_malformed_config_and_state(self):
+        app = guppy_api.app
+        app.dependency_overrides[guppy_api.require_rate_limit] = lambda: "smoke-user"
+
+        old_config_dir = guppy_api._config_dir
+        old_runtime_dir = guppy_api._runtime_dir
+        old_instances_path = guppy_api._instances_path
+        old_instance_state_path = guppy_api._instance_state_path
+
+        tmp_root = Path(tempfile.mkdtemp())
+        try:
+            cfg = tmp_root / "config"
+            rt = tmp_root / "runtime"
+            cfg.mkdir(parents=True, exist_ok=True)
+            rt.mkdir(parents=True, exist_ok=True)
+
+            malformed_config = {
+                "version": "x",
+                "active_instance": "missing-name",
+                "instances": [
+                    {"description": "no-name"},
+                    "not-an-object",
+                    {"name": "zeta", "enabled": True},
+                    {"name": "alpha", "enabled": False},
+                    {"name": "zeta", "enabled": True},
+                ],
+            }
+            malformed_state = {
+                "instances": {
+                    "ghost": {"status": "idle", "message_count": 999},
+                    "alpha": {"status": "NOT_A_STATUS", "message_count": "7"},
+                    "zeta": "invalid-state",
+                }
+            }
+
+            instances_path = cfg / "instances.json"
+            state_path = rt / "instance_state.json"
+            instances_path.write_text(json.dumps(malformed_config), encoding="utf-8")
+            state_path.write_text(json.dumps(malformed_state), encoding="utf-8")
+
+            guppy_api._config_dir = cfg
+            guppy_api._runtime_dir = rt
+            guppy_api._instances_path = instances_path
+            guppy_api._instance_state_path = state_path
+
+            client = TestClient(app)
+            resp = client.get("/instances")
+            self.assertEqual(resp.status_code, 200)
+
+            payload = resp.json()
+            names = [item.get("name") for item in payload.get("instances", [])]
+            self.assertEqual(names, ["zeta", "alpha"])
+            self.assertEqual(payload.get("active_instance"), "zeta")
+            self.assertTrue(payload.get("warnings"))
+            self.assertTrue(any("ignored" in str(w).lower() for w in payload.get("warnings", [])))
+        finally:
+            guppy_api._config_dir = old_config_dir
+            guppy_api._runtime_dir = old_runtime_dir
+            guppy_api._instances_path = old_instances_path
+            guppy_api._instance_state_path = old_instance_state_path
+            app.dependency_overrides.pop(guppy_api.require_rate_limit, None)
+            shutil.rmtree(tmp_root, ignore_errors=True)
 
     def test_guppy_core_tool_health_snapshot_is_available(self):
         snapshot = guppy_core.get_tool_health_snapshot()

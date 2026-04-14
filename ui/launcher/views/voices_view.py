@@ -7,6 +7,8 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
+import importlib.util
 from pathlib import Path
 from typing import Any
 
@@ -108,11 +110,13 @@ class _VoiceRow(QFrame):
         language: str,
         gender: str,
         engine: str,
+        preview_handler,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._voice_id = voice_id
         self._engine = engine
+        self._preview_handler = preview_handler
         self.setObjectName("voice_row")
         self.setFixedHeight(52)
         self.setStyleSheet(
@@ -163,7 +167,7 @@ class _VoiceRow(QFrame):
             f"  font-family: '{T.FF_MONO}'; font-size: 7pt; }}"
             f"QPushButton:hover {{ color: {T.TEXT}; border-color: {T.DIM}; }}"
         )
-        prev_btn.clicked.connect(self._preview)
+        prev_btn.clicked.connect(self._on_preview_clicked)
         row.addWidget(prev_btn)
 
         # Select button
@@ -187,37 +191,9 @@ class _VoiceRow(QFrame):
         self._sel_btn.setText("ACTIVE" if active else "SELECT")
         self._sel_btn.setEnabled(not active)
 
-    def _preview(self) -> None:
-        """Attempt a quick TTS preview using edge-tts or pyttsx3."""
+    def _on_preview_clicked(self) -> None:
         try:
-            import threading
-
-            def _speak() -> None:
-                try:
-                    import edge_tts, asyncio  # type: ignore
-
-                    async def _do():
-                        communicate = edge_tts.Communicate(_PREVIEW_PHRASE, self._voice_id)
-                        import tempfile, sounddevice as sd, numpy as np, soundfile as sf, io
-                        chunks: list[bytes] = []
-                        async for chunk in communicate.stream():
-                            if chunk["type"] == "audio":
-                                chunks.append(chunk["data"])
-                        buf = io.BytesIO(b"".join(chunks))
-                        data, _ = sf.read(buf, dtype="float32")
-                        sd.play(data)
-
-                    asyncio.run(_do())
-                except Exception:
-                    try:
-                        import pyttsx3
-                        eng = pyttsx3.init()
-                        eng.say(_PREVIEW_PHRASE)
-                        eng.runAndWait()
-                    except Exception:
-                        pass
-
-            threading.Thread(target=_speak, daemon=True).start()
+            self._preview_handler(self._engine, self._voice_id)
         except Exception:
             pass
 
@@ -242,7 +218,12 @@ class VoicesView(QWidget):
             "bindings": {"by_model": {}, "by_persona": {}},
             "imports": [],
         }
+        self._engine_capabilities: dict[str, dict[str, str]] = {}
+        self._preview_generation = 0
+        self._preview_lock = threading.Lock()
+        self._pyttsx3_engine = None
         self._build_ui()
+        self._refresh_engine_capabilities()
         self._load_voice_bindings_state()
         self._populate_voices(self._active_engine)
 
@@ -284,7 +265,22 @@ class VoicesView(QWidget):
         self._engine_cb.setFixedWidth(180)
         self._engine_cb.currentTextChanged.connect(self._populate_voices)
         bl.addWidget(self._engine_cb)
+
+        self._engine_status_lbl = QLabel("ENGINES: probing...")
+        self._engine_status_lbl.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
+            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        bl.addWidget(self._engine_status_lbl)
         bl.addStretch()
+
+        self._default_lbl = QLabel("DEFAULT: —")
+        self._default_lbl.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
+            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        bl.addWidget(self._default_lbl)
+        bl.addSpacing(14)
 
         self._active_lbl = QLabel(f"ACTIVE: {self._active_voice.upper()}")
         self._active_lbl.setStyleSheet(
@@ -368,6 +364,64 @@ class VoicesView(QWidget):
         scroll.setWidget(self._list_widget)
         root.addWidget(scroll, stretch=1)
 
+    def _refresh_engine_capabilities(self) -> None:
+        caps: dict[str, dict[str, str]] = {}
+        for engine in ENGINES.keys():
+            ok, reason = self._engine_capability(engine)
+            caps[engine] = {"ok": "1" if ok else "0", "reason": reason}
+        self._engine_capabilities = caps
+        self._update_engine_status_summary()
+
+    @staticmethod
+    def _engine_capability(engine: str) -> tuple[bool, str]:
+        if engine == "EDGE TTS":
+            ok = importlib.util.find_spec("edge_tts") is not None
+            return ok, "edge-tts installed" if ok else "missing edge-tts"
+        if engine == "KOKORO":
+            ok = importlib.util.find_spec("kokoro") is not None or importlib.util.find_spec("kokoro_onnx") is not None
+            return ok, "kokoro runtime detected" if ok else "kokoro runtime missing"
+        if engine == "WINDOWS SAPI":
+            if not sys.platform.startswith("win"):
+                return False, "Windows only"
+            ok = importlib.util.find_spec("pyttsx3") is not None
+            return ok, "pyttsx3 available" if ok else "missing pyttsx3"
+        if engine == "ELEVENLABS":
+            api_key = (os.environ.get("ELEVENLABS_API_KEY", "") or "").strip()
+            return bool(api_key), "API key present" if api_key else "missing ELEVENLABS_API_KEY"
+        return False, "unknown engine"
+
+    @staticmethod
+    def _voice_exists_for_engine(engine: str, voice_id: str) -> bool:
+        return any(v[0] == voice_id for v in ENGINES.get(engine, []))
+
+    def _engine_is_available(self, engine: str) -> tuple[bool, str]:
+        info = self._engine_capabilities.get(engine, {})
+        ok = info.get("ok") == "1"
+        reason = info.get("reason", "")
+        return ok, reason
+
+    def _validate_engine_selection(self, engine: str, voice_id: str) -> tuple[bool, str]:
+        if not self._voice_exists_for_engine(engine, voice_id):
+            return False, f"voice {voice_id} not available for {engine}"
+        ok, reason = self._engine_is_available(engine)
+        if not ok:
+            return False, f"{engine} unavailable: {reason}"
+        return True, ""
+
+    def _update_engine_status_summary(self) -> None:
+        parts: list[str] = []
+        for engine in ENGINES.keys():
+            ok, _ = self._engine_is_available(engine)
+            parts.append(f"{engine}:{'READY' if ok else 'UNAVAILABLE'}")
+        self._engine_status_lbl.setText("ENGINES: " + " | ".join(parts))
+
+    def _update_default_label(self) -> None:
+        defaults = self._voice_bindings.get("defaults", {}) if isinstance(self._voice_bindings, dict) else {}
+        if isinstance(defaults, dict):
+            engine = str(defaults.get("engine", "")).strip() or self._active_engine
+            voice = str(defaults.get("voice_id", "")).strip() or self._active_voice
+            self._default_lbl.setText(f"DEFAULT: {engine} / {voice}")
+
     def _populate_voices(self, engine: str) -> None:
         # Clear current rows
         for row in self._rows:
@@ -377,15 +431,99 @@ class VoicesView(QWidget):
 
         voices = ENGINES.get(engine, [])
         for vid, lang, gender in voices:
-            row = _VoiceRow(vid, lang, gender, engine, self)
+            row = _VoiceRow(vid, lang, gender, engine, self._preview_voice, self)
             row.mark_active(vid == self._active_voice)
             row.select_btn.clicked.connect(lambda _, v=vid: self._select_voice(v))
             self._list_layout.insertWidget(self._list_layout.count() - 1, row)
             self._rows.append(row)
 
         self._active_engine = engine
+        ok, reason = self._engine_is_available(engine)
+        if ok:
+            self._assign_status.setText(f"{engine} ready")
+        else:
+            self._assign_status.setText(f"{engine} unavailable: {reason}")
+
+    def _cancel_preview(self) -> None:
+        self._preview_generation += 1
+        try:
+            import sounddevice as sd
+            sd.stop()
+        except Exception:
+            pass
+        try:
+            if self._pyttsx3_engine is not None:
+                self._pyttsx3_engine.stop()
+        except Exception:
+            pass
+
+    def _preview_voice(self, engine: str, voice_id: str) -> None:
+        valid, reason = self._validate_engine_selection(engine, voice_id)
+        if not valid:
+            self._assign_status.setText(reason)
+            return
+        self._cancel_preview()
+        token = self._preview_generation
+        self._assign_status.setText(f"previewing {voice_id} via {engine}")
+
+        def _run_preview() -> None:
+            try:
+                if token != self._preview_generation:
+                    return
+                if engine == "EDGE TTS":
+                    import asyncio
+                    import io
+                    import edge_tts  # type: ignore
+                    import sounddevice as sd
+                    import soundfile as sf
+
+                    async def _do() -> None:
+                        communicate = edge_tts.Communicate(_PREVIEW_PHRASE, voice_id)
+                        chunks: list[bytes] = []
+                        async for chunk in communicate.stream():
+                            if token != self._preview_generation:
+                                return
+                            if chunk.get("type") == "audio":
+                                chunks.append(chunk["data"])
+                        if not chunks or token != self._preview_generation:
+                            return
+                        buf = io.BytesIO(b"".join(chunks))
+                        data, sample_rate = sf.read(buf, dtype="float32")
+                        if token != self._preview_generation:
+                            return
+                        sd.play(data, sample_rate)
+
+                    asyncio.run(_do())
+                    return
+
+                import pyttsx3
+                eng = pyttsx3.init()
+                self._pyttsx3_engine = eng
+                try:
+                    for voice in eng.getProperty("voices"):
+                        vid = str(getattr(voice, "id", ""))
+                        vname = str(getattr(voice, "name", ""))
+                        if voice_id.lower() in vid.lower() or voice_id.lower() in vname.lower():
+                            eng.setProperty("voice", vid)
+                            break
+                except Exception:
+                    pass
+                if token != self._preview_generation:
+                    return
+                eng.say(_PREVIEW_PHRASE)
+                eng.runAndWait()
+            except Exception as exc:
+                self._assign_status.setText(f"preview failed: {exc}")
+            finally:
+                self._pyttsx3_engine = None
+
+        threading.Thread(target=_run_preview, daemon=True).start()
 
     def _select_voice(self, voice_id: str) -> None:
+        valid, reason = self._validate_engine_selection(self._active_engine, voice_id)
+        if not valid:
+            self._assign_status.setText(reason)
+            return
         self._active_voice = voice_id
         os.environ["GUPPY_TTS_VOICE"] = voice_id
         self._active_lbl.setText(f"ACTIVE: {voice_id.upper()}")
@@ -409,6 +547,7 @@ class VoicesView(QWidget):
             if idx >= 0:
                 self._engine_cb.setCurrentIndex(idx)
             self._assign_status.setText("voice bindings loaded")
+            self._update_default_label()
         except Exception as e:
             self._assign_status.setText(f"load failed: {e}")
 
@@ -428,6 +567,10 @@ class VoicesView(QWidget):
             return False
 
     def _save_default_voice(self) -> None:
+        valid, reason = self._validate_engine_selection(self._active_engine, self._active_voice)
+        if not valid:
+            self._assign_status.setText(reason)
+            return
         self._voice_bindings.setdefault("defaults", {})
         self._voice_bindings["defaults"] = {
             "engine": self._active_engine,
@@ -437,8 +580,13 @@ class VoicesView(QWidget):
             self._assign_status.setText(
                 f"default saved: {self._active_engine} / {self._active_voice}"
             )
+            self._update_default_label()
 
     def _assign_persona_voice(self) -> None:
+        valid, reason = self._validate_engine_selection(self._active_engine, self._active_voice)
+        if not valid:
+            self._assign_status.setText(reason)
+            return
         persona = self._persona_cb.currentText().strip().lower()
         self._voice_bindings.setdefault("bindings", {})
         self._voice_bindings["bindings"].setdefault("by_persona", {})
@@ -450,6 +598,10 @@ class VoicesView(QWidget):
             self._assign_status.setText(f"persona {persona} -> {self._active_voice}")
 
     def _assign_model_voice(self) -> None:
+        valid, reason = self._validate_engine_selection(self._active_engine, self._active_voice)
+        if not valid:
+            self._assign_status.setText(reason)
+            return
         model = self._model_cb.currentText().strip()
         self._voice_bindings.setdefault("bindings", {})
         self._voice_bindings["bindings"].setdefault("by_model", {})

@@ -13,10 +13,12 @@ from typing import Any
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -24,6 +26,17 @@ from PySide6.QtWidgets import (
 )
 
 from .. import tokens as T
+
+try:
+    from utils.personalization_config import (
+        ensure_personalization_scaffold,
+        load_provider_registry,
+        save_provider_registry,
+        validate_provider_registry,
+    )
+    _PROVIDER_BACKEND = True
+except Exception:
+    _PROVIDER_BACKEND = False
 
 # ── Static model catalogue ─────────────────────────────────────────────────────
 CLOUD_MODELS: list[dict[str, Any]] = [
@@ -194,7 +207,10 @@ class ModelsView(QWidget):
         super().__init__(parent)
         self._local_cards: list[_ModelCard] = []
         self._active_model = os.environ.get("GUPPY_LOCAL_MODEL", "guppy")
+        self._provider_registry: dict[str, Any] = {}
+        self._route_options: list[str] = []
         self._build_ui()
+        self._load_route_config()
         self._refresh()
 
     def _build_ui(self) -> None:
@@ -235,6 +251,73 @@ class ModelsView(QWidget):
         self._refresh_btn.clicked.connect(self._refresh)
         tb.addWidget(self._refresh_btn)
         root.addWidget(topbar)
+
+        # ── Route strategy panel (W1-04) ────────────────────────────────────
+        route_bar = QFrame()
+        route_bar.setObjectName("models_route_bar")
+        route_bar.setStyleSheet(
+            f"QFrame#models_route_bar {{"
+            f"  background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER};"
+            f"}}"
+        )
+        rbl = QVBoxLayout(route_bar)
+        rbl.setContentsMargins(28, 10, 28, 10)
+        rbl.setSpacing(8)
+
+        row1 = QHBoxLayout()
+        row1.setSpacing(10)
+
+        def _task_combo(label: str) -> QComboBox:
+            row1.addWidget(QLabel(label))
+            cb = QComboBox()
+            cb.setFixedWidth(300)
+            cb.currentTextChanged.connect(lambda _=None: self._refresh_route_summary())
+            row1.addWidget(cb)
+            return cb
+
+        self._simple_route_cb = _task_combo("TASK: SIMPLE")
+        self._complex_route_cb = _task_combo("TASK: COMPLEX")
+        self._teaching_route_cb = _task_combo("TASK: TEACHING")
+        row1.addStretch()
+        rbl.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.setSpacing(10)
+        fb_lbl = QLabel("FALLBACK CHAIN")
+        fb_lbl.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        row2.addWidget(fb_lbl)
+        self._fallback_chain_input = QLineEdit("")
+        self._fallback_chain_input.textChanged.connect(lambda _=None: self._refresh_route_summary())
+        self._fallback_chain_input.setStyleSheet(
+            f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+            f"background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 6px 8px;"
+        )
+        self._fallback_chain_input.setMinimumWidth(620)
+        row2.addWidget(self._fallback_chain_input)
+
+        self._apply_routes_btn = QPushButton("APPLY ROUTES")
+        self._apply_routes_btn.setFixedHeight(28)
+        self._apply_routes_btn.clicked.connect(self._apply_routes)
+        row2.addWidget(self._apply_routes_btn)
+        row2.addStretch()
+        rbl.addLayout(row2)
+
+        self._route_status_lbl = QLabel("Route strategy ready")
+        self._route_status_lbl.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        rbl.addWidget(self._route_status_lbl)
+
+        self._route_summary_lbl = QLabel("")
+        self._route_summary_lbl.setWordWrap(True)
+        self._route_summary_lbl.setStyleSheet(
+            f"color: {T.PRIMARY_DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+            f"background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;"
+        )
+        rbl.addWidget(self._route_summary_lbl)
+        root.addWidget(route_bar)
 
         # ── Scrollable grid ──────────────────────────────────────────────────
         scroll = QScrollArea()
@@ -335,3 +418,124 @@ class ModelsView(QWidget):
         for card in self._local_cards:
             card.mark_active(card._model_name == name)
         self.model_selected.emit(name)
+
+    def _set_route_status(self, text: str, ok: bool = True) -> None:
+        color = T.GREEN if ok else T.ERROR
+        self._route_status_lbl.setText(text)
+        self._route_status_lbl.setStyleSheet(
+            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+
+    def _load_route_config(self) -> None:
+        if not _PROVIDER_BACKEND:
+            self._apply_routes_btn.setEnabled(False)
+            self._set_route_status("Provider backend unavailable", ok=False)
+            return
+        try:
+            ensure_personalization_scaffold()
+            registry = load_provider_registry()
+            self._provider_registry = registry if isinstance(registry, dict) else {}
+            self._route_options = self._route_targets_from_registry(self._provider_registry)
+
+            for cb in [self._simple_route_cb, self._complex_route_cb, self._teaching_route_cb]:
+                cb.clear()
+                cb.addItems(self._route_options)
+
+            routes = self._provider_registry.get("routes", {}) if isinstance(self._provider_registry, dict) else {}
+            if isinstance(routes, dict):
+                self._set_combo_to_text(self._simple_route_cb, str(routes.get("simple", "")))
+                self._set_combo_to_text(self._complex_route_cb, str(routes.get("complex", "")))
+                self._set_combo_to_text(self._teaching_route_cb, str(routes.get("teaching", "")))
+                fallback = routes.get("fallback_chain", [])
+                if isinstance(fallback, list):
+                    self._fallback_chain_input.setText(", ".join(str(item).strip() for item in fallback if str(item).strip()))
+            self._refresh_route_summary()
+            self._set_route_status("Route strategy loaded", ok=True)
+        except Exception as exc:
+            self._set_route_status(f"Route load failed: {exc}", ok=False)
+
+    @staticmethod
+    def _route_targets_from_registry(registry: dict[str, Any]) -> list[str]:
+        options: list[str] = []
+        providers = registry.get("providers", []) if isinstance(registry, dict) else []
+        if isinstance(providers, list):
+            for provider in providers:
+                if not isinstance(provider, dict):
+                    continue
+                pid = provider.get("id")
+                models = provider.get("models", [])
+                if not isinstance(pid, str) or not isinstance(models, list):
+                    continue
+                for model in models:
+                    if not isinstance(model, dict):
+                        continue
+                    mid = model.get("id")
+                    if isinstance(mid, str) and mid:
+                        options.append(f"{pid}/{mid}")
+        return sorted(set(options))
+
+    @staticmethod
+    def _parse_fallback_chain(raw: str) -> list[str]:
+        return [part.strip() for part in (raw or "").split(",") if part.strip()]
+
+    def _set_combo_to_text(self, combo: QComboBox, target: str) -> None:
+        idx = combo.findText(target)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+
+    def _refresh_route_summary(self) -> None:
+        fallback = self._parse_fallback_chain(self._fallback_chain_input.text())
+        summary = (
+            f"Route summary  |  SIMPLE -> {self._simple_route_cb.currentText()}  |  "
+            f"COMPLEX -> {self._complex_route_cb.currentText()}  |  "
+            f"TEACHING -> {self._teaching_route_cb.currentText()}\n"
+            f"Fallback chain: {', '.join(fallback) if fallback else 'unset'}"
+        )
+        self._route_summary_lbl.setText(summary)
+
+    def _apply_routes(self) -> None:
+        if not _PROVIDER_BACKEND:
+            self._set_route_status("Provider backend unavailable", ok=False)
+            return
+        try:
+            registry = load_provider_registry()
+            if not isinstance(registry, dict):
+                self._set_route_status("Provider registry is invalid", ok=False)
+                return
+            valid_targets = set(self._route_targets_from_registry(registry))
+            simple = self._simple_route_cb.currentText().strip()
+            complex_route = self._complex_route_cb.currentText().strip()
+            teaching = self._teaching_route_cb.currentText().strip()
+
+            for label, value in [("simple", simple), ("complex", complex_route), ("teaching", teaching)]:
+                if value not in valid_targets:
+                    self._set_route_status(f"Invalid {label} target: {value}", ok=False)
+                    return
+
+            fallback = self._parse_fallback_chain(self._fallback_chain_input.text())
+            allowed_fallback = valid_targets | {"local/guppy"}
+            invalid_fallback = [item for item in fallback if item not in allowed_fallback]
+            if invalid_fallback:
+                self._set_route_status(f"Invalid fallback target: {invalid_fallback[0]}", ok=False)
+                return
+
+            routes = registry.setdefault("routes", {})
+            if not isinstance(routes, dict):
+                routes = {}
+                registry["routes"] = routes
+            routes["simple"] = simple
+            routes["complex"] = complex_route
+            routes["teaching"] = teaching
+            routes["fallback_chain"] = fallback
+
+            errors = validate_provider_registry(registry)
+            if errors:
+                self._set_route_status(f"Provider registry invalid: {errors[0]}", ok=False)
+                return
+
+            save_provider_registry(registry)
+            self._provider_registry = registry
+            self._refresh_route_summary()
+            self._set_route_status("Route strategy saved", ok=True)
+        except Exception as exc:
+            self._set_route_status(f"Apply routes failed: {exc}", ok=False)

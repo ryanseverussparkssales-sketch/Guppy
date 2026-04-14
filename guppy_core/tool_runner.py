@@ -23,6 +23,7 @@ from guppy_core.debug_flags import (
     SAFE_MODE, TOOL_LOG,
     TOOL_EXEC_TIMEOUT_SECONDS, TOOL_MAX_OUTPUT_CHARS,
     _TOOL_EXECUTOR,
+    _TOOL_GUARD_LOCK, _TOOL_GUARDS,
 )
 from guppy_core.beta_policy import BETA_RESTRICTED_MODE, BETA_TOOL_ALLOWLIST
 from guppy_core.tool_metrics import (
@@ -30,6 +31,7 @@ from guppy_core.tool_metrics import (
 )
 from guppy_core.tool_registry import _validate_tool_input  # noqa: F401
 from guppy_core.system_prompt import REPORTS_DIR
+from utils.instance_capabilities import check_instance_tool_permission
 
 try:
     import pyautogui
@@ -63,10 +65,29 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Compatibility export for legacy callers that still reference these module globals
+# through guppy_core.tool_runner during the metrics refactor.
+_TOOL_GUARD_LOCK = _TOOL_GUARD_LOCK
+_TOOL_GUARDS = _TOOL_GUARDS
+
+
+def _safe_tool_metric_call(label: str, fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:
+        logger.warning("Tool metrics update failed during %s: %s", label, exc)
+        return None
+
 
 # ── Tool runner ────────────────────────────────────────────────────────────────
 
-def run_tool(name: str, inp: dict):
+def run_tool(
+    name: str,
+    inp: dict,
+    *,
+    instance_name: str | None = None,
+    instance_type: str | None = None,
+):
     """
     Execute a named tool and return its result. Wraps _exec_tool with SAFE_MODE
     gating and TOOL_LOG recording.
@@ -89,7 +110,14 @@ def run_tool(name: str, inp: dict):
             "result": "[SAFE MODE — blocked]",
         }
         TOOL_LOG.append(entry)
-        _record_tool_call(name, (time.perf_counter() - started) * 1000.0, "blocked", "safe_mode")
+        _safe_tool_metric_call(
+            f"{name}:safe_mode",
+            _record_tool_call,
+            name,
+            (time.perf_counter() - started) * 1000.0,
+            "blocked",
+            "safe_mode",
+        )
         return f"[SAFE MODE ACTIVE] Tool blocked: {name}"
 
     if BETA_RESTRICTED_MODE and name not in BETA_TOOL_ALLOWLIST:
@@ -97,7 +125,14 @@ def run_tool(name: str, inp: dict):
             f"Tool {name} is blocked by beta restricted policy. "
             "Allowed tools are limited for remote tester safety."
         )
-        _record_tool_call(name, (time.perf_counter() - started) * 1000.0, "blocked", "beta_restricted_policy")
+        _safe_tool_metric_call(
+            f"{name}:beta_policy",
+            _record_tool_call,
+            name,
+            (time.perf_counter() - started) * 1000.0,
+            "blocked",
+            "beta_restricted_policy",
+        )
         TOOL_LOG.append({
             "time": datetime.now().strftime("%H:%M:%S"),
             "tool": name,
@@ -106,10 +141,39 @@ def run_tool(name: str, inp: dict):
         })
         return f"Error: {reason}"
 
+    permitted, permission_reason, _permissions = check_instance_tool_permission(
+        name,
+        instance_name=instance_name,
+        instance_type=instance_type,
+    )
+    if not permitted:
+        _safe_tool_metric_call(
+            f"{name}:instance_capability_block",
+            _record_tool_call,
+            name,
+            (time.perf_counter() - started) * 1000.0,
+            "blocked",
+            permission_reason,
+        )
+        TOOL_LOG.append({
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "tool": name,
+            "args": str(inp)[:80],
+            "result": permission_reason[:150],
+        })
+        return f"Error: {permission_reason}"
+
     input_error = _validate_tool_input(name, inp)
     if input_error:
         msg = f"Error: {input_error}"
-        _record_tool_call(name, (time.perf_counter() - started) * 1000.0, "error", msg)
+        _safe_tool_metric_call(
+            f"{name}:input_error",
+            _record_tool_call,
+            name,
+            (time.perf_counter() - started) * 1000.0,
+            "error",
+            msg,
+        )
         TOOL_LOG.append({
             "time": datetime.now().strftime("%H:%M:%S"),
             "tool": name,
@@ -120,7 +184,14 @@ def run_tool(name: str, inp: dict):
 
     blocked, block_reason = _is_tool_blocked(name)
     if blocked:
-        _record_tool_call(name, (time.perf_counter() - started) * 1000.0, "blocked", block_reason)
+        _safe_tool_metric_call(
+            f"{name}:blocked",
+            _record_tool_call,
+            name,
+            (time.perf_counter() - started) * 1000.0,
+            "blocked",
+            block_reason,
+        )
         TOOL_LOG.append({
             "time": datetime.now().strftime("%H:%M:%S"),
             "tool": name,
@@ -141,21 +212,21 @@ def run_tool(name: str, inp: dict):
     except FuturesTimeoutError:
         state = "timeout"
         error_msg = f"Tool {name} exceeded {TOOL_EXEC_TIMEOUT_SECONDS}s timeout"
-        _mark_tool_failure(name, error_msg)
+        _safe_tool_metric_call(f"{name}:timeout", _mark_tool_failure, name, error_msg)
         result = f"Error: {error_msg}"
     except Exception as e:
         state = "error"
         error_msg = f"Tool execution failure: {e}"
-        _mark_tool_failure(name, error_msg)
+        _safe_tool_metric_call(f"{name}:error", _mark_tool_failure, name, error_msg)
         result = f"Error: {error_msg}"
     else:
         if isinstance(result, str) and result.lower().startswith("error"):
             state = "error"
             error_msg = result[:180]
-            _mark_tool_failure(name, error_msg)
+            _safe_tool_metric_call(f"{name}:result_error", _mark_tool_failure, name, error_msg)
         else:
-            _mark_tool_success(name)
-    
+            _safe_tool_metric_call(f"{name}:success", _mark_tool_success, name)
+
     # Memory optimization: bound tool result sizes
     if isinstance(result, str) and len(result) > TOOL_MAX_OUTPUT_CHARS:
         result = result[:TOOL_MAX_OUTPUT_CHARS] + f"\n\n[Output truncated — {len(result)} chars total]"
@@ -165,13 +236,15 @@ def run_tool(name: str, inp: dict):
             if isinstance(value, str) and len(value) > 500:
                 result[key] = value[:500] + "..."
 
-    _record_tool_call(
+    _safe_tool_metric_call(
+        f"{name}:final_record",
+        _record_tool_call,
         name,
         (time.perf_counter() - started) * 1000.0,
         state,
         error_msg,
     )
-    
+
     TOOL_LOG.append({
         "time": datetime.now().strftime("%H:%M:%S"),
         "tool": name,

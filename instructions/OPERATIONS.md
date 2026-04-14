@@ -7,15 +7,17 @@ This is the primary operator runbook for the current codebase.
 ## 1) Startup
 
 1. Activate environment and launch the app:
-   - `python guppy_launcher.py`
+   - `python src/guppy/cli/launch.py launcher`
 2. Launcher implementation is in `src/guppy/apps/launcher_app.py`.
 3. Wrapper `guppy_launcher.py` is compatibility-only and should stay thin.
+4. Use `src/guppy/cli/launch.py` for Hub, API, and GuppyPrime launches.
+5. Treat Merlin and Council as compatibility/debug surfaces only. Launch them directly only when you intend to opt into legacy behavior.
 
 ## 2) Runtime Surfaces
 
 - Primary UI: launcher (`ui/launcher/`)
-- Specialist surfaces: `merlin_ui.py`, `council_ui.py`, legacy `guppy_ui.py`
-- API: `guppy_api.py`
+- Specialist surfaces: `merlin_ui.py`, `council_ui.py`, legacy `guppy_ui.py` (compatibility-only)
+- API: `src/guppy/api/server.py` (wrapper: `guppy_api.py`)
 - Hub app: `src/guppy/apps/hub_app.py` (wrapper: `guppy_hub.py`)
 
 ## 3) Fast Health Checks
@@ -26,7 +28,8 @@ Run these in order when validating a deployment:
 2. `python tools/check_wrapper_integrity.py`
 3. `python tools/check_doc_ownership.py`
 4. `python tools/check_new_module_line_cap.py`
-5. `python -m pytest tests/test_runtime_smoke.py tests/test_launcher_interactions_smoke.py tests/test_security_hardening.py -v`
+5. `python -m pytest tests/unit tests/integration -v`
+6. `python tests/smoke/smoke_api.py` when validating the API surface manually
 
 ## 4) Recovery Flow
 
@@ -41,10 +44,10 @@ If runtime appears degraded:
 
 ## 5) Auth and Secret Handling
 
-1. JWT signing secret resolution (`guppy_api_auth.py`):
+1. JWT signing secret resolution (`src/guppy/api/auth.py`):
    - OS credential store key: `jwt_secret`
    - Fallback: `GUPPY_JWT_SECRET` environment variable
-2. Repair token lifecycle (`guppy_api.py`):
+2. Repair token lifecycle (`src/guppy/api/server.py`):
    - Generated per process startup
    - Stored in OS credential store when available
    - File fallback with restricted permissions where possible
