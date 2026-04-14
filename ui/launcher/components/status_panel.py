@@ -393,7 +393,6 @@ class StatusPanel(QFrame):
         _set_kv(self._r_model, data.get("model", "—"), T.PRIMARY)
 
         raw_lat = data.get("latency", "—")
-        _set_kv(self._r_latency, str(raw_lat) if raw_lat != "—" else "—")
 
         # Gauge bars
         try:

@@ -21,6 +21,11 @@ except ImportError:
     _MEM = False
 
 try:
+    from guppy_semantic_memory import build_semantic_prompt_context as _build_semantic_prompt_context
+except Exception:
+    _build_semantic_prompt_context = None
+
+try:
     from guppy_daemon import get_daemon_manager, get_window_context  # noqa: F401
     DAEMON = True
 except ImportError:
@@ -112,6 +117,14 @@ def get_startup_system(session_id: str = None, query_context: str = None) -> str
                 if needs_memory:
                     briefing = _mem.get_startup_context(exclude_session=session_id)
                     system += "\n\n" + briefing
+            except Exception:
+                pass
+
+        if query_context and callable(_build_semantic_prompt_context):
+            try:
+                semantic_context = _build_semantic_prompt_context(query_context, n=4)
+                if semantic_context:
+                    system += "\n\n" + semantic_context
             except Exception:
                 pass
 

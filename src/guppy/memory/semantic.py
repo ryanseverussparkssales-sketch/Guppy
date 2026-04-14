@@ -273,6 +273,14 @@ def recall_semantic(query: str, n: int = 5, category: str = "") -> str:
         )
 
 
+def build_semantic_prompt_context(query: str, n: int = 4, category: str = "") -> str:
+    """Return a prompt-ready semantic memory block or an empty string."""
+    recalled = recall_semantic(query, n=n, category=category)
+    if not recalled or recalled.startswith("Nothing found") or recalled.startswith("Error:"):
+        return ""
+    return f"[Relevant Memory]\n{recalled}"
+
+
 def migrate_sqlite_to_chroma() -> str:
     """One-time migration: copy all SQLite semantic memories into Chroma.
 

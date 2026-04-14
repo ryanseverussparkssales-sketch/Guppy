@@ -684,7 +684,7 @@ class Worker(QThread):
                     snippet = result_str[:60].replace("\n", " ")
                     self.bubble.emit(f"got result: {snippet}{'…' if len(result_str) > 60 else ''}", "thinking", "thinking_stream")
                 all_msgs.append({"role": "tool", "content": result_str})
-                
+
                 # -- Memory optimization: trim conversation history during tool loops --
                 if len(all_msgs) > 60:
                     # Keep system message, recent user message, and current assistant response

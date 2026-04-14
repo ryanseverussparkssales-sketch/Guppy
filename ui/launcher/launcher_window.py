@@ -19,7 +19,7 @@ import urllib.error
 import urllib.request
 
 try:
-    from guppy_api_auth import create_access_token as _create_access_token
+    from src.guppy.api.auth import create_access_token as _create_access_token
     _API_AUTH_HELPER = True
 except Exception:
     _API_AUTH_HELPER = False

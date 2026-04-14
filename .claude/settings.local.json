@@ -47,7 +47,10 @@
       "Bash(ls runtime/*.json)",
       "Bash(python -m pytest tests/ -q --tb=no)",
       "Bash(python -c \"import tools.verify_ollama_runtime; print\\('import OK'\\)\")",
-      "Bash(python tools/verify_ollama_runtime.py)"
+      "Bash(python tools/verify_ollama_runtime.py)",
+      "Bash(python3 -c \"import sys,json; [print\\(json.loads\\(l\\).get\\('message',''\\)\\) for l in sys.stdin if l.strip\\(\\)]\")",
+      "Bash(python3 -c \"import sys,json; [print\\(json.dumps\\(json.loads\\(l\\), indent=2\\)\\) for l in sys.stdin if l.strip\\(\\)]\")",
+      "Read(//c/Users/Users/Ryan/Guppy/src/guppy/api/**)"
     ]
   }
 }

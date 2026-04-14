@@ -1,4 +1,4 @@
-﻿# Roadmap and Handoff
+# Roadmap and Handoff
 
 Last updated: April 13, 2026 — **M1 Exit Gate PASSED**
 
@@ -1131,16 +1131,17 @@ Back `_RESPONSE_CACHE` with SQLite so it survives restarts.
 
 ### 3. Cross-session memory injection into system prompt (SHIP BLOCKER — AI quality)
 
-
 **Why it matters**: The semantic memory backend is fully built. Nothing uses it at inference time. This is the gap between a chatbot and a butler. "Ryan mentioned he prefers concise answers" should influence every reply automatically.
 
 **Approach**:
+
 ```python
 # At start of each _smart_dispatch / Worker.run():
 memories = semantic_memory.recall(user_text, k=5)
 if memories:
     system_prompt = system_prompt + "\n\n[RELEVANT CONTEXT]\n" + format_memories(memories)
 ```
+
 **File**: `guppy_ui.py` Worker class, `guppy_api.py` chat handler
 
 ---
@@ -1191,10 +1192,12 @@ Do not wire live CRM writes until the classifier is semantic and memory injectio
 
 ## Next Update Template
 
-```text
+Use this format for the next roadmap update:
+
 ### YYYY-MM-DD
+
 - Changed:
 - Verified:
 - Follow-up:
-```
 
+Keep this template at the bottom of the roadmap.

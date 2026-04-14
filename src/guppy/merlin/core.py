@@ -15,6 +15,11 @@ import urllib.parse
 from pathlib import Path
 from guppy_core import run_tool as _run_tool, _mem, _MEM
 
+try:
+    from guppy_semantic_memory import build_semantic_prompt_context as _build_semantic_prompt_context
+except Exception:
+    _build_semantic_prompt_context = None
+
 # ── Analysis caching for code review efficiency ──────────────────────────────
 _ANALYSIS_CACHE = {}  # {file_hash: analysis_result}
 
@@ -1068,16 +1073,26 @@ def run_spell(name: str, inp: dict):
 def get_merlin_startup_system(query_context: str = None) -> str:
     """Return Merlin's system prompt enriched with the memory briefing."""
     if not _MEM:
-        return MERLIN_SYSTEM
+        system = MERLIN_SYSTEM
+    else:
+        try:
+            from guppy_core import _needs_memory_context
+            needs_memory = _needs_memory_context(query_context)
+            if needs_memory:
+                briefing = _mem.get_startup_context()
+                system = MERLIN_SYSTEM + "\n\n" + briefing
+            else:
+                system = MERLIN_SYSTEM
+        except Exception:
+            system = MERLIN_SYSTEM
     try:
-        from guppy_core import _needs_memory_context
-        needs_memory = _needs_memory_context(query_context)
-        if needs_memory:
-            briefing = _mem.get_startup_context()
-            return MERLIN_SYSTEM + "\n\n" + briefing
-        return MERLIN_SYSTEM
+        if query_context and callable(_build_semantic_prompt_context):
+            semantic_context = _build_semantic_prompt_context(query_context, n=4)
+            if semantic_context:
+                system += "\n\n" + semantic_context
+        return system
     except Exception:
-        return MERLIN_SYSTEM
+        return system
 
 
 

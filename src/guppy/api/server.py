@@ -96,7 +96,7 @@ GUPPY_AVAILABLE = GUPPY_CORE_AVAILABLE and GUPPY_MEMORY_AVAILABLE
 
 # Import authentication
 try:
-    from guppy_api_auth import (
+    from src.guppy.api.auth import (
         create_access_token, verify_token, require_turnstile,
         require_rate_limit, require_auth_rate_limit,
         verify_turnstile_token as verify_turnstile_token_auth, validate_environment
@@ -121,6 +121,26 @@ try:
 except ImportError as e:
     print(f"Warning: Inference router not available: {e}")
     INFERENCE_ROUTER_AVAILABLE = False
+
+try:
+    from src.guppy.api.response_cache import (
+        build_response_cache_key,
+        get_cached_response,
+        response_cache_enabled,
+        set_cached_response,
+    )
+except Exception:
+    def build_response_cache_key(*, message: str, system_prompt: str, mode: str = "auto", instance_name: str | None = None, instance_type: str | None = None) -> str:
+        return ""
+
+    def get_cached_response(cache_key: str) -> str | None:
+        return None
+
+    def response_cache_enabled() -> bool:
+        return False
+
+    def set_cached_response(cache_key: str, response_text: str) -> None:
+        return None
 
 
 logger = logging.getLogger(__name__)
@@ -167,7 +187,7 @@ except Exception:
 # ── Configuration ──────────────────────────────────────────────────────────────
 
 # JWT settings (now imported from auth module)
-from guppy_api_auth import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, DEV_MODE
+from src.guppy.api.auth import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, DEV_MODE
 
 # Server settings
 HOST = "127.0.0.1"
@@ -1352,6 +1372,19 @@ def _build_router_messages(system_prompt: str, user_text: str, history: list[dic
     return messages
 
 
+def _request_is_cacheable(request: ChatRequest) -> bool:
+    if not response_cache_enabled():
+        return False
+    if request.session_id:
+        return False
+    if _sanitize_chat_history(request.history):
+        return False
+    mode = (request.mode or "auto").strip().lower()
+    if mode in {"teaching", "vault"}:
+        return False
+    return bool((request.message or "").strip())
+
+
 def _augment_system_with_history(system_prompt: str, history: list[dict[str, str]]) -> str:
     if not history:
         return system_prompt
@@ -1382,12 +1415,12 @@ def _call_unified_inference(
     NEW: Unified inference using intelligent router.
     Priority: local (guppy) -> haiku -> sonnet
     Automatically falls back if local model is unavailable.
-    
+
     This is now the PRIMARY inference method.
     """
     if not GUPPY_CORE_AVAILABLE:
         raise RuntimeError("Guppy core not available.")
-    
+
     if not INFERENCE_ROUTER_AVAILABLE:
         # Fallback to Claude if router unavailable
         logger.warning("Router unavailable, falling back to Claude")
@@ -1397,12 +1430,12 @@ def _call_unified_inference(
             instance_name=instance_name,
             instance_type=instance_type,
         )
-    
+
     router = get_router()
     clean_history = _sanitize_chat_history(history)
     augmented_system_prompt = _augment_system_with_history(system_prompt, clean_history)
     router_messages = _build_router_messages(augmented_system_prompt, user_text, clean_history)
-    
+
     try:
         requested_mode = (mode or os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto").strip().lower()
 
@@ -1454,7 +1487,7 @@ def _call_unified_inference(
                 messages=router_messages,
                 prefer_local=True,
             )
-        
+
         logger.info(f"Inference completed via {source}. Tokens: {metadata.get('usage', {}).get('output_tokens', '?')}")
         return response
 
@@ -2310,6 +2343,25 @@ async def chat(request: ChatRequest, user_id: str = Depends(require_rate_limit))
             query_context=request.message
         )
 
+        cache_key = None
+        if INFERENCE_ROUTER_AVAILABLE and _request_is_cacheable(request):
+            try:
+                router = get_router()
+                task_type = router._classify_task(request.message, system_prompt)
+                if task_type == "simple":
+                    cache_key = build_response_cache_key(
+                        message=request.message,
+                        system_prompt=system_prompt,
+                        mode=request.mode or "auto",
+                        instance_name=active_instance_name,
+                        instance_type=active_instance_type,
+                    )
+                    cached_response = get_cached_response(cache_key)
+                    if cached_response:
+                        return {"response": cached_response, "session_id": request.session_id, "cached": True}
+            except Exception as e:
+                logger.debug("Response cache lookup skipped: %s", e)
+
         # Route through priority chain: local (guppy) -> haiku -> sonnet
         response = await _run_blocking(
             _call_unified_inference,
@@ -2321,6 +2373,12 @@ async def chat(request: ChatRequest, user_id: str = Depends(require_rate_limit))
             instance_type=active_instance_type,
             timeout_seconds=CHAT_TIMEOUT_SECONDS,
         )
+
+        if cache_key and response.strip():
+            try:
+                set_cached_response(cache_key, response)
+            except Exception as e:
+                logger.debug("Response cache store skipped: %s", e)
 
         # Store in memory if session provided and memory is available
         if request.session_id and GUPPY_MEMORY_AVAILABLE:

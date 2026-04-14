@@ -95,6 +95,8 @@ class InferenceRouter:
         """Initialize the router."""
         self.current_primary = "local"
         self.fallback_chain = ["local", "haiku", "sonnet"]
+        self._classification_cache: dict[tuple[str, str], str] = {}
+        self._classification_cache_max = 256
 
         # Runtime model overrides for low-compute/night runs.
         self.low_compute_mode = self._bool_env("GUPPY_LOW_COMPUTE_MODE", False)
@@ -147,14 +149,26 @@ class InferenceRouter:
 
     def _classify_task(self, user_text: str, system_prompt: str = "") -> str:
         """Classify task into simple/complex/teaching using semantic + fallback heuristic."""
+        cache_key = ((user_text or "").strip(), (system_prompt or "")[:400].strip())
+        cached = self._classification_cache.get(cache_key)
+        if cached in {"simple", "complex", "teaching"}:
+            return cached
+
         semantic_enabled = os.environ.get("GUPPY_SEMANTIC_CLASSIFIER", "1").strip().lower() in {
             "1", "true", "yes", "on"
         }
         if semantic_enabled and self.anthropic_available:
             task = self._classify_task_semantic(user_text=user_text, system_prompt=system_prompt)
             if task in {"simple", "complex", "teaching"}:
+                self._classification_cache[cache_key] = task
+                if len(self._classification_cache) > self._classification_cache_max:
+                    self._classification_cache.pop(next(iter(self._classification_cache)))
                 return task
-        return self._classify_task_heuristic(user_text=user_text, system_prompt=system_prompt)
+        task = self._classify_task_heuristic(user_text=user_text, system_prompt=system_prompt)
+        self._classification_cache[cache_key] = task
+        if len(self._classification_cache) > self._classification_cache_max:
+            self._classification_cache.pop(next(iter(self._classification_cache)))
+        return task
 
     def _classify_task_semantic(self, user_text: str, system_prompt: str = "") -> str:
         """Use Haiku to classify intent with strict JSON output."""

@@ -96,8 +96,9 @@ except Exception as e:
 # Test 7: Documentation updated
 print("\n[7] Checking documentation...")
 try:
-    roadmap = (Path(__file__).parent.parent / "ROADMAP.md").read_text(encoding="utf-8")
-    readme = (Path(__file__).parent.parent / "README.md").read_text(encoding="utf-8")
+    repo_root = Path(__file__).resolve().parents[2]
+    roadmap = (repo_root / "ROADMAP.md").read_text(encoding="utf-8")
+    readme = (repo_root / "README.md").read_text(encoding="utf-8")
 
     assert "Track 1: Full Custom Builder First" in roadmap, "ROADMAP missing custom builder priority"
     assert "Track 2: Daily Workflow Productization" in roadmap, "ROADMAP missing daily workflow track"
