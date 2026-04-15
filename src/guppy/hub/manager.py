@@ -45,14 +45,10 @@ class HubManager(QObject):
         return "OLLAMA"
 
     def recommend(self, title: str, running_agents: list[str]) -> str:
-        t = title.lower()
-        if any(k in t for k in ("merlin", "wizard", "magic")):
-            rec = "merlin"
-        elif any(k in t for k in ("council", "joint")):
-            rec = "council"
-        else:
-            rec = "guppy"
-        logger.debug(f"Recommending {rec} for '{title}'")
+        title_text = title or ""
+        del running_agents
+        rec = "guppy"
+        logger.debug(f"Recommending {rec} for '{title_text}'")
         return rec
 
     def ask(self, prompt: str) -> str:
@@ -72,8 +68,7 @@ class HubManager(QObject):
     def update_context(self, title: str, running: list[str]):
         self._context_summary = title or "No context"
         rec = self.recommend(title, running)
-        if rec in {"merlin", "council"} and not load_app_settings().get("show_advanced_surfaces", True):
-            rec = "guppy"
+        _ = load_app_settings()
         self._recommended_agent = rec
         self._recommendation_summary = f"Recommended: {rec}"
         self.recommendation_changed.emit(rec, self._recommendation_summary)

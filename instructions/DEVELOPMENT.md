@@ -1,6 +1,6 @@
 # Development Instructions
 
-Last verified: 2026-04-13
+Last verified: 2026-04-14
 
 ## 1) Environment
 
@@ -18,7 +18,8 @@ Last verified: 2026-04-13
 1. Keep wrappers thin:
    - `guppy_launcher.py`
    - `guppy_hub.py`
-2. Legacy `merlin` and `council` surfaces are compatibility-only; do not add new end-user features there.
+   - `guppy_api.py`
+2. Do not recreate deleted Merlin/Council desktop entrypoints as first-class product surfaces.
 3. Place real app logic under `src/guppy/apps/` and shared modules under `src/guppy/` or `ui/launcher/`.
 
 ## 3) Architecture Rules
@@ -47,6 +48,7 @@ Last verified: 2026-04-13
 
 Minimum merge gate for critical changes:
 
-- `python -m pytest tests/test_runtime_smoke.py tests/test_launcher_interactions_smoke.py tests/test_security_hardening.py -v`
+- `.venv\\Scripts\\python.exe -m pytest tests/smoke/test_runtime_smoke.py tests/smoke/test_launcher_interactions_smoke.py tests/unit/test_security_hardening.py tests/unit/test_instance_controls.py tests/unit/test_offhours_builder.py tests/unit/test_smart_dispatch.py -q`
 
-When touching API auth/repair/DB paths, add regression coverage in `tests/test_security_hardening.py`.
+When touching API auth/repair/DB paths, add regression coverage in `tests/unit/test_security_hardening.py`.
+When touching routing, instance state, or off-hours builder flows, extend the focused suites listed above before widening further.

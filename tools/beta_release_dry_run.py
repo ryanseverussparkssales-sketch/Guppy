@@ -65,7 +65,7 @@ def main() -> int:
     required_files = [
         ROOT / "config" / "beta_tool_allowlist.txt",
         ROOT / "docs" / "REMOTE_BETA_EXE_POLICY.md",
-        ROOT / "docs" / "FINAL_HANDOFF_PREP.md",
+        ROOT / "docs" / "archive" / "planning-history" / "FINAL_HANDOFF_PREP.md",
     ]
     file_checks = [{"path": str(p), "exists": p.exists()} for p in required_files]
     files_ok = all(x["exists"] for x in file_checks)

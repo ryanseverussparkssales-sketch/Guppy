@@ -1,12 +1,12 @@
 ﻿# Guppy
 
-Guppy is a local-first multi-agent assistant with a unified launcher as the primary daily interface and advanced specialist surfaces for deeper workflows:
+Guppy is a local-first multi-agent assistant with a unified launcher as the primary daily interface and bounded background collaboration for deeper workflows:
 
 Guppy is built as a Butler-style personal assistant first, with daily-use speed, routing accuracy, and voice ergonomics prioritized over sales or CRM workflows.
 
-- Unified launcher: default front door for assistant, tools, settings, advanced controls, model library, and voice library
-- Merlin: mentor / research specialist surface
-- Council: dual-agent orchestration specialist surface
+- Unified launcher: default front door for assistant, instances, agent tools, app management, model library, and voice library
+- Background collaboration: `guppy-primary` foreground plus optional `builder-collab`
+- Teaching and coding specialization: routed through `guppy-teach` and `guppy-code` instead of separate desktop windows
 
 ## Living Docs
 
@@ -35,33 +35,34 @@ Archived historical docs now live under `docs/archive/`, split between `root-his
 
 ## Current State
 
-### Unified Launcher System (2026-04-12)
+### Unified Launcher System (2026-04-14)
 
-- Primary desktop entry point is now `guppy_launcher.py`.
+- Primary desktop entry point is `guppy_launcher.py`.
 - New modular UI architecture is in `ui/launcher/`:
   - `components/` for reusable UI widgets
   - `views/` for Assistant, Tools, Settings, Advanced, Models, and Voices tabs
   - `launcher_window.py` as the shell that composes sidebar, top bar, stacked views, and right status panel
-- Advanced standalone surfaces remain available (`merlin_ui.py`, `council_ui.py`) but are no longer the primary product path.
-- The canonical CLI now keeps `merlin` and `council` behind explicit compatibility mode via `GUPPY_ENABLE_LEGACY_SURFACES=1`.
+- Launcher bootstrap starts `guppy_api.py` and `guppy_hub.py` asynchronously when needed so the UI does not block on service startup.
+- Standalone Merlin/Council desktop surfaces have been removed from the active repo path; specialization now lives in routed models, personas, and background instances.
+- The canonical CLI currently exposes `guppy`, `launcher`, `guppyprime`, `hub`, and `api`.
 
-### Legacy Launcher Deprecation Policy
+### Historical Surface Retirement Policy
 
 GuppyPrime is the default and authoritative product surface.
 
 Policy rules:
 
 1. New end-user features must ship in GuppyPrime UI first.
-2. Standalone legacy surfaces are compatibility-only until retirement is complete.
+2. Historical specialist surfaces must not be restored as first-class daily entrypoints.
 3. Primary launcher actions (including INIT) must not spawn legacy windows by default.
 4. If a capability is not yet in GuppyPrime UI, it must be listed in `ROADMAP.md` with milestone, owner, and acceptance criteria.
-5. Legacy surfaces may remain for fallback/debug use only until parity gates pass.
+5. Historical specialist code may remain for compatibility or archive purposes only until final retirement gates pass.
 
 Retirement milestones:
 
 1. M1: Embedded agent activation and transcript-first chat behavior stable in GuppyPrime.
-2. M2: Tools/builders/voice parity completed for daily usage.
-3. M3: Legacy launchers removed from recommended flow; GuppyPrime is sole default path.
+2. M2: Core builder/tooling parity is live for daily usage, with workflow polish, validation breadth, and operator hardening still in progress.
+3. M3: Historical launcher remnants removed from recommended flow; GuppyPrime is sole default path.
 
 ### Launcher/UI Delivery Summary (Handoff)
 
@@ -124,7 +125,7 @@ Historical deep status narratives are intentionally archived to avoid duplicated
 
 ### Implemented
 
-- Desktop UI surfaces: `guppy_launcher.py` (unified), `merlin_ui.py`, `council_ui.py`
+- Desktop UI surface: `guppy_launcher.py` (unified launcher)
 - Smart dispatcher (Phases 1-3): Task classification → Haiku-first routing with fallback chain
 - **Phase 4 voice fast-path**: Wake-word → Haiku-first always (`voice_triggered` flag), <2s latency target
 - **Phase 5 response cache**: TTL-based module-level cache for simple/tool-free queries; cache hits skip API entirely
@@ -146,15 +147,14 @@ Historical deep status narratives are intentionally archived to avoid duplicated
 - **Phase 11 ambient banner**: `AmbientBanner` widget in `guppy_ui.py` — non-intrusive offer bar between chat and input; shows Haiku's suggested action; "Ask Guppy" pre-fills input; auto-dismisses 30s
 - 77 tools registered in `guppy_core/tool_registry.py` including `run_python`, `notify`, `web_summarize`, `github`, `semantic_remember/recall`, Gmail, Spotify, calendar, and more
 - Revenue dashboard route plus CRM/VoIP scaffolding: `src/guppy/api/server.py`, `src/guppy/integrations/crm_voip.py`
-- Tool-loop guardrails: capped tool budgets in `guppy_ui.py` and `council_ui.py` to prevent runaway long-tail latency
-- Council performance tuning: Merlin panel now uses tuned local inference defaults (`COUNCIL_MERLIN_TIMEOUT`, `COUNCIL_MERLIN_NUM_PREDICT`) for faster completion under load
+- Tool-loop guardrails: capped tool budgets and instance-scoped capability enforcement prevent runaway long-tail latency in launcher-driven flows
 
 **For complete credentials & dependencies audit, see** `CREDENTIALS_AUDIT.md`
 
 ### Partial / Needs Hardening
 
 - **CRM & VoIP tools**: Safe stubs wired (log intent, validate config); no live calls or writes yet. Do not wire live calls until classifier accuracy is validated.
-- Legacy specialist implementations remain under `legacy_surfaces/`; root wrappers (`guppy_ui.py`, `merlin_ui.py`, `council_ui.py`) are compatibility-only and enforced as thin entrypoints.
+- Historical specialist material remains under `legacy_surfaces/` and archive docs, but the supported product path is the unified launcher plus background instances.
 - **Vault agent schema**: `vault-scraper` Modelfile has base schema; production use needs a per-media-type schema registry and dedup logic.
 - **CI quality gates**: Workflow added at `.github/workflows/quality-gates.yml` to run schema audit and core smoke/workflow tests on push/PR.
 - Packaging: one-folder distribution is now the default path for pilot builds; one-file packaging remains optional.
@@ -167,7 +167,7 @@ Historical deep status narratives are intentionally archived to avoid duplicated
 
 ## Capabilities Snapshot
 
-- Desktop chat across Guppy, Merlin, and Council surfaces
+- Desktop chat through the unified launcher with active-instance switching and bounded inter-instance queries
 - Local model plus Claude-backed routing
 - Push-to-talk, spoken replies, interruption-aware voice handling, and wake-word path
 - FastAPI remote chat, voice route, websocket streaming, and readiness endpoints
@@ -197,18 +197,16 @@ The old broad capability catalog and historical handoff/completion docs have bee
 
 ### Entry Points
 
-- `bin/launch_guppyprime.bat` — **recommended daily launcher** (hub + unified UI, all 5 agents)
+- `bin/launch_guppyprime.bat` — **recommended daily launcher** (hub + unified UI with the full local model stack)
 - `src/guppy/cli/launch.py` — canonical Python launcher for all surfaces
 - `guppy_launcher.py` — unified desktop launcher UI (thin wrapper)
 - `guppy_agent.py` — terminal / CLI surface (thin wrapper)
-- `merlin_ui.py` — Merlin desktop UI (standalone specialist surface)
-- `council_ui.py` — dual-agent UI (standalone specialist surface)
 - `guppy_api.py` — remote API server (thin wrapper)
 - `guppy_hub.py` — system hub / tray (thin wrapper)
 
 ### Launcher Layout
 
-- Left sidebar: Assistant, Tools, Settings, Advanced, Models, Voices
+- Left sidebar: Home, Instances, Agent Tools, App Mgmt, Settings, Models, Voices
 - Top bar: session controls + search
 - Center stack: active surface view
 - Right status panel: live runtime state and recent system log
@@ -216,7 +214,7 @@ The old broad capability catalog and historical handoff/completion docs have bee
 ### Core Modules
 
 - `guppy_core/` — routing, tools, model behavior, shared runtime glue (split into `tool_registry`, `tool_runner`, `system_prompt`, `tool_metrics`)
-- `src/guppy/merlin/core.py` — Merlin spell aliases and persona-specific behavior
+- `src/guppy/merlin/core.py` — legacy Merlin persona content still used for teaching-style prompt behavior and compatibility helpers
 - `src/guppy/voice/voice.py` — TTS, STT, wake-word, interruption control
 - `src/guppy/daemon/daemon.py` — reminders, window awareness, background services
 - `src/guppy/memory/memory.py` — persistent storage and dashboard data
@@ -267,9 +265,9 @@ Model roster:
 | --- | --- | --- | --- |
 | `guppy-fast` | qwen2.5:7b | ~5 GB | Fast butler, simple queries |
 | `vault-scraper` | qwen2.5:7b | shared blob | Digital Seed Vault extraction |
-| `merlin-code` | qwen2.5-coder:14b | ~9 GB | Code review / debug |
+| `guppy-code` | qwen2.5-coder:14b | ~9 GB | Code review / debug |
 | `guppy` | qwen2.5:32b | ~20 GB | Complex butler tasks |
-| `merlin` | qwen2.5:32b | shared blob | Socratic teaching |
+| `guppy-teach` | qwen2.5:32b | shared blob | Socratic teaching |
 
 1. Ensure Ollama is serving on `http://127.0.0.1:11434`.
 

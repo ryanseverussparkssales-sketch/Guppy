@@ -1,5 +1,5 @@
 """
-inference_router.py — Guppy Inference Priority Router
+inference_router.py â€” Guppy Inference Priority Router
 ========================================================
 
 Routes all inference requests through a priority chain:
@@ -43,7 +43,7 @@ class InferenceRouter:
 
     1. LEGACY: local -> haiku -> sonnet (for backward compat)
     2. SMART (NEW): haiku-first -> sonnet -> ollama (for butler UX, <3s latency)
-       - Task-aware routing: simple -> Haiku, complex -> Sonnet, teaching -> Merlin/Ollama
+       - Task-aware routing: simple -> Haiku, complex -> Sonnet, teaching -> guppy-teach/Ollama
        - 3s timeout on Haiku (not 30s on Ollama)
        - No retry loops: once fallback starts, don't retry failed backend
     """
@@ -51,17 +51,17 @@ class InferenceRouter:
     # Configuration
     OLLAMA_API = "http://127.0.0.1:11434/api/chat"
     OLLAMA_TIMEOUT = 10       # fallback path timeout (cloud-first modes)
-    OLLAMA_LOCAL_TIMEOUT = 60 # local-only mode — allow full 32B inference time
+    OLLAMA_LOCAL_TIMEOUT = 60 # local-only mode â€” allow full 32B inference time
 
     # Local model roster
-    # Two 7B models share the qwen2.5:7b base blob — no extra VRAM cost for having both.
-    # 7B + 14B = ~14 GB → both can be warm simultaneously on the 7900 XTX.
+    # Two 7B models share the qwen2.5:7b base blob â€” no extra VRAM cost for having both.
+    # 7B + 14B = ~14 GB â†’ both can be warm simultaneously on the 7900 XTX.
     # 32B needs exclusive VRAM (~20 GB); evicts everything else when loaded.
-    LOCAL_MODEL       = "guppy"         # qwen2.5:32b  — complex butler tasks
-    LOCAL_FAST_MODEL  = "guppy-fast"    # qwen2.5:7b   — simple/fast butler tasks
-    LOCAL_TEACH_MODEL = "merlin"        # qwen2.5:32b  — Socratic teaching
-    LOCAL_CODE_MODEL  = "merlin-code"   # qwen2.5-coder:14b — code review/debug
-    LOCAL_VAULT_MODEL = "vault-scraper" # qwen2.5:7b   — structured media extraction
+    LOCAL_MODEL       = "guppy"         # qwen2.5:32b  â€” complex butler tasks
+    LOCAL_FAST_MODEL  = "guppy-fast"    # qwen2.5:7b   â€” simple/fast butler tasks
+    LOCAL_TEACH_MODEL = "guppy-teach"   # qwen2.5:32b  â€” Socratic teaching
+    LOCAL_CODE_MODEL  = "guppy-code"    # qwen2.5-coder:14b â€” code review/debug
+    LOCAL_VAULT_MODEL = "vault-scraper" # qwen2.5:7b   â€” structured media extraction
 
     LOCAL_TIER_MAP: Dict[str, str] = {
         "simple":   LOCAL_FAST_MODEL,
@@ -69,7 +69,7 @@ class InferenceRouter:
         "teaching": LOCAL_TEACH_MODEL,
     }
 
-    # Haiku boost modes — targeted Haiku pass that supplements local output
+    # Haiku boost modes â€” targeted Haiku pass that supplements local output
     HAIKU_BOOST_VERIFY      = "verify"       # fact-check / fill gaps
     HAIKU_BOOST_CODE_REVIEW = "code_review"  # scan generated code for bugs
     HAIKU_BOOST_ENRICH      = "enrich"       # add missing metadata fields
@@ -79,7 +79,7 @@ class InferenceRouter:
     SONNET_MODEL = "claude-sonnet-4-6"
 
     HAIKU_TIMEOUT_SMART = 8   # API cold-start + network can easily hit 2-3 s; 3 was too aggressive
-    SONNET_TIMEOUT_SMART = 20 # Sonnet is slower — give it room
+    SONNET_TIMEOUT_SMART = 20 # Sonnet is slower â€” give it room
 
     @staticmethod
     def _bool_env(name: str, default: bool = True) -> bool:
@@ -97,16 +97,21 @@ class InferenceRouter:
         self.fallback_chain = ["local", "haiku", "sonnet"]
         self._classification_cache: dict[tuple[str, str], str] = {}
         self._classification_cache_max = 256
+        self._legacy_model_aliases = {
+            "guppy-teach": "merlin",
+            "guppy-code": "merlin-code",
+        }
 
         # Runtime model overrides for low-compute/night runs.
         self.low_compute_mode = self._bool_env("GUPPY_LOW_COMPUTE_MODE", False)
         default_complex_model = self.LOCAL_FAST_MODEL if self.low_compute_mode else self.LOCAL_MODEL
-        default_teach_model = self.LOCAL_CODE_MODEL if self.low_compute_mode else self.LOCAL_TEACH_MODEL
+        default_code_model = "guppy-code"
+        default_teach_model = default_code_model if self.low_compute_mode else "guppy-teach"
 
         self.LOCAL_FAST_MODEL = (os.environ.get("GUPPY_LOCAL_FAST_MODEL", self.LOCAL_FAST_MODEL) or self.LOCAL_FAST_MODEL).strip()
         self.LOCAL_MODEL = (os.environ.get("GUPPY_LOCAL_COMPLEX_MODEL", default_complex_model) or default_complex_model).strip()
         self.LOCAL_TEACH_MODEL = (os.environ.get("GUPPY_LOCAL_TEACH_MODEL", default_teach_model) or default_teach_model).strip()
-        self.LOCAL_CODE_MODEL = (os.environ.get("GUPPY_LOCAL_CODE_MODEL", self.LOCAL_CODE_MODEL) or self.LOCAL_CODE_MODEL).strip()
+        self.LOCAL_CODE_MODEL = (os.environ.get("GUPPY_LOCAL_CODE_MODEL", default_code_model) or default_code_model).strip()
         self.LOCAL_VAULT_MODEL = (os.environ.get("GUPPY_LOCAL_VAULT_MODEL", self.LOCAL_VAULT_MODEL) or self.LOCAL_VAULT_MODEL).strip()
 
         self.LOCAL_TIER_MAP = {
@@ -141,6 +146,13 @@ class InferenceRouter:
         if not api_available:
             return False
         return self._bool_env("GUPPY_HAIKU_BOOST", True)
+
+    def _candidate_local_models(self, model: str) -> list[str]:
+        candidates = [model]
+        alias = self._legacy_model_aliases.get(model)
+        if alias and alias not in candidates:
+            candidates.append(alias)
+        return candidates
 
     @staticmethod
     def _is_rate_limited_error(error: Exception | str) -> bool:
@@ -208,15 +220,6 @@ class InferenceRouter:
         system_lower = (system_prompt or "").lower()
         combined_lower = text_lower + " " + system_lower
 
-        # Teaching keywords (route to Merlin/Ollama for Socratic responses)
-        teaching_keywords = {
-            "explain", "teach me", "how does", "why is", "what is",
-            "help me understand", "concept", "introduce", "intro to",
-            "define", "meaning of", "learn about", "guide me",
-        }
-        if any(k in combined_lower for k in teaching_keywords):
-            return "teaching"
-
         # Complex keywords (needs Sonnet reasoning)
         complex_keywords = {
             "build", "design", "architect", "refactor", "debug", "fix",
@@ -228,6 +231,24 @@ class InferenceRouter:
         }
         if any(k in combined_lower for k in complex_keywords):
             return "complex"
+
+        question_text = (user_text or "").strip()
+        question_lower = question_text.lower()
+        if question_lower.startswith("what is "):
+            tokens = re.findall(r"[A-Za-z0-9][A-Za-z0-9.+-]*", question_text)
+            has_acronym = any(token.isupper() and len(token) >= 2 for token in tokens)
+            factual_what_is_cues = {
+                "capital",
+                "population",
+                "weather",
+                "price",
+                "status",
+                "date",
+                "time",
+            }
+            if has_acronym or any(cue in question_lower for cue in factual_what_is_cues):
+                return "simple"
+            return "teaching"
 
         # Length heuristic: very short messages are usually simple
         if len(user_text or "") < 50:
@@ -242,6 +263,16 @@ class InferenceRouter:
         }
         if any(k in combined_lower for k in simple_keywords):
             return "simple"
+
+        # Teaching keywords should only win when the user is explicitly asking
+        # for instruction instead of a plain factual lookup.
+        teaching_keywords = {
+            "explain", "teach me", "how does", "why is",
+            "help me understand", "concept", "introduce", "intro to",
+            "define", "meaning of", "learn about", "guide me",
+        }
+        if any(k in combined_lower for k in teaching_keywords):
+            return "teaching"
 
         # Default to complex (safer to over-dispatch to Sonnet than under-dispatch)
         return "complex"
@@ -270,8 +301,8 @@ class InferenceRouter:
                     "route": "ollama_teaching",
                     "route_reason": "manual local mode via router (teaching)",
                     "executor": "ollama",
-                    "system_profile": "merlin",
-                    "model": "merlin",
+                    "system_profile": "guppy",
+                    "model": self.LOCAL_TEACH_MODEL,
                     "backup_model": "",
                 }
             return {
@@ -284,7 +315,7 @@ class InferenceRouter:
                 "backup_model": "",
             }
 
-        # teaching — force teaching profile and route irrespective of classifier noise
+        # teaching â€” force teaching profile and route irrespective of classifier noise
         if normalized_mode == "teaching":
             if has_api:
                 return {
@@ -292,7 +323,7 @@ class InferenceRouter:
                     "route": "claude_teaching",
                     "route_reason": "manual teaching mode requested",
                     "executor": "claude",
-                    "system_profile": "merlin",
+                    "system_profile": "guppy",
                     "model": os.environ.get("ANTHROPIC_HAIKU_MODEL", self.HAIKU_MODEL),
                     "backup_model": os.environ.get("ANTHROPIC_MODEL", self.SONNET_MODEL),
                 }
@@ -301,37 +332,36 @@ class InferenceRouter:
                 "route": "ollama_teaching",
                 "route_reason": "manual teaching mode requested (no API key)",
                 "executor": "ollama",
-                "system_profile": "merlin",
-                "model": "merlin",
+                "system_profile": "guppy",
+                "model": self.LOCAL_TEACH_MODEL,
                 "backup_model": "",
             }
 
-        # local — tier-aware local-only routing (no cloud fallback)
-        # simple→guppy-fast, complex→guppy, teaching→merlin
+        # local â€” tier-aware local-only routing (no cloud fallback)
+        # simpleâ†’guppy-fast, complexâ†’guppy, teachingâ†’guppy-teach
         if normalized_mode == "local":
             model = self.LOCAL_TIER_MAP.get(task_type, self.LOCAL_MODEL)
-            profile = "merlin" if task_type == "teaching" else "guppy"
             return {
                 "task_type": task_type,
                 "route": f"local_{task_type}",
-                "route_reason": f"local-only mode — {task_type} tier → {model}",
+                "route_reason": f"local-only mode â€” {task_type} tier â†’ {model}",
                 "executor": "ollama",
-                "system_profile": profile,
+                "system_profile": "guppy",
                 "model": model,
                 "backup_model": "",
                 "timeout": self.OLLAMA_LOCAL_TIMEOUT,
                 "local_only": True,
             }
 
-        # code — dedicated coder-14B session (merlin-code), optional Haiku boost
+        # code â€” dedicated coder-14B session (guppy-code), optional Haiku boost
         if normalized_mode == "code":
             haiku_boost = self._should_use_haiku_boost(has_api)
             return {
                 "task_type": task_type,
                 "route": "local_code",
-                "route_reason": "code mode -> merlin-code (qwen2.5-coder:14b)",
+                "route_reason": "code mode -> guppy-code (qwen2.5-coder:14b)",
                 "executor": "ollama",
-                "system_profile": "merlin",
+                "system_profile": "guppy",
                 "model": self.LOCAL_CODE_MODEL,
                 "backup_model": "",
                 "timeout": self.OLLAMA_LOCAL_TIMEOUT,
@@ -340,7 +370,7 @@ class InferenceRouter:
                 "haiku_boost_mode": self.HAIKU_BOOST_CODE_REVIEW,
             }
 
-        # vault — structured media extraction via vault-scraper, optional Haiku enrich pass
+        # vault â€” structured media extraction via vault-scraper, optional Haiku enrich pass
         if normalized_mode == "vault":
             haiku_boost = self._should_use_haiku_boost(has_api)
             return {
@@ -357,7 +387,7 @@ class InferenceRouter:
                 "haiku_boost_mode": self.HAIKU_BOOST_ENRICH,
             }
 
-        # local_paired — 7B sketches intent, 32B refines (no cloud fallback)
+        # local_paired â€” 7B sketches intent, 32B refines (no cloud fallback)
         # For simple tasks the sketch IS the answer (no second pass needed).
         if normalized_mode == "local_paired":
             sketch_model = self.LOCAL_FAST_MODEL
@@ -365,7 +395,7 @@ class InferenceRouter:
                 return {
                     "task_type": task_type,
                     "route": "local_paired_simple",
-                    "route_reason": "local_paired — simple task, single 7B pass sufficient",
+                    "route_reason": "local_paired â€” simple task, single 7B pass sufficient",
                     "executor": "ollama",
                     "system_profile": "guppy",
                     "model": sketch_model,
@@ -375,16 +405,15 @@ class InferenceRouter:
                     "paired": False,
                 }
             refine_model = self.LOCAL_TEACH_MODEL if task_type == "teaching" else self.LOCAL_MODEL
-            profile = "merlin" if task_type == "teaching" else "guppy"
             return {
                 "task_type": task_type,
                 "route": f"local_paired_{task_type}",
                 "route_reason": (
-                    f"local_paired — {task_type}: {sketch_model} sketches intent, "
+                    f"local_paired â€” {task_type}: {sketch_model} sketches intent, "
                     f"{refine_model} refines"
                 ),
                 "executor": "ollama_paired",
-                "system_profile": profile,
+                "system_profile": "guppy",
                 "model": refine_model,         # primary (refine) model
                 "sketch_model": sketch_model,  # fast model runs first
                 "backup_model": "",
@@ -407,9 +436,9 @@ class InferenceRouter:
                 return {
                     "task_type": task_type,
                     "route": "claude_teaching",
-                    "route_reason": "teaching task, cloud mode via Haiku + Merlin system",
+                    "route_reason": "teaching task, cloud mode via Haiku + Guppy teaching profile",
                     "executor": "claude",
-                    "system_profile": "merlin",
+                    "system_profile": "guppy",
                     "model": self.haiku_model_override,
                     "backup_model": self.sonnet_model_override,
                 }
@@ -443,17 +472,17 @@ class InferenceRouter:
                     "route": "haiku_voice",
                     "route_reason": "voice-triggered teaching fallback to cloud",
                     "executor": "claude",
-                    "system_profile": "merlin",
+                    "system_profile": "guppy",
                     "model": self.haiku_model_override,
                     "backup_model": self.sonnet_model_override,
                 }
             return {
                 "task_type": task_type,
                 "route": "ollama_teaching",
-                "route_reason": "teaching task -> Merlin/Ollama",
+                "route_reason": "teaching task -> guppy-teach/Ollama",
                 "executor": "ollama",
-                "system_profile": "merlin",
-                "model": "merlin",
+                "system_profile": "guppy",
+                "model": self.LOCAL_TEACH_MODEL,
                 "backup_model": "",
             }
 
@@ -500,10 +529,10 @@ class InferenceRouter:
         NEW SMART DISPATCH (Phase 1): Haiku-first with task-aware routing.
 
         For BUTLER USE: fast, predictable latency.
-        - Simple tasks (lookup, format, summarize) → Haiku (2-3s)
-        - Complex tasks (research, code, design) → Sonnet (5-10s)
-        - Teaching tasks (explain, learn) → Merlin/Ollama (Socratic, local)
-        - Fallback: Haiku timeout → Sonnet → give up
+        - Simple tasks (lookup, format, summarize) â†’ Haiku (2-3s)
+        - Complex tasks (research, code, design) â†’ Sonnet (5-10s)
+        - Teaching tasks (explain, learn) â†’ guppy-teach/Ollama (Socratic, local)
+        - Fallback: Haiku timeout â†’ Sonnet â†’ give up
 
         Args:
             system_prompt: System/context prompt
@@ -523,8 +552,8 @@ class InferenceRouter:
 
         # Routing decision based on task classification
         if task_type == "teaching":
-            # Route to Ollama/Merlin for Socratic teaching
-            logger.info("[SMART] Teaching task -> trying Ollama/Merlin (Socratic)")
+            # Route to guppy-teach/Ollama for Socratic teaching
+            logger.info("[SMART] Teaching task -> trying Ollama/guppy-teach (Socratic)")
             result = self.query_local(system_prompt, user_text, tools, messages)
             if result:
                 return result["response"], result["source"], result["metadata"]
@@ -589,10 +618,10 @@ class InferenceRouter:
         """Run a targeted Haiku pass that supplements (not replaces) a local model response.
 
         The local model always answers first. Haiku then does a narrow, focused refinement:
-        - verify      — correct errors, fill factual gaps, add missing depth
-        - code_review — scan code blocks for bugs, security issues, quick wins
-        - enrich      — add missing metadata fields to structured output
-        - structure   — reformat as clean JSON (last resort if vault-scraper drifted)
+        - verify      â€” correct errors, fill factual gaps, add missing depth
+        - code_review â€” scan code blocks for bugs, security issues, quick wins
+        - enrich      â€” add missing metadata fields to structured output
+        - structure   â€” reformat as clean JSON (last resort if vault-scraper drifted)
 
         Returns the enhanced response string, or the original if Haiku is unavailable/fails.
         """
@@ -603,7 +632,7 @@ class InferenceRouter:
             self.HAIKU_BOOST_VERIFY: (
                 "A local AI answered the following question. Your job is to briefly review the answer: "
                 "correct any factual errors, fill critical gaps, and add one sentence of depth if it would "
-                "genuinely help. Do NOT rewrite the whole thing — make surgical additions only. "
+                "genuinely help. Do NOT rewrite the whole thing â€” make surgical additions only. "
                 "Return the improved answer, preserving the original tone and structure.\n\n"
                 f"QUESTION: {original_query}\n\nLOCAL ANSWER:\n{local_response}"
             ),
@@ -619,7 +648,7 @@ class InferenceRouter:
                 "A local extraction agent produced the following structured metadata. "
                 "Review it and add any standard fields that can be reasonably inferred but are missing "
                 "(e.g. common genre tags, alternate titles, related identifiers). "
-                "Return only the enriched JSON — no prose, no markdown fences.\n\n"
+                "Return only the enriched JSON â€” no prose, no markdown fences.\n\n"
                 f"SOURCE TEXT: {original_query}\n\nLOCAL EXTRACTION:\n{local_response}"
             ),
             self.HAIKU_BOOST_STRUCTURE: (
@@ -641,7 +670,7 @@ class InferenceRouter:
             logger.info(f"[HAIKU_BOOST] mode={boost_mode} tokens={resp.usage.output_tokens}")
             return boosted if boosted else local_response
         except Exception as e:
-            logger.warning(f"[HAIKU_BOOST] failed ({boost_mode}): {e} — returning local response")
+            logger.warning(f"[HAIKU_BOOST] failed ({boost_mode}): {e} â€” returning local response")
             return local_response
 
     def query_with_boost(
@@ -656,7 +685,7 @@ class InferenceRouter:
         """Run a local model query with an optional Haiku refinement pass.
 
         The boost only fires if GUPPY_HAIKU_BOOST=1 (default) and the API key is available.
-        The local model always runs first — Haiku is additive, not a fallback.
+        The local model always runs first â€” Haiku is additive, not a fallback.
         """
         result = self._ollama_call(
             model=model,
@@ -692,7 +721,7 @@ class InferenceRouter:
         tools: Optional[list] = None,
         messages: Optional[list] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Local-only tiered dispatch: picks guppy-fast / guppy / merlin by task_type."""
+        """Local-only tiered dispatch: picks guppy-fast / guppy / guppy-teach by task_type."""
         model = self.LOCAL_TIER_MAP.get(task_type, self.LOCAL_MODEL)
         return self._ollama_call(
             model=model,
@@ -711,10 +740,10 @@ class InferenceRouter:
         tools: Optional[list] = None,
         messages: Optional[list] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Two-pass local pipeline: 7B extracts intent → 32B answers with that context.
+        """Two-pass local pipeline: 7B extracts intent â†’ 32B answers with that context.
 
-        Pass 1 — guppy-fast (7B) distils the query into a 2-3 sentence intent sketch.
-        Pass 2 — guppy / merlin (32B) receives the original query + sketch as context.
+        Pass 1 â€” guppy-fast (7B) distils the query into a 2-3 sentence intent sketch.
+        Pass 2 â€” guppy / guppy-teach (32B) receives the original query + sketch as context.
 
         For 'simple' tasks this collapses to a single 7B call (overhead not worth it).
         """
@@ -775,57 +804,68 @@ class InferenceRouter:
     ) -> Optional[Dict[str, Any]]:
         """Shared Ollama HTTP call used by all local query methods."""
         _timeout = timeout if timeout is not None else self.OLLAMA_TIMEOUT
-        try:
-            logger.info(f"[LOCAL] model={model} timeout={_timeout}s")
-            if messages is None:
-                all_msgs = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_text},
-                ]
-            else:
-                all_msgs = messages
+        if messages is None:
+            all_msgs = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_text},
+            ]
+        else:
+            all_msgs = messages
 
-            payload: Dict[str, Any] = {
-                "model": model,
-                "messages": all_msgs,
-                "stream": False,
-                "keep_alive": "10m",
-                "options": {
-                    "temperature": 0.8,
-                    "top_p": 0.95,
-                    "top_k": 40,
-                    "num_predict": self.local_num_predict,
-                },
-            }
-            if tools:
-                payload["tools"] = tools
+        last_error: Exception | None = None
+        for candidate in self._candidate_local_models(model):
+            try:
+                logger.info(f"[LOCAL] attempting {candidate}")
+                if candidate != model:
+                    logger.info(f"[LOCAL] compatibility alias resolved {model} -> {candidate}")
 
-            req = urllib.request.Request(
-                self.OLLAMA_API,
-                data=json.dumps(payload).encode(),
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=_timeout) as r:
-                data = json.loads(r.read().decode())
+                payload: Dict[str, Any] = {
+                    "model": candidate,
+                    "messages": all_msgs,
+                    "stream": False,
+                    "keep_alive": "10m",
+                    "options": {
+                        "temperature": 0.8,
+                        "top_p": 0.95,
+                        "top_k": 40,
+                        "num_predict": self.local_num_predict,
+                    },
+                }
+                if tools:
+                    payload["tools"] = tools
 
-            logger.info(f"[LOCAL] ✓ {model} success")
-            return {
-                "response": data.get("message", {}).get("content", ""),
-                "model": model,
-                "source": "local",
-                "tool_calls": data.get("message", {}).get("tool_calls", []),
-                "metadata": {
-                    "timestamp": datetime.now().isoformat(),
-                    "raw_data": data,
-                },
-            }
-        except (socket.timeout, urllib.error.URLError) as e:
-            logger.warning(f"[LOCAL] Timeout/connection ({_timeout}s) model={model}: {e}")
-            return None
-        except Exception as e:
-            logger.warning(f"[LOCAL] Error model={model}: {e}")
-            return None
+                req = urllib.request.Request(
+                    self.OLLAMA_API,
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=_timeout) as r:
+                    data = json.loads(r.read().decode())
+
+                logger.info(f"[LOCAL] success {candidate}")
+                return {
+                    "response": data.get("message", {}).get("content", ""),
+                    "model": candidate,
+                    "requested_model": model,
+                    "source": "local",
+                    "tool_calls": data.get("message", {}).get("tool_calls", []),
+                    "metadata": {
+                        "timestamp": datetime.now().isoformat(),
+                        "raw_data": data,
+                        "requested_model": model,
+                        "resolved_model": candidate,
+                    },
+                }
+            except (socket.timeout, urllib.error.URLError) as e:
+                last_error = e
+                logger.warning(f"[LOCAL] Timeout/connection ({_timeout}s) model={candidate}: {e}")
+            except Exception as e:
+                last_error = e
+                logger.warning(f"[LOCAL] Error model={candidate}: {e}")
+        if last_error is not None:
+            logger.warning(f"[LOCAL] Unable to resolve a working local model for {model}: {last_error}")
+        return None
 
     def query_local(self, system_prompt: str, user_text: str, tools: Optional[list] = None, messages: Optional[list] = None) -> Optional[Dict[str, Any]]:
         """Query the guppy (32B) model via Ollama. Returns response dict or None."""
@@ -847,7 +887,7 @@ class InferenceRouter:
             logger.info("[HAIKU] Querying Claude Haiku...")
 
             kwargs = {
-                "model": self.HAIKU_MODEL,
+                "model": self.haiku_model_override,
                 "max_tokens": 2048,
                 "system": system_prompt,
                 "messages": [{"role": "user", "content": user_text}],
@@ -858,7 +898,7 @@ class InferenceRouter:
 
             response = self.anthropic_client.messages.create(**kwargs)
 
-            logger.info(f"[HAIKU] ✓ Success. Tokens: {response.usage.output_tokens}")
+            logger.info(f"[HAIKU] âœ“ Success. Tokens: {response.usage.output_tokens}")
 
             response_text = response.content[0].text if response.content else ""
             if not str(response_text).strip():
@@ -867,7 +907,7 @@ class InferenceRouter:
 
             return {
                 "response": response_text,
-                "model": self.HAIKU_MODEL,
+                "model": self.haiku_model_override,
                 "source": "haiku",
                 "tool_calls": [b for b in response.content if getattr(b, "type", None) == "tool_use"],
                 "metadata": {
@@ -895,7 +935,7 @@ class InferenceRouter:
             logger.info("[SONNET] Querying Claude Sonnet (last resort)...")
 
             kwargs = {
-                "model": self.SONNET_MODEL,
+                "model": self.sonnet_model_override,
                 "max_tokens": 4096,
                 "system": system_prompt,
                 "messages": [{"role": "user", "content": user_text}],
@@ -906,7 +946,7 @@ class InferenceRouter:
 
             response = self.anthropic_client.messages.create(**kwargs)
 
-            logger.info(f"[SONNET] ✓ Success. Tokens: {response.usage.output_tokens}")
+            logger.info(f"[SONNET] âœ“ Success. Tokens: {response.usage.output_tokens}")
 
             response_text = response.content[0].text if response.content else ""
             if not str(response_text).strip():
@@ -915,7 +955,7 @@ class InferenceRouter:
 
             return {
                 "response": response_text,
-                "model": self.SONNET_MODEL,
+                "model": self.sonnet_model_override,
                 "source": "sonnet",
                 "tool_calls": [b for b in response.content if getattr(b, "type", None) == "tool_use"],
                 "metadata": {
@@ -1036,7 +1076,7 @@ def route_inference_code(
     tools: Optional[list] = None,
     haiku_boost: bool = True,
 ) -> Tuple[str, str, Dict[str, Any]]:
-    """Code-specialist inference via merlin-code (qwen2.5-coder:14b) + optional Haiku review."""
+    """Code-specialist inference via guppy-code (qwen2.5-coder:14b) + optional Haiku review."""
     router = get_router()
     result = router.query_with_boost(
         system_prompt=system_prompt,
@@ -1046,7 +1086,7 @@ def route_inference_code(
         tools=tools,
     )
     if result is None:
-        raise RuntimeError("[CODE] merlin-code unavailable")
+        raise RuntimeError("[CODE] guppy-code unavailable")
     return result["response"], result["source"], result.get("metadata", {})
 
 
@@ -1079,10 +1119,10 @@ def route_inference_local(
     task_type: str = "",
     paired: bool = False,
 ) -> Tuple[str, str, Dict[str, Any]]:
-    """Local-only inference — no cloud calls, ever.
+    """Local-only inference â€” no cloud calls, ever.
 
     Args:
-        paired: If True, runs the 7B sketch → 32B refine pipeline.
+        paired: If True, runs the 7B sketch â†’ 32B refine pipeline.
                 If False, picks the appropriate tier model directly.
     Returns:
         (response_text, source, metadata)
@@ -1097,7 +1137,7 @@ def route_inference_local(
         result = router.query_local_tiered(system_prompt, user_text, task_type, tools, messages)
 
     if result is None:
-        raise RuntimeError("[LOCAL_ONLY] Ollama unavailable — no cloud fallback in local-only mode")
+        raise RuntimeError("[LOCAL_ONLY] Ollama unavailable â€” no cloud fallback in local-only mode")
 
     return result["response"], result["source"], result.get("metadata", {})
 

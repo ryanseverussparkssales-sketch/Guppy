@@ -1,7 +1,6 @@
 """
 ui/launcher/stylesheet.py
-Central QSS stylesheet for the OBSIDIAN launcher, built from design tokens.
-Import SHEET and pass it to QApplication.setStyleSheet().
+Global QSS for the launcher shell.
 """
 
 from . import tokens as T
@@ -22,17 +21,21 @@ QLabel {{
     color: {T.TEXT};
     border: none;
 }}
+QFrame {{
+    background: transparent;
+}}
 QComboBox {{
     background-color: {T.BG0};
-    color: {T.PRIMARY};
+    color: {T.TEXT};
     border: 1px solid {T.BORDER};
-    padding: 3px 8px;
-    font-family: "{T.FF_MONO}";
+    border-radius: 12px;
+    padding: 5px 10px;
+    font-family: "{T.FF_BODY}";
     font-size: {T.FS_LABEL}pt;
-    min-height: 26px;
+    min-height: 28px;
 }}
-QComboBox:hover {{ border-color: {T.DIM}; }}
-QComboBox:focus {{ border-color: {T.PRIMARY}; }}
+QComboBox:hover {{ border-color: {T.PRIMARY}; }}
+QComboBox:focus {{ border-color: {T.PRIMARY}; background-color: #ffffff; }}
 QComboBox::drop-down {{
     border: none;
     width: 22px;
@@ -42,57 +45,73 @@ QComboBox::down-arrow {{
     width: 0; height: 0;
     border-left: 4px solid transparent;
     border-right: 4px solid transparent;
-    border-top: 5px solid {T.PRIMARY};
-    margin-right: 6px;
+    border-top: 6px solid {T.PRIMARY};
+    margin-right: 8px;
 }}
 QComboBox QAbstractItemView {{
-    background-color: {T.BG1};
+    background-color: {T.BG0};
     color: {T.TEXT};
     border: 1px solid {T.BORDER};
-    selection-background-color: {T.BG3};
-    selection-color: {T.PRIMARY};
-    padding: 2px;
+    selection-background-color: {T.BG1};
+    selection-color: {T.TEXT};
+    padding: 4px;
 }}
 QLineEdit {{
     background-color: {T.BG0};
-    color: {T.PRIMARY};
+    color: {T.TEXT};
     border: 1px solid {T.BORDER};
-    padding: 3px 8px;
-    font-family: "{T.FF_MONO}";
+    border-radius: 14px;
+    padding: 5px 10px;
+    font-family: "{T.FF_BODY}";
     font-size: {T.FS_LABEL}pt;
-    min-height: 26px;
+    min-height: 28px;
 }}
-QLineEdit:focus {{ border-color: {T.PRIMARY}; }}
+QLineEdit:focus {{ border-color: {T.PRIMARY}; background-color: #ffffff; }}
 QScrollArea {{
     background: transparent;
     border: none;
 }}
 QScrollBar:vertical {{
-    background: {T.BG0};
-    width: 4px;
+    background: transparent;
+    width: 8px;
     margin: 0;
     border: none;
 }}
 QScrollBar::handle:vertical {{
     background: {T.BORDER};
-    border-radius: 2px;
-    min-height: 20px;
+    border-radius: 4px;
+    min-height: 22px;
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 QScrollBar:horizontal {{ height: 0; }}
 QPushButton {{
-    background-color: transparent;
-    color: {T.PRIMARY};
-    border: 1px solid {T.PRIMARY};
-    padding: 4px 14px;
-    font-family: "{T.FF_MONO}";
+    background-color: {T.BG0};
+    color: {T.TEXT};
+    border: 1px solid {T.BORDER};
+    border-radius: 14px;
+    padding: 6px 14px;
+    font-family: "{T.FF_BODY}";
     font-size: {T.FS_SMALL}pt;
-    letter-spacing: 1px;
-    min-height: 26px;
+    min-height: 28px;
 }}
-QPushButton:hover    {{ background-color: rgba(242,202,80,0.12); }}
-QPushButton:pressed  {{ background-color: rgba(242,202,80,0.22); }}
-QPushButton:disabled {{ color: {T.BORDER}; border-color: {T.BORDER}; }}
+QPushButton:hover {{
+    background-color: rgba(255, 107, 61, 0.08);
+    border-color: {T.PRIMARY};
+}}
+QPushButton:focus, QPushButton:focus-visible {{
+    background-color: #ffffff;
+    border: 2px solid {T.PRIMARY};
+    border-radius: 14px;
+    padding: 5px 13px;
+}}
+QPushButton:pressed {{
+    background-color: rgba(255, 107, 61, 0.16);
+}}
+QPushButton:disabled {{
+    color: {T.BORDER};
+    border-color: {T.BORDER};
+    background-color: rgba(255, 250, 243, 0.45);
+}}
 QCheckBox {{
     color: {T.TEXT};
     spacing: 8px;
@@ -101,19 +120,23 @@ QCheckBox {{
 QCheckBox::indicator {{
     width: 14px;
     height: 14px;
-    background-color: {T.BG3};
+    background-color: {T.BG0};
     border: 1px solid {T.BORDER};
+    border-radius: 7px;
 }}
 QCheckBox::indicator:checked {{
     background-color: {T.PRIMARY};
     border-color: {T.PRIMARY};
 }}
-QSplitter::handle {{ background-color: {T.BORDER}; width: 1px; }}
+QSplitter::handle {{
+    background-color: rgba(205, 181, 154, 0.35);
+    width: 1px;
+}}
 QToolTip {{
-    background-color: {T.BG1};
+    background-color: {T.BG0};
     color: {T.TEXT};
     border: 1px solid {T.BORDER};
-    padding: 4px 8px;
+    padding: 5px 8px;
     font-size: {T.FS_SMALL}pt;
 }}
 """

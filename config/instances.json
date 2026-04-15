@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "active_instance": "guppy-primary",
+  "active_instance": "builder-collab",
   "instances": [
     {
       "name": "guppy-primary",
@@ -13,10 +13,10 @@
       "created_at": "2026-04-14T00:00:00+00:00"
     },
     {
-      "name": "merlin-collab",
+      "name": "builder-collab",
       "description": "Background collaborator instance",
       "mode": "teaching",
-      "persona": "merlin",
+      "persona": "guppy",
       "voice": "default",
       "enabled": false,
       "type": "builder_instance",

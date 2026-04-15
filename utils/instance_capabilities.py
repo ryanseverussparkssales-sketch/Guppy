@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
+
+
+logger = logging.getLogger(__name__)
 
 
 _CAPABILITY_KEYS = ("read", "write", "execute", "network")
@@ -30,6 +34,8 @@ _EXPLICIT_TOOL_CAPABILITIES: dict[str, str] = {
     "calendar_events": "read",
     "morning_brief": "read",
     "read_screen_text": "read",
+    "debug_console": "read",
+    "query_instance": "network",
     "write_file": "write",
     "apply_patch": "write",
     "create_call_report": "write",
@@ -46,6 +52,7 @@ _EXPLICIT_TOOL_CAPABILITIES: dict[str, str] = {
     "remind_me": "write",
     "cancel_reminder": "write",
     "execute_command": "execute",
+    "run_python": "execute",
     "open_application": "execute",
     "mouse_move": "execute",
     "mouse_click": "execute",
@@ -121,7 +128,11 @@ def load_tool_permission_policy(config_path: str | Path | None = None) -> dict[s
         }
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except json.JSONDecodeError as exc:
+        logger.warning("Failed to parse tool permission policy at %s: %s", path, exc)
+        data = {}
+    except OSError as exc:
+        logger.warning("Failed to read tool permission policy at %s: %s", path, exc)
         data = {}
     defaults = _coerce_permissions(data.get("defaults", {}))
     instances_raw = data.get("instances", {}) if isinstance(data.get("instances"), dict) else {}

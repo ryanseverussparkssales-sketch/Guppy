@@ -67,14 +67,6 @@ def check_auth_config() -> str:
 def model_for_agent(agent_id: str) -> str:
     if agent_id == "guppy":
         return (os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()
-    if agent_id == "merlin":
-        return (os.environ.get("MERLIN_LOCAL_MODEL", "merlin") or "merlin").strip()
-    if agent_id == "council":
-        return (
-            os.environ.get("COUNCIL_LOCAL_MODEL")
-            or os.environ.get("MERLIN_LOCAL_MODEL", "merlin")
-            or "merlin"
-        ).strip()
     return ""
 
 
@@ -168,17 +160,13 @@ def rolling_agent_stats(
             "seen_start_ids": set(),
             "seen_complete_ids": set(),
         }
-        for aid in ("guppy", "merlin", "council_guppy", "council_merlin")
+        for aid in ("guppy",)
     }
 
     cutoff = now.timestamp() - max(60, int(window_seconds))
 
     for row in perf_rows:
         aid = str(row.get("agent", "")).strip().lower()
-        if aid == "council":
-            panel = str(row.get("panel", "")).strip().lower()
-            if panel in {"guppy", "merlin"}:
-                aid = f"council_{panel}"
         if aid not in stats:
             continue
         ts = parse_iso_ts(str(row.get("ts", "")))

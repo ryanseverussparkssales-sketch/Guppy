@@ -35,15 +35,6 @@ class SystemTray(QSystemTrayIcon):
         launch_guppy_action.triggered.connect(lambda: self._window._on_launch("guppy"))
         self._menu.addAction(launch_guppy_action)
 
-        if self._load_settings().get("show_advanced_surfaces", True):
-            launch_merlin_action = QAction("Launch Merlin (Advanced)", self)
-            launch_merlin_action.triggered.connect(lambda: self._window._on_launch("merlin"))
-            self._menu.addAction(launch_merlin_action)
-
-            launch_council_action = QAction("Launch Council (Advanced)", self)
-            launch_council_action.triggered.connect(lambda: self._window._on_launch("council"))
-            self._menu.addAction(launch_council_action)
-
         self._menu.addSeparator()
 
         show_action = QAction("Show Omnissiah", self)

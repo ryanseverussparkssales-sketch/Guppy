@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.request
 import urllib.error
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, QThread, Signal
@@ -25,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from inference_router import LAUNCHER_MODES_DISPLAY, resolve_ui_route
 from .. import tokens as T
 
 try:
@@ -62,6 +65,9 @@ CLOUD_MODELS: list[dict[str, Any]] = [
         "note": "Maximum intelligence",
     },
 ]
+
+_RUNTIME = Path(__file__).resolve().parent.parent.parent.parent / "runtime"
+_HEARTBEAT_FRESH_SECONDS = float(os.environ.get("GUPPY_HEARTBEAT_FRESH_SECONDS", "20") or "20")
 
 
 def _fmt_size(num_bytes: int) -> str:
@@ -317,6 +323,44 @@ class ModelsView(QWidget):
             f"background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;"
         )
         rbl.addWidget(self._route_summary_lbl)
+
+        self._route_evidence_lbl = QLabel("")
+        self._route_evidence_lbl.setWordWrap(True)
+        self._route_evidence_lbl.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+            f"background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;"
+        )
+        rbl.addWidget(self._route_evidence_lbl)
+
+        row3 = QHBoxLayout()
+        row3.setSpacing(10)
+        preview_lbl = QLabel("WHY GUPPY CHOSE THIS")
+        preview_lbl.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        row3.addWidget(preview_lbl)
+        self._route_mode_cb = QComboBox()
+        self._route_mode_cb.addItems(list(LAUNCHER_MODES_DISPLAY))
+        self._route_mode_cb.setFixedWidth(150)
+        self._route_mode_cb.currentTextChanged.connect(lambda _=None: self._refresh_route_preview())
+        row3.addWidget(self._route_mode_cb)
+        self._route_input = QLineEdit()
+        self._route_input.setPlaceholderText("Type a sample request to preview task classification and route choice")
+        self._route_input.textChanged.connect(lambda _=None: self._refresh_route_preview())
+        self._route_input.setStyleSheet(
+            f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+            f"background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 6px 8px;"
+        )
+        row3.addWidget(self._route_input, stretch=1)
+        rbl.addLayout(row3)
+
+        self._route_preview_lbl = QLabel("Route preview appears here once you type a sample request.")
+        self._route_preview_lbl.setWordWrap(True)
+        self._route_preview_lbl.setStyleSheet(
+            f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+            f"background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;"
+        )
+        rbl.addWidget(self._route_preview_lbl)
         root.addWidget(route_bar)
 
         # ── Scrollable grid ──────────────────────────────────────────────────
@@ -450,6 +494,7 @@ class ModelsView(QWidget):
                 if isinstance(fallback, list):
                     self._fallback_chain_input.setText(", ".join(str(item).strip() for item in fallback if str(item).strip()))
             self._refresh_route_summary()
+            self._refresh_route_preview()
             self._set_route_status("Route strategy loaded", ok=True)
         except Exception as exc:
             self._set_route_status(f"Route load failed: {exc}", ok=False)
@@ -485,13 +530,125 @@ class ModelsView(QWidget):
 
     def _refresh_route_summary(self) -> None:
         fallback = self._parse_fallback_chain(self._fallback_chain_input.text())
+        health = self._route_health_summary()
         summary = (
-            f"Route summary  |  SIMPLE -> {self._simple_route_cb.currentText()}  |  "
-            f"COMPLEX -> {self._complex_route_cb.currentText()}  |  "
-            f"TEACHING -> {self._teaching_route_cb.currentText()}\n"
-            f"Fallback chain: {', '.join(fallback) if fallback else 'unset'}"
+            "Current route plan:\n"
+            f"Simple requests start with {self._friendly_route_target(self._simple_route_cb.currentText())}.\n"
+            f"Complex requests start with {self._friendly_route_target(self._complex_route_cb.currentText())}.\n"
+            f"Teaching requests start with {self._friendly_route_target(self._teaching_route_cb.currentText())}.\n"
+            f"If the first choice is unavailable, Guppy falls back to "
+            f"{', '.join(self._friendly_route_target(item) for item in fallback) if fallback else 'the built-in defaults'}."
         )
         self._route_summary_lbl.setText(summary)
+        self._route_evidence_lbl.setText(f"Live evidence: {health}")
+
+    @staticmethod
+    def _describe_route_decision(decision: dict[str, Any]) -> str:
+        if not isinstance(decision, dict):
+            return "Route preview unavailable."
+        task_type = str(decision.get("task_type", "unknown") or "unknown").strip()
+        route = str(decision.get("route", "pending") or "pending").strip()
+        executor = str(decision.get("executor", "") or "").strip()
+        model = str(decision.get("model", "") or "").strip()
+        backup = str(decision.get("backup_model", "") or "").strip()
+        reason = str(decision.get("route_reason", "") or "no explanation available").strip()
+        route_label = ModelsView._friendly_route_name(route)
+        route_target = ModelsView._friendly_route_target(model or route_label)
+        summary = f"{task_type.capitalize()} work will start with {route_target}."
+        if executor:
+            summary += f" Guppy will execute it through {executor.upper()}."
+        details: list[str] = []
+        if backup:
+            details.append(f"Backup: {ModelsView._friendly_route_target(backup)}")
+        details.append(f"Why: {reason}")
+        return summary + ("\n" + " ".join(details) if details else "")
+
+    def _route_health_summary(self) -> str:
+        api_key = bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip())
+        local_count = max(0, len(self._local_cards))
+        latency = self._latest_runtime_latency()
+        heartbeat_path = _RUNTIME / "guppy.heartbeat"
+        heartbeat = False
+        if heartbeat_path.exists():
+            try:
+                heartbeat = (time.time() - heartbeat_path.stat().st_mtime) < _HEARTBEAT_FRESH_SECONDS
+            except OSError:
+                heartbeat = False
+        parts = [
+            f"Cloud path {'configured' if api_key else 'needs API key'}",
+            f"Local runtime {'heartbeat seen' if heartbeat else 'heartbeat missing'}",
+        ]
+        if local_count:
+            parts.append(f"{local_count} local model{'s' if local_count != 1 else ''} visible")
+        else:
+            parts.append("local library not loaded yet")
+        if latency:
+            parts.append(f"launcher-wide last reply {latency}")
+        return " | ".join(parts)
+
+    def _route_evidence_for_decision(self, decision: dict[str, Any]) -> str:
+        route = str(decision.get("route", "pending") or "pending").strip().lower()
+        health = self._route_health_summary()
+        if route in {"haiku", "sonnet", "opus"}:
+            return f"Cloud evidence: {health}"
+        if route == "local":
+            return f"Local evidence: {health}"
+        return f"Launcher evidence: {health}"
+
+    @staticmethod
+    def _latest_runtime_latency() -> str:
+        try:
+            payload = json.loads((_RUNTIME / "guppy.status").read_text(encoding="utf-8"))
+        except Exception:
+            return ""
+        latency = str(payload.get("last_latency_ms", "") or "").strip()
+        if not latency or latency in {"—", "-"}:
+            return ""
+        return f"{latency} ms"
+
+    @staticmethod
+    def _friendly_route_name(route: str) -> str:
+        value = str(route or "").strip().lower()
+        return {
+            "haiku": "Claude Haiku",
+            "sonnet": "Claude Sonnet",
+            "opus": "Claude Opus",
+            "local": "the local model",
+            "code": "the code specialist",
+            "teaching": "the teaching route",
+            "auto": "the automatic route",
+            "pending": "the pending route",
+        }.get(value, value.replace("-", " ").replace("_", " ").strip().title() or "the selected route")
+
+    @classmethod
+    def _friendly_route_target(cls, target: str) -> str:
+        raw = str(target or "").strip()
+        if not raw:
+            return "an unset route"
+        provider, sep, model = raw.partition("/")
+        if sep and provider and model:
+            provider_label = "local" if provider.lower() == "local" else provider.upper()
+            return f"{provider_label} / {model}"
+        return cls._friendly_route_name(raw)
+
+    def _refresh_route_preview(self) -> None:
+        sample = self._route_input.text().strip()
+        if not sample:
+            self._route_preview_lbl.setText(
+                "Route preview appears here once you type a sample request. Try the kind of question you would ask on Home."
+            )
+            return
+        try:
+            decision = resolve_ui_route(
+                user_text=sample,
+                mode=self._route_mode_cb.currentText().strip().lower(),
+                api_key_available=bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip()),
+            )
+            self._route_preview_lbl.setText(
+                self._describe_route_decision(decision) + "\n" + self._route_evidence_for_decision(decision)
+            )
+        except Exception as exc:
+            self._route_preview_lbl.setText(f"Route preview failed: {exc}")
 
     def _apply_routes(self) -> None:
         if not _PROVIDER_BACKEND:
@@ -536,6 +693,7 @@ class ModelsView(QWidget):
             save_provider_registry(registry)
             self._provider_registry = registry
             self._refresh_route_summary()
+            self._refresh_route_preview()
             self._set_route_status("Route strategy saved", ok=True)
         except Exception as exc:
             self._set_route_status(f"Apply routes failed: {exc}", ok=False)

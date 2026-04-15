@@ -1,6 +1,6 @@
 """
 ui/launcher/components/topbar.py
-52-px top navigation / header bar.
+Premium top navigation / header bar.
 """
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -22,155 +23,195 @@ class TopBar(QFrame):
     search_submitted = Signal(str)
     quick_action = Signal(str)
     instance_selected = Signal(str)
-    # Emits sidebar tab index for the unified launcher stack.
     nav_requested = Signal(int)
+    launcher_context_requested = Signal()
 
-    # Tab index map for nav buttons
     _NAV_TABS = [
         ("HOME", 0),
-        ("INSTANCES", 1),
-        ("APP MGMT",  3),
-        ("SETTINGS",  4),
+        ("WORKSPACES", 1),
+        ("APP MGMT", 3),
     ]
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._notif_count = 0
+        self._notif_severity = "info"
         self.setFixedHeight(T.TOPBAR_H)
         self.setObjectName("topbar")
         self.setStyleSheet(
-            f"QFrame#topbar {{"
-            f"  background-color: rgba(19,19,19,0.92);"
-            f"  border-bottom: 1px solid {T.BORDER};"
-            f"}}"
+            f"QFrame#topbar {{ background-color: rgba(246,240,228,0.92); border-bottom: 1px solid rgba(205,181,154,0.45); }}"
         )
 
         row = QHBoxLayout(self)
-        row.setContentsMargins(20, 0, 16, 0)
-        row.setSpacing(12)
+        row.setContentsMargins(16, 0, 16, 0)
+        row.setSpacing(10)
 
-        # ── Left: title ───────────────────────────────────────────────────────
-        title = QLabel("COMMAND_INTERFACE")
+        brand_col = QVBoxLayout()
+        brand_col.setSpacing(0)
+        title = QLabel("Guppy")
         title.setStyleSheet(
-            f"color: {T.PRIMARY}; font-family: '{T.FF_HEAD}';"
-            f"font-size: {T.FS_TITLE}pt; font-weight: 900; letter-spacing: 3px;"
+            f"color: {T.INK}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_HERO}pt; font-weight: bold;"
         )
-
-        session_sep = QLabel("//")
-        session_sep.setStyleSheet(f"color: {T.BORDER}; font-size: {T.FS_LABEL}pt;")
-
-        self._session_lbl = QLabel("SESSION: ACTIVE")
+        self._session_lbl = QLabel("daily assistant workspace")
         self._session_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_SMALL}pt; letter-spacing: 2px;"
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
+        brand_col.addWidget(title)
+        brand_col.addWidget(self._session_lbl)
+        row.addLayout(brand_col)
 
-        row.addWidget(title)
-        row.addWidget(session_sep)
-        row.addWidget(self._session_lbl)
-        row.addSpacing(24)
-
-        # ── Centre: nav buttons ───────────────────────────────────────────────
-        _nav_btn_style = (
-            f"QPushButton {{"
-            f"  color: {T.DIM}; border: none; background: transparent;"
-            f"  font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
-            f"  letter-spacing: 2px; padding: 0 10px;"
-            f"}}"
-            f"QPushButton:hover {{ color: {T.TEXT}; }}"
-            f"QPushButton[active='true'] {{"
-            f"  color: {T.PRIMARY}; border-bottom: 1px solid {T.PRIMARY};"
-            f"}}"
-        )
         self._nav_btns: list[QPushButton] = []
         for label, idx in self._NAV_TABS:
             btn = QPushButton(label)
-            btn.setFixedHeight(T.TOPBAR_H)
-            btn.setStyleSheet(_nav_btn_style)
+            btn.setFixedHeight(34)
             btn.clicked.connect(lambda _=False, i=idx: self._on_nav(i))
-            row.addWidget(btn)
+            btn.setStyleSheet(self._nav_style(False))
+            btn.setVisible(False)
             self._nav_btns.append(btn)
 
         row.addStretch()
 
-        # ── Instance quick switcher ──────────────────────────────────────────
-        inst_lbl = QLabel("INSTANCE")
+        workspace_shell = QFrame()
+        workspace_shell.setStyleSheet(
+            "background-color: rgba(255,250,243,0.88);"
+            " border: 1px solid rgba(205,181,154,0.55);"
+            " border-radius: 18px;"
+        )
+        workspace_row = QHBoxLayout(workspace_shell)
+        workspace_row.setContentsMargins(10, 5, 10, 5)
+        workspace_row.setSpacing(7)
+        inst_lbl = QLabel("Workspace")
         inst_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
         self._instance_cb = QComboBox()
-        self._instance_cb.setFixedWidth(180)
-        self._instance_cb.setStyleSheet(
-            f"QComboBox {{"
-            f"  background-color: {T.BG0}; color: {T.TEXT};"
-            f"  border: 1px solid {T.BORDER}; padding: 2px 8px;"
-            f"  font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt;"
-            f"}}"
-            f"QComboBox:focus {{ border-color: {T.PRIMARY}; }}"
-        )
+        self._instance_cb.setFixedWidth(168)
         self._instance_cb.currentTextChanged.connect(self._on_instance_selected)
-        row.addWidget(inst_lbl)
-        row.addWidget(self._instance_cb)
-        row.addSpacing(8)
+        workspace_row.addWidget(inst_lbl)
+        workspace_row.addWidget(self._instance_cb)
+        row.addWidget(workspace_shell)
 
-        # ── Right: search ─────────────────────────────────────────────────────
+        self._launcher_summary_btn = QPushButton("CHAT / AUTO / GUPPY / LIGHT")
+        self._launcher_summary_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._launcher_summary_btn.setToolTip("Open the active chat context controls.")
+        self._launcher_summary_btn.setMinimumWidth(204)
+        self._launcher_summary_btn.setStyleSheet(
+            f"QPushButton {{ background-color: rgba(255,250,243,0.88); color: {T.TEXT};"
+            f" border: 1px solid rgba(205,181,154,0.55); border-radius: 18px; padding: 8px 12px;"
+            f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; text-align: left; }}"
+            f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; background-color: #ffffff; }}"
+        )
+        self._launcher_summary_btn.clicked.connect(self.launcher_context_requested.emit)
+        row.addWidget(self._launcher_summary_btn)
+
         self._search = QLineEdit()
-        self._search.setPlaceholderText("SEARCH_SYSTEM...")
-        self._search.setFixedWidth(220)
-        self._search.setStyleSheet(
-            f"QLineEdit {{ background-color: {T.BG0};"
-            f"  border: 1px solid {T.BORDER}; padding: 3px 8px;"
-            f"  font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt;"
-            f"  color: {T.TEXT}; }}"
-            f"QLineEdit:focus {{ border-color: {T.PRIMARY}; }}"
-        )
-        self._search.returnPressed.connect(
-            lambda: self.search_submitted.emit(self._search.text())
-        )
-
-        # notification + terminal buttons
-        notif_btn = QPushButton("🔔")
-        notif_btn.setFixedSize(32, 32)
-        notif_btn.setEnabled(False)
-        notif_btn.setToolTip("Notification inbox is not implemented in launcher yet.")
-        notif_btn.setStyleSheet(
-            f"QPushButton {{ border: none; color: {T.DIM}; font-size: 13pt; }}"
-            f"QPushButton:hover {{ color: {T.PRIMARY}; }}"
-        )
-        notif_btn.clicked.connect(lambda: self.quick_action.emit("notifications"))
-
-        term_btn = QPushButton("⌨")
-        term_btn.setFixedSize(32, 32)
-        term_btn.setEnabled(False)
-        term_btn.setToolTip("Embedded terminal panel is not implemented in launcher yet.")
-        term_btn.setStyleSheet(
-            f"QPushButton {{ border: none; color: {T.DIM}; font-size: 13pt; }}"
-            f"QPushButton:hover {{ color: {T.PRIMARY}; }}"
-        )
-        term_btn.clicked.connect(lambda: self.quick_action.emit("terminal"))
-
+        self._search.setPlaceholderText("Search system, notes, or commands")
+        self._search.setFixedWidth(214)
+        self._search.returnPressed.connect(lambda: self.search_submitted.emit(self._search.text()))
         row.addWidget(self._search)
-        row.addWidget(notif_btn)
-        row.addWidget(term_btn)
 
-        # Start with HOME active
+        notif_wrap = QWidget()
+        notif_wrap.setFixedSize(36, 36)
+        notif_layout = QVBoxLayout(notif_wrap)
+        notif_layout.setContentsMargins(0, 0, 0, 0)
+        notif_layout.setSpacing(0)
+        self._notif_btn = QPushButton("\U0001F514")
+        self._notif_btn.setFixedSize(36, 36)
+        self._notif_btn.setToolTip("Open launcher warnings and recovery events in App Management.")
+        self._notif_btn.clicked.connect(lambda: self.quick_action.emit("notifications"))
+        self._notif_btn.setStyleSheet(self._icon_button_style(T.BG0, T.TEXT))
+        notif_layout.addWidget(self._notif_btn)
+        self._notif_badge = QLabel("")
+        self._notif_badge.setParent(notif_wrap)
+        self._notif_badge.setFixedHeight(16)
+        self._notif_badge.setMinimumWidth(16)
+        self._notif_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._notif_badge.move(20, 0)
+        self._notif_badge.hide()
+        self._apply_notif_style()
+
+        self._term_btn = QPushButton("\u2328")
+        self._term_btn.setFixedSize(36, 36)
+        self._term_btn.setToolTip("Open operator logs and recent command activity in App Management.")
+        self._term_btn.setStyleSheet(self._icon_button_style(T.BG0, T.TEXT))
+        self._term_btn.clicked.connect(lambda: self.quick_action.emit("terminal"))
+
+        row.addWidget(notif_wrap)
+        row.addWidget(self._term_btn)
+
         self.set_active_tab(0)
         self.set_instances(["guppy-primary"], active_instance="guppy-primary")
+
+    @staticmethod
+    def _nav_style(active: bool) -> str:
+        if active:
+            return (
+                f"QPushButton {{ background-color: {T.INK}; color: white; border: none; border-radius: 14px;"
+                f" padding: 0 14px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px; }}"
+            )
+        return (
+            f"QPushButton {{ background-color: transparent; color: {T.DIM}; border: none; border-radius: 14px;"
+            f" padding: 0 14px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px; }}"
+            f"QPushButton:hover {{ color: {T.INK}; background-color: rgba(255,107,61,0.08); }}"
+        )
+
+    @staticmethod
+    def _icon_button_style(bg: str, color: str) -> str:
+        return (
+            f"QPushButton {{ background-color: {bg}; color: {color}; border: 1px solid rgba(205,181,154,0.55);"
+            f" border-radius: 18px; font-size: 13pt; }}"
+            f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; background-color: #ffffff; }}"
+        )
 
     def _on_nav(self, tab_index: int) -> None:
         self.set_active_tab(tab_index)
         self.nav_requested.emit(tab_index)
 
     def set_active_tab(self, tab_index: int) -> None:
-        """Highlight the nav button matching tab_index."""
         for btn, (_, idx) in zip(self._nav_btns, self._NAV_TABS):
-            active = (idx == tab_index)
-            btn.setProperty("active", "true" if active else "false")
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
+            btn.setStyleSheet(self._nav_style(idx == tab_index))
 
     def set_session(self, text: str) -> None:
-        self._session_lbl.setText(f"SESSION: {text.upper()}")
+        clean = (text or "daily assistant workspace").strip() or "daily assistant workspace"
+        self._session_lbl.setText(clean.lower())
+
+    def set_launcher_summary(self, text: str) -> None:
+        summary = (text or "AUTO / GUPPY / LIGHT").strip() or "AUTO / GUPPY / LIGHT"
+        summary = summary.replace("[EDIT]", "").replace("[OPEN]", "OPEN").strip()
+        if not summary.startswith("CHAT"):
+            summary = f"CHAT / {summary}"
+        self._launcher_summary_btn.setText(summary)
+
+    def set_notification_badge(self, count: int, severity: str = "info") -> None:
+        self._notif_count = max(0, int(count or 0))
+        self._notif_severity = (severity or "info").strip().lower() or "info"
+        self._apply_notif_style()
+
+    def _apply_notif_style(self) -> None:
+        btn_color = T.TEXT
+        badge_color = T.TERTIARY
+        if self._notif_severity == "error":
+            btn_color = T.ERROR
+            badge_color = T.ERROR
+        elif self._notif_severity == "warn":
+            btn_color = T.PRIMARY
+            badge_color = T.PRIMARY
+
+        self._notif_btn.setStyleSheet(self._icon_button_style(T.BG0, btn_color))
+        if self._notif_count <= 0:
+            self._notif_badge.hide()
+            return
+
+        text = "99+" if self._notif_count > 99 else str(self._notif_count)
+        width = 24 if len(text) > 2 else 16
+        self._notif_badge.setFixedWidth(width)
+        self._notif_badge.move(max(12, 36 - width), 0)
+        self._notif_badge.setText(text)
+        self._notif_badge.setStyleSheet(
+            f"background-color: {badge_color}; color: white; border-radius: 8px;"
+            f"font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; padding: 0 2px;"
+        )
+        self._notif_badge.show()
 
     def set_instances(self, instances: list[str], active_instance: str = "") -> None:
         names = [str(item).strip() for item in instances if str(item).strip()]

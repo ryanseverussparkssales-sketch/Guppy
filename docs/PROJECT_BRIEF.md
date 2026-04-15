@@ -16,8 +16,8 @@ Guppy is a Windows-first, local-first personal assistant focused on:
 1. Default entrypoint: guppy_launcher.py
 2. Canonical launcher path: src/guppy/apps/launcher_app.py + ui/launcher/
 3. Canonical launch helper: src/guppy/cli/launch.py
-4. Legacy specialist surfaces (compatibility only): guppy_ui.py, merlin_ui.py, council_ui.py
-5. Canonical CLI blocks legacy `merlin` and `council` launches unless `GUPPY_ENABLE_LEGACY_SURFACES=1` is set.
+4. Default runtime instance layout: `guppy-primary` foreground with optional `builder-collab`
+5. Teaching/code specialization now routes through `guppy-teach` and `guppy-code` instead of standalone Merlin/Council windows
 
 ## Runtime Services
 
@@ -27,30 +27,53 @@ Guppy is a Windows-first, local-first personal assistant focused on:
 
 ## What Is Live
 
-1. Launcher-first workflow with Assistant, Tools, Settings, Advanced, Models, Voices.
-2. Embedded INIT path default behavior; legacy launches compatibility-gated.
+1. Launcher-first workflow with Home, Workspaces, Agent Tools, App Mgmt, Models, and Voices.
+2. Embedded INIT path and launcher bootstrap auto-start the API and hub asynchronously when needed.
 3. Startup guardrails and runtime telemetry markers.
-4. Recovery operations in launcher settings.
-5. Guided persona and guided provider routing controls are live in launcher settings, with edge-case polish still in progress.
-6. Backend instance capability enforcement now mirrors launcher tool restrictions for chat and inter-instance tool execution.
-7. Instance logs now enforce raw-log retention and keep summary metadata for operator review.
-8. Base install now excludes dev-only packages and the optional `openwakeword` / `chromadb` extras.
+4. Recovery operations now live under App Mgmt as the single operational surface.
+5. Persona Builder v1 is now live end-to-end inside the App Mgmt settings section: saveable personas, scope/model assignment, prompt preview, and API prompt overlay are wired through the launcher flow.
+6. Guided model routing visibility is live in Models: route strategy editing, fallback-chain controls, and a sample-query explainer now show why Guppy chose a route.
+7. Voice assignment/import/preview is live in Voices: defaults, persona/model bindings, custom voice imports, and preview controls are wired through the launcher state.
+8. Queue-driven local builder automation now supports launcher queueing, dry-run staging, approval, and report generation for low-risk tasks.
+9. Backend instance capability enforcement now mirrors launcher tool restrictions for chat and inter-instance tool execution.
+10. Instance logs now enforce raw-log retention and keep summary metadata for operator review.
+11. Base install now excludes dev-only packages and the optional `openwakeword` / `chromadb` extras.
+12. App Mgmt now exposes workflow-loop shortcuts for Morning Boot, acceptance snapshot, midday stability, evening close, and overnight low-compute runs through the embedded terminal.
+13. Home now includes starter actions for morning brief, focused research, file triage, and builder review so first-run users have clear entry points without leaving the launcher.
+14. Home is now chat-first: the messenger-style surface keeps workspace chat, starters, and the composer in front while runtime, routing, and recovery summaries moved out of the top of Home.
+15. The right tray now holds compact workspace-tool shortcuts plus a reserved media dock area; App Mgmt now carries the heavier runtime, routing, recovery, and workflow context.
+16. Route and voice choices now carry lightweight readiness evidence in the launcher, so Home, Models, and Voices all show a clearer "what Guppy chose and whether it looks ready" story.
+17. The launcher shell now uses a premium light-gallery visual system with editorial typography, softer navigation chrome, a stronger empty-state composition, and art-directed color fields to make Home feel closer to leading consumer chat products than an operator console.
+18. Home has now been pushed further toward a consumer messenger feel: the large top hero is gone, active chat context lives in the top bar, transcript bubbles are softer and more iOS-like, and the composer/right tray now match the same lower-density visual rhythm.
+19. Models, Voices, and App Mgmt now hold the fuller readiness story: route evidence, default/runtime voice evidence, workflow evidence, and richer operational context are deeper in the product so Home can stay calm.
+20. Agent Tools now mirrors workspace permission policy more explicitly in the UI, and restricted tools no longer prime Home indirectly when the active workspace should not be allowed to use them.
+21. Workspaces now shows role mix and collaboration-fit cues directly in the manager, so users can see how many daily/builder/reference/ops contexts they have and what the active workspace is best suited for.
+22. Cross-workspace query now follows the same policy framing server-side that the launcher explains client-side, so blocked source workspaces are denied before the bridge runs.
+23. The launcher app icon now uses the Guppy fish mark, matching the shell branding instead of leaving the fish only as an internal sidebar motif.
 
 What is live in the M2 launcher shell right now:
 
 1. Unified launcher entrypoint is `guppy_launcher.py` with canonical implementation in `src/guppy/apps/launcher_app.py` and `ui/launcher/`.
-2. Current navigation model is Home, Instance Manager, Agent Tools, App Mgmt, Settings, Models, and Voices.
-3. Home now carries active-instance identity, background activity, runtime facts, and recovery summary so the right rail stays ops-focused.
-4. Instance Manager foundation is live with persisted config/runtime state, create or update, activate, delete, and per-instance log viewing.
+2. Current navigation model is Home, Workspaces, Agent Tools, App Mgmt, Models, and Voices, with settings folded into App Mgmt.
+3. Home is now a chat-first daily surface with a consumer-messenger lean: workspace chat stays central, heavy context is off the canvas, and the active launcher context is controlled from the top bar instead of a large in-room panel.
+4. App Mgmt now carries runtime facts, route preview, recovery summary, workflow loops, and settings, while the right tray owns softened quick tools, add-on spaces, and the media slot.
+5. Workspace-first launcher framing is now live in the UI: the visible shell talks about workspaces, while backend instance contracts remain unchanged for safety.
+6. The current visual direction is a warm, premium, chat-first shell rather than the older obsidian-terminal look.
+7. The right way to deepen trust now is to keep live readiness evidence in Models, Voices, and App Mgmt rather than adding more status copy back onto Home.
 
 ## Current Gaps
 
-1. Agent Tools vs App Mgmt content is still transitional: labels and stack order are aligned, but view content is not fully split by responsibility.
-2. Final guided builder polish for provider routing edge cases and voice lifecycle parity.
-3. Complete voice assignment/import/preview lifecycle parity.
-4. Full legacy retirement from recommended daily path; specialist surfaces remain compatibility bridges for fallback and debug.
-5. In-app daily workflow loop (Morning/Workday/Close).
-6. Dependency and packaging surface is still broader than the long-term product target because local, cloud, provider, and voice stacks still share one base runtime bundle.
+1. Agent Tools vs App Mgmt framing is now clearer in the UI, but execution flow and deeper enforcement still need to catch up with the split.
+2. Builder polish remains: stronger guardrails and more visual explanation for edge-case provider/voice configurations.
+3. Voice lifecycle still needs broader real-device validation across all engines, especially preview behavior on more machines.
+4. Route visibility is now explainable in-app with readiness context and light latency evidence, but fuller live status signaling is still pending.
+5. Builder/off-hours flow needs output-cleanup polish, broader template coverage, and repeated stress validation before wider rollout.
+6. Finish pruning remaining legacy aliases, historical docs, and compatibility wording that still imply Merlin/Council are active surfaces.
+7. Workflow loop productization is underway: App Mgmt now has launcher-first workflow shortcuts, next-step guidance, and short outcome summaries, but richer execution evidence and tighter UX still need work.
+8. Workspace framing is stronger, but recurring-context and collaboration cues still need to deepen beyond the current role mix / fit layer.
+9. Dependency and packaging surface is still broader than the long-term product target because local, cloud, provider, and voice stacks still share one base runtime bundle.
+10. The Local LLM story is still fragmented across Home, Models, and memory internals; a dedicated Local LLM surface and a clearer local-memory backend strategy are not shipped yet.
+11. The local-model modernization track is now planned, but not yet implemented: the manifest, benchmark spec, and challenger list are in repo, while the harness, memory adapter seam, and dedicated Local LLM page still need to be built.
 
 ## Developer Rules
 
@@ -78,3 +101,5 @@ What is live in the M2 launcher shell right now:
 2. Setup and architecture details: README.md
 3. Measurable targets: GOALS.md
 4. Daily operator runbook: DAILY_WORKFLOW.md
+5. Local LLM plan: docs/LOCAL_LLM_IMPLEMENTATION_PLAN.md
+6. Local LLM benchmark spec: docs/LOCAL_LLM_BENCHMARK_SPEC.md

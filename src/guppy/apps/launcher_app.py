@@ -25,6 +25,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from ui.launcher import LauncherWindow
+from ui.launcher.components import create_guppy_fish_icon
 
 logging.basicConfig(
     level=logging.INFO,
@@ -138,8 +139,10 @@ def main() -> int:
     app.setApplicationDisplayName("COMMAND_INTERFACE")
     app.setApplicationVersion("5.0")
     app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+    app.setWindowIcon(create_guppy_fish_icon())
 
     window = LauncherWindow()
+    window.setWindowIcon(create_guppy_fish_icon())
     window.show()
     _append_launcher_event("startup_phase", phase="window_shown")
 

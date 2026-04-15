@@ -820,6 +820,55 @@ class LauncherRepairTokenResyncTests(unittest.TestCase):
         self.assertEqual(result.get("ok"), True)
         self.assertGreaterEqual(call_count["n"], 3)
 
+    def test_token_resync_failure_logs_distinct_launcher_event(self):
+        import types as _types
+        import urllib.error
+        from unittest.mock import patch, MagicMock
+        from ui.launcher import launcher_window as lw
+
+        old_token = "33" * 32
+        log_events: list[tuple[str, dict]] = []
+
+        stub = _types.SimpleNamespace()
+        stub._api_bearer_token = ""
+        stub._api_token_source = "test"
+        stub._api_base_url = lambda: "http://127.0.0.1:8100"
+        stub._log_launcher_event = lambda event, **fields: log_events.append((event, fields))
+        stub._read_repair_token = lambda: old_token
+        stub._http_json = _types.MethodType(lw.LauncherWindow._http_json, stub)
+        stub._refresh_repair_token_from_api = _types.MethodType(
+            lw.LauncherWindow._refresh_repair_token_from_api, stub
+        )
+
+        def _fake_urlopen(req, timeout=None):
+            del timeout
+            url = req.get_full_url()
+            if "/repair-token/refresh" in url:
+                cm = MagicMock()
+                cm.__enter__ = lambda s: MagicMock(
+                    read=lambda: json.dumps({"repair_token": ""}).encode()
+                )
+                cm.__exit__ = MagicMock(return_value=False)
+                return cm
+            body = json.dumps(
+                {"detail": {"code": "repair_token_mismatch", "message": "bad"}}
+            ).encode()
+            err = urllib.error.HTTPError(url, 403, "Forbidden", {}, None)
+            err.read = lambda: body
+            raise err
+
+        with patch.object(lw, "_is_valid_repair_token", side_effect=lambda token: token == old_token):
+            with patch("ui.launcher.launcher_window.urllib.request.urlopen", side_effect=_fake_urlopen):
+                with self.assertRaises(RuntimeError):
+                    stub._http_json(
+                        "/repair", method="POST", payload={"action": "warmup", "dry_run": True}
+                    )
+
+        self.assertTrue(any(event == "repair_token_resync_failed" for event, _fields in log_events))
+        resync_fields = next(fields for event, fields in log_events if event == "repair_token_resync_failed")
+        self.assertEqual(resync_fields.get("reason"), "invalid_or_missing_refresh_token")
+        self.assertEqual(resync_fields.get("auth_code"), "repair_token_mismatch")
+
 
 class LauncherRecoveryClassificationTests(unittest.TestCase):
     def _make_stub(self, *, api_state: str, api_detail: str = "", direct_result: dict | None = None):

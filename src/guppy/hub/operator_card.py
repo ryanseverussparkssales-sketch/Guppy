@@ -239,7 +239,7 @@ class OperatorCard(QFrame):
     def _request_status_snap(self):
         if not self._op:
             return
-        for aid in ("guppy", "merlin", "council"):
+        for aid in ("guppy",):
             self._op.send_command(aid, "report_status")
 
     def _on_dry_run_toggled(self, enabled: bool):
@@ -310,7 +310,7 @@ class OperatorCard(QFrame):
 
         snap = self._op.get_agent_status_snapshot()
         rows = []
-        for aid in ("guppy", "merlin", "council"):
+        for aid in ("guppy",):
             info = snap.get(aid, {})
             if info.get("ok"):
                 data = info.get("data", {})

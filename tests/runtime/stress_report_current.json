@@ -1,0 +1,70 @@
+{
+  "ts": "2026-04-14T06:37:38.864689+00:00",
+  "ok": true,
+  "sections": [
+    {
+      "name": "route_resolution",
+      "iterations": 5000,
+      "failures": 0,
+      "elapsed_s": 0.206,
+      "ops_per_s": 24220.56,
+      "routes": {
+        "ollama|ollama": 1169,
+        "haiku_voice|claude": 1348,
+        "sonnet|claude": 569,
+        "ollama_teaching|ollama": 832,
+        "claude_teaching|claude": 551,
+        "haiku|claude": 531
+      }
+    },
+    {
+      "name": "api_endpoints",
+      "requests": 500,
+      "workers": 20,
+      "elapsed_s": 7.368,
+      "rps": 67.86,
+      "latency_ms_avg": 289.89,
+      "latency_ms_p95": 465.05,
+      "latency_ms_p95_hotpath": 249.86,
+      "latency_ms_p95_by_endpoint": {
+        "/status": 246.42,
+        "/metrics": 246.72,
+        "/startup/check": 537.79,
+        "/logs/recent?limit=5": 259.55
+      },
+      "status_counts": {
+        "/status:200": 118,
+        "/metrics:200": 141,
+        "/logs/recent?limit=5:200": 126,
+        "/startup/check:200": 115
+      },
+      "failure_count": 0,
+      "failure_samples": []
+    },
+    {
+      "name": "reminder_scheduler",
+      "requested": 250,
+      "created": 250,
+      "list_count_mid": 250,
+      "cancelled": 250,
+      "left_after_cancel": 0,
+      "failures": 0,
+      "elapsed_s": 0.409
+    },
+    {
+      "name": "logging_io",
+      "events_written": 3000,
+      "session_tail_seen": 20,
+      "elapsed_s": 64.229,
+      "ops_per_s": 93.42
+    }
+  ],
+  "gates": {
+    "api_latency": {
+      "max_avg_ms": 1500.0,
+      "max_p95_ms": 5000.0,
+      "max_p95_hot_ms": 1100.0
+    },
+    "failures": []
+  }
+}

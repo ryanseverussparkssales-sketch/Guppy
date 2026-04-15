@@ -27,12 +27,18 @@ SERVICES = ("api", "cloudflared", "ollama")
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=("dry", "live"), default="dry")
+    ap.add_argument(
+        "--report",
+        default="runtime/lifecycle_validation_report.json",
+        help="JSON output path for the lifecycle validation report.",
+    )
     args = ap.parse_args()
 
     dry_run = args.mode == "dry"
     op = get_operator()
 
     report: dict = {"mode": args.mode, "initial": {}, "actions": [], "final": {}}
+    overall_ok = True
 
     for svc in SERVICES:
         report["initial"][svc] = op._check_service_running(svc)
@@ -45,6 +51,7 @@ def main() -> int:
             res = op.restart_service(svc, dry_run=dry_run)
             if not dry_run:
                 time.sleep(1.0)
+            overall_ok = overall_ok and bool(res.get("ok", False))
             row["steps"].append(
                 {
                     "op": "restart",
@@ -56,6 +63,7 @@ def main() -> int:
             res_start = op.start_service(svc, dry_run=dry_run)
             if not dry_run:
                 time.sleep(1.0)
+            overall_ok = overall_ok and bool(res_start.get("ok", False))
             row["steps"].append(
                 {
                     "op": "start",
@@ -68,6 +76,7 @@ def main() -> int:
             res_stop = op.stop_service(svc, dry_run=dry_run)
             if not dry_run:
                 time.sleep(1.0)
+            overall_ok = overall_ok and bool(res_stop.get("ok", False))
             row["steps"].append(
                 {
                     "op": "stop",
@@ -81,8 +90,12 @@ def main() -> int:
     for svc in SERVICES:
         report["final"][svc] = op._check_service_running(svc)
 
+    report["ok"] = overall_ok
+    report_path = Path(args.report)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
-    return 0
+    return 0 if overall_ok else 1
 
 
 if __name__ == "__main__":

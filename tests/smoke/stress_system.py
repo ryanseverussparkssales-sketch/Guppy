@@ -17,6 +17,13 @@ from utils.router_scorecard import log_router_scorecard
 from utils.session_logger import log_session_event, tail_session_events
 
 
+def _write_json_no_bom(path: Path, payload: dict) -> None:
+    text = json.dumps(payload, indent=2)
+    if text.startswith("\ufeff"):
+        text = text.lstrip("\ufeff")
+    path.write_text(text, encoding="utf-8")
+
+
 def _run_route_resolution_stress(iterations: int) -> dict:
     previous_classifier_mode = os.environ.get("GUPPY_SEMANTIC_CLASSIFIER")
     os.environ["GUPPY_SEMANTIC_CLASSIFIER"] = "0"
@@ -293,7 +300,7 @@ def main():
     runtime_dir = Path(__file__).resolve().parent.parent / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
     out = runtime_dir / f"stress_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
-    out.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    _write_json_no_bom(out, result)
 
     print(json.dumps(result, indent=2))
     print(f"\nReport written: {out}")

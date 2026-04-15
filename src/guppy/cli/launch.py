@@ -5,8 +5,6 @@ Usage:
 
 Surfaces:
     guppy        — standard Guppy launcher   (profile: standard)
-    merlin       — Merlin legacy surface     (profile: power, compatibility-gated)
-    council      — Council legacy surface    (profile: power, compatibility-gated)
     launcher     — unified launcher + hub    (profile: standard)
     guppyprime   — full fleet launcher       (profile: power)
     hub          — Omnissiah hub only
@@ -79,8 +77,8 @@ def setup_env(root: Path, profile: str = "standard") -> None:
     os.environ.setdefault("GUPPY_SEMANTIC_CLASSIFIER", "1")
     os.environ.setdefault("OLLAMA_MODEL", "guppy")
     os.environ.setdefault("OLLAMA_FAST_MODEL", "guppy-fast")
-    os.environ.setdefault("OLLAMA_TEACH_MODEL", "merlin")
-    os.environ.setdefault("OLLAMA_CODE_MODEL", "merlin-code")
+    os.environ.setdefault("OLLAMA_TEACH_MODEL", "guppy-teach")
+    os.environ.setdefault("OLLAMA_CODE_MODEL", "guppy-code")
     os.environ.setdefault("OLLAMA_VAULT_MODEL", "vault-scraper")
     os.environ.setdefault("WEATHER_UNITS", "imperial")
 
@@ -118,24 +116,11 @@ def start_hub_background(root: Path) -> subprocess.Popen | None:
 #: Maps surface name → (script, needs_hub, default_profile)
 SURFACES: dict[str, tuple[str, bool, str]] = {
     "guppy":       ("guppy_launcher.py", False, "standard"),
-    "merlin":      ("merlin_ui.py",      False, "power"),
-    "council":     ("council_ui.py",     False, "power"),
     "launcher":    ("guppy_launcher.py", True,  "standard"),
     "guppyprime":  ("guppy_launcher.py", True,  "power"),
     "hub":         ("guppy_hub.py",      False, "standard"),
     "api":         ("guppy_api.py",      False, "standard"),
 }
-
-_LEGACY_SURFACES = {"merlin", "council"}
-
-
-def _legacy_surface_launch_enabled() -> bool:
-    return os.environ.get("GUPPY_ENABLE_LEGACY_SURFACES", "0").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
 
 
 def _setup_api_env() -> None:
@@ -181,14 +166,6 @@ def main(argv: list[str] | None = None) -> int:
     profile = args.profile or default_profile
 
     setup_env(ROOT, profile=profile)
-
-    if args.surface in _LEGACY_SURFACES and not _legacy_surface_launch_enabled():
-        print(
-            "[launch] Legacy specialist surfaces are compatibility-only. "
-            "Use `python src/guppy/cli/launch.py launcher` or set GUPPY_ENABLE_LEGACY_SURFACES=1 "
-            f"before launching `{args.surface}`."
-        )
-        return 2
 
     if hub_by_default and not args.no_hub:
         print("[launch] Starting hub in background...")

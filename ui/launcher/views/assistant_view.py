@@ -1,7 +1,6 @@
-"""
+﻿"""
 ui/launcher/views/assistant_view.py
-ASSISTANT tab — chat input at bottom, mode/persona/profile dropdowns below it.
-Agent cards have moved to the StatusPanel (right column).
+Home chat surface with a calmer, messenger-style launcher layout.
 """
 from __future__ import annotations
 
@@ -14,6 +13,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -42,98 +42,89 @@ def _dropdown(options: list[str]) -> QComboBox:
 class AssistantView(QWidget):
     command_submitted = Signal(str)
     cancel_requested = Signal()
+    mic_requested = Signal()
+    starter_requested = Signal(str, str)
     settings_changed = Signal(dict)
     chat_context_changed = Signal(str, str)
+    launcher_summary_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._request_in_flight_ui = False
+        self._mic_capture_active = False
+        self._workspace_role = "Daily assistant workspace"
+        self._workspace_purpose = "General help, chat, and quick tasks."
+        self._starter_buttons: dict[str, QPushButton] = {}
+        self._conversation_history: list[dict[str, str]] = []
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 24, 28, 16)
-        root.setSpacing(0)
+        root.setContentsMargins(16, 14, 16, 12)
+        root.setSpacing(12)
 
-        # ── Recommendation chip (top anchor) ─────────────────────────────────
-        self._rec_chip = QLabel("RECOMMENDED: STANDARD")
-        self._rec_chip.setStyleSheet(
-            f"color: {T.PRIMARY};"
-            f"background-color: rgba(242,202,80,0.08);"
-            f"border: 1px solid rgba(242,202,80,0.2);"
-            f"font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
-            f"font-weight: bold; letter-spacing: 2px; padding: 3px 8px;"
-        )
-        self._rec_chip.setFixedHeight(24)
-        root.addWidget(self._rec_chip)
+        self._hero_title = QLabel("Ask clearly. Move the work forward.")
+        self._hero_subtitle = QLabel("Pick up the work, ask a question, or hand Guppy the next move.")
+        self._rec_chip = QLabel("RECOMMENDED / STANDARD")
+        self._instance_chip = QLabel("WORKSPACE / GUPPY-PRIMARY")
+        self._background_chip = QLabel("READY")
+        self._entry_hint = QLabel("Ask, continue, or use a starter.")
+        self._background_event = QLabel("Latest activity: launcher ready", self)
+        self._background_event.setVisible(False)
+        self._workspace_summary = QLabel("Active workspace: Daily assistant workspace. General help, chat, and quick tasks.", self)
+        self._workspace_summary.setVisible(False)
+        self._runtime_facts = QLabel("Ready now: Standard profile, Guppy model, Edge voice.", self)
+        self._runtime_facts.setVisible(False)
+        self._route_facts = QLabel("Next reply: waiting for your next message.", self)
+        self._route_facts.setVisible(False)
+        self._recovery_summary = QLabel("System health: stable", self)
+        self._recovery_summary.setVisible(False)
 
-        home_row = QHBoxLayout()
-        home_row.setContentsMargins(0, 8, 0, 0)
-        home_row.setSpacing(10)
+        self._starter_summary = QLabel(
+            "Load a first draft into the composer."
+        )
+        self._starter_summary.setWordWrap(True)
+        self._starter_summary.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._starter_summary.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
+        )
+        self._starter_summary.setVisible(False)
+        self._starter_row = QHBoxLayout()
+        self._starter_row.setSpacing(8)
+        for starter_id, title, mode, prompt in self._starter_templates():
+            btn = QPushButton(title)
+            btn.setToolTip(prompt)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(
+                f"QPushButton {{ background: {T.BG0}; color: {T.TEXT}; border: 1px solid {T.BORDER};"
+                f" border-radius: 11px; padding: 5px 9px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+                f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; background: rgba(242,202,80,0.05); }}"
+            )
+            btn.clicked.connect(
+                lambda _=False, sid=starter_id, label=title, selected_mode=mode, text=prompt: self._load_starter(
+                    sid, label, selected_mode, text
+                )
+            )
+            self._starter_buttons[starter_id] = btn
+            self._starter_row.addWidget(btn)
+        self._starter_row.addStretch()
 
-        self._home_chip = QLabel("HOME SURFACE")
-        self._home_chip.setStyleSheet(
-            f"color: {T.TEXT};"
-            f"background-color: {T.BG1};"
-            f"border: 1px solid {T.BORDER};"
-            f"font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
-            f"letter-spacing: 2px; padding: 3px 8px;"
-        )
-        self._instance_chip = QLabel("INSTANCE: GUPPY-PRIMARY")
-        self._instance_chip.setStyleSheet(
-            f"color: {T.PRIMARY};"
-            f"background-color: rgba(242,202,80,0.08);"
-            f"border: 1px solid rgba(242,202,80,0.2);"
-            f"font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
-            f"letter-spacing: 2px; padding: 3px 8px;"
-        )
-        self._background_chip = QLabel("BACKGROUND: IDLE")
-        self._background_chip.setStyleSheet(
-            f"color: {T.DIM};"
-            f"background-color: {T.BG1};"
-            f"border: 1px solid {T.BORDER};"
-            f"font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
-            f"letter-spacing: 1px; padding: 3px 8px;"
-        )
-        home_row.addWidget(self._home_chip)
-        home_row.addWidget(self._instance_chip)
-        home_row.addWidget(self._background_chip, stretch=1)
-        root.addLayout(home_row)
-
-        self._background_event = QLabel("Background activity: launcher ready")
-        self._background_event.setWordWrap(True)
-        self._background_event.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px; padding-top: 8px;"
-        )
-        root.addWidget(self._background_event)
-
-        self._runtime_facts = QLabel("Runtime: profile=STANDARD · model=GUPPY · voice=EDGE · latency=—")
-        self._runtime_facts.setWordWrap(True)
-        self._runtime_facts.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        root.addWidget(self._runtime_facts)
-
-        self._recovery_summary = QLabel("Recovery: stable")
-        self._recovery_summary.setWordWrap(True)
-        self._recovery_summary.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px; padding-bottom: 6px;"
-        )
-        root.addWidget(self._recovery_summary)
-
-        # ── Chat transcript (above input) ─────────────────────────────────────
-        root.addSpacing(8)
         transcript = QFrame()
-        transcript.setObjectName("chat_transcript")
+        transcript.setObjectName("chat_surface")
         transcript.setStyleSheet(
-            f"QFrame#chat_transcript {{"
-            f"  background-color: {T.BG};"
-            f"  border: 1px solid {T.BORDER};"
-            f"}}"
+            f"QFrame#chat_surface {{ background-color: rgba(255,250,243,0.62); border: 1px solid rgba(205,181,154,0.42); border-radius: 24px; }}"
         )
         tcol = QVBoxLayout(transcript)
-        tcol.setContentsMargins(8, 8, 8, 8)
-        tcol.setSpacing(0)
+        tcol.setContentsMargins(16, 14, 16, 14)
+        tcol.setSpacing(10)
+
+        transcript_hdr = QHBoxLayout()
+        transcript_hdr.setSpacing(8)
+        self._status_strip = QLabel("READY")
+        self._status_strip.setStyleSheet(
+            f"color: {T.GREEN}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        transcript_hdr.addStretch()
+        transcript_hdr.addWidget(self._status_strip)
+        tcol.addLayout(transcript_hdr)
 
         self._chat_scroll = QScrollArea()
         self._chat_scroll.setWidgetResizable(True)
@@ -143,189 +134,246 @@ class AssistantView(QWidget):
         self._chat_content = QWidget()
         self._chat_content.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._chat_layout = QVBoxLayout(self._chat_content)
-        self._chat_layout.setContentsMargins(0, 0, 0, 0)
-        self._chat_layout.setSpacing(8)
+        self._chat_layout.setContentsMargins(12, 8, 12, 8)
+        self._chat_layout.setSpacing(18)
+        self._empty_state = self._build_empty_state()
+        self._chat_layout.addWidget(self._empty_state)
         self._chat_layout.addStretch()
-        self._conversation_history: list[dict[str, str]] = []
-
         self._chat_scroll.setWidget(self._chat_content)
-        tcol.addWidget(self._chat_scroll)
+        tcol.addWidget(self._chat_scroll, stretch=1)
         root.addWidget(transcript, stretch=1)
 
-        # ── Chat input + integrated status strip ──────────────────────────────
-        input_frame = QFrame()
-        input_frame.setObjectName("chat_bar")
-        input_frame.setStyleSheet(
-            f"QFrame#chat_bar {{"
-            f"  background-color: {T.BG0};"
-            f"  border: 1px solid {T.BORDER};"
-            f"}}"
+        composer = QFrame()
+        composer.setObjectName("chat_composer")
+        composer.setStyleSheet(
+            f"QFrame#chat_composer {{ background-color: rgba(255,250,243,0.74); border: 1px solid rgba(205,181,154,0.34); border-radius: 26px; }}"
         )
-        frame_col = QVBoxLayout(input_frame)
-        frame_col.setContentsMargins(0, 0, 0, 0)
-        frame_col.setSpacing(0)
+        composer_col = QVBoxLayout(composer)
+        composer_col.setContentsMargins(12, 9, 12, 8)
+        composer_col.setSpacing(6)
 
-        # input row
-        bar = QHBoxLayout()
-        bar.setContentsMargins(12, 6, 8, 6)
-        bar.setSpacing(8)
+        starter_strip = QHBoxLayout()
+        starter_strip.setSpacing(8)
+        starter_strip.addLayout(self._starter_row, stretch=1)
+        composer_col.addLayout(starter_strip)
 
-        cmd_icon = QLabel("⊞")
-        cmd_icon.setStyleSheet(f"color: {T.DIM}; font-size: {T.FS_TITLE}pt;")
-        bar.addWidget(cmd_icon)
-
-        self._input = QLineEdit()
-        self._input.setPlaceholderText("EXECUTE COMMAND OR ASK GUPPY...")
-        self._input.setStyleSheet(
-            f"QLineEdit {{ background: transparent; border: none;"
-            f"  color: {T.TEXT}; font-family: '{T.FF_MONO}';"
-            f"  font-size: {T.FS_LABEL}pt; letter-spacing: 1px; }}"
+        self._launcher_panel = QFrame()
+        self._launcher_panel.setObjectName("launcher_panel")
+        self._launcher_panel.setStyleSheet(
+            f"QFrame#launcher_panel {{ background-color: rgba(255,250,243,0.86); border: 1px solid {T.BORDER}; border-radius: 14px; }}"
         )
-        self._input.returnPressed.connect(self._submit)
-        bar.addWidget(self._input, stretch=1)
+        launcher_panel_col = QVBoxLayout(self._launcher_panel)
+        launcher_panel_col.setContentsMargins(12, 10, 12, 10)
+        launcher_panel_col.setSpacing(8)
 
-        mic_btn = QPushButton("●")
-        mic_btn.setFixedSize(34, 34)
-        mic_btn.setEnabled(False)
-        mic_btn.setToolTip("Launcher PTT is not wired yet. Use Guppy surface for voice capture.")
-        mic_btn.setStyleSheet(
-            f"QPushButton {{ border: none; color: {T.PRIMARY}; font-size: 13pt; }}"
-            f"QPushButton:hover {{ color: white; }}"
-        )
-        self._send_btn = QPushButton("▶")
-        self._send_btn.setFixedSize(34, 34)
-        self._send_btn.setStyleSheet(
-            f"QPushButton {{ border: none; background: {T.PRIMARY};"
-            f"  color: {T.BG}; font-size: 11pt; }}"
-            f"QPushButton:hover {{ background: white; }}"
-        )
-        self._send_btn.clicked.connect(self._submit)
-        self._cancel_btn = QPushButton("■")
-        self._cancel_btn.setFixedSize(34, 34)
-        self._cancel_btn.setEnabled(False)
-        self._cancel_btn.setToolTip("Cancel the in-flight request")
-        self._cancel_btn.setStyleSheet(
-            f"QPushButton {{ border: none; background: {T.ERROR};"
-            f"  color: {T.BG}; font-size: 10pt; }}"
-            f"QPushButton:hover {{ background: white; color: {T.BG}; }}"
-        )
-        self._cancel_btn.clicked.connect(self.cancel_requested.emit)
-        bar.addWidget(mic_btn)
-        bar.addWidget(self._send_btn)
-        bar.addWidget(self._cancel_btn)
-        frame_col.addLayout(bar)
-
-        # thin divider inside the frame
-        inner_div = QFrame()
-        inner_div.setFixedHeight(1)
-        inner_div.setStyleSheet(f"background: {T.BORDER};")
-        frame_col.addWidget(inner_div)
-
-        # status strip — integrated below the input row
-        strip = QHBoxLayout()
-        strip.setContentsMargins(12, 3, 8, 4)
-        strip.setSpacing(12)
-        strip.addWidget(_lbl("LINKED: TERMINAL_ALPHA"))
-        strip.addWidget(_lbl("ENCRYPTION: AES-256"))
-        self._session_strip = _lbl("SESSION: --")
-        strip.addWidget(self._session_strip)
-        strip.addStretch()
-        self._status_strip = QLabel("SYSTEM READY")
-        self._status_strip.setStyleSheet(
-            f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        strip.addWidget(self._status_strip)
-        frame_col.addLayout(strip)
-
-        root.addWidget(input_frame)
-        root.addSpacing(12)
-
-        # ── Controls row (dropdowns at bottom) ────────────────────────────────
-        ctrl = QHBoxLayout()
-        ctrl.setSpacing(16)
-
+        controls = QHBoxLayout()
+        controls.setSpacing(8)
         for header, opts, cb_attr in [
-            ("MODE",            list(LAUNCHER_MODES_DISPLAY),  "_cb_mode"),
-            ("PERSONA",         ["GUPPY", "MERLIN", "COUNCIL"],            "_cb_persona"),
-            ("RUNTIME PROFILE", ["LIGHT", "STANDARD", "POWER"],            "_cb_profile"),
+            ("MODE", list(LAUNCHER_MODES_DISPLAY), "_cb_mode"),
+            ("PERSONA", ["GUPPY"], "_cb_persona"),
+            ("PROFILE", ["LIGHT", "STANDARD", "POWER"], "_cb_profile"),
         ]:
             col = QVBoxLayout()
             col.setSpacing(4)
             col.addWidget(_lbl(header))
             cb = _dropdown(opts)
+            cb.setStyleSheet(
+                f"QComboBox {{ background: {T.BG0}; color: {T.TEXT}; border: 1px solid {T.BORDER};"
+                f" border-radius: 10px; padding: 4px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            )
             setattr(self, cb_attr, cb)
             col.addWidget(cb)
-            ctrl.addLayout(col)
+            controls.addLayout(col)
+        controls.addStretch()
+        launcher_panel_col.addLayout(controls)
+        composer_col.addWidget(self._launcher_panel)
+        self._launcher_panel.setVisible(False)
 
-        root.addLayout(ctrl)
+        input_shell = QFrame()
+        input_shell.setObjectName("composer_shell")
+        input_shell.setStyleSheet(
+            f"QFrame#composer_shell {{ background-color: rgba(255,255,255,0.78); border: 1px solid rgba(205,181,154,0.34); border-radius: 28px; }}"
+        )
+        input_row = QHBoxLayout(input_shell)
+        input_row.setContentsMargins(16, 7, 7, 7)
+        input_row.setSpacing(7)
+
+        self._input = QLineEdit()
+        self._input.setPlaceholderText("Message Guppy about this workspace...")
+        self._input.setStyleSheet(
+            f"QLineEdit {{ background: transparent; border: none; color: {T.TEXT};"
+            f" font-family: '{T.FF_BODY}'; font-size: {T.FS_LABEL}pt; padding: 2px 0; }}"
+        )
+        self._input.returnPressed.connect(self._submit)
+        input_row.addWidget(self._input, stretch=1)
+
+        self._mic_btn = QPushButton("\u25cf")
+        self._mic_btn.setFixedSize(32, 32)
+        self._mic_btn.setToolTip("Push to talk. Click again while listening to stop capture.")
+        self._mic_btn.setStyleSheet(
+            f"QPushButton {{ border: 1px solid rgba(205,181,154,0.34); border-radius: 16px; background: rgba(255,250,243,0.92); color: {T.PRIMARY}; font-size: 10pt; }}"
+            f"QPushButton:hover {{ border-color: rgba(255,107,61,0.55); background: #ffffff; }}"
+        )
+        self._mic_btn.clicked.connect(self.mic_requested.emit)
+
+        self._cancel_btn = QPushButton("\u25a0")
+        self._cancel_btn.setFixedSize(32, 32)
+        self._cancel_btn.setEnabled(False)
+        self._cancel_btn.setToolTip("Cancel the in-flight request")
+        self._cancel_btn.setStyleSheet(
+            f"QPushButton {{ border: 1px solid rgba(200,75,68,0.42); border-radius: 16px; background: rgba(255,250,243,0.80); color: {T.ERROR}; font-size: 8pt; }}"
+            f"QPushButton:hover {{ background: rgba(200,75,68,0.10); }}"
+        )
+        self._cancel_btn.clicked.connect(self.cancel_requested.emit)
+
+        self._send_btn = QPushButton("\u25b6")
+        self._send_btn.setFixedSize(36, 36)
+        self._send_btn.setStyleSheet(
+            f"QPushButton {{ border: none; border-radius: 18px; background: {T.PRIMARY}; color: {T.BG}; font-size: 10pt; }}"
+            f"QPushButton:hover {{ background: {T.PRIMARY_DIM}; }}"
+        )
+        self._send_btn.clicked.connect(self._submit)
+
+        input_row.addWidget(self._mic_btn)
+        input_row.addWidget(self._cancel_btn)
+        input_row.addWidget(self._send_btn)
+        composer_col.addWidget(input_shell)
+
+        footer = QHBoxLayout()
+        footer.setSpacing(8)
+        self._session_strip = _lbl("SESSION: --")
+        self._session_strip.setStyleSheet(
+            f"color: rgba(115,96,79,0.72); font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        footer.addWidget(self._session_strip)
+        footer.addStretch()
+        composer_col.addLayout(footer)
+        root.addWidget(composer)
+
         self._cb_mode.currentTextChanged.connect(self._emit_context_changed)
         self._cb_persona.currentTextChanged.connect(self._emit_context_changed)
-        self.add_system_message("Embedded launcher chat ready.")
+        self._cb_mode.currentTextChanged.connect(self._sync_launcher_summary)
+        self._cb_persona.currentTextChanged.connect(self._sync_launcher_summary)
+        self._cb_profile.currentTextChanged.connect(self._sync_launcher_summary)
+        self.set_persona_options([("GUPPY", "guppy")], selected="guppy")
+        self._sync_launcher_summary()
+        self._refresh_empty_state()
+
+    def _build_empty_state(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("empty_state")
+        frame.setStyleSheet(
+            f"QFrame#empty_state {{ background-color: rgba(255,250,243,0.78); border: 1px solid rgba(205,181,154,0.55); border-radius: 28px; }}"
+        )
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(10)
+
+        title = QLabel("Start the conversation")
+        title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        title.setStyleSheet(
+            f"color: {T.INK}; font-family: '{T.FF_HEAD}'; font-size: 23pt; font-weight: bold;"
+        )
+        layout.addWidget(title)
+
+        subtitle = QLabel(
+            "Ask a question, continue this workspace, or use a starter to load a first draft."
+        )
+        subtitle.setWordWrap(True)
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        subtitle.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_LABEL}pt;"
+        )
+        layout.addWidget(subtitle)
+        return frame
+
+    def _refresh_empty_state(self) -> None:
+        has_history = any(item.get("role") in {"user", "assistant"} for item in self._conversation_history)
+        self._empty_state.setVisible(not has_history)
 
     def _add_message(self, text: str, role: str) -> None:
-        msg_widget: QWidget
-
-        if role == "user":
-            fg = T.BG
-            bg = T.PRIMARY
-            align = Qt.AlignmentFlag.AlignRight
-        elif role == "assistant":
-            fg = T.TEXT
-            bg = T.BG0
-            align = Qt.AlignmentFlag.AlignLeft
-        else:
-            fg = T.DIM
-            bg = T.BG1
-            align = Qt.AlignmentFlag.AlignHCenter
-
-        if role == "assistant":
-            msg = QTextBrowser()
-            msg.setOpenExternalLinks(False)
-            msg.setReadOnly(True)
-            msg.setUndoRedoEnabled(False)
-            msg.setMarkdown(text)
-            msg.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            msg.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            msg.setStyleSheet(
-                f"QTextBrowser {{"
-                f"  color: {fg}; background-color: {bg};"
-                f"  border: 1px solid {T.BORDER};"
-                f"  font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt;"
-                f"  padding: 8px;"
-                f"}}"
-            )
-            msg.setMaximumWidth(760)
-            msg.setMaximumHeight(280)
-            msg_widget = msg
-        else:
-            msg = QLabel(text)
-            msg.setWordWrap(True)
-            msg.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            msg.setStyleSheet(
-                f"color: {fg}; background-color: {bg};"
-                f"border: 1px solid {T.BORDER};"
-                f"font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt;"
-                f"padding: 8px;"
-            )
-            msg.setMaximumWidth(760)
-            msg_widget = msg
-
-        row = QHBoxLayout()
+        row_host = QWidget()
+        row = QHBoxLayout(row_host)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(0)
-        if align == Qt.AlignmentFlag.AlignRight:
-            row.addStretch()
-            row.addWidget(msg_widget)
-        elif align == Qt.AlignmentFlag.AlignLeft:
-            row.addWidget(msg_widget)
-            row.addStretch()
-        else:
-            row.addStretch()
-            row.addWidget(msg_widget)
-            row.addStretch()
 
-        self._chat_layout.insertLayout(self._chat_layout.count() - 1, row)
+        if role == "system":
+            pill = QLabel(text)
+            pill.setWordWrap(True)
+            pill.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            pill.setStyleSheet(
+                f"color: {T.DIM}; background-color: {T.BG0}; border: 1px solid {T.BORDER};"
+                f"border-radius: 12px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+            )
+            row.addStretch()
+            row.addWidget(pill)
+            row.addStretch()
+            self._chat_layout.insertWidget(self._chat_layout.count() - 1, row_host)
+            QTimer.singleShot(0, self._scroll_to_bottom)
+            return
+
+        bubble = QFrame()
+        bubble.setObjectName(f"bubble_{role}")
+        bubble_bg = T.PRIMARY if role == "user" else "rgba(255,255,255,0.78)"
+        bubble_fg = T.BG if role == "user" else T.TEXT
+        if role == "user":
+            radius = "24px 24px 8px 24px"
+            border = "none"
+        else:
+            radius = "24px 24px 24px 8px"
+            border = f"1px solid rgba(205,181,154,0.38)"
+        bubble.setStyleSheet(
+            f"QFrame#bubble_{role} {{ background-color: {bubble_bg}; border: {border}; border-top-left-radius: 24px; border-top-right-radius: 24px; border-bottom-left-radius: { '8px' if role == 'assistant' else '24px' }; border-bottom-right-radius: { '8px' if role == 'user' else '24px' }; }}"
+        )
+        bubble_layout = QVBoxLayout(bubble)
+        bubble_layout.setContentsMargins(16, 12, 16, 11)
+        bubble_layout.setSpacing(4)
+
+        speaker = _lbl(
+            "YOU" if role == "user" else "GUPPY",
+            color="rgba(255,250,243,0.88)" if role == "user" else T.PRIMARY,
+            size=T.FS_TINY,
+            bold=True,
+        )
+        bubble_layout.addWidget(speaker)
+
+        if role == "assistant":
+            body = QTextBrowser()
+            body.setOpenExternalLinks(False)
+            body.setReadOnly(True)
+            body.setUndoRedoEnabled(False)
+            body.setMarkdown(text)
+            body.setFrameStyle(0)
+            body.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            body.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            body.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+            body.setStyleSheet(
+                f"QTextBrowser {{ background: transparent; color: {bubble_fg}; border: none;"
+                f" font-family: '{T.FF_BODY}'; font-size: {T.FS_LABEL}pt; line-height: 1.4em; padding: 0; }}"
+            )
+            body.document().setDocumentMargin(0)
+            body.document().adjustSize()
+            body_height = max(36, min(260, int(body.document().size().height()) + 10))
+            body.setFixedHeight(body_height)
+            bubble_layout.addWidget(body)
+        else:
+            body = QLabel(text)
+            body.setWordWrap(True)
+            body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            body.setStyleSheet(
+                f"color: {bubble_fg}; background: transparent; border: none;"
+                f"font-family: '{T.FF_BODY}'; font-size: {T.FS_LABEL}pt; line-height: 1.4em;"
+            )
+            bubble_layout.addWidget(body)
+
+        bubble.setMaximumWidth(488 if role == "assistant" else 320)
+        if role == "user":
+            row.addStretch()
+            row.addWidget(bubble)
+        else:
+            row.addWidget(bubble)
+            row.addStretch()
+        self._chat_layout.insertWidget(self._chat_layout.count() - 1, row_host)
         QTimer.singleShot(0, self._scroll_to_bottom)
 
     def _scroll_to_bottom(self) -> None:
@@ -342,35 +390,53 @@ class AssistantView(QWidget):
                 widget.deleteLater()
                 continue
             nested = item.layout()
-            if nested is not None:
-                while nested.count():
-                    n_item = nested.takeAt(0)
-                    if n_item is None:
-                        continue
-                    n_widget = n_item.widget()
-                    if n_widget is not None:
-                        n_widget.deleteLater()
+            if nested is None:
+                continue
+            while nested.count():
+                nested_item = nested.takeAt(0)
+                if nested_item is None:
+                    continue
+                nested_widget = nested_item.widget()
+                if nested_widget is not None:
+                    nested_widget.deleteLater()
 
     def add_user_message(self, text: str) -> None:
         self._add_message(text, "user")
         self._conversation_history.append({"role": "user", "content": text})
+        self._refresh_empty_state()
 
     def add_assistant_message(self, text: str) -> None:
         self._add_message(text, "assistant")
         self._conversation_history.append({"role": "assistant", "content": text})
+        self._refresh_empty_state()
 
     def add_system_message(self, text: str) -> None:
         self._add_message(text, "system")
 
-    def activate_agent(self, agent: str) -> None:
-        agents = {"guppy": 0, "merlin": 1, "council": 2}
-        key = (agent or "").strip().lower()
-        if key in agents:
-            self._cb_persona.setCurrentIndex(agents[key])
-        self._status_strip.setText(f"ACTIVE AGENT: {(agent or 'guppy').upper()}")
-        self.set_background_event(f"Active agent switched to {(agent or 'guppy').upper()}")
+    def ensure_welcome_message(self) -> None:
+        if any(item.get("role") in {"user", "assistant"} for item in self._conversation_history):
+            return
+        self.add_assistant_message(
+            "I can help you brief the day, research a topic, triage files, review builder work, or take the next step in this workspace. Start by telling me what you want to move forward."
+        )
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    def toggle_launcher_panel(self) -> None:
+        self._launcher_panel.setVisible(not self._launcher_panel.isVisible())
+        self._sync_launcher_summary()
+
+    def _sync_launcher_summary(self, _text: str = "") -> None:
+        mode = self._cb_mode.currentText().strip().upper() or "AUTO"
+        persona = self._cb_persona.currentText().strip().upper() or "GUPPY"
+        profile = self._cb_profile.currentText().strip().upper() or "LIGHT"
+        suffix = "OPEN" if self._launcher_panel.isVisible() else "EDIT"
+        self.launcher_summary_changed.emit(f"{mode} / {persona} / {profile} [{suffix}]")
+
+    def activate_agent(self, agent: str) -> None:
+        del agent
+        self._cb_persona.setCurrentIndex(0)
+        self._status_strip.setText("ACTIVE AGENT · GUPPY")
+        self.set_background_event("Active agent switched to GUPPY")
+
     def _submit(self) -> None:
         if not self._input.isEnabled():
             return
@@ -380,45 +446,159 @@ class AssistantView(QWidget):
             self._input.clear()
 
     def set_recommendation(self, profile: str) -> None:
-        self._rec_chip.setText(f"RECOMMENDED: {profile.upper()}")
+        self._rec_chip.setText(f"RECOMMENDED · {profile.upper()}")
 
-    def apply_settings(self, s: dict) -> None:
+    def apply_settings(self, settings: dict) -> None:
         modes = {"auto": 0, "claude": 1, "ollama": 2, "local": 3, "code": 4, "teaching": 5}
-        self._cb_mode.setCurrentIndex(modes.get(s.get("default_mode", "auto"), 0))
+        self._cb_mode.setCurrentIndex(modes.get(settings.get("default_mode", "auto"), 0))
         profiles = {"light": 0, "standard": 1, "power": 2}
-        self._cb_profile.setCurrentIndex(profiles.get(s.get("runtime_profile", "standard"), 1))
+        self._cb_profile.setCurrentIndex(profiles.get(settings.get("runtime_profile", "standard"), 1))
 
     def selected_mode(self) -> str:
         mode = self._cb_mode.currentText().strip().lower()
         return mode or "auto"
 
+    def selected_persona(self) -> str:
+        persona = str(self._cb_persona.currentData() or self._cb_persona.currentText()).strip().lower()
+        return persona or "guppy"
+
+    def set_persona_options(self, options: list[tuple[str, str]], selected: str | None = None) -> None:
+        target = str(selected or self._cb_persona.currentData() or self._cb_persona.currentText()).strip().lower()
+        normalized = [
+            (str(label).strip() or str(value).strip(), str(value).strip())
+            for label, value in options
+            if str(value).strip()
+        ]
+        if not normalized:
+            normalized = [("GUPPY", "guppy")]
+        self._cb_persona.blockSignals(True)
+        self._cb_persona.clear()
+        for label, value in normalized:
+            self._cb_persona.addItem(label, value)
+        target_index = 0
+        for idx in range(self._cb_persona.count()):
+            if str(self._cb_persona.itemData(idx) or "").strip().lower() == target:
+                target_index = idx
+                break
+        self._cb_persona.setCurrentIndex(target_index)
+        self._cb_persona.blockSignals(False)
+
+    def set_route_preview(
+        self,
+        *,
+        task_type: str = "unknown",
+        route: str = "pending",
+        model: str = "",
+        backup_model: str = "",
+        reason: str = "",
+        evidence: str = "",
+    ) -> None:
+        reason_text = (reason or "").strip()
+        evidence_text = (evidence or "").strip()
+        route_bits: list[str] = []
+        if str(task_type or "").strip():
+            route_bits.append(f"{str(task_type).strip().capitalize()} task")
+        if str(route or "").strip():
+            route_bits.append(f"via {str(route).strip().upper()}")
+        if model:
+            route_bits.append(f"using {str(model).strip().upper()}")
+        if backup_model:
+            route_bits.append(f"backup {str(backup_model).strip().upper()}")
+        summary = ", ".join(route_bits) if route_bits else "waiting for your next message"
+        details: list[str] = []
+        if reason_text:
+            details.append(f"Why: {reason_text}")
+        if evidence_text:
+            details.append(f"Evidence: {evidence_text}")
+        self._route_facts.setText(f"Next reply: {summary}." + (f" {' '.join(details)}" if details else ""))
+        self._route_facts.setVisible(True)
+
     def set_input_text(self, text: str) -> None:
         self._input.setText(text)
         self._input.setFocus()
 
-    def set_status(self, text: str) -> None:
-        """Update the integrated status strip (transient state — Processing, Ready, etc)."""
-        self._status_strip.setText(text.upper())
+    @staticmethod
+    def _starter_templates() -> list[tuple[str, str, str, str]]:
+        return [
+            (
+                "morning_brief",
+                "MORNING BRIEF",
+                "auto",
+                "Give me a morning brief for this workspace: priorities, blockers, and the best first move.",
+            ),
+            (
+                "focused_research",
+                "FOCUSED RESEARCH",
+                "claude",
+                "Research this topic for the active workspace and return a concise brief with recommendations: ",
+            ),
+            (
+                "file_triage",
+                "FILE TRIAGE",
+                "local",
+                "Help me triage files for this workspace. Start by asking which folder or files I want reviewed.",
+            ),
+            (
+                "builder_review",
+                "BUILDER REVIEW",
+                "code",
+                "Review the current builder work for this workspace with bugs, regressions, and missing tests first.",
+            ),
+        ]
 
-    def set_active_instance(self, instance: str) -> None:
+    def _load_starter(self, starter_id: str, label: str, mode: str, prompt: str) -> None:
+        self.set_input_text(prompt)
+        self.set_chat_context(mode, self.selected_persona())
+        self.set_background_event(f"Starter loaded: {label}. Edit the draft if needed, then press send.")
+        self._starter_summary.setText(f"{label} is ready. Edit it in the composer, then send.")
+        self.set_status("STARTER READY")
+        self.starter_requested.emit(starter_id, prompt)
+
+    def set_status(self, text: str) -> None:
+        status = (text or "Ready").strip().upper()
+        self._status_strip.setText(status)
+        color = T.PRIMARY
+        if "ERROR" in status:
+            color = T.ERROR
+        elif "READY" in status:
+            color = T.GREEN
+        self._status_strip.setStyleSheet(
+            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;"
+        )
+
+    def set_active_instance(
+        self,
+        instance: str,
+        *,
+        workspace_type: str = "user_instance",
+        description: str = "",
+    ) -> None:
         name = (instance or "guppy-primary").strip() or "guppy-primary"
-        self._instance_chip.setText(f"INSTANCE: {name.upper()}")
+        role = self._workspace_role_label(workspace_type)
+        purpose = (description or self._workspace_default_purpose(workspace_type)).strip()
+        self._workspace_role = role
+        self._workspace_purpose = purpose
+        self._instance_chip.setText(f"WORKSPACE · {name.upper()}")
+        self._workspace_summary.setText(f"Active workspace: {role}. {purpose}")
+        self._workspace_summary.setVisible(True)
+        self._entry_hint.setText(f"Start here in {name}: ask, continue, or use a starter.")
 
     def set_background_status(self, text: str, healthy: bool = True) -> None:
-        msg = (text or "idle").strip() or "idle"
+        msg = (text or "ready").strip() or "ready"
         color = T.GREEN if healthy else T.ERROR
-        self._background_chip.setText(f"BACKGROUND: {msg.upper()}")
+        background = "rgba(90,196,122,0.08)" if healthy else "rgba(226,92,92,0.08)"
+        border = "rgba(90,196,122,0.24)" if healthy else "rgba(226,92,92,0.24)"
+        self._background_chip.setText(msg.upper())
         self._background_chip.setStyleSheet(
-            f"color: {color};"
-            f"background-color: {T.BG1};"
-            f"border: 1px solid {color};"
-            f"font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
-            f"letter-spacing: 1px; padding: 3px 8px;"
+            f"color: {color}; background-color: {background}; border: 1px solid {border};"
+            f"border-radius: 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; padding: 4px 8px;"
         )
 
     def set_background_event(self, text: str) -> None:
         msg = (text or "launcher ready").strip() or "launcher ready"
-        self._background_event.setText(f"Background activity: {msg}")
+        self._background_event.setText(f"Latest activity: {msg}")
+        self._background_event.setVisible(True)
+        self._hero_subtitle.setText(msg)
 
     def set_runtime_facts(
         self,
@@ -426,33 +606,56 @@ class AssistantView(QWidget):
         profile: str = "standard",
         model: str = "guppy",
         voice: str = "edge",
-        latency: str = "—",
-        last_query: str = "—",
+        latency: str = "-",
+        last_query: str = "-",
     ) -> None:
-        query = (last_query or "—").strip() or "—"
+        query = (last_query or "-").strip() or "-"
         query = query[:96] + "..." if len(query) > 96 else query
-        self._runtime_facts.setText(
-            "Runtime: "
-            f"profile={str(profile).upper()} · "
-            f"model={str(model).upper()} · "
-            f"voice={str(voice).upper()} · "
-            f"latency={latency} · "
-            f"last={query}"
-        )
+        details = [
+            f"{str(profile).capitalize()} profile",
+            f"{str(model).upper()} model",
+            f"{str(voice).strip() or 'edge'} voice",
+        ]
+        if str(latency).strip() and str(latency).strip() not in {"-", "—"}:
+            details.append(f"{latency} ms latency")
+        if query not in {"-", "—"}:
+            details.append(f"last request: {query}")
+        self._runtime_facts.setText("Ready now: " + ", ".join(details) + ".")
+        self._runtime_facts.setVisible(True)
 
     def set_recovery_summary(self, text: str, healthy: bool = True) -> None:
         summary = (text or "stable").strip() or "stable"
         color = T.GREEN if healthy else T.ERROR
-        self._recovery_summary.setText(f"Recovery: {summary}")
+        prefix = "System health" if healthy else "Needs attention"
+        self._recovery_summary.setText(f"{prefix}: {summary}")
+        self._recovery_summary.setVisible(True)
+        self._entry_hint.setStyleSheet(
+            f"color: {T.PRIMARY if healthy else T.ERROR}; font-family: '{T.FF_MONO}';"
+            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
         self._recovery_summary.setStyleSheet(
             f"color: {color}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px; padding-bottom: 6px;"
+            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
 
     def set_request_in_flight(self, in_flight: bool) -> None:
+        self._request_in_flight_ui = in_flight
         self._input.setEnabled(not in_flight)
         self._send_btn.setEnabled(not in_flight)
         self._cancel_btn.setEnabled(in_flight)
+        self._mic_btn.setEnabled(self._mic_capture_active or not in_flight)
+
+    def set_mic_capture_state(self, listening: bool) -> None:
+        self._mic_capture_active = listening
+        if listening:
+            self._mic_btn.setText("\u25c9")
+            self._mic_btn.setToolTip("Listening now. Click to stop capture.")
+            self._status_strip.setText("LISTENING")
+            self._mic_btn.setEnabled(True)
+            return
+        self._mic_btn.setText("\u25cf")
+        self._mic_btn.setToolTip("Push to talk. Click again while listening to stop capture.")
+        self._mic_btn.setEnabled(not self._request_in_flight_ui)
 
     def set_session_id(self, session_id: str) -> None:
         sid = (session_id or "").strip()
@@ -461,6 +664,7 @@ class AssistantView(QWidget):
 
     def reset_live_history(self) -> None:
         self._conversation_history.clear()
+        self._refresh_empty_state()
 
     def clear_transcript(self) -> None:
         self._clear_transcript_widgets()
@@ -479,9 +683,12 @@ class AssistantView(QWidget):
                 self.add_user_message(content)
             elif role == "assistant":
                 self.add_assistant_message(content)
+        self._refresh_empty_state()
 
     def recent_history(self, limit: int = 12) -> list[dict[str, str]]:
-        trimmed = self._conversation_history[-max(1, limit):]
+        if limit <= 0:
+            return []
+        trimmed = self._conversation_history[-max(0, limit):]
         return [dict(item) for item in trimmed if item.get("role") in {"user", "assistant"}]
 
     def set_chat_context(self, mode: str, persona: str) -> None:
@@ -494,12 +701,33 @@ class AssistantView(QWidget):
                 break
 
         for idx in range(self._cb_persona.count()):
-            if self._cb_persona.itemText(idx).strip().lower() == persona_key:
+            option_key = str(self._cb_persona.itemData(idx) or self._cb_persona.itemText(idx)).strip().lower()
+            if option_key == persona_key:
                 self._cb_persona.setCurrentIndex(idx)
                 break
 
     def chat_context(self) -> tuple[str, str]:
-        return self.selected_mode(), self._cb_persona.currentText().strip().lower()
+        return self.selected_mode(), self.selected_persona()
 
     def _emit_context_changed(self, _text: str) -> None:
-        self.chat_context_changed.emit(self.selected_mode(), self._cb_persona.currentText().strip().lower())
+        self.chat_context_changed.emit(self.selected_mode(), self.selected_persona())
+
+    @staticmethod
+    def _workspace_role_label(workspace_type: str) -> str:
+        key = (workspace_type or "user_instance").strip().lower()
+        return {
+            "user_instance": "Daily assistant workspace",
+            "builder_instance": "Builder collaborator workspace",
+            "read_only_instance": "Read-only reference workspace",
+            "admin_instance": "Operations workspace",
+        }.get(key, key.replace("_", " ").strip().capitalize() or "Workspace")
+
+    @staticmethod
+    def _workspace_default_purpose(workspace_type: str) -> str:
+        key = (workspace_type or "user_instance").strip().lower()
+        return {
+            "user_instance": "General help, recurring work, and quick tasks.",
+            "builder_instance": "Planning, review, and low-risk builder collaboration.",
+            "read_only_instance": "Safe research, source review, and reference work without writes.",
+            "admin_instance": "Recovery, diagnostics, and guarded changes.",
+        }.get(key, "Task-focused context for this workspace.")

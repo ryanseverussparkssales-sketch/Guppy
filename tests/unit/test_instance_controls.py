@@ -14,7 +14,7 @@ class InstanceCapabilityTests(unittest.TestCase):
     def test_builder_instance_blocks_execute_and_allows_write(self):
         allowed, reason, permissions = instance_capabilities.check_instance_tool_permission(
             "execute_command",
-            instance_name="merlin-collab",
+            instance_name="builder-collab",
             instance_type="builder_instance",
         )
         self.assertFalse(allowed)
@@ -23,7 +23,7 @@ class InstanceCapabilityTests(unittest.TestCase):
 
         allowed_write, _, write_permissions = instance_capabilities.check_instance_tool_permission(
             "write_file",
-            instance_name="merlin-collab",
+            instance_name="builder-collab",
             instance_type="builder_instance",
         )
         self.assertTrue(allowed_write)
@@ -33,10 +33,15 @@ class InstanceCapabilityTests(unittest.TestCase):
         result = tool_runner.run_tool(
             "execute_command",
             {"command": "echo blocked"},
-            instance_name="merlin-collab",
+            instance_name="builder-collab",
             instance_type="builder_instance",
         )
         self.assertIn("requires execute capability", result)
+
+    def test_explicit_tool_capability_mappings_cover_runtime_seams(self):
+        self.assertEqual(instance_capabilities.required_capability_for_tool("query_instance"), "network")
+        self.assertEqual(instance_capabilities.required_capability_for_tool("debug_console"), "read")
+        self.assertEqual(instance_capabilities.required_capability_for_tool("run_python"), "execute")
 
 
 class InstanceLogRetentionTests(unittest.TestCase):
@@ -45,7 +50,7 @@ class InstanceLogRetentionTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as td:
                 instance_logger._LOG_DIR = Path(td)
-                path = instance_logger.instance_log_path("merlin-collab")
+                path = instance_logger.instance_log_path("builder-collab")
                 path.parent.mkdir(parents=True, exist_ok=True)
 
                 now = datetime.now(timezone.utc)
@@ -66,8 +71,8 @@ class InstanceLogRetentionTests(unittest.TestCase):
                     encoding="utf-8",
                 )
 
-                entries = instance_logger.read_instance_log_tail("merlin-collab", limit=10)
-                summary = instance_logger.read_instance_log_summary("merlin-collab")
+                entries = instance_logger.read_instance_log_tail("builder-collab", limit=10)
+                summary = instance_logger.read_instance_log_summary("builder-collab")
 
                 self.assertEqual(len(entries), 1)
                 self.assertEqual(entries[0]["role"], "assistant")

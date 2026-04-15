@@ -12,6 +12,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from queue import Empty, SimpleQueue
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,6 +49,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from inference_router import resolve_ui_route
 from . import tokens as T
 from .stylesheet import SHEET
 from .components import Sidebar, TopBar, StatusPanel
@@ -62,10 +64,29 @@ from .views import (
 )
 
 try:
-    from utils.personalization_config import ensure_personalization_scaffold
+    from utils.personalization_config import (
+        ensure_personalization_scaffold,
+        list_persona_choices,
+        load_persona_config,
+        load_voice_bindings,
+        resolve_voice_binding,
+    )
     _PERSONALIZATION_BOOTSTRAP_AVAILABLE = True
 except Exception:
     _PERSONALIZATION_BOOTSTRAP_AVAILABLE = False
+
+    def list_persona_choices(_persona_config=None):
+        return [{"id": "guppy", "name": "Guppy", "label": "Guppy [GLOBAL]"}]
+
+    def load_persona_config():
+        return {}
+
+    def load_voice_bindings():
+        return {}
+
+    def resolve_voice_binding(*, persona_id: str = "", model_id: str = "", voice_bindings: dict | None = None):
+        del persona_id, model_id, voice_bindings
+        return {"engine": "EDGE TTS", "voice_id": "en-GB-RyanNeural", "source": "default"}
 
 try:
     from utils.instance_logger import append_instance_log, read_instance_log_tail
@@ -78,6 +99,13 @@ except Exception:
 
     def read_instance_log_tail(*_args, **_kwargs):
         return []
+
+try:
+    from src.guppy.voice.voice import GuppyVoice
+    _VOICE_CAPTURE_AVAILABLE = True
+except Exception:
+    GuppyVoice = None  # type: ignore[assignment]
+    _VOICE_CAPTURE_AVAILABLE = False
 
 _RUNTIME = Path(__file__).resolve().parent.parent.parent / "runtime"
 _CONFIG = Path(__file__).resolve().parent.parent.parent / "config"
@@ -133,6 +161,16 @@ class LauncherWindow(QMainWindow):
     _MAX_ASSISTANT_EVENTS_PER_TICK = 12
     _MAX_RECOVERY_EVENTS_PER_TICK = 12
 
+    @staticmethod
+    def _event_level(item: dict[str, object]) -> str:
+        event = str(item.get("event", "") or "").lower()
+        summary = json.dumps(item, ensure_ascii=True).lower()
+        if "error" in event or "error" in summary or "failed" in summary:
+            return "ERROR"
+        if "warn" in event or "warning" in summary or "over_budget" in event:
+            return "WARN"
+        return "INFO"
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Guppy AI  //  COMMAND_INTERFACE")
@@ -163,9 +201,15 @@ class LauncherWindow(QMainWindow):
         self._assistant_events: SimpleQueue[tuple[str, str, int]] = SimpleQueue()
         self._recovery_events: SimpleQueue[dict[str, object]] = SimpleQueue()
         self._last_instance_snapshot: dict[str, object] = {}
+        self._instance_snapshot_expires_at = 0.0
+        self._instance_snapshot_ttl_s = float(os.environ.get("GUPPY_INSTANCE_SNAPSHOT_TTL_S", "6.0"))
         self._scaffold_created: dict[str, Path] = {}
         self._deferred_syslog: SimpleQueue[str] = SimpleQueue()
         self._status_poll_timer: QTimer | None = None
+        self._launcher_voice = None
+        self._mic_capture_active = False
+        self._notification_badge_mtime = 0.0
+        self._recovery_outcome_mtime = 0.0
         self._log_launcher_event("startup_phase", phase="window_init_enter")
 
         self._build_ui()
@@ -218,13 +262,13 @@ class LauncherWindow(QMainWindow):
         self._settings_view   = SettingsView(self)
         self._models_view     = ModelsView(self)
         self._voices_view     = VoicesView(self)
+        self._advanced_view.attach_settings_panel(self._settings_view)
 
         for view in [
             self._assistant_view,
             self._instance_manager_view,
             self._tools_view,
             self._advanced_view,
-            self._settings_view,
             self._models_view,
             self._voices_view,
         ]:
@@ -253,14 +297,21 @@ class LauncherWindow(QMainWindow):
         self._settings_view.settings_saved.connect(self._on_settings_saved)
         self._tools_view.tool_state_changed.connect(self._on_tool_state_changed)
         self._tools_view.tool_hint_requested.connect(self._on_tool_hint_requested)
+        self._tools_view.builder_task_requested.connect(self._on_builder_task_requested)
+        self._status_panel.tool_requested.connect(self._on_tool_hint_requested)
         self._advanced_view.recovery_requested.connect(self._on_recovery_requested)
         self._models_view.model_selected.connect(self._on_model_selected)
+        self._voices_view.bindings_changed.connect(self._on_voice_bindings_changed)
         self._topbar.search_submitted.connect(self._on_search)
         self._topbar.quick_action.connect(self._on_quick_action)
+        self._topbar.launcher_context_requested.connect(self._assistant_view.toggle_launcher_panel)
         self._assistant_view.command_submitted.connect(self._on_assistant_command)
+        self._assistant_view.starter_requested.connect(self._on_home_starter_requested)
         self._assistant_view.cancel_requested.connect(self._on_cancel_assistant_request)
+        self._assistant_view.mic_requested.connect(self._on_mic_requested)
         self.assistant_event_queued.connect(self._drain_assistant_events)
         self._assistant_view.chat_context_changed.connect(self._on_chat_context_changed)
+        self._assistant_view.launcher_summary_changed.connect(self._topbar.set_launcher_summary)
         self._instance_manager_view.refresh_requested.connect(self._on_instance_manager_refresh)
         self._instance_manager_view.activate_requested.connect(self._on_instance_selected)
         self._instance_manager_view.create_requested.connect(self._on_instance_create_requested)
@@ -269,7 +320,9 @@ class LauncherWindow(QMainWindow):
         self._topbar.instance_selected.connect(self._on_instance_selected)
         self._status_panel.agent_init_requested.connect(self._on_agent_init_requested)
         self._assistant_view.set_session_id(self._chat_session_id)
+        self._topbar.set_launcher_summary("AUTO / GUPPY / LIGHT [EDIT]")
         self._bootstrap_instance_switcher()
+        self._refresh_personalization_state()
 
         if _PERSONALIZATION_BOOTSTRAP_AVAILABLE:
             self._log_launcher_event("startup_phase", phase="personalization_scaffold_thread_start")
@@ -297,6 +350,183 @@ class LauncherWindow(QMainWindow):
                 break
             self._status_panel.append_syslog(line)
             processed += 1
+
+    @staticmethod
+    def _voice_option_choices(voice_bindings: dict) -> list[tuple[str, str]]:
+        options: list[tuple[str, str]] = [("Default", "default")]
+        seen = {"default"}
+
+        def _add_binding(engine: str, voice_id: str) -> None:
+            value = f"{engine}:{voice_id}"
+            if not engine or not voice_id or value in seen:
+                return
+            seen.add(value)
+            options.append((f"{engine} / {voice_id}", value))
+
+        defaults = voice_bindings.get("defaults", {}) if isinstance(voice_bindings, dict) else {}
+        if isinstance(defaults, dict):
+            _add_binding(str(defaults.get("engine", "")).strip(), str(defaults.get("voice_id", "")).strip())
+
+        bindings = voice_bindings.get("bindings", {}) if isinstance(voice_bindings, dict) else {}
+        if isinstance(bindings, dict):
+            for mapping_key in ("by_persona", "by_model"):
+                mapping = bindings.get(mapping_key, {})
+                if not isinstance(mapping, dict):
+                    continue
+                for item in mapping.values():
+                    if isinstance(item, dict):
+                        _add_binding(str(item.get("engine", "")).strip(), str(item.get("voice_id", "")).strip())
+
+        imports = voice_bindings.get("imports", []) if isinstance(voice_bindings, dict) else []
+        if isinstance(imports, list):
+            for item in imports:
+                if not isinstance(item, dict):
+                    continue
+                _add_binding(str(item.get("engine", "")).strip(), str(item.get("voice_id", "")).strip())
+        return options
+
+    def _refresh_personalization_state(self, preferred_persona: str = "") -> None:
+        try:
+            persona_config = load_persona_config() if _PERSONALIZATION_BOOTSTRAP_AVAILABLE else {}
+            voice_bindings = load_voice_bindings() if _PERSONALIZATION_BOOTSTRAP_AVAILABLE else {}
+            persona_choices = list_persona_choices(persona_config)
+            persona_options = [(item.get("name", item.get("id", "guppy")), item.get("id", "guppy")) for item in persona_choices]
+            target_persona = preferred_persona or self._assistant_view.chat_context()[1]
+            self._assistant_view.set_persona_options(persona_options, selected=target_persona)
+            self._instance_manager_view.set_persona_options(persona_options, selected=target_persona)
+            self._instance_manager_view.set_voice_options(self._voice_option_choices(voice_bindings), selected="default")
+            self._voices_view._load_assignment_options()
+            self._voices_view._refresh_bindings_summary()
+            active_model_id = self._assistant_model_id(self._assistant_view.selected_mode())
+
+            voice_choice = resolve_voice_binding(
+                persona_id=self._assistant_view.chat_context()[1],
+                model_id=active_model_id,
+                voice_bindings=voice_bindings,
+            )
+            self._assistant_view.set_runtime_facts(
+                profile=self._assistant_view._cb_profile.currentText().strip().lower() or "standard",
+                model=active_model_id,
+                voice=self._voice_binding_summary(voice_choice),
+                latency="-",
+                last_query=self._last_command or "-",
+            )
+            self._advanced_view.set_daily_context_runtime(self._assistant_view._runtime_facts.text())
+        except Exception as exc:
+            self._status_panel.append_syslog(f"personalization refresh failed: {exc}")
+
+    def _update_route_preview(self, text: str = "") -> None:
+        sample = (text or self._last_command or "").strip()
+        if not sample:
+            self._assistant_view.set_route_preview(reason="waiting for command")
+            self._advanced_view.set_daily_context_route(self._assistant_view._route_facts.text())
+            return
+        mode, persona = self._assistant_view.chat_context()
+        try:
+            decision = resolve_ui_route(
+                user_text=sample,
+                mode=mode,
+                api_key_available=bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip()),
+            )
+            self._assistant_view.set_route_preview(
+                task_type=str(decision.get("task_type", "unknown")),
+                route=str(decision.get("route", "pending")),
+                model=str(decision.get("model", "")),
+                backup_model=str(decision.get("backup_model", "")),
+                reason=str(decision.get("route_reason", "")),
+                evidence=self._route_evidence_summary(decision),
+            )
+            self._advanced_view.set_daily_context_route(self._assistant_view._route_facts.text())
+        except Exception as exc:
+            self._assistant_view.set_route_preview(reason=f"preview failed: {exc}")
+            self._advanced_view.set_daily_context_route(self._assistant_view._route_facts.text())
+
+    def _set_daily_activity(self, text: str) -> None:
+        self._assistant_view.set_background_event(text)
+        self._advanced_view.set_daily_context_activity(text)
+
+    def _sync_right_tray(self, active_payload: dict[str, object]) -> None:
+        workspace_name = str(active_payload.get("name", self._active_instance_name) or self._active_instance_name)
+        workspace_type = str(active_payload.get("type", "user_instance") or "user_instance")
+        self._status_panel.set_workspace(workspace_name, workspace_type)
+        self._status_panel.set_tool_states(self._tools_view.current_tool_states())
+        description = str(
+            active_payload.get("description", "") or self._workspace_default_purpose(workspace_type)
+        ).strip()
+        self._advanced_view.set_daily_context_workspace(
+            f"Workspace: {self._workspace_role_label(workspace_type)}. {description}"
+        )
+        self._advanced_view.set_daily_context_runtime(self._assistant_view._runtime_facts.text())
+
+    @staticmethod
+    def _workspace_role_label(workspace_type: str) -> str:
+        key = (workspace_type or "user_instance").strip().lower()
+        return {
+            "user_instance": "Daily assistant workspace",
+            "builder_instance": "Builder collaborator workspace",
+            "read_only_instance": "Read-only reference workspace",
+            "admin_instance": "Operations workspace",
+        }.get(key, key.replace("_", " ").strip().capitalize() or "Workspace")
+
+    @staticmethod
+    def _workspace_default_purpose(workspace_type: str) -> str:
+        key = (workspace_type or "user_instance").strip().lower()
+        return {
+            "user_instance": "General help, recurring work, and quick tasks.",
+            "builder_instance": "Planning, review, and low-risk builder collaboration.",
+            "read_only_instance": "Safe research, source review, and reference work without writes.",
+            "admin_instance": "Recovery, diagnostics, and guarded changes.",
+        }.get(key, "Task-focused context for this workspace.")
+
+    @staticmethod
+    def _voice_binding_summary(choice: dict | None) -> str:
+        payload = choice if isinstance(choice, dict) else {}
+        engine = str(payload.get("engine", "edge")).strip() or "edge"
+        source = str(payload.get("source", "default")).strip().lower() or "default"
+        source_label = {
+            "default": "default voice",
+            "persona": "persona voice",
+            "model": "model voice",
+        }.get(source, "voice setting")
+        readiness = "ready"
+        if engine.upper() == "ELEVENLABS" and not (os.environ.get("ELEVENLABS_API_KEY", "") or "").strip():
+            readiness = "needs API key"
+        elif engine.upper() == "EDGE TTS":
+            try:
+                import importlib.util
+
+                readiness = "ready" if importlib.util.find_spec("edge_tts") is not None else "preview dependency missing"
+            except Exception:
+                readiness = "ready"
+        return f"{engine} from {source_label} ({readiness})"
+
+    @staticmethod
+    def _route_evidence_summary(decision: dict | None) -> str:
+        payload = decision if isinstance(decision, dict) else {}
+        route = str(payload.get("route", "") or "").strip().lower()
+        latency = ""
+        try:
+            status = _read_json(_RUNTIME / "guppy.status")
+            latency = str(status.get("last_latency_ms", "") or "").strip()
+        except Exception:
+            latency = ""
+        if route in {"haiku", "sonnet", "opus"}:
+            ready = (
+                "cloud route configured"
+                if bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip())
+                else "cloud route needs API key"
+            )
+        elif route == "local":
+            ready = (
+                "local launcher heartbeat detected"
+                if (_RUNTIME / "guppy.heartbeat").exists()
+                else "local launcher heartbeat not detected"
+            )
+        else:
+            ready = "launcher route available"
+        if latency and latency not in {"—", "-"}:
+            return f"{ready}; launcher-wide last reply {latency} ms"
+        return ready
 
     # ── Bottom strip ──────────────────────────────────────────────────────────
     def _build_sys_strip(self) -> QFrame:
@@ -400,7 +630,7 @@ class LauncherWindow(QMainWindow):
         self._status_poll_timer = QTimer(self)
         self._status_poll_timer.timeout.connect(self._poll_status)
         self._status_poll_timer.start(3000)
-        self._poll_status()
+        QTimer.singleShot(0, self._poll_status)
 
     def _poll_status(self) -> None:
         poll_t0 = time.monotonic()
@@ -412,7 +642,6 @@ class LauncherWindow(QMainWindow):
 
         # Heartbeats
         data["guppy_online"]  = (_RUNTIME / "guppy.heartbeat").exists()
-        data["merlin_online"] = (_RUNTIME / "merlin.heartbeat").exists()
 
         # Guppy status
         gs = _read_json(_RUNTIME / "guppy.status")
@@ -426,40 +655,61 @@ class LauncherWindow(QMainWindow):
         if data["last_query"] in {"", "—"} and self._last_command:
             data["last_query"] = self._last_command
 
+        voice_summary = str(data.get("voice_engine", data.get("voice", "edge")) or "edge")
+        active_model_id = self._assistant_model_id(
+            self._assistant_view.selected_mode(),
+            str(data.get("model", "") or ""),
+        )
+        try:
+            if _PERSONALIZATION_BOOTSTRAP_AVAILABLE:
+                voice_summary = self._voice_binding_summary(
+                    resolve_voice_binding(
+                        persona_id=self._assistant_view.chat_context()[1],
+                        model_id=active_model_id,
+                        voice_bindings=load_voice_bindings(),
+                    )
+                )
+        except Exception:
+            pass
+
         self._status_panel.update_status(data)
         self._assistant_view.set_runtime_facts(
             profile=str(data.get("profile", "standard") or "standard"),
-            model=str(data.get("model", "guppy") or "guppy"),
-            voice=str(data.get("voice_engine", data.get("voice", "edge")) or "edge"),
-            latency=str(data.get("latency", "—") or "—"),
-            last_query=str(data.get("last_query", "—") or "—"),
+            model=active_model_id,
+            voice=voice_summary,
+            latency=str(data.get("latency", "-") or "-"),
+            last_query=str(data.get("last_query", "-") or "-"),
         )
 
         # Update agent cards
         guppy_load  = gs.get("cpu_load_pct", 0)
-        merlin_last = gs.get("last_seen", "—")
-
-        ms = _read_json(_RUNTIME / "merlin.status")
-        merlin_load = ms.get("cpu_load_pct", 0)
-
-        cs = _read_json(_RUNTIME / "council.status")
-        council_online = bool(cs.get("active", False))
-
         guppy_online = data["guppy_online"] or ("guppy" in self._embedded_online)
-        merlin_online = data["merlin_online"] or ("merlin" in self._embedded_online)
-        council_is_online = council_online or ("council" in self._embedded_online)
 
         self._status_panel.update_agent_status("guppy", guppy_online, "—", guppy_load)
-        self._status_panel.update_agent_status("merlin", merlin_online, "—", merlin_load)
-        self._status_panel.update_agent_status("council", council_is_online, "—", 0)
         background_summary = (
             f"{self._active_instance_name} · {str(data.get('profile', 'standard')).upper()} · "
-            f"GUPPY {'LIVE' if guppy_online else 'OFFLINE'} · "
-            f"MERLIN {'LIVE' if merlin_online else 'OFFLINE'}"
+            f"GUPPY {'LIVE' if guppy_online else 'OFFLINE'}"
         )
+        active_snapshot = self._last_instance_snapshot if isinstance(self._last_instance_snapshot, dict) else {}
+        active_items = active_snapshot.get("instances", []) if isinstance(active_snapshot, dict) else []
+        active_payload = next(
+            (
+                item
+                for item in active_items
+                if isinstance(item, dict) and str(item.get("name", "")).strip() == self._active_instance_name
+            ),
+            {},
+        )
+        active_type = str((active_payload or {}).get("type", "user_instance") or "user_instance")
+        role = self._workspace_role_label(active_type)
+        background_summary = f"{role.upper()} {'READY' if guppy_online else 'NEEDS ATTENTION'}"
         self._assistant_view.set_background_status(
             background_summary,
-            healthy=guppy_online or merlin_online or council_is_online,
+            healthy=guppy_online,
+        )
+        self._advanced_view.set_daily_context_recovery(
+            f"Recovery: {'stable' if guppy_online else 'needs attention'}",
+            ok=guppy_online,
         )
         self._advanced_view.set_status_snapshot(
             {
@@ -467,11 +717,17 @@ class LauncherWindow(QMainWindow):
                 "startup_readiness": gs.get("startup_readiness", {}),
                 "voice_tts_backend": data.get("voice_engine", "edge"),
                 "voice_stt_backend": gs.get("stt_backend", "unknown"),
+                "voice_binding": voice_summary,
+                "route_evidence": self._assistant_view._route_facts.text(),
                 "resource_envelope": gs.get("resource_envelope", {}),
             }
         )
+        self._refresh_notification_badge()
         self._sync_recovery_outcome()
-        self._refresh_instance_views(load_logs=False)
+        # Avoid competing with an active chat turn for the periodic instance refresh.
+        # The next idle poll will resync the workspace snapshot.
+        if not self._request_in_flight:
+            self._refresh_instance_views(load_logs=False)
         if not self._startup_logged_first_poll:
             self._startup_logged_first_poll = True
             self._startup_first_poll_ok = True
@@ -488,7 +744,7 @@ class LauncherWindow(QMainWindow):
         if (
             not self._auth_self_check_ok
             and not self._auth_self_check_inflight
-            and self._api_reachable(timeout=1.0)
+            and self._api_reachable(timeout=0.2)
             and (time.monotonic() - self._auth_self_check_last_attempt) >= 5.0
         ):
             self._auth_self_check_inflight = True
@@ -536,6 +792,13 @@ class LauncherWindow(QMainWindow):
         path = _RUNTIME / "launcher_events.jsonl"
         if not path.exists():
             return
+        try:
+            mtime = path.stat().st_mtime
+        except Exception:
+            mtime = 0.0
+        if mtime == self._recovery_outcome_mtime:
+            return
+        self._recovery_outcome_mtime = mtime
         events = _read_jsonl_tail(path, limit=80)
         target = None
         for item in reversed(events):
@@ -691,9 +954,12 @@ class LauncherWindow(QMainWindow):
             "warnings": warnings,
         }
 
-    def _fetch_instance_snapshot(self) -> dict:
+    def _fetch_instance_snapshot(self, *, force: bool = False) -> dict:
+        now = time.monotonic()
+        if not force and self._last_instance_snapshot and now < self._instance_snapshot_expires_at:
+            return self._last_instance_snapshot
         try:
-            return self._http_json(
+            snapshot = self._http_json(
                 "/instances",
                 method="GET",
                 timeout=1.2,
@@ -701,7 +967,11 @@ class LauncherWindow(QMainWindow):
                 auth_retry_reason="instances_list",
             )
         except Exception:
-            return self._local_instance_snapshot()
+            snapshot = self._local_instance_snapshot()
+        if isinstance(snapshot, dict) and snapshot:
+            self._last_instance_snapshot = snapshot
+            self._instance_snapshot_expires_at = now + max(2.0, self._instance_snapshot_ttl_s)
+        return snapshot
 
     def _load_instance_history_from_logs(self, name: str) -> list[dict[str, str]]:
         if not _INSTANCE_LOGGER_AVAILABLE:
@@ -717,7 +987,9 @@ class LauncherWindow(QMainWindow):
         return history
 
     def _load_instance_catalog(self) -> tuple[list[str], str]:
-        snapshot = self._fetch_instance_snapshot()
+        snapshot = self._local_instance_snapshot()
+        if not isinstance(snapshot, dict) or not snapshot.get("instances"):
+            snapshot = self._fetch_instance_snapshot(force=True)
         active = str(snapshot.get("active_instance", "")).strip()
         names: list[str] = []
         for item in snapshot.get("instances", []) if isinstance(snapshot, dict) else []:
@@ -734,8 +1006,8 @@ class LauncherWindow(QMainWindow):
             active = names[0]
         return names, active
 
-    def _refresh_instance_views(self, *, load_logs: bool = False) -> None:
-        snapshot = self._fetch_instance_snapshot()
+    def _refresh_instance_views(self, *, load_logs: bool = False, force: bool = False) -> None:
+        snapshot = self._fetch_instance_snapshot(force=force)
         self._last_instance_snapshot = snapshot
         self._instance_manager_view.set_instances(snapshot)
         items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
@@ -749,9 +1021,6 @@ class LauncherWindow(QMainWindow):
             enabled_names = enabled_names or [active]
             if active not in enabled_names:
                 enabled_names.insert(0, active)
-        for name in enabled_names:
-            if name not in self._instance_histories:
-                self._instance_histories[name] = self._load_instance_history_from_logs(name)
         stale_names = [name for name in self._instance_histories.keys() if name not in enabled_names]
         for name in stale_names:
             self._instance_histories.pop(name, None)
@@ -768,6 +1037,13 @@ class LauncherWindow(QMainWindow):
         )
         if isinstance(active_payload, dict):
             self._tools_view.set_instance_context(active_payload, snapshot)
+            self._sync_right_tray(active_payload)
+            self._assistant_view.set_active_instance(
+                active,
+                workspace_type=str(active_payload.get("type", "user_instance") or "user_instance"),
+                description=str(active_payload.get("description", "") or ""),
+            )
+            self._topbar.set_session(self._workspace_role_label(str(active_payload.get("type", "user_instance") or "user_instance")))
         self._advanced_view.set_instance_snapshot(snapshot)
         if load_logs:
             self._on_instance_logs_requested(active, quiet=True)
@@ -785,26 +1061,64 @@ class LauncherWindow(QMainWindow):
             history = self._load_instance_history_from_logs(target)
             self._instance_histories[target] = history
         self._assistant_view.restore_history(history)
-        self._assistant_view.set_active_instance(target)
+        snapshot = self._last_instance_snapshot if isinstance(self._last_instance_snapshot, dict) else {}
+        items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
+        active_payload = next(
+            (
+                item
+                for item in items
+                if isinstance(item, dict) and str(item.get("name", "")).strip() == target
+            ),
+            {"name": target, "type": "user_instance"},
+        )
+        self._assistant_view.set_active_instance(
+            target,
+            workspace_type=str(active_payload.get("type", "user_instance") or "user_instance"),
+            description=str(active_payload.get("description", "") or ""),
+        )
+        self._assistant_view.ensure_welcome_message()
+        if isinstance(active_payload, dict):
+            self._sync_right_tray(active_payload)
         self._topbar.set_active_instance(target)
         mode, persona = self._assistant_view.chat_context()
         self._rotate_chat_session("instance_switched", mode=mode, persona=persona, instance=target)
+        self._topbar.set_session(self._workspace_role_label(str(active_payload.get("type", "user_instance") or "user_instance")))
         if announce:
-            self._assistant_view.add_system_message(f"Switched active instance to {target}.")
-            self._assistant_view.set_background_event(f"Active instance switched to {target}")
-            self._status_panel.append_syslog(f"active instance switched: {target}")
-            self._instance_manager_view.set_status(f"Active instance switched to {target}")
+            self._assistant_view.add_system_message(f"Switched to workspace {target}.")
+            self._set_daily_activity(f"Workspace switched to {target}")
+            self._status_panel.append_syslog(f"active workspace switched: {target}")
+            self._instance_manager_view.set_status(f"Workspace switched to {target}")
             self._log_launcher_event("instance_switched", instance=target)
 
     def _bootstrap_instance_switcher(self) -> None:
+        snapshot = self._local_instance_snapshot()
         names, active = self._load_instance_catalog()
-        self._instance_histories = {name: self._load_instance_history_from_logs(name) for name in names}
+        self._instance_histories = {}
         self._active_instance_name = active
+        self._last_instance_snapshot = snapshot
+        self._instance_snapshot_expires_at = time.monotonic() + max(2.0, self._instance_snapshot_ttl_s)
         self._topbar.set_instances(names, active_instance=active)
         self._rotate_chat_session("instance_bootstrap", instance=active)
         self._assistant_view.set_active_instance(active)
-        self._assistant_view.add_system_message(f"Active instance: {active}")
-        self._refresh_instance_views(load_logs=True)
+        self._assistant_view.ensure_welcome_message()
+        self._set_daily_activity(f"Active workspace: {active}")
+        self._instance_manager_view.set_instances(snapshot)
+        self._advanced_view.set_instance_snapshot(snapshot)
+        items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
+        active_payload = next(
+            (
+                item
+                for item in items
+                if isinstance(item, dict) and str(item.get("name", "")).strip() == active
+            ),
+            {"name": active, "type": "user_instance"},
+        )
+        if isinstance(active_payload, dict):
+            self._tools_view.set_instance_context(active_payload, snapshot)
+            self._sync_right_tray(active_payload)
+        self._set_daily_activity(f"Active workspace: {active}")
+        QTimer.singleShot(0, self._refresh_instance_views)
+        QTimer.singleShot(250, lambda target=active: self._on_instance_logs_requested(target, quiet=True))
 
     def _snapshot_active_instance_history(self) -> None:
         if not self._active_instance_name:
@@ -844,16 +1158,16 @@ class LauncherWindow(QMainWindow):
                         item["status"] = "active" if key == target else "idle"
                 _write_json(self._instance_state_path(), state)
         self._apply_instance_switch(target, announce=True)
-        self._refresh_instance_views(load_logs=True)
+        self._refresh_instance_views(load_logs=True, force=True)
 
     def _on_instance_manager_refresh(self) -> None:
-        self._refresh_instance_views(load_logs=True)
-        self._instance_manager_view.set_status("Instance state refreshed")
+        self._refresh_instance_views(load_logs=True, force=True)
+        self._instance_manager_view.set_status("Workspace state refreshed")
 
     def _on_instance_create_requested(self, payload: dict) -> None:
         name = str(payload.get("name", "")).strip()
         if not name:
-            self._instance_manager_view.set_status("Instance name is required", ok=False)
+            self._instance_manager_view.set_status("Workspace name is required", ok=False)
             return
         try:
             result = self._http_json(
@@ -867,14 +1181,14 @@ class LauncherWindow(QMainWindow):
         except Exception as e:
             message = str(e)
             if "instance limit reached" in message.lower():
-                message = "Configured-instance cap reached (5 / 5). Delete an instance or update an existing name."
+                message = "Workspace limit reached (5 / 5). Delete a workspace or update an existing name."
             self._instance_manager_view.set_status(f"Save failed: {message}", ok=False)
-            self._status_panel.append_syslog(f"instance save failed: {message}")
+            self._status_panel.append_syslog(f"workspace save failed: {message}")
             return
         action = str(result.get("action", "updated")).strip() or "updated"
-        self._instance_manager_view.set_status(f"Instance {name} {action}")
-        self._status_panel.append_syslog(f"instance {name} {action}")
-        self._refresh_instance_views(load_logs=True)
+        self._instance_manager_view.set_status(f"Workspace {name} {action}")
+        self._status_panel.append_syslog(f"workspace {name} {action}")
+        self._refresh_instance_views(load_logs=True, force=True)
 
     def _on_instance_delete_requested(self, name: str) -> None:
         target = (name or "").strip()
@@ -890,15 +1204,15 @@ class LauncherWindow(QMainWindow):
             )
         except Exception as e:
             self._instance_manager_view.set_status(f"Delete failed: {e}", ok=False)
-            self._status_panel.append_syslog(f"instance delete failed: {e}")
+            self._status_panel.append_syslog(f"workspace delete failed: {e}")
             return
         new_active = str(result.get("active_instance", self._active_instance_name)).strip() or self._active_instance_name
         if target == self._active_instance_name:
             self._apply_instance_switch(new_active, announce=False)
         self._instance_histories.pop(target, None)
-        self._instance_manager_view.set_status(f"Instance {target} deleted")
-        self._status_panel.append_syslog(f"instance deleted: {target}")
-        self._refresh_instance_views(load_logs=True)
+        self._instance_manager_view.set_status(f"Workspace {target} deleted")
+        self._status_panel.append_syslog(f"workspace deleted: {target}")
+        self._refresh_instance_views(load_logs=True, force=True)
 
     def _on_instance_logs_requested(self, name: str, quiet: bool = False) -> None:
         target = (name or self._active_instance_name or "guppy-primary").strip()
@@ -926,9 +1240,19 @@ class LauncherWindow(QMainWindow):
     # ── Event handlers ────────────────────────────────────────────────────────
     def _on_settings_saved(self, settings: dict) -> None:
         profile = settings.get("runtime_profile", "standard")
+        persona_name = str(settings.get("active_persona_name", "")).strip()
         self._assistant_view.apply_settings(settings)
-        self._assistant_view.set_background_event(f"Settings saved for {str(profile).upper()} profile")
-        self._status_panel.append_syslog(f"settings saved  profile={profile}")
+        self._refresh_personalization_state(preferred_persona=str(settings.get("active_persona_id", "")).strip())
+        detail = f"Settings saved for {str(profile).upper()} profile"
+        if persona_name:
+            detail += f" · persona {persona_name}"
+        self._set_daily_activity(detail)
+        self._status_panel.append_syslog(detail.lower())
+
+    def _on_voice_bindings_changed(self, _bindings: dict) -> None:
+        self._refresh_personalization_state()
+        self._set_daily_activity("Voice bindings updated")
+        self._status_panel.append_syslog("voice bindings updated")
 
     def _tool_state_path(self) -> Path:
         return _RUNTIME / "launcher_tools_state.json"
@@ -996,6 +1320,26 @@ class LauncherWindow(QMainWindow):
                 kind, payload, seq = self._assistant_events.get_nowait()
             except Empty:
                 break
+            if kind == "voice_input":
+                self._mic_capture_active = False
+                self._assistant_view.set_mic_capture_state(False)
+                text = str(payload or "").strip()
+                if text:
+                    self._set_daily_activity(f"Voice captured: {text[:72]}")
+                    self._status_panel.append_syslog("voice capture ready")
+                    self._on_assistant_command(text)
+                else:
+                    self._assistant_view.set_status("Ready")
+                processed += 1
+                continue
+            if kind == "voice_error":
+                self._mic_capture_active = False
+                self._assistant_view.set_mic_capture_state(False)
+                self._assistant_view.set_status("Ready")
+                self._assistant_view.add_system_message(str(payload or "Voice capture failed."))
+                self._status_panel.append_syslog(f"voice capture failed: {str(payload or '')[:120]}")
+                processed += 1
+                continue
             if seq in self._canceled_request_seqs:
                 self._canceled_request_seqs.discard(seq)
                 processed += 1
@@ -1039,24 +1383,64 @@ class LauncherWindow(QMainWindow):
         return "The assistant request failed. Please retry."
 
     @staticmethod
-    def _chat_timeout_for_mode(mode: str) -> float:
+    def _chat_timeout_for_request(mode: str, command: str = "") -> float:
         m = (mode or "auto").strip().lower()
-        if m in {"claude", "auto", "teaching"}:
-            return 25.0
-        if m in {"local", "ollama", "code", "vault"}:
-            return 35.0
-        return 30.0
+        base = 25.0 if m in {"claude", "auto", "teaching"} else 35.0 if m in {"local", "ollama", "code", "vault"} else 30.0
+        text = (command or "").strip().lower()
+        if not text:
+            return base
+        if any(
+            token in text
+            for token in (
+                "diagnostic",
+                "diagnose",
+                "health check",
+                "system check",
+                "audit",
+                "scan",
+                "debug",
+                "trace",
+                "investigate",
+            )
+        ):
+            return max(base, 60.0)
+        if any(token in text for token in ("review", "triage", "analyze", "search the repo", "walk the codebase")):
+            return max(base, 45.0)
+        if len(text) > 220:
+            return max(base, 45.0)
+        return base
 
     @staticmethod
     def _required_local_model_for_mode(mode: str) -> str | None:
         m = (mode or "").strip().lower()
         if m in {"local", "ollama"}:
             return (os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()
+        if m == "teaching":
+            return (os.environ.get("GUPPY_LOCAL_TEACH_MODEL", "guppy-teach") or "guppy-teach").strip()
         if m == "code":
-            return (os.environ.get("GUPPY_LOCAL_CODE_MODEL", "merlin-code") or "merlin-code").strip()
+            return (os.environ.get("GUPPY_LOCAL_CODE_MODEL", "guppy-code") or "guppy-code").strip()
         if m == "vault":
             return (os.environ.get("GUPPY_LOCAL_VAULT_MODEL", "vault-scraper") or "vault-scraper").strip()
         return None
+
+    @staticmethod
+    def _assistant_model_id(mode: str, active_model: str = "") -> str:
+        candidate = str(active_model or "").strip()
+        if candidate and candidate not in {"-", "—"}:
+            return candidate
+
+        normalized_mode = (mode or "auto").strip().lower()
+        if normalized_mode == "claude":
+            return (
+                os.environ.get("ANTHROPIC_HAIKU_MODEL", "claude-haiku-4-5-20251001")
+                or "claude-haiku-4-5-20251001"
+            ).strip()
+
+        required_local = LauncherWindow._required_local_model_for_mode(normalized_mode)
+        if required_local:
+            return required_local
+
+        return (os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()
 
     def _validate_mode_ready(self, mode: str) -> tuple[bool, str]:
         model = LauncherWindow._required_local_model_for_mode(mode)
@@ -1098,6 +1482,8 @@ class LauncherWindow(QMainWindow):
         )
 
     def _on_chat_context_changed(self, mode: str, persona: str) -> None:
+        self._refresh_personalization_state(preferred_persona=persona)
+        self._update_route_preview(self._last_command)
         if self._request_in_flight:
             self._pending_chat_context = (mode, persona)
             self._status_panel.append_syslog(f"chat context queued until current request completes: {persona}/{mode}")
@@ -1116,6 +1502,7 @@ class LauncherWindow(QMainWindow):
             f"New chat session started for {persona.upper()} / {mode.upper()}."
         )
         self._status_panel.append_syslog(f"chat session rotated: {persona}/{mode}")
+        self._update_route_preview(self._last_command)
 
     def _finish_request_ui(self) -> None:
         self._assistant_view.set_request_in_flight(False)
@@ -1147,13 +1534,17 @@ class LauncherWindow(QMainWindow):
                 text = str(evt.get("text", ""))
                 self._settings_view.set_recovery_status(text)
                 self._advanced_view.set_recovery_status(text)
-                self._assistant_view.set_background_event(text)
+                self._set_daily_activity(text)
                 self._assistant_view.set_recovery_summary(text, healthy="error" not in text.lower())
+                self._advanced_view.set_daily_context_recovery(
+                    self._assistant_view._recovery_summary.text(),
+                    ok="error" not in text.lower(),
+                )
             elif kind == "syslog":
                 text = str(evt.get("text", ""))
                 self._status_panel.append_syslog(text)
                 self._advanced_view.append_log(text)
-                self._assistant_view.set_background_event(text)
+                self._set_daily_activity(text)
             elif kind == "outcome":
                 action = str(evt.get("action", "recovery"))
                 ok = bool(evt.get("ok", False))
@@ -1161,27 +1552,79 @@ class LauncherWindow(QMainWindow):
                 self._status_panel.set_recovery_outcome(action, ok, summary)
                 self._advanced_view.set_recovery_status(f"{action}: {summary}")
                 self._advanced_view.append_log(f"Recovery {action}: {summary}")
-                self._assistant_view.set_background_event(f"Recovery {action}: {summary}")
+                self._set_daily_activity(f"Recovery {action}: {summary}")
                 self._assistant_view.set_recovery_summary(f"{action}: {summary}", healthy=ok)
+                self._advanced_view.set_daily_context_recovery(self._assistant_view._recovery_summary.text(), ok=ok)
             processed += 1
 
     def _on_tool_hint_requested(self, tool_key: str) -> None:
         key = (tool_key or "").strip()
         if not key:
             return
+        states = self._tools_view.current_tool_states()
+        if states.get(key) == "restricted":
+            message = (
+                f"{key.replace('_', ' ')} is blocked in {self._active_instance_name}. "
+                "Switch workspaces or review permissions in Agent Tools before you try again."
+            )
+            self._assistant_view.add_system_message(message)
+            self._set_daily_activity(f"Workspace tool blocked: {key}")
+            self._status_panel.append_syslog(f"workspace tool blocked: {key}")
+            return
         self._on_tab_change(0)
-        self._assistant_view.set_input_text(f"Use {key} for the active instance: ")
-        self._assistant_view.set_background_event(f"Agent tool primed from Agent Tools: {key}")
-        self._status_panel.append_syslog(f"agent tool primed: {key}")
+        self._assistant_view.set_input_text(self._tool_prompt_for_home(key))
+        self._set_daily_activity(f"Workspace tool loaded into Home: {key}")
+        self._status_panel.append_syslog(f"workspace tool primed: {key}")
+
+    @staticmethod
+    def _tool_prompt_for_home(tool_key: str) -> str:
+        key = (tool_key or "").strip().lower()
+        prompts = {
+            "read_file": "Prime the read-file workspace tool for this task. Start by asking which file or folder Guppy should inspect, then confirm the exact read-only scope.",
+            "screenshot": "Prime the screenshot workspace tool for this task. Ask what screen or app the user wants Guppy to inspect.",
+            "query_instance": "Prime the cross-workspace query tool for this task. Ask which workspace Guppy should consult and what question to send.",
+            "debug_console": "Prime the debug-console workspace tool for this task. Start by asking what runtime detail the user wants to inspect.",
+            "run_python": "Prime the Python workspace tool for this task. Start by confirming the smallest safe snippet to run.",
+            "write_file": "Prime the write-file workspace tool for this task. Start by asking what file should change, what outcome is expected, and what scope is safe.",
+            "execute_command": "Prime the command workspace tool for this task. Start by asking which command should run, why it is needed, and what safe scope applies.",
+            "outlook_slot": "Help me plan an Outlook tray slot for this workspace. Start by asking what inbox, follow-up, or mail view should live there.",
+            "calendar_slot": "Help me plan a calendar tray slot for this workspace. Start by asking what schedule, agenda, or next event view should live there.",
+            "rss_slot": "Help me plan an RSS tray slot for this workspace. Start by asking which feeds, sources, or watchlists should live there.",
+            "add_slot": "Help me design a new tray slot for this workspace. Start by asking which app, API, or lightweight module should be added on the right side.",
+        }
+        return prompts.get(key, f"Prime the {key} workspace tool for this task: ")
+
+    def _on_builder_task_requested(self, payload: dict[str, object]) -> None:
+        try:
+            from utils.offhours_builder import enqueue_builder_task, render_builder_task
+
+            template_id = str(payload.get("template_id", "")).strip()
+            target_ref = str(payload.get("target_ref", "")).strip()
+            instance_name = str(payload.get("instance_name", self._active_instance_name)).strip() or self._active_instance_name
+            task = render_builder_task(
+                template_id,
+                target_ref=target_ref,
+                requested_by_instance=instance_name,
+            )
+            enqueue_builder_task(task)
+            self._tools_view.set_builder_status(f"Queued {task['title']} for dry-run review")
+            self._assistant_view.add_system_message(
+                f"Queued local builder task: {task['title']} -> {task['output_file_path']}"
+            )
+            self._set_daily_activity(f"Builder task queued for {instance_name}: {task['template_id']}")
+            self._status_panel.append_syslog(f"builder task queued: {task['id']}")
+        except Exception as exc:
+            self._tools_view.set_builder_status(f"Queue failed: {exc}", ok=False)
+            self._status_panel.append_syslog(f"builder task queue failed: {exc}")
 
     def _initialize_embedded_agent(self, agent_id: str) -> tuple[bool, str]:
         aid = (agent_id or "").strip().lower()
-        if aid not in {"guppy", "merlin", "council"}:
+        if aid != "guppy":
             return False, f"unknown agent: {agent_id}"
         self._embedded_online.add(aid)
         self._assistant_view.activate_agent(aid)
         self._assistant_view.add_system_message(f"{aid.upper()} embedded session initialized.")
-        self._assistant_view.set_background_event(f"Embedded {aid.upper()} session initialized")
+        self._set_daily_activity(f"Embedded {aid.upper()} session initialized")
         return True, "embedded session active"
 
     def _on_agent_init_requested(self, agent_id: str) -> None:
@@ -1313,8 +1756,21 @@ class LauncherWindow(QMainWindow):
                                 raw = resp.read().decode("utf-8", errors="replace")
                             self._log_launcher_event("repair_token_resynced", ok=True)
                             return json.loads(raw) if raw.strip() else {}
-                        except Exception:
-                            pass
+                        except Exception as retry_exc:
+                            self._log_launcher_event(
+                                "repair_token_resync_failed",
+                                ok=False,
+                                reason="retry_failed",
+                                error=str(retry_exc),
+                                auth_code=err_code,
+                            )
+                    else:
+                        self._log_launcher_event(
+                            "repair_token_resync_failed",
+                            ok=False,
+                            reason="invalid_or_missing_refresh_token",
+                            auth_code=err_code,
+                        )
             detail = ""
             try:
                 body = e.read().decode("utf-8", errors="replace")
@@ -1503,8 +1959,7 @@ class LauncherWindow(QMainWindow):
         """Warmup: check freshness of key runtime files."""
         stale, fresh = [], []
         now = time.time()
-        for name in ("guppy.status", "merlin.status", "council.status",
-                     "guppy.heartbeat", "merlin.heartbeat"):
+        for name in ("guppy.status", "guppy.heartbeat"):
             p = _RUNTIME / name
             if not p.exists():
                 stale.append(f"{name}=missing")
@@ -1528,8 +1983,7 @@ class LauncherWindow(QMainWindow):
         """Audit: collect runtime status files into a diagnostics JSON."""
         bundle: dict = {"ts": datetime.now(timezone.utc).isoformat(), "files": {}}
         issues: list[str] = []
-        for name in ("guppy.status", "merlin.status", "council.status",
-                     "resource_envelope.status.json", "logging_health_snapshot.json"):
+        for name in ("guppy.status", "resource_envelope.status.json", "logging_health_snapshot.json"):
             p = _RUNTIME / name
             if not p.exists():
                 bundle["files"][name] = {"missing": True}
@@ -1557,7 +2011,7 @@ class LauncherWindow(QMainWindow):
     def _direct_health_snapshot(self) -> dict:
         """Health snapshot: read runtime status files directly."""
         results = {}
-        for agent in ("guppy", "merlin", "council"):
+        for agent in ("guppy",):
             hb = _RUNTIME / f"{agent}.heartbeat"
             st = _RUNTIME / f"{agent}.status"
             results[agent] = {
@@ -1667,12 +2121,21 @@ class LauncherWindow(QMainWindow):
     def _on_model_selected(self, model: str) -> None:
         self._status_panel.append_syslog(f"active model → {model}")
 
+        self._refresh_personalization_state()
+        self._update_route_preview(self._last_command)
+
     def _on_search(self, query: str) -> None:
         if not query.strip():
             return
-        self._stack.setCurrentIndex(0)
-        self._sidebar.set_active(0)
+        self._on_tab_change(0)
         self._assistant_view.set_input_text(query)
+
+    def _on_home_starter_requested(self, starter_id: str, prompt: str) -> None:
+        self._on_tab_change(0)
+        self._update_route_preview(prompt)
+        self._set_daily_activity(f"Starter loaded: {starter_id}")
+        self._status_panel.append_syslog(f"home starter loaded: {starter_id}")
+        self._log_launcher_event("home_starter_loaded", starter_id=starter_id)
 
     def _on_assistant_command(self, command: str) -> None:
         cmd = (command or "").strip()
@@ -1699,11 +2162,24 @@ class LauncherWindow(QMainWindow):
 
         self._last_command = cmd
         instance_name = getattr(self, "_active_instance_name", "guppy-primary") or "guppy-primary"
+        chat_context_getter = getattr(self._assistant_view, "chat_context", None)
+        selected_persona = "guppy"
+        if callable(chat_context_getter):
+            try:
+                _mode, selected_persona = chat_context_getter()
+            except Exception:
+                selected_persona = "guppy"
+        route_updater = getattr(self, "_update_route_preview", None)
+        if callable(route_updater):
+            route_updater(cmd)
         # Increment before starting the worker so any in-flight response from
         # a prior command carries a stale sequence number and is dropped.
         self._active_request_seq += 1
         req_seq = self._active_request_seq
         self._request_in_flight = True
+        history_getter = getattr(self._assistant_view, "recent_history", None)
+        history = history_getter(limit=12) if callable(history_getter) else []
+        idempotency_key = f"launcher-{uuid.uuid4().hex}"
         self._assistant_view.add_user_message(cmd)
         if _INSTANCE_LOGGER_AVAILABLE:
             append_instance_log(
@@ -1720,27 +2196,51 @@ class LauncherWindow(QMainWindow):
         if callable(set_in_flight):
             set_in_flight(True)
         self._assistant_view.set_status("Processing...")
+        activity_setter = getattr(self, "_set_daily_activity", None)
+        if callable(activity_setter):
+            activity_setter(f"Working on: {cmd[:96]}")
         self._status_panel.append_syslog("command queued")
-        self._log_launcher_event("command_submitted", command=cmd, seq=req_seq)
-        request_timeout = LauncherWindow._chat_timeout_for_mode(selected_mode)
-        history_getter = getattr(self._assistant_view, "recent_history", None)
-        history = history_getter(limit=12) if callable(history_getter) else []
+        self._log_launcher_event("command_submitted", command=cmd, seq=req_seq, idempotency_key=idempotency_key)
+        request_timeout = LauncherWindow._chat_timeout_for_request(selected_mode, cmd)
+        retry_timeout = max(request_timeout + 20.0, 60.0)
 
         def _worker() -> None:
+            payload = {
+                "message": cmd,
+                "session_id": self._chat_session_id,
+                "mode": selected_mode,
+                "persona": selected_persona,
+                "history": history,
+                "idempotency_key": idempotency_key,
+            }
             try:
-                resp = self._http_json(
-                    "/chat",
-                    method="POST",
-                    payload={
-                        "message": cmd,
-                        "session_id": self._chat_session_id,
-                        "mode": selected_mode,
-                        "history": history,
-                    },
-                    timeout=request_timeout,
-                    retry_auth_on_401=True,
-                    auth_retry_reason="chat",
-                )
+                try:
+                    resp = self._http_json(
+                        "/chat",
+                        method="POST",
+                        payload=payload,
+                        timeout=request_timeout,
+                        retry_auth_on_401=True,
+                        auth_retry_reason="chat",
+                    )
+                except Exception as first_exc:
+                    if "timed out" not in str(first_exc).lower():
+                        raise
+                    self._log_launcher_event(
+                        "command_timeout_retry",
+                        seq=req_seq,
+                        timeout_s=request_timeout,
+                        retry_timeout_s=retry_timeout,
+                        idempotency_key=idempotency_key,
+                    )
+                    resp = self._http_json(
+                        "/chat",
+                        method="POST",
+                        payload=payload,
+                        timeout=retry_timeout,
+                        retry_auth_on_401=True,
+                        auth_retry_reason="chat_timeout_retry",
+                    )
                 text = str(resp.get("response") or "").strip()
                 if not text:
                     text = "No response payload received."
@@ -1759,7 +2259,13 @@ class LauncherWindow(QMainWindow):
                 emitter = getattr(self, "assistant_event_queued", None)
                 if emitter is not None and hasattr(emitter, "emit"):
                     emitter.emit()
-                self._log_launcher_event("command_response", ok=True, chars=len(text), seq=req_seq)
+                self._log_launcher_event(
+                    "command_response",
+                    ok=True,
+                    chars=len(text),
+                    seq=req_seq,
+                    idempotency_key=idempotency_key,
+                )
             except Exception as e:
                 err_text = str(e)
                 if self._is_unauthorized_error(err_text):
@@ -1769,19 +2275,15 @@ class LauncherWindow(QMainWindow):
                         seq=req_seq,
                         auth_code=auth_code,
                         error=err_text,
+                        idempotency_key=idempotency_key,
                     )
                     self._refresh_api_auth_state("chat_401")
                     try:
                         retry_resp = self._http_json(
                             "/chat",
                             method="POST",
-                            payload={
-                                "message": cmd,
-                                "session_id": self._chat_session_id,
-                                "mode": selected_mode,
-                                "history": history,
-                            },
-                            timeout=request_timeout,
+                            payload=payload,
+                            timeout=retry_timeout,
                             retry_auth_on_401=True,
                             auth_retry_reason="chat_retry",
                         )
@@ -1809,6 +2311,7 @@ class LauncherWindow(QMainWindow):
                             chars=len(retry_text),
                             seq=req_seq,
                             retried_after_401=True,
+                            idempotency_key=idempotency_key,
                         )
                         return
                     except Exception as retry_error:
@@ -1820,6 +2323,7 @@ class LauncherWindow(QMainWindow):
                                 auth_code=retry_auth_code,
                                 phase="retry",
                                 error=str(retry_error),
+                                idempotency_key=idempotency_key,
                             )
                         err_text = f"{err_text}; retry failed: {retry_error}"
 
@@ -1827,9 +2331,129 @@ class LauncherWindow(QMainWindow):
                 emitter = getattr(self, "assistant_event_queued", None)
                 if emitter is not None and hasattr(emitter, "emit"):
                     emitter.emit()
-                self._log_launcher_event("command_response", ok=False, error=err_text, seq=req_seq)
+                self._log_launcher_event(
+                    "command_response",
+                    ok=False,
+                    error=err_text,
+                    seq=req_seq,
+                    idempotency_key=idempotency_key,
+                )
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_quick_action(self, action: str) -> None:
+        target = (action or "").strip().lower()
+        if target == "notifications":
+            self._on_tab_change(3)
+            self._advanced_view.focus_operator_logs(
+                "WARN",
+                note="Top bar notifications opened launcher warnings and recovery events.",
+            )
+            self._set_daily_activity("App Mgmt opened launcher warnings and recovery events")
+            self._status_panel.append_syslog("App Mgmt warnings opened from top bar")
+            self._log_launcher_event("quick_action", action="notifications")
+            return
+        if target == "terminal":
+            self._on_tab_change(3)
+            note = "Top bar terminal opened operator logs"
+            if self._last_command:
+                note += f". Last command: {self._last_command}"
+            self._advanced_view.focus_operator_logs("ALL", note=note)
+            self._advanced_view.focus_terminal(
+                note=f"[launcher] terminal opened from top bar. cwd={_RUNTIME.parent}"
+            )
+            self._set_daily_activity("App Mgmt terminal opened operator logs and workflow controls")
+            self._status_panel.append_syslog("App Mgmt terminal opened from top bar")
+            self._log_launcher_event("quick_action", action="terminal", last_command=self._last_command)
+            return
         self._status_panel.append_syslog(f"quick action unavailable: {action}")
+
+    def _refresh_notification_badge(self) -> None:
+        path = _RUNTIME / "launcher_events.jsonl"
+        if not path.exists():
+            self._topbar.set_notification_badge(0, severity="info")
+            return
+        try:
+            mtime = path.stat().st_mtime
+        except Exception:
+            mtime = 0.0
+        if mtime == self._notification_badge_mtime:
+            return
+        self._notification_badge_mtime = mtime
+        events = _read_jsonl_tail(path, limit=80)
+        warn_count = 0
+        error_count = 0
+        for item in events:
+            if not isinstance(item, dict):
+                continue
+            level = self._event_level(item)
+            if level == "ERROR":
+                error_count += 1
+            elif level == "WARN":
+                warn_count += 1
+        severity = "error" if error_count else ("warn" if warn_count else "info")
+        total = error_count + warn_count
+        self._topbar.set_notification_badge(total, severity=severity)
+
+    def _ensure_voice_capture(self) -> tuple[bool, str]:
+        if not _VOICE_CAPTURE_AVAILABLE or GuppyVoice is None:
+            return False, "Voice capture backend is unavailable in this launcher build."
+        if self._launcher_voice is not None:
+            return True, "ok"
+        try:
+            self._launcher_voice = GuppyVoice()
+            return True, "ok"
+        except Exception as exc:
+            self._launcher_voice = None
+            return False, f"Voice capture failed to initialize: {exc}"
+
+    def _on_mic_requested(self) -> None:
+        if self._request_in_flight:
+            self._assistant_view.add_system_message("A request is already in progress. Wait for it to finish before using push to talk.")
+            return
+        if self._mic_capture_active:
+            voice = self._launcher_voice
+            if voice is not None and hasattr(voice, "stop_listening"):
+                try:
+                    voice.stop_listening()
+                except Exception:
+                    pass
+            self._set_daily_activity("Stopping push-to-talk capture...")
+            self._status_panel.append_syslog("voice capture stop requested")
+            return
+
+        ok, summary = self._ensure_voice_capture()
+        if not ok:
+            self._assistant_view.add_system_message(summary)
+            self._status_panel.append_syslog(f"voice capture unavailable: {summary}")
+            return
+
+        self._mic_capture_active = True
+        self._assistant_view.set_mic_capture_state(True)
+        self._set_daily_activity("Push-to-talk listening...")
+        self._status_panel.append_syslog("voice capture started")
+        self._log_launcher_event("voice_capture_started")
+
+        def _worker() -> None:
+            voice = self._launcher_voice
+            if voice is None:
+                self._assistant_events.put(("voice_error", "Voice capture backend was not available.", 0))
+            else:
+                try:
+                    result = voice.listen_once(timeout=10)
+                    text = str(result.get("text", "") or "").strip() if isinstance(result, dict) else ""
+                    error = str(result.get("error", "") or "").strip() if isinstance(result, dict) else ""
+                    if text:
+                        self._assistant_events.put(("voice_input", text, 0))
+                        self._log_launcher_event("voice_capture_result", ok=True, chars=len(text))
+                    else:
+                        self._assistant_events.put(("voice_error", error or "No speech captured.", 0))
+                        self._log_launcher_event("voice_capture_result", ok=False, error=error or "no_speech")
+                except Exception as exc:
+                    self._assistant_events.put(("voice_error", f"Voice capture failed: {exc}", 0))
+                    self._log_launcher_event("voice_capture_result", ok=False, error=str(exc))
+            emitter = getattr(self, "assistant_event_queued", None)
+            if emitter is not None and hasattr(emitter, "emit"):
+                emitter.emit()
+
+        threading.Thread(target=_worker, daemon=True).start()

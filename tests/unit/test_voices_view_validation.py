@@ -25,3 +25,16 @@ def test_engine_capability_for_elevenlabs_depends_on_api_key() -> None:
             os.environ.pop("ELEVENLABS_API_KEY", None)
         else:
             os.environ["ELEVENLABS_API_KEY"] = old
+
+
+def test_describe_voice_choice_surfaces_voice_and_engine() -> None:
+    assert VoicesView._describe_voice_choice("EDGE TTS", "en-GB-RyanNeural") == "en-GB-RyanNeural on EDGE TTS"
+
+
+def test_refresh_voice_evidence_mentions_bindings_and_default_runtime_voice() -> None:
+    view = VoicesView()
+
+    view._refresh_voice_evidence()
+
+    assert "Ready now:" in view._voice_evidence_lbl.text()
+    assert "Default runtime voice stays" in view._voice_evidence_lbl.text()

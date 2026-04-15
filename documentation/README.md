@@ -2,6 +2,12 @@
 
 This folder is the canonical technical documentation source.
 
+Pair this folder with `docs/README.md`:
+
+- `documentation/` owns canonical technical architecture, security, and truth-audit material.
+- `docs/` owns canonical operational and product-reference material.
+- Historical planning and archive material should not be treated as equal-weight references when these folders disagree.
+
 ## Files
 
 - `documentation/ARCHITECTURE.md`

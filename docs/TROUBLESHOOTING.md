@@ -27,6 +27,23 @@
 - Test with clear spoken audio WAV.
 - Ensure Whisper dependencies load correctly on your machine.
 
+## Voice endpoint returns 413 or rejects the upload before transcription
+
+- The API now rejects oversized voice uploads before they hit transcription.
+- Reduce the file size or trim long recordings before retrying.
+- Adjust `GUPPY_VOICE_UPLOAD_MAX_BYTES` only when the machine has enough memory headroom for larger audio files.
+
+## Persona, route, or voice changes do not appear in the launcher
+
+- Re-open Settings, Models, or Voices and confirm the change was saved, not just previewed.
+- Check the backing files under `runtime/`:
+  - `persona_config.json`
+  - `provider_registry.json`
+  - `voice_bindings.json`
+- Run the focused builder sweep:
+  - `python -m pytest tests/unit/test_personalization_resolution.py tests/unit/test_models_routes.py tests/unit/test_voices_view_validation.py -q`
+- Use App Mgmt `WORKFLOW LOOPS` to load the acceptance or midday checks without leaving the launcher.
+
 ## Ollama connection issues
 
 - Verify Ollama service is running:

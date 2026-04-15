@@ -1,6 +1,6 @@
 # Operations Instructions
 
-Last verified: 2026-04-13
+Last verified: 2026-04-14
 
 This is the primary operator runbook for the current codebase.
 
@@ -11,12 +11,13 @@ This is the primary operator runbook for the current codebase.
 2. Launcher implementation is in `src/guppy/apps/launcher_app.py`.
 3. Wrapper `guppy_launcher.py` is compatibility-only and should stay thin.
 4. Use `src/guppy/cli/launch.py` for Hub, API, and GuppyPrime launches.
-5. Treat Merlin and Council as compatibility/debug surfaces only. Launch them directly only when you intend to opt into legacy behavior.
+5. Do not recreate or depend on deleted Merlin/Council desktop entrypoints; use configured launcher instances such as `builder-collab` for background collaboration.
 
 ## 2) Runtime Surfaces
 
 - Primary UI: launcher (`ui/launcher/`)
-- Specialist surfaces: `merlin_ui.py`, `council_ui.py`, legacy `guppy_ui.py` (compatibility-only)
+- Background collaboration: configured instances from `config/instances.json` (`guppy-primary`, optional `builder-collab`)
+- Historical specialist material: `legacy_surfaces/` and `src/guppy/merlin/` (not active desktop entrypoints)
 - API: `src/guppy/api/server.py` (wrapper: `guppy_api.py`)
 - Hub app: `src/guppy/apps/hub_app.py` (wrapper: `guppy_hub.py`)
 
@@ -28,8 +29,23 @@ Run these in order when validating a deployment:
 2. `python tools/check_wrapper_integrity.py`
 3. `python tools/check_doc_ownership.py`
 4. `python tools/check_new_module_line_cap.py`
-5. `python -m pytest tests/unit tests/integration -v`
+5. `.venv\Scripts\python.exe -m pytest tests/smoke/test_runtime_smoke.py tests/smoke/test_launcher_interactions_smoke.py tests/unit/test_security_hardening.py tests/unit/test_instance_controls.py tests/unit/test_offhours_builder.py tests/unit/test_smart_dispatch.py -q`
 6. `python tests/smoke/smoke_api.py` when validating the API surface manually
+
+## 3a) Builder Validation Pass
+
+Run this after launcher builder, route, or voice changes:
+
+1. Persona save/load/preview:
+   - `.venv\Scripts\python.exe -m pytest tests/unit/test_personalization_resolution.py tests/smoke/test_launcher_interactions_smoke.py -q`
+2. Model route explainability:
+   - `.venv\Scripts\python.exe -m pytest tests/unit/test_models_routes.py tests/smoke/test_runtime_smoke.py -q`
+3. Voice binding/import/preview:
+   - `.venv\Scripts\python.exe -m pytest tests/unit/test_voices_view_validation.py tests/smoke/test_runtime_smoke.py -q`
+4. Off-hours builder queue and approval:
+   - `.venv\Scripts\python.exe -m pytest tests/unit/test_offhours_builder.py tests/unit/test_instance_controls.py -q`
+5. Launcher workflow shortcuts:
+   - Use App Mgmt -> `WORKFLOW LOOPS` to load or run Morning Boot, acceptance snapshot, midday stability, evening close, or overnight low-compute commands without leaving the launcher.
 
 ## 4) Recovery Flow
 

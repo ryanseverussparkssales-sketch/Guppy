@@ -72,7 +72,7 @@ To keep M2 feasible on a Windows local-first machine, multi-instance support is 
 5. **Inter-Agent Communication Bridge** (extend `guppy_api.py`)
    - New endpoint: `POST /instances/{name}/query` → send message to background instance
    - Synchronous bounded contract in M2.0: returns completed response or busy/timeout within 5s
-   - Response schema: `{ "response": "...", "tokens_used": 42, "model": "merlin", "source_instance": "guppy", "status": "ok|busy|timeout" }`
+   - Response schema: `{ "response": "...", "tokens_used": 42, "model": "guppy-teach", "source_instance": "guppy", "status": "ok|busy|timeout" }`
    - Instances can invoke other instances via tool call (e.g., "ask Guppy to summarize")
    - **Lines of code est.:** ~300
 

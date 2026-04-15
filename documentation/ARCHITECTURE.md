@@ -1,6 +1,6 @@
 # Architecture
 
-Last verified: 2026-04-13
+Last verified: 2026-04-14
 
 ## 1) Runtime Entry Points
 
@@ -15,7 +15,6 @@ Last verified: 2026-04-13
 Thin root compatibility wrappers remain for stable direct imports and scripts:
 
 - `guppy_launcher.py`, `guppy_hub.py`, `guppy_api.py`, `guppy_api_auth.py`, `guppy_agent.py`
-- `guppy_ui.py`, `merlin_ui.py`, `council_ui.py`
 - additional migrated shims for memory, voice, inference, tools, and integrations
 
 ## 2) UI Architecture
@@ -26,24 +25,24 @@ Thin root compatibility wrappers remain for stable direct imports and scripts:
 - Views: `ui/launcher/views/`
 - Components: `ui/launcher/components/`
 
-### Specialist and compatibility surfaces
+### Background collaboration and historical compatibility
 
-- Standalone specialist wrappers: `merlin_ui.py`, `council_ui.py`
-- Legacy-surface implementations retained under `legacy_surfaces/`
-- Canonical CLI launch blocks those specialist legacy surfaces unless `GUPPY_ENABLE_LEGACY_SURFACES=1` is set.
+- Supported daily path: unified launcher plus configured instances from `config/instances.json`
+- Default runtime instances: foreground `guppy-primary` and optional background `builder-collab`
+- Historical specialist material is retained under `legacy_surfaces/` and `src/guppy/merlin/`, but not as active desktop entrypoints
 
 ## 3) Core Runtime Packages
 
-- `guppy_core/` — tool registry, runner, prompts, metrics, policy
-- `src/guppy/inference/` — routing and dispatch policy
-- `src/guppy/merlin/` — Merlin persona-specific logic
-- `src/guppy/memory/` — persistent and semantic memory
-- `src/guppy/voice/` — TTS/STT and wake-word handling
-- `src/guppy/daemon/` — reminders, ambient watcher, proactive loop
-- `src/guppy/tools/` — GitHub/media helper modules
-- `src/guppy/integrations/` — CRM/VoIP stubs
-- `src/guppy/debug/` — debug console
-- `src/guppy/ui/` — theme and shared UI-specific logic
+- `guppy_core/` - tool registry, runner, prompts, metrics, policy
+- `src/guppy/inference/` - routing and dispatch policy
+- `src/guppy/merlin/` - teaching-persona content and legacy compatibility helpers
+- `src/guppy/memory/` - persistent and semantic memory
+- `src/guppy/voice/` - TTS/STT and wake-word handling
+- `src/guppy/daemon/` - reminders, ambient watcher, proactive loop
+- `src/guppy/tools/` - GitHub/media helper modules
+- `src/guppy/integrations/` - CRM/VoIP stubs
+- `src/guppy/debug/` - debug console
+- `src/guppy/ui/` - theme and shared UI-specific logic
 
 ## 4) Background Services and Telemetry
 
@@ -105,9 +104,9 @@ SQLite defaults:
 
 ## 7) Test Layout
 
-- `tests/unit/` — default fast regression suite
-- `tests/integration/` — runtime or hardware-adjacent tests
-- `tests/smoke/` — manual or broader smoke/stress validation
+- `tests/unit/` - default fast regression suite
+- `tests/integration/` - runtime or hardware-adjacent tests
+- `tests/smoke/` - manual or broader smoke/stress validation
 
 `pytest.ini` runs `tests/unit` and `tests/integration` by default.
 

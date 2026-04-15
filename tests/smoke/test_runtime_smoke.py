@@ -134,6 +134,15 @@ class RuntimeSmokeTests(unittest.TestCase):
             self.assertEqual(payload.get("active_instance"), "zeta")
             self.assertTrue(payload.get("warnings"))
             self.assertTrue(any("ignored" in str(w).lower() for w in payload.get("warnings", [])))
+
+            persisted_config = json.loads(instances_path.read_text(encoding="utf-8"))
+            persisted_state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(persisted_config.get("active_instance"), "zeta")
+            self.assertEqual([item.get("name") for item in persisted_config.get("instances", [])], ["zeta", "alpha"])
+            self.assertEqual(persisted_state.get("active_instance"), "zeta")
+            self.assertNotIn("ghost", persisted_state.get("instances", {}))
+            self.assertEqual(persisted_state.get("instances", {}).get("zeta", {}).get("status"), "active")
+            self.assertEqual(persisted_state.get("instances", {}).get("alpha", {}).get("status"), "idle")
         finally:
             guppy_api._config_dir = old_config_dir
             guppy_api._runtime_dir = old_runtime_dir
@@ -208,10 +217,10 @@ class RuntimeSmokeTests(unittest.TestCase):
             create_resp = client.post(
                 "/instances",
                 json={
-                    "name": "merlin-collab",
+                    "name": "builder-collab",
                     "description": "Collaborator",
                     "mode": "teaching",
-                    "persona": "merlin",
+                    "persona": "guppy",
                     "voice": "default",
                     "enabled": True,
                     "type": "builder_instance",
@@ -224,27 +233,27 @@ class RuntimeSmokeTests(unittest.TestCase):
             self.assertEqual(list_resp.status_code, 200)
             payload = list_resp.json()
             names = [item.get("name") for item in payload.get("instances", [])]
-            self.assertIn("merlin-collab", names)
+            self.assertIn("builder-collab", names)
             self.assertIn("limits", payload)
-            target = next(item for item in payload.get("instances", []) if item.get("name") == "merlin-collab")
+            target = next(item for item in payload.get("instances", []) if item.get("name") == "builder-collab")
             self.assertEqual(target.get("type"), "builder_instance")
             self.assertIn("created_at", target)
             self.assertIn("model_currently_using", target)
             self.assertEqual(payload["limits"]["configured"], 2)
             self.assertEqual(payload["limits"]["max_configured"], 5)
 
-            activate_resp = client.post("/instances/merlin-collab/activate")
+            activate_resp = client.post("/instances/builder-collab/activate")
             self.assertEqual(activate_resp.status_code, 200)
-            self.assertEqual(activate_resp.json().get("active_instance"), "merlin-collab")
+            self.assertEqual(activate_resp.json().get("active_instance"), "builder-collab")
 
-            logs_resp = client.get("/instances/merlin-collab/logs?limit=10")
+            logs_resp = client.get("/instances/builder-collab/logs?limit=10")
             self.assertEqual(logs_resp.status_code, 200)
             self.assertIn("entries", logs_resp.json())
             self.assertIn("summary", logs_resp.json())
 
-            delete_resp = client.delete("/instances/merlin-collab")
+            delete_resp = client.delete("/instances/builder-collab")
             self.assertEqual(delete_resp.status_code, 200)
-            self.assertEqual(delete_resp.json().get("deleted"), "merlin-collab")
+            self.assertEqual(delete_resp.json().get("deleted"), "builder-collab")
         finally:
             guppy_api._config_dir = old_config_dir
             guppy_api._runtime_dir = old_runtime_dir
@@ -276,7 +285,7 @@ class RuntimeSmokeTests(unittest.TestCase):
                 json.dumps(
                     {
                         "version": 1,
-                        "active_instance": "merlin-collab",
+                        "active_instance": "builder-collab",
                         "instances": [
                             {
                                 "name": "guppy-primary",
@@ -288,10 +297,10 @@ class RuntimeSmokeTests(unittest.TestCase):
                                 "type": "user_instance",
                             },
                             {
-                                "name": "merlin-collab",
+                                "name": "builder-collab",
                                 "description": "Collaborator",
                                 "mode": "teaching",
-                                "persona": "merlin",
+                                "persona": "guppy",
                                 "voice": "default",
                                 "enabled": True,
                                 "type": "builder_instance",
@@ -305,7 +314,7 @@ class RuntimeSmokeTests(unittest.TestCase):
                 json.dumps(
                     {
                         "version": 1,
-                        "active_instance": "merlin-collab",
+                        "active_instance": "builder-collab",
                         "instances": {
                             "guppy-primary": {
                                 "status": "idle",
@@ -314,7 +323,7 @@ class RuntimeSmokeTests(unittest.TestCase):
                                 "message_count": 0,
                                 "model_currently_using": "auto",
                             },
-                            "merlin-collab": {
+                            "builder-collab": {
                                 "status": "active",
                                 "last_message": "",
                                 "last_updated": None,
@@ -340,19 +349,23 @@ class RuntimeSmokeTests(unittest.TestCase):
             client = TestClient(app)
             from unittest.mock import patch
 
-            with patch.object(guppy_api, "_call_unified_inference", side_effect=_fake_inference):
+            with patch.object(guppy_api, "_call_unified_inference", side_effect=_fake_inference), patch.object(
+                guppy_api,
+                "get_cached_response",
+                return_value=None,
+            ):
                 chat_resp = client.post("/chat", json={"message": "hello"})
                 self.assertEqual(chat_resp.status_code, 200)
                 query_resp = client.post(
-                    "/instances/merlin-collab/query",
+                    "/instances/builder-collab/query",
                     json={"message": "builder question", "source_instance": "guppy-primary"},
                 )
                 self.assertEqual(query_resp.status_code, 200)
 
             self.assertGreaterEqual(len(calls), 2)
-            self.assertEqual(calls[0][0], "merlin-collab")
+            self.assertEqual(calls[0][0], "builder-collab")
             self.assertEqual(calls[0][1], "builder_instance")
-            self.assertEqual(calls[1][0], "merlin-collab")
+            self.assertEqual(calls[1][0], "builder-collab")
             self.assertEqual(calls[1][1], "builder_instance")
         finally:
             guppy_api._config_dir = old_config_dir
@@ -361,6 +374,425 @@ class RuntimeSmokeTests(unittest.TestCase):
             guppy_api._instance_state_path = old_instance_state_path
             app.dependency_overrides.pop(guppy_api.require_rate_limit, None)
             shutil.rmtree(tmp_root, ignore_errors=True)
+
+    def test_chat_request_persists_repaired_active_instance_config(self):
+        app = guppy_api.app
+        app.dependency_overrides[guppy_api.require_rate_limit] = lambda: "smoke-user"
+
+        old_config_dir = guppy_api._config_dir
+        old_runtime_dir = guppy_api._runtime_dir
+        old_instances_path = guppy_api._instances_path
+        old_instance_state_path = guppy_api._instance_state_path
+
+        tmp_root = Path(tempfile.mkdtemp())
+        try:
+            cfg = tmp_root / "config"
+            rt = tmp_root / "runtime"
+            cfg.mkdir(parents=True, exist_ok=True)
+            rt.mkdir(parents=True, exist_ok=True)
+
+            instances_path = cfg / "instances.json"
+            state_path = rt / "instance_state.json"
+            instances_path.write_text(
+                json.dumps(
+                    {
+                        "version": "bad",
+                        "active_instance": "missing",
+                        "instances": [
+                            {"description": "missing name"},
+                            {"name": "guppy-primary", "mode": "auto", "enabled": True},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "instances": {
+                            "ghost": {"status": "busy"},
+                            "guppy-primary": {"status": "NOT_A_STATUS", "message_count": "3"},
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            guppy_api._config_dir = cfg
+            guppy_api._runtime_dir = rt
+            guppy_api._instances_path = instances_path
+            guppy_api._instance_state_path = state_path
+
+            client = TestClient(app)
+            from unittest.mock import patch
+
+            with patch.object(guppy_api, "_call_unified_inference", return_value="ok"), patch.object(
+                guppy_api, "get_cached_response", return_value=None
+            ):
+                resp = client.post("/chat", json={"message": "hello"})
+
+            self.assertEqual(resp.status_code, 200)
+            persisted_config = json.loads(instances_path.read_text(encoding="utf-8"))
+            persisted_state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(persisted_config.get("active_instance"), "guppy-primary")
+            self.assertEqual([item.get("name") for item in persisted_config.get("instances", [])], ["guppy-primary"])
+            self.assertNotIn("ghost", persisted_state.get("instances", {}))
+            self.assertEqual(persisted_state.get("instances", {}).get("guppy-primary", {}).get("status"), "active")
+        finally:
+            guppy_api._config_dir = old_config_dir
+            guppy_api._runtime_dir = old_runtime_dir
+            guppy_api._instances_path = old_instances_path
+            guppy_api._instance_state_path = old_instance_state_path
+            app.dependency_overrides.pop(guppy_api.require_rate_limit, None)
+            shutil.rmtree(tmp_root, ignore_errors=True)
+
+    def test_instance_query_rejects_blocked_source_workspace(self):
+        app = guppy_api.app
+        app.dependency_overrides[guppy_api.require_rate_limit] = lambda: "smoke-user"
+
+        old_config_dir = guppy_api._config_dir
+        old_runtime_dir = guppy_api._runtime_dir
+        old_instances_path = guppy_api._instances_path
+        old_instance_state_path = guppy_api._instance_state_path
+        old_permission_check = guppy_api.check_instance_tool_permission
+
+        tmp_root = Path(tempfile.mkdtemp())
+        try:
+            cfg = tmp_root / "config"
+            rt = tmp_root / "runtime"
+            cfg.mkdir(parents=True, exist_ok=True)
+            rt.mkdir(parents=True, exist_ok=True)
+
+            instances_path = cfg / "instances.json"
+            state_path = rt / "instance_state.json"
+            instances_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "active_instance": "guppy-primary",
+                        "instances": [
+                            {
+                                "name": "guppy-primary",
+                                "description": "Primary",
+                                "mode": "auto",
+                                "persona": "guppy",
+                                "voice": "default",
+                                "enabled": True,
+                                "type": "user_instance",
+                            },
+                            {
+                                "name": "source-readonly",
+                                "description": "Reference",
+                                "mode": "auto",
+                                "persona": "guppy",
+                                "voice": "default",
+                                "enabled": True,
+                                "type": "read_only_instance",
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "active_instance": "guppy-primary",
+                        "instances": {
+                            "guppy-primary": {"status": "active", "message_count": 0},
+                            "source-readonly": {"status": "idle", "message_count": 0},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            guppy_api._config_dir = cfg
+            guppy_api._runtime_dir = rt
+            guppy_api._instances_path = instances_path
+            guppy_api._instance_state_path = state_path
+            guppy_api.check_instance_tool_permission = (
+                lambda *_args, **_kwargs: (False, "query blocked", {"network": False})
+            )
+
+            client = TestClient(app)
+            resp = client.post(
+                "/instances/guppy-primary/query",
+                json={"message": "hi", "source_instance": "source-readonly"},
+            )
+
+            self.assertEqual(resp.status_code, 403)
+            self.assertIn("cannot use cross-workspace query", resp.json().get("detail", ""))
+            self.assertIn("query blocked", resp.json().get("detail", ""))
+        finally:
+            guppy_api._config_dir = old_config_dir
+            guppy_api._runtime_dir = old_runtime_dir
+            guppy_api._instances_path = old_instances_path
+            guppy_api._instance_state_path = old_instance_state_path
+            guppy_api.check_instance_tool_permission = old_permission_check
+            app.dependency_overrides.pop(guppy_api.require_rate_limit, None)
+            shutil.rmtree(tmp_root, ignore_errors=True)
+
+    def test_chat_morning_brief_uses_local_report_shortcut(self):
+        app = guppy_api.app
+        app.dependency_overrides[guppy_api.require_rate_limit] = lambda: "smoke-user"
+
+        old_config_dir = guppy_api._config_dir
+        old_runtime_dir = guppy_api._runtime_dir
+        old_instances_path = guppy_api._instances_path
+        old_instance_state_path = guppy_api._instance_state_path
+
+        tmp_root = Path(tempfile.mkdtemp())
+        try:
+            cfg = tmp_root / "config"
+            rt = tmp_root / "runtime"
+            reports = rt / "daily_reports"
+            cfg.mkdir(parents=True, exist_ok=True)
+            reports.mkdir(parents=True, exist_ok=True)
+
+            instances_path = cfg / "instances.json"
+            state_path = rt / "instance_state.json"
+            instances_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "active_instance": "guppy-primary",
+                        "instances": [
+                            {
+                                "name": "guppy-primary",
+                                "description": "Primary",
+                                "mode": "auto",
+                                "persona": "guppy",
+                                "voice": "default",
+                                "enabled": True,
+                                "type": "user_instance",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "active_instance": "guppy-primary",
+                        "instances": {
+                            "guppy-primary": {
+                                "status": "active",
+                                "last_message": "",
+                                "last_updated": None,
+                                "message_count": 0,
+                                "model_currently_using": "auto",
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (rt / "resource_envelope.status.json").write_text(
+                json.dumps({"state": "ok", "message": "resource envelope within limits"}),
+                encoding="utf-8",
+            )
+            (reports / f"{guppy_api.datetime.now().strftime('%Y-%m-%d')}.md").write_text(
+                "## Key Actions\n- Review top task\n- Check runtime health\n\n"
+                "## World News\n| Topic | Status |\n|---|---|\n| Markets | Stable |\n\n"
+                "## Carry-Forward Items\n1. Follow up on builder work\n",
+                encoding="utf-8",
+            )
+
+            guppy_api._config_dir = cfg
+            guppy_api._runtime_dir = rt
+            guppy_api._instances_path = instances_path
+            guppy_api._instance_state_path = state_path
+
+            client = TestClient(app)
+            from unittest.mock import patch
+
+            with patch.object(guppy_api, "_call_unified_inference", side_effect=AssertionError("inference should not run")):
+                chat_resp = client.post(
+                    "/chat",
+                    json={
+                        "message": "yes lets",
+                        "history": [
+                            {
+                                "role": "assistant",
+                                "content": "Shall I prepare your morning brief? I can pull together today's reminders.",
+                            }
+                        ],
+                    },
+                )
+
+            self.assertEqual(chat_resp.status_code, 200)
+            payload = chat_resp.json()
+            self.assertTrue(payload.get("brief"))
+            self.assertIn("Morning brief for", payload.get("response", ""))
+            self.assertIn("Review top task", payload.get("response", ""))
+            self.assertIn("runtime/daily_reports/", payload.get("response", ""))
+        finally:
+            guppy_api._config_dir = old_config_dir
+            guppy_api._runtime_dir = old_runtime_dir
+            guppy_api._instances_path = old_instances_path
+            guppy_api._instance_state_path = old_instance_state_path
+            app.dependency_overrides.pop(guppy_api.require_rate_limit, None)
+            shutil.rmtree(tmp_root, ignore_errors=True)
+
+    def test_chat_simple_request_uses_light_prompt_context(self):
+        app = guppy_api.app
+        app.dependency_overrides[guppy_api.require_rate_limit] = lambda: "smoke-user"
+        client = TestClient(app)
+        captured: dict[str, object] = {}
+
+        def _fake_prompt(*_args, **kwargs):
+            captured.update(kwargs)
+            return "SYSTEM"
+
+        from unittest.mock import patch
+
+        try:
+            with patch.object(guppy_api.core, "get_startup_system", side_effect=_fake_prompt), patch.object(
+                guppy_api,
+                "_call_unified_inference",
+                return_value="ok",
+            ), patch.object(
+                guppy_api,
+                "get_cached_response",
+                return_value=None,
+            ):
+                resp = client.post("/chat", json={"message": "ping"})
+
+            self.assertEqual(resp.status_code, 200)
+            self.assertFalse(bool(captured.get("include_memory_context")))
+            self.assertFalse(bool(captured.get("include_semantic_context")))
+        finally:
+            app.dependency_overrides.pop(guppy_api.require_rate_limit, None)
+
+    def test_chat_follow_up_request_keeps_rich_prompt_context(self):
+        app = guppy_api.app
+        app.dependency_overrides[guppy_api.require_rate_limit] = lambda: "smoke-user"
+        client = TestClient(app)
+        captured: dict[str, object] = {}
+
+        def _fake_prompt(*_args, **kwargs):
+            captured.update(kwargs)
+            return "SYSTEM"
+
+        from unittest.mock import patch
+
+        try:
+            with patch.object(guppy_api.core, "get_startup_system", side_effect=_fake_prompt), patch.object(
+                guppy_api,
+                "_call_unified_inference",
+                return_value="ok",
+            ), patch.object(
+                guppy_api,
+                "get_cached_response",
+                return_value=None,
+            ):
+                resp = client.post(
+                    "/chat",
+                    json={
+                        "message": "continue the debugging plan and explain the tradeoffs",
+                        "history": [{"role": "assistant", "content": "I can draft a debugging plan."}],
+                    },
+                )
+
+            self.assertEqual(resp.status_code, 200)
+            self.assertTrue(bool(captured.get("include_memory_context")))
+            self.assertTrue(bool(captured.get("include_semantic_context")))
+        finally:
+            app.dependency_overrides.pop(guppy_api.require_rate_limit, None)
+
+    def test_chat_voice_simple_transcription_uses_light_prompt_context(self):
+        app = guppy_api.app
+        app.dependency_overrides[guppy_api.require_rate_limit] = lambda: "smoke-user"
+        client = TestClient(app)
+        captured: dict[str, object] = {}
+
+        class _FakeVoice:
+            def transcribe_audio(self, _path):
+                return "ping"
+
+        def _fake_prompt(*_args, **kwargs):
+            captured.update(kwargs)
+            return "SYSTEM"
+
+        from unittest.mock import patch
+
+        try:
+            with patch.object(guppy_api.voice, "GuppyVoice", return_value=_FakeVoice()), patch.object(
+                guppy_api.core,
+                "get_startup_system",
+                side_effect=_fake_prompt,
+            ), patch.object(
+                guppy_api,
+                "_call_unified_inference",
+                return_value="ok",
+            ):
+                resp = client.post(
+                    "/chat/voice",
+                    files={"file": ("sample.wav", b"fake-audio", "audio/wav")},
+                )
+
+            self.assertEqual(resp.status_code, 200)
+            self.assertFalse(bool(captured.get("include_memory_context")))
+            self.assertFalse(bool(captured.get("include_semantic_context")))
+        finally:
+            app.dependency_overrides.pop(guppy_api.require_rate_limit, None)
+
+    def test_chat_voice_rejects_oversized_upload_before_transcription(self):
+        app = guppy_api.app
+        app.dependency_overrides[guppy_api.require_rate_limit] = lambda: "smoke-user"
+        client = TestClient(app)
+
+        from unittest.mock import patch
+
+        try:
+            with patch.object(guppy_api, "GUPPY_CORE_AVAILABLE", True), patch.object(
+                guppy_api, "GUPPY_VOICE_AVAILABLE", True
+            ), patch.object(
+                guppy_api, "VOICE_UPLOAD_MAX_BYTES", 4
+            ), patch.object(guppy_api.voice, "GuppyVoice") as voice_ctor:
+                resp = client.post(
+                    "/chat/voice",
+                    files={"file": ("sample.wav", b"12345", "audio/wav")},
+                )
+
+            self.assertEqual(resp.status_code, 413)
+            self.assertIn("Audio upload exceeds", resp.json().get("detail", ""))
+            voice_ctor.assert_not_called()
+        finally:
+            app.dependency_overrides.pop(guppy_api.require_rate_limit, None)
+
+    def test_websocket_simple_request_uses_light_prompt_context(self):
+        client = TestClient(guppy_api.app)
+        captured: dict[str, object] = {}
+
+        def _fake_prompt(*_args, **kwargs):
+            captured.update(kwargs)
+            return "SYSTEM"
+
+        from unittest.mock import patch
+
+        with patch.object(guppy_api.jwt, "decode", return_value={"sub": "smoke-user"}), patch.object(
+            guppy_api.core,
+            "get_startup_system",
+            side_effect=_fake_prompt,
+        ), patch.object(
+            guppy_api,
+            "_call_unified_inference",
+            return_value="ok",
+        ):
+            with client.websocket_connect("/ws") as websocket:
+                websocket.send_json({"token": "smoke-token"})
+                self.assertEqual(websocket.receive_json(), {"status": "authenticated"})
+                websocket.send_json({"message": "ping", "session_id": "ws-smoke"})
+                self.assertEqual(websocket.receive_json(), {"chunk": "ok "})
+                self.assertEqual(websocket.receive_json(), {"done": True})
+
+        self.assertFalse(bool(captured.get("include_memory_context")))
+        self.assertFalse(bool(captured.get("include_semantic_context")))
 
     def test_guppy_core_tool_health_snapshot_is_available(self):
         snapshot = guppy_core.get_tool_health_snapshot()

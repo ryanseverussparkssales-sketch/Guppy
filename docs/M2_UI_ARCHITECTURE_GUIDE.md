@@ -115,7 +115,7 @@ System Health
 Recent Events (Last 5)
 ├─ 14:22 Model warmup complete
 ├─ 14:20 Instance 'Builder' created
-├─ 14:18 Model 'merlin' loaded
+├─ 14:18 Model 'guppy-teach' loaded
 ├─ 14:15 Launcher started
 └─ 14:10 API health check OK
 ```
@@ -143,7 +143,7 @@ POST /instances/{name}/query
   "message": "Summarize the main points",
   "system_prompt": "You are a summarizer"
 }
-→ { "response": "...", "tokens_used": 42, "model": "merlin", "source_instance": "builder", "status": "ok|busy|timeout" }
+→ { "response": "...", "tokens_used": 42, "model": "guppy-teach", "source_instance": "builder", "status": "ok|busy|timeout" }
 ```
 
 **Instance Context:** Each instance has:
@@ -205,9 +205,9 @@ Example: If instance type is `read_only_instance`, write_file is hidden or disab
       "name": "Guppy",
       "model_routes": {
         "simple": "guppy",
-        "complex": "merlin",
-        "teaching": "merlin",
-        "code": "merlin-code"
+        "complex": "guppy",
+        "teaching": "guppy-teach",
+        "code": "guppy-code"
       },
       "persona": {
         "tone": 5,
@@ -220,7 +220,7 @@ Example: If instance type is `read_only_instance`, write_file is hidden or disab
     },
     {
       "name": "Builder",
-      "model_routes": { "simple": "merlin-code", ... },
+      "model_routes": { "simple": "guppy-code", ... },
       "persona": { ... },
       "voice": "System TTS",
       "type": "builder_instance",
@@ -239,13 +239,13 @@ Example: If instance type is `read_only_instance`, write_file is hidden or disab
       "status": "active",
       "message_count": 47,
       "last_message": "2026-04-13T14:22:15Z",
-      "model_currently_using": "merlin"
+      "model_currently_using": "guppy-teach"
     },
     "Builder": {
       "status": "running",
       "message_count": 12,
       "last_message": "2026-04-13T14:20:33Z",
-      "model_currently_using": "merlin-code"
+      "model_currently_using": "guppy-code"
     }
   }
 }
@@ -254,7 +254,7 @@ Example: If instance type is `read_only_instance`, write_file is hidden or disab
 ### `runtime/logs/instance_{name}.jsonl` (Chat History Per Instance)
 ```jsonl
 {"timestamp": "2026-04-13T14:22:00Z", "role": "user", "message": "Summarize the code"}
-{"timestamp": "2026-04-13T14:22:05Z", "role": "assistant", "message": "This function...", "tokens": 42, "model": "merlin", "duration_ms": 1200}
+{"timestamp": "2026-04-13T14:22:05Z", "role": "assistant", "message": "This function...", "tokens": 42, "model": "guppy-teach", "duration_ms": 1200}
 {"timestamp": "2026-04-13T14:22:15Z", "role": "user", "message": "Any potential bugs?"}
 ```
 

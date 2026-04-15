@@ -36,6 +36,34 @@ Use `--onefile` only when extraction/startup behavior is acceptable for support 
 
 ---
 
+## Pilot Candidate Hardening Gate
+
+Run this before treating a build as a beta or pilot candidate:
+
+```bash
+python tools/pilot_exit_check.py --allow-limited-go
+python tools/validate_live_lifecycle.py --mode dry
+python tools/verify_beta_package_policy.py
+python tools/beta_release_dry_run.py
+```
+
+Expected artifacts:
+
+1. `runtime/pilot_exit_report.json`
+2. `runtime/lifecycle_validation_report.json`
+3. `runtime/beta_policy_report.json`
+4. `runtime/beta_release_dry_run_report.json`
+
+If the build is for restricted external beta use, set:
+
+```bash
+set GUPPY_BETA_RESTRICTED_MODE=1
+```
+
+before running the dry run and policy verification.
+
+---
+
 ## Manual Build Steps
 
 ### 1. Install PyInstaller

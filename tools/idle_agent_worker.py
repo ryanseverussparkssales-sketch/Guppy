@@ -3,10 +3,28 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+if str(WORKSPACE_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE_ROOT))
+
+from utils.offhours_builder import (
+    DRY_RUN_DIR,
+    METRICS_PATH,
+    RESULTS_PATH as DEFAULT_RESULTS_PATH,
+    approve_builder_task,
+    append_jsonl as append_metric_jsonl,
+    build_builder_report,
+    resolve_safe_builder_output,
+    sanitize_builder_file_text,
+    sanitize_builder_output,
+    staged_file_sha256,
+)
 
 RUNTIME = Path("runtime")
 QUEUE_PATH = RUNTIME / "offhours_task_queue.json"
@@ -15,19 +33,28 @@ STATE_PATH = RUNTIME / "offhours_task_worker_state.json"
 RESULT_DIR = RUNTIME / "offhours_results"
 DRY_RUN_DIR = RESULT_DIR / "dry_run"
 
-WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
-
 IDLE_STATES = {"idle", "ready", "waiting", ""}
 ACTIVE_STATES = {"thinking", "speaking", "listening", "busy", "running"}
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 
-MODEL_MAP = {
-    "guppy-fast": "guppy-fast:latest",
-    "vault-scraper": "vault-scraper:latest",
-    "merlin-code": "merlin-code:latest",
-    "guppy": "guppy:latest",
-    "merlin": "merlin:latest",
+MODEL_TAG_CANDIDATES = {
+    "guppy-fast": ["guppy-fast:latest"],
+    "vault-scraper": ["vault-scraper:latest"],
+    "guppy-code": ["guppy-code:latest", "merlin-code:latest"],
+    "guppy-teach": ["guppy-teach:latest", "merlin:latest"],
+    "guppy": ["guppy:latest"],
+    "merlin-code": ["guppy-code:latest", "merlin-code:latest"],
+    "merlin": ["guppy-teach:latest", "merlin:latest"],
+}
+
+LEGACY_TARGET_ALIASES = {
+    "merlin-code": "guppy-code",
+    "merlin": "guppy-teach",
+}
+
+LEGACY_INSTANCE_ALIASES = {
+    "merlin-collab": "builder-collab",
 }
 
 
@@ -84,9 +111,29 @@ def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
         f.write(json.dumps(payload, ensure_ascii=True) + "\n")
 
 
+def _normalize_task_aliases(queue: dict[str, Any]) -> bool:
+    changed = False
+    for task in queue.get("tasks", []):
+        target = str(task.get("target", "")).strip().lower()
+        normalized_target = LEGACY_TARGET_ALIASES.get(target)
+        if normalized_target and normalized_target != target:
+            task["target"] = normalized_target
+            changed = True
+
+        requested_by = str(task.get("requested_by_instance", "")).strip().lower()
+        normalized_instance = LEGACY_INSTANCE_ALIASES.get(requested_by)
+        if normalized_instance and normalized_instance != requested_by:
+            task["requested_by_instance"] = normalized_instance
+            changed = True
+    return changed
+
+
 def load_queue(path: Path) -> dict[str, Any]:
     ensure_queue_file(path)
-    return _read_json(path, {"version": 1, "tasks": []})
+    queue = _read_json(path, {"version": 1, "tasks": []})
+    if _normalize_task_aliases(queue):
+        save_queue(path, queue)
+    return queue
 
 
 def save_queue(path: Path, queue: dict[str, Any]) -> None:
@@ -125,7 +172,7 @@ def seed_defaults(path: Path) -> None:
         {
             "id": "task_code_review_batch",
             "title": "Generate overnight code review notes",
-            "target": "merlin-code",
+            "target": "guppy-code",
             "prompt": "Generate a concise batch code review checklist and likely failure points for changed files.",
             "status": "pending",
             "priority": 1,
@@ -196,8 +243,6 @@ def is_recent_user_activity(idle_seconds: int) -> bool:
 def agents_are_idle(idle_seconds: int) -> tuple[bool, dict[str, str]]:
     states = {
         "guppy": read_activity_state("guppy"),
-        "merlin": read_activity_state("merlin"),
-        "council": read_activity_state("council"),
     }
     if is_recent_user_activity(idle_seconds):
         return False, states
@@ -256,6 +301,16 @@ def run_local_model(model_tag: str, prompt: str, timeout_s: int) -> tuple[bool, 
         return False, "", str(e)
 
 
+def run_local_model_candidates(model_tags: list[str], prompt: str, timeout_s: int) -> tuple[bool, str, str, str]:
+    last_error = "no model candidates configured"
+    for model_tag in model_tags:
+        ok, out, err = run_local_model(model_tag, prompt, timeout_s)
+        if ok:
+            return True, out, err, model_tag
+        last_error = err or f"model failed: {model_tag}"
+    return False, "", last_error, ""
+
+
 def run_haiku(prompt: str) -> tuple[bool, str, str]:
     api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
@@ -303,7 +358,7 @@ def execute_write_task(
     task: dict[str, Any],
     timeout_s: int,
     dry_run_override: bool = False,
-) -> tuple[bool, str, str, bool]:
+) -> tuple[bool, str, str, bool, dict[str, Any] | None]:
     """Run a write-type task. Returns (ok, output, error, actually_wrote).
 
     The model is prompted to generate a complete replacement file. The first
@@ -319,25 +374,26 @@ def execute_write_task(
     is_dry_run = dry_run_override or bool(task.get("dry_run", True))
 
     if not prompt:
-        return False, "", "task prompt is empty", False
+        return False, "", "task prompt is empty", False, None
     if not output_file_path:
-        return False, "", "write task missing output_file_path", False
+        return False, "", "write task missing output_file_path", False, None
 
     # Run the model
     if target == "haiku":
         ok, raw_output, error = run_haiku(prompt)
     else:
-        model_tag = MODEL_MAP.get(target)
-        if not model_tag:
-            return False, "", f"unsupported target: {target}", False
-        ok, raw_output, error = run_local_model(model_tag, prompt, timeout_s)
+        model_tags = MODEL_TAG_CANDIDATES.get(target)
+        if not model_tags:
+            return False, "", f"unsupported target: {target}", False, None
+        ok, raw_output, error, _resolved_model = run_local_model_candidates(model_tags, prompt, timeout_s)
 
     if not ok or not raw_output:
-        return ok, raw_output, error, False
+        return ok, raw_output, error, False, None
 
-    code = _extract_code_block(raw_output)
+    cleaned_output = sanitize_builder_output(raw_output)
+    code = sanitize_builder_file_text(_extract_code_block(cleaned_output))
     if not code:
-        return False, raw_output, "no code block found in model output", False
+        return False, raw_output, "no code block found in model output", False, None
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
@@ -348,19 +404,25 @@ def execute_write_task(
         try:
             dry_path.write_text(code, encoding="utf-8")
             summary = f"DRY RUN — staged to {dry_path} (review before approving)"
-            return True, f"{summary}\n\n---\n{raw_output}", "", False
+            approval = {
+                "staged_file": str(dry_path),
+                "workspace_file": output_file_path,
+                "staged_sha256": staged_file_sha256(dry_path),
+                "staged_utc": utc_now(),
+            }
+            return True, f"{summary}\n\n---\n{cleaned_output}", "", False, approval
         except Exception as e:
-            return False, raw_output, f"dry-run stage write failed: {e}", False
+            return False, raw_output, f"dry-run stage write failed: {e}", False, None
     else:
-        safe_path = _safe_write_path(output_file_path, WORKSPACE_ROOT)
+        safe_path = resolve_safe_builder_output(output_file_path)
         if safe_path is None:
-            return False, raw_output, f"unsafe output path rejected: {output_file_path}", False
+            return False, raw_output, f"unsafe output path rejected: {output_file_path}", False, None
         try:
             safe_path.parent.mkdir(parents=True, exist_ok=True)
             safe_path.write_text(code, encoding="utf-8")
-            return True, f"WROTE {safe_path}\n\n---\n{raw_output}", "", True
+            return True, f"WROTE {safe_path}\n\n---\n{cleaned_output}", "", True, None
         except Exception as e:
-            return False, raw_output, f"file write failed: {e}", False
+            return False, raw_output, f"file write failed: {e}", False, None
 
 
 def execute_task(
@@ -369,7 +431,7 @@ def execute_task(
     write_count: int = 0,
     max_writes: int = 3,
     dry_run_writes: bool = False,
-) -> tuple[bool, str, str, bool]:
+) -> tuple[bool, str, str, bool, dict[str, Any] | None]:
     """Dispatch to write or prompt executor. Returns (ok, output, error, wrote_file)."""
     task_type = str(task.get("task_type", "prompt")).strip().lower()
 
@@ -381,17 +443,17 @@ def execute_task(
     target = str(task.get("target", "")).strip().lower()
     prompt = str(task.get("prompt", "")).strip()
     if not prompt:
-        return False, "", "task prompt is empty", False
+        return False, "", "task prompt is empty", False, None
 
     if target == "haiku":
         ok, out, err = run_haiku(prompt)
     else:
-        model_tag = MODEL_MAP.get(target)
-        if not model_tag:
-            return False, "", f"unsupported target: {target}", False
-        ok, out, err = run_local_model(model_tag, prompt, timeout_s)
+        model_tags = MODEL_TAG_CANDIDATES.get(target)
+        if not model_tags:
+            return False, "", f"unsupported target: {target}", False, None
+        ok, out, err, _resolved_model = run_local_model_candidates(model_tags, prompt, timeout_s)
 
-    return ok, out, err, False
+    return ok, out, err, False, None
 
 
 def write_task_output(task: dict[str, Any], ok: bool, output: str, error: str) -> str:
@@ -437,19 +499,23 @@ def process_one_task(
     task["last_run_utc"] = utc_now()
     save_queue(queue_path, queue)
 
-    ok, output, error, wrote = execute_task(
+    ok, output, error, wrote, approval = execute_task(
         task, timeout_s,
         write_count=write_count,
         max_writes=max_writes,
         dry_run_writes=dry_run_writes,
     )
+    output = sanitize_builder_output(output)
     error = clean_control_text(error)
     output_file = write_task_output(task, ok, output, error)
 
     task["output_file"] = output_file
     task["updated_utc"] = utc_now()
 
-    if ok:
+    if ok and approval:
+        task["status"] = "awaiting_approval"
+        task["pending_approval"] = approval
+    elif ok:
         task["status"] = "done"
     else:
         retry_count = int(task.get("retry_count", 0)) + 1
@@ -470,10 +536,24 @@ def process_one_task(
             "task_type": task.get("task_type", "prompt"),
             "ok": ok,
             "wrote_file": wrote,
+            "awaiting_approval": bool(approval),
             "status": task.get("status"),
             "retry_count": task.get("retry_count", 0),
             "output_file": output_file,
             "error": error,
+        },
+    )
+    append_metric_jsonl(
+        METRICS_PATH,
+        {
+            "ts": utc_now(),
+            "event": "offhours_task_processed",
+            "task_id": task.get("id"),
+            "task_type": task.get("task_type", "prompt"),
+            "ok": ok,
+            "wrote_file": wrote,
+            "awaiting_approval": bool(approval),
+            "status": task.get("status"),
         },
     )
     return True, wrote
@@ -506,6 +586,9 @@ def main() -> int:
     parser.add_argument("--add-prompt", default="")
     parser.add_argument("--add-priority", type=int, default=5)
     parser.add_argument("--list", action="store_true", help="List queue and exit")
+    parser.add_argument("--approve-task", default="", help="Approve a staged write task by id")
+    parser.add_argument("--approve-by", default="human", help="Approval actor name")
+    parser.add_argument("--report", action="store_true", help="Print builder/off-hours report and exit")
     args = parser.parse_args()
 
     queue_path = Path(args.queue)
@@ -525,6 +608,20 @@ def main() -> int:
     if args.list:
         tasks = list_tasks(queue_path)
         print(json.dumps({"count": len(tasks), "tasks": tasks}, indent=2))
+        return 0
+
+    if args.approve_task:
+        payload = approve_builder_task(
+            args.approve_task,
+            queue_path=queue_path,
+            results_path=results_path,
+            approved_by=args.approve_by,
+        )
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    if args.report:
+        print(json.dumps(build_builder_report(queue_path=queue_path, results_path=results_path, metrics_path=METRICS_PATH), indent=2))
         return 0
 
     processed = 0

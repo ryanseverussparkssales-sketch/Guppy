@@ -54,9 +54,6 @@ class OrchestrationCard(QFrame):
 
         row_defs = (
             ("guppy", "GUPPY"),
-            ("merlin", "MERLIN"),
-            ("council_guppy", "COUNCIL:G"),
-            ("council_merlin", "COUNCIL:M"),
         )
         for aid, label in row_defs:
             row = QLabel(f"{label:<8} route=idle p95=- p99=- qd=0 status=-")
@@ -125,7 +122,7 @@ class OrchestrationCard(QFrame):
     def _warm_all(self):
         targets = []
         seen = set()
-        for aid in ("guppy", "merlin", "council"):
+        for aid in ("guppy",):
             model = self._model_for_agent(aid)
             if model and model not in seen:
                 seen.add(model)
@@ -134,7 +131,7 @@ class OrchestrationCard(QFrame):
 
     def _warm_local_pair(self):
         targets = []
-        for aid in ("guppy", "merlin"):
+        for aid in ("guppy",):
             model = self._model_for_agent(aid)
             if model:
                 targets.append((aid, model))

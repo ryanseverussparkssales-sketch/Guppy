@@ -1,6 +1,6 @@
 # Goals Sheet
 
-Last updated: April 12, 2026
+Last updated: April 14, 2026
 
 ## Product Goals
 
@@ -35,21 +35,21 @@ Last updated: April 12, 2026
 1. Launcher foundation and tab surfaces are in place.
 2. Local model fleet and runtime verifiers are operational.
 3. Provider and logging verifiers are available.
-4. Persona/provider/voice JSON scaffolds and validation paths exist.
-5. Recovery and health status surface is present.
+4. Persona Builder v1, model routing visibility, and voice assignment/import/preview are live in the launcher.
+5. Recovery, health status, and off-hours builder queue flows are present.
 
 ## Gaps To Close
 
-1. Guided builder UI replacing raw JSON-first management.
-2. Route and precedence visibility for non-technical users.
+1. Builder polish: stronger guardrails, empty states, and broader real-device validation.
+2. In-app daily workflow loop and evidence capture for Morning, Workday, and Close.
 3. App-level onboarding and installer/update flow.
 4. Broader hardware fallback behavior policy.
 
 ## This Week Priorities
 
-1. Ship Persona Builder v1 UI and persistence tests.
-2. Ship Model Assignment v1 UI with fallback editor.
-3. Ship Voice Builder v1 with preview and safe fallback defaults.
+1. Productize workflow loops in launcher App Mgmt and runbook docs.
+2. Harden pilot-gate coverage so builder regressions are part of the release signal.
+3. Expand builder and voice validation across more machines and failure cases.
 4. Keep daily pilot gate runs and track failures to closure.
 
 ## Go Decision Rule

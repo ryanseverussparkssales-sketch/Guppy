@@ -9,10 +9,6 @@ MAX_WRAPPER_LINES = 30
 WRAPPERS = {
     "guppy_launcher.py": "from src.guppy.apps.launcher_app import main",
     "guppy_hub.py": "from src.guppy.apps.hub_app import main",
-    # Legacy-surface compatibility wrappers (implementations live in legacy_surfaces/)
-    "guppy_ui.py": "from src.guppy.apps.guppy_surface_app import main",
-    "merlin_ui.py": "from src.guppy.apps.merlin_surface_app import main",
-    "council_ui.py": "from src.guppy.apps.council_surface_app import main",
 }
 
 # sys.modules-redirect shims: maps root filename → canonical dotted module path

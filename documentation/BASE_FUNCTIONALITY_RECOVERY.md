@@ -19,9 +19,9 @@ Implemented:
 
 Validated:
 
-- `python -m pytest tests/test_security_hardening.py -q`
-- `python -m unittest tests.test_runtime_smoke`
-- `python -m pytest tests/test_launcher_interactions_smoke.py -q`
+- `python -m pytest tests/unit/test_security_hardening.py -q`
+- `python -m pytest tests/smoke/test_runtime_smoke.py -q`
+- `python -m pytest tests/smoke/test_launcher_interactions_smoke.py -q`
 
 ### Step 2: Repair token lifecycle consistency
 
@@ -34,7 +34,7 @@ Implemented:
 
 Validated:
 
-- `python -m pytest tests/test_security_hardening.py -q`
+- `python -m pytest tests/unit/test_security_hardening.py -q`
 
 ### Step 3: Hub crash-loop observability
 
@@ -46,7 +46,7 @@ Implemented:
 
 Validated:
 
-- `python -m pytest tests/test_launcher_interactions_smoke.py -q`
+- `python -m pytest tests/smoke/test_launcher_interactions_smoke.py -q`
 
 ### Step 4: Startup budget recalibration
 
@@ -80,8 +80,8 @@ Executed after implementation:
 3. `python tools/check_new_module_line_cap.py`
 4. `python tools/check_core_surface_integrity.py`
 5. `python tools/check_doc_ownership.py`
-6. `python -m unittest tests.test_runtime_smoke`
-7. `python -m pytest tests/test_launcher_interactions_smoke.py tests/test_security_hardening.py -q`
+6. `python -m pytest tests/smoke/test_runtime_smoke.py -q`
+7. `python -m pytest tests/smoke/test_launcher_interactions_smoke.py tests/unit/test_security_hardening.py -q`
 
 ## Next Monitoring Window
 

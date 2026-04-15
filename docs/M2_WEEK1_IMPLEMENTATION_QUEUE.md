@@ -17,7 +17,7 @@ Current execution status:
 
 1. W1-01 completed on Apr 13, 2026
 2. W1-02 completed on Apr 13, 2026
-3. W1-03 completed on Apr 13, 2026
+3. W1-03 reopened on Apr 14, 2026 after doc-to-tree drift review
 4. W1-04 completed on Apr 13, 2026
 5. W1-05 completed on Apr 13, 2026
 6. W1-06 next in queue
@@ -31,6 +31,12 @@ Session review (Apr 13, 2026):
 5. W1-04 shipped: models view route strategy panel for simple/complex/teaching with fallback-chain validation and read-only summary.
 6. W1-05 shipped: voices view now surfaces engine readiness/default binding plus capability validation hooks and interruption-safe non-blocking preview handling.
 7. Validation evidence: targeted launcher/model/voice tests passing for W1-04/W1-05 changes.
+
+Drift correction (Apr 14, 2026):
+
+1. W1-03 should remain open. The current `settings_view.py` in tree still exposes runtime profile, mode, surface, and toggle controls only.
+2. The shipped-in-docs claim for tone/verbosity sliders, teaching style, scope toggle, and live preview overstated actual implementation.
+3. Keep Persona Builder v1 in active work until the launcher Settings view contains the mockup controls and preview state.
 
 ### W1-01 Instance Manager Schema Hardening
 
@@ -170,9 +176,9 @@ Acceptance:
 
 Files:
 
-- [tests/test_launcher_interactions_smoke.py](tests/test_launcher_interactions_smoke.py)
-- [tests/test_runtime_smoke.py](tests/test_runtime_smoke.py)
-- [tests/test_security_hardening.py](tests/test_security_hardening.py)
+- [tests/smoke/test_launcher_interactions_smoke.py](tests/smoke/test_launcher_interactions_smoke.py)
+- [tests/smoke/test_runtime_smoke.py](tests/smoke/test_runtime_smoke.py)
+- [tests/unit/test_security_hardening.py](tests/unit/test_security_hardening.py)
 - [tests](tests)
 
 Tasks:
@@ -195,4 +201,4 @@ Use this command set at start and end of each day:
 2. .\\.venv\\Scripts\\python.exe tools/check_wrapper_integrity.py
 3. .\\.venv\\Scripts\\python.exe tools/check_doc_ownership.py
 4. .\\.venv\\Scripts\\python.exe tools/check_new_module_line_cap.py
-5. .\\.venv\\Scripts\\python.exe -m pytest tests/test_runtime_smoke.py tests/test_launcher_interactions_smoke.py tests/test_security_hardening.py -v
+5. .\\.venv\\Scripts\\python.exe -m pytest tests/smoke/test_runtime_smoke.py tests/smoke/test_launcher_interactions_smoke.py tests/unit/test_security_hardening.py -v

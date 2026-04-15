@@ -1,41 +1,50 @@
 """
 ui/launcher/tokens.py
-OBSIDIAN design tokens — single source of truth for all launcher UI colors,
-fonts, and spacing.  Matches the Stitch / Material-You export.
+Launcher design tokens for the current gallery-style daily assistant shell.
 """
 
-# ── Color palette ──────────────────────────────────────────────────────────────
-PRIMARY      = "#f2ca50"   # gold accent
-PRIMARY_DIM  = "#d4af37"   # dimmed gold / primary-container
-SECONDARY    = "#d2bbff"   # lavender — Merlin accent
-TERTIARY     = "#97b0ff"   # blue     — Council accent
-ERROR        = "#ffb4ab"   # offline / error
-GREEN        = "#4caf50"   # online / active
+# Color palette
+PRIMARY = "#ff6b3d"
+PRIMARY_DIM = "#df5a30"
+SECONDARY = "#f05d9b"
+TERTIARY = "#4c66ff"
+ERROR = "#c84b44"
+GREEN = "#2f8a57"
 
-BG           = "#131313"   # surface / background base
-BG0          = "#0e0e0e"   # surface-container-lowest
-BG1          = "#1c1b1b"   # surface-container-low
-BG2          = "#201f1f"   # surface-container
-BG3          = "#2a2a2a"   # surface-container-high
-BG4          = "#353534"   # surface-container-highest
+BG = "#f6f0e4"
+BG0 = "#fffaf3"
+BG1 = "#f1e5d2"
+BG2 = "#e7d3b6"
+BG3 = "#d5bea0"
+BG4 = "#171311"
 
-TEXT         = "#e5e2e1"   # on-surface
-DIM          = "#99907c"   # outline  (dim / secondary text)
-BORDER       = "#4d4635"   # outline-variant (dividers)
+TEXT = "#18120e"
+DIM = "#73604f"
+BORDER = "#cdb59a"
 
-# ── Typography ─────────────────────────────────────────────────────────────────
-FF_HEAD  = "Segoe UI"   # Space Grotesk equivalent
-FF_MONO  = "Consolas"   # JetBrains Mono equivalent
-FF_BODY  = "Segoe UI"
+ART_RED = "#ff6d43"
+ART_GOLD = "#f4a83d"
+ART_PINK = "#ef72c8"
+ART_PLUM = "#8365ff"
+ART_BLUE = "#4567ff"
+ART_SKY = "#bcd2ff"
+INK = "#0d0a08"
 
-FS_TINY  =  7
-FS_SMALL =  8
-FS_BODY  =  9
-FS_LABEL = 10
-FS_TITLE = 11
-FS_HERO  = 16
+SHADOW = "rgba(53, 35, 15, 0.10)"
 
-# ── Layout ─────────────────────────────────────────────────────────────────────
-SIDEBAR_W = 160
-TOPBAR_H  =  52
-STATUS_W  = 260
+# Typography
+FF_HEAD = "Palatino Linotype"
+FF_MONO = "Consolas"
+FF_BODY = "Segoe UI"
+
+FS_TINY = 8
+FS_SMALL = 9
+FS_BODY = 10
+FS_LABEL = 11
+FS_TITLE = 13
+FS_HERO = 20
+
+# Layout
+SIDEBAR_W = 96
+TOPBAR_H = 64
+STATUS_W = 276

@@ -9,13 +9,27 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.guppy.local_llm.manifest import (
+    DEFAULT_LOCAL_LLM_MANIFEST,
+    get_baseline_model_entries,
+    get_manifest_metadata,
+    load_local_llm_manifest,
+)
+
 _NO_WIN: dict = (
     {"creationflags": subprocess.CREATE_NO_WINDOW}
     if sys.platform == "win32" else {}
 )
 
 
-DEFAULT_MODELS = ["guppy-fast", "vault-scraper", "merlin-code", "guppy", "merlin"]
+MODEL_ALIAS_CANDIDATES = {
+    "guppy-code:latest": ["guppy-code:latest", "merlin-code:latest"],
+    "guppy-teach:latest": ["guppy-teach:latest", "merlin:latest"],
+}
 
 
 @dataclass
@@ -55,6 +69,13 @@ def extract_num_ctx(show_output: str) -> int | None:
     if not m:
         return None
     return int(m.group(1))
+
+
+def resolve_model_tag(requested_tag: str, installed: set[str]) -> str:
+    for candidate in MODEL_ALIAS_CANDIDATES.get(requested_tag, [requested_tag]):
+        if candidate in installed:
+            return candidate
+    return requested_tag
 
 
 def parse_ps_rows(ps_output: str) -> list[dict[str, str]]:
@@ -122,6 +143,16 @@ def _http_ping(tag: str, prompt: str, timeout_s: int) -> dict:
         return {"ok": False, "reason": str(e), "sample": ""}
 
 
+def load_manifest_models(manifest_path: str | Path) -> tuple[dict, list[str]]:
+    manifest = load_local_llm_manifest(manifest_path)
+    entries = get_baseline_model_entries(manifest)
+    models = [str(entry.get("tag") or "").strip() for entry in entries]
+    models = [model for model in models if model]
+    if not models:
+        raise RuntimeError("Local LLM manifest has no baseline model tags")
+    return manifest, models
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify Ollama model/runtime readiness for Guppy personas."
@@ -129,8 +160,12 @@ def main() -> int:
     parser.add_argument(
         "--models",
         nargs="+",
-        default=DEFAULT_MODELS,
         help="Model names (without :latest) to verify.",
+    )
+    parser.add_argument(
+        "--manifest-file",
+        default=str(DEFAULT_LOCAL_LLM_MANIFEST),
+        help="Local LLM manifest file used when --models is not provided.",
     )
     parser.add_argument(
         "--prompt",
@@ -163,11 +198,20 @@ def main() -> int:
     args = parser.parse_args()
 
     ts = datetime.now(timezone.utc).isoformat()
-    wanted_tags = list(dict.fromkeys(m if ":" in m else f"{m}:latest" for m in args.models))
+    manifest_meta: dict[str, object] | None = None
+    manifest_path: str | None = None
+    if args.models:
+        wanted_tags = list(dict.fromkeys(m if ":" in m else f"{m}:latest" for m in args.models))
+    else:
+        manifest_path = str(args.manifest_file)
+        manifest, wanted_tags = load_manifest_models(manifest_path)
+        manifest_meta = get_manifest_metadata(manifest)
 
     print("=== Guppy Ollama Runtime Verifier ===")
     print(f"Timestamp (UTC): {ts}")
     print(f"Models: {', '.join(wanted_tags)}")
+    if manifest_path:
+        print(f"Manifest: {manifest_path}")
     print()
 
     version = run_cmd(["ollama", "--version"], timeout_s=args.timeout)
@@ -186,20 +230,27 @@ def main() -> int:
         return 2
 
     installed = parse_ollama_list(listed.stdout)
-    missing = [m for m in wanted_tags if m not in installed]
+    resolved_tags = {tag: resolve_model_tag(tag, installed) for tag in wanted_tags}
+    missing = [m for m, resolved in resolved_tags.items() if resolved not in installed]
 
     print("\n[1] Installed model check")
     for tag in wanted_tags:
-        print(f"- {'OK' if tag in installed else 'MISSING'} {tag}")
+        resolved = resolved_tags[tag]
+        if resolved in installed and resolved != tag:
+            print(f"- OK {tag} (using legacy alias {resolved})")
+        else:
+            print(f"- {'OK' if resolved in installed else 'MISSING'} {tag}")
 
     print("\n[2] Runtime parameter check (num_ctx)")
     model_ctx: dict[str, int | None] = {}
     for tag in wanted_tags:
-        show = run_cmd(["ollama", "show", tag], timeout_s=args.timeout)
+        resolved = resolved_tags[tag]
+        show = run_cmd(["ollama", "show", resolved], timeout_s=args.timeout)
         num_ctx = extract_num_ctx(show.stdout) if show.returncode == 0 else None
         model_ctx[tag] = num_ctx
         if show.returncode == 0:
-            print(f"- {tag}: num_ctx={num_ctx if num_ctx is not None else 'unknown'}")
+            suffix = f" via {resolved}" if resolved != tag else ""
+            print(f"- {tag}: num_ctx={num_ctx if num_ctx is not None else 'unknown'}{suffix}")
         else:
             print(f"- {tag}: show failed ({show.stderr or 'no error text'})")
 
@@ -212,30 +263,38 @@ def main() -> int:
                 ping_results[tag] = {"ok": False, "reason": "model missing", "sample": ""}
                 print(f"- SKIP {tag}: model missing")
                 continue
-            result = _http_ping(tag, args.prompt, args.ping_timeout)
+            resolved = resolved_tags[tag]
+            result = _http_ping(resolved, args.prompt, args.ping_timeout)
             ping_results[tag] = result
             ok = result["ok"]
             sample = _console_safe(str(result.get("sample", "")))
-            print(f"- {'OK  ' if ok else 'FAIL'} {tag}: {sample}")
+            suffix = f" via {resolved}" if resolved != tag else ""
+            print(f"- {'OK  ' if ok else 'FAIL'} {tag}{suffix}: {sample}")
     else:
         print("\n[3] Per-model response ping (skipped)")
 
     ps = run_cmd(["ollama", "ps"], timeout_s=args.timeout)
+    ps_ok = ps.returncode == 0
     print("\n[4] Active residency and GPU split (ollama ps)")
-    if ps.returncode == 0:
+    if ps_ok:
         print(ps.stdout or "(no active models)")
     else:
         print(f"FAIL: {ps.stderr or 'unable to query ollama ps'}")
 
-    ps_rows = parse_ps_rows(ps.stdout) if ps.returncode == 0 else []
+    ps_rows = parse_ps_rows(ps.stdout) if ps_ok else []
 
     snapshot = {
         "timestamp_utc": ts,
+        "manifest_path": manifest_path,
+        "manifest_metadata": manifest_meta,
         "requested_models": wanted_tags,
+        "resolved_models": resolved_tags,
         "installed_models": sorted(installed),
         "missing_models": missing,
         "model_num_ctx": model_ctx,
         "ping_results": ping_results,
+        "ps_ok": ps_ok,
+        "ps_returncode": ps.returncode,
         "ps_rows": ps_rows,
         "ps_raw": ps.stdout,
     }
@@ -246,7 +305,7 @@ def main() -> int:
     print(f"\nSnapshot written: {out_path}")
 
     any_ping_fail = any(not item.get("ok", False) for item in ping_results.values())
-    ok = not missing and not any_ping_fail and version.returncode == 0 and listed.returncode == 0
+    ok = not missing and not any_ping_fail and version.returncode == 0 and listed.returncode == 0 and ps_ok
     print("\nOverall:", "READY" if ok else "NOT READY")
     return 0 if ok else 1
 

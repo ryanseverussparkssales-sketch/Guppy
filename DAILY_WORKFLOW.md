@@ -1,6 +1,6 @@
 # Daily Workflow
 
-Last updated: April 13, 2026
+Last updated: April 14, 2026
 
 This runbook is designed for the current Guppy build and can be executed today.
 
@@ -38,6 +38,12 @@ Watch for:
 - `integration_events.jsonl` STALE — expected until API runs with heartbeat; not a blocker offline.
 - All core logs (`session_events`, `router_scorecard`, `agent_performance`) must be FRESH.
 
+### 5. Builder regression sweep
+```bash
+python -m pytest tests/unit/test_personalization_resolution.py tests/unit/test_models_routes.py tests/unit/test_voices_view_validation.py tests/unit/test_offhours_builder.py -q
+```
+Expected: builder round-trip, route explainability, voice bindings, and off-hours queue coverage all pass.
+
 ### SLO Pass Criteria
 | Signal | Target |
 |---|---|
@@ -60,16 +66,16 @@ Watch for:
 
 ## Morning Boot (5 to 10 minutes)
 
-1. Start environment and launcher (API server and hub auto-start with it).
+1. Start environment and launcher.
   - Command: python src/guppy/cli/launch.py launcher
-  - Note: guppy_api.py (:8081) and guppy_hub.py start automatically. No separate service management needed.
+  - Note: launcher bootstrap starts `guppy_api.py` (:8081) and `guppy_hub.py` asynchronously when they are not already running.
 2. Run pilot gate quick health.
   - Command: python tools/pilot_exit_check.py --allow-limited-go
 3. Run triage decision canary (fast confidence check).
   - Command: python -m pytest -q tests/test_pilot_exit_decision_canary.py
 4. Run fault-injection triage canary (alerts + regression pipeline check).
   - Command: python tools/run_triage_fault_canary.py
-3. If gate returns NO_GO, run targeted verifiers to isolate fault.
+5. If gate returns NO_GO, run targeted verifiers to isolate fault.
   - Command: python tools/verify_ollama_runtime.py --skip-ping
   - Command: python tools/verify_logging_health.py --emit-probe --require-fresh-core
   - Command: python tools/verify_provider_runtime.py
@@ -79,14 +85,18 @@ Handled by current build:
 1. Launcher startup and status rail.
 2. Automated pilot gate output at runtime/pilot_exit_report.json.
 3. Health snapshots for model, provider, and logging systems.
+4. App Mgmt `WORKFLOW LOOPS` can queue Morning Boot, acceptance, midday, evening, and overnight commands in the embedded terminal.
 
 ## Workday Loop
 
-1. Use Assistant tab for default interaction and quick tasks.
-2. Use Models tab to confirm active model choices.
-3. Use Voices tab and existing voice bindings for current profile.
-4. Use reminders and daemon-backed nudges for follow-through.
-5. For coding sessions, use code mode and tool-assisted checks.
+1. Use Home for default interaction and quick tasks.
+2. Use Settings when persona tone, scope, or preview needs to change.
+3. Use Models to confirm route strategy and sample-query explainability.
+4. Use Voices to confirm current bindings, imports, and preview behavior.
+5. Use Instances to switch between `guppy-primary` and any configured collaborator such as `builder-collab`.
+6. Use Agent Tools and App Mgmt for bounded tooling, recovery, workflow loops, and operator workflows.
+7. Use reminders and daemon-backed nudges for follow-through.
+8. For coding sessions, use code mode and tool-assisted checks.
 
 Handled by current build:
 
@@ -94,6 +104,15 @@ Handled by current build:
 2. Voice runtime with interruption behavior and fallback chain.
 3. Runtime telemetry, scorecard, and logging events.
 4. Tool schema enforcement and targeted test/lint/typecheck tooling.
+
+## Builder Validation Check (3 minutes)
+
+Run this after changing persona/model/voice behavior or before a pilot candidate handoff.
+
+1. Save or reload the target persona in Settings and confirm the prompt preview updates.
+2. Use Models with a sample request to confirm the route explainer still matches the expected task type and fallback.
+3. Use Voices to confirm the default or selected binding can preview successfully.
+4. If the change touched automation, queue a dry-run builder task from Agent Tools and confirm it lands in `runtime/offhours_results/` for approval.
 
 ## Midday Stability Check (2 minutes)
 
@@ -161,9 +180,9 @@ Recommended model/task mapping for cheap overnight work:
 
 1. guppy-fast (local 7B): routine summaries, reminders triage, carry-forward task drafts.
 2. vault-scraper (local 7B): structured extraction and metadata cleanup jobs.
-3. merlin-code (local 14B): batch code review notes and test suggestion drafts.
+3. guppy-code (local 14B): batch code review notes and test suggestion drafts.
 4. Haiku (cloud low-cost): final concise morning brief, route-quality spot checks, UX copy tightening.
-5. guppy and merlin (local 32B): reserve for one scheduled deep synthesis run, not continuous loops.
+5. guppy and guppy-teach (local 32B): reserve for one scheduled deep synthesis run, not continuous loops.
 
 Overnight completion criteria:
 
@@ -179,7 +198,7 @@ Use the idle worker when you want queued tasks to run only when agents are not a
 1. Seed starter tasks (optional).
   - Command: python tools/idle_agent_worker.py --seed-defaults --list
 2. Add a task to queue.
-  - Command: python tools/idle_agent_worker.py --add-title "Overnight code review" --add-target merlin-code --add-prompt "Review changed files and list likely risks." --add-priority 1
+  - Command: python tools/idle_agent_worker.py --add-title "Overnight code review" --add-target guppy-code --add-prompt "Review changed files and list likely risks." --add-priority 1
 3. Start continuous idle processing.
   - Command: python tools/idle_agent_worker.py --poll-seconds 60 --idle-seconds 180
   - Optional hardening: python tools/idle_agent_worker.py --poll-seconds 60 --idle-seconds 180 --stale-running-seconds 900
@@ -217,9 +236,9 @@ Outputs:
 
 ## What Still Requires Build Work
 
-1. Guided builder UI for persona/model/voice instead of JSON-first management.
-2. Visual precedence inspector and route simulation in launcher.
-3. Voice import wizard with richer validation and preview controls.
+1. Builder polish: stronger guardrails, empty states, and broader device validation.
+2. Guided in-app evidence summaries on top of the new App Mgmt workflow shortcuts.
+3. Voice import validation and preview behavior across more machines and engines.
 4. Installer/update lifecycle for broader Windows rollout.
 
 ## Remote Beta EXE Safety Check

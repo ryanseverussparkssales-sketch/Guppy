@@ -1,6 +1,6 @@
 # Roadmap and Handoff
 
-Last updated: April 13, 2026 — **M1 Exit Gate PASSED**
+Last updated: April 14, 2026 — **M1 Exit Gate PASSED**
 
 Historical note: this file preserves handoff and execution history. Older entries may reference pre-migration root paths or runtime utility locations; use `README.md`, `instructions/OPERATIONS.md`, and `docs/PROJECT_BRIEF.md` for current commands and canonical module paths.
 
@@ -48,7 +48,7 @@ Guppy should be the default daily assistant on a Microsoft PC:
 
 These capabilities exist now and are usable in pilot:
 
-1. Unified launcher is evolving toward Home, Instance Manager, Agent Tools, App Management, Settings, Models, and Voices tabs.
+1. Unified launcher is evolving toward Home, Instance Manager, Agent Tools, App Management, Models, and Voices, with settings folded into App Mgmt.
 2. Launcher auto-starts guppy_api.py and guppy_hub.py on open — no manual service management required.
 3. Home surface now carries active-instance, background-activity, runtime-facts, and recovery-summary context.
 4. Instance Manager foundation is live with persisted config/state plus create, activate, delete, and log-view endpoints, and explicit 5 configured / 2 runtime-active UX feedback.
@@ -64,10 +64,11 @@ These capabilities exist now and are usable in pilot:
 
 ## What Is Not Yet Fully Productized
 
-1. Guided persona/model/voice builder UX (cards/forms/preview), beyond raw JSON editing.
-2. Provider/model cards with route/fallback editor and live health badges.
-3. Voice import and model/persona voice assignment workflow in the launcher.
-4. End-user installer/update lifecycle and broader hardware fallback hardening.
+1. Home still needs final spacing/rhythm polish so the top bar, transcript, composer, and right tray feel like one native chat product instead of adjacent surfaces.
+2. Instances still need to read more clearly as user-facing workspaces with recurring context, not just runtime entities.
+3. Route and voice decisions still need richer plain-language health and latency evidence beyond the current explainability pass.
+4. In-app workflow productization still needs richer execution evidence and stronger Morning/Workday/Close polish.
+5. End-user installer/update lifecycle and broader hardware fallback hardening remain open.
 
 ## GuppyPrime Parity Matrix
 
@@ -77,11 +78,11 @@ Objective: every capability must either work inside GuppyPrime UI now or be trac
 | --- | --- | --- | --- | --- | --- |
 | Core chat transcript above input | Launcher Assistant | In progress | M1 | UI | Responses now route to embedded transcript; continue polish and streaming UX. |
 | Agent activation (Guppy/Merlin/Council) | Launcher status rail INIT | In progress | M1 | UI | INIT should always initialize embedded sessions; no legacy window spawn from default flow. |
-| Recovery controls (snapshot/warmup/restart/audit) | Launcher Settings + status rail | Live | M1 | Platform | Keep as productized operator path. |
+| Recovery controls (snapshot/warmup/restart/audit) | Launcher App Mgmt + tray/top bar surfaces | Live | M1 | Platform | Keep as productized operator path. |
 | Runtime health and syslog rail | Launcher right panel | Live | M1 | Platform | Status-only by policy; no primary chat content in right rail. |
 | Model management and selection | Launcher Models tab | Live | M1 | ModelOps | Keep route/fallback cards aligned with runtime. |
 | Voice library and preview | Launcher Voices tab | Partial | M2 | Voice | Complete import, assignment, and interruption-safe preview flow. |
-| Persona/provider/voice config editing | Launcher Settings tab | Partial | M2 | UI | Replace raw JSON-first UX with guided cards/forms while keeping expert editor. |
+| Persona/provider/voice config editing | Launcher App Mgmt settings section | Partial | M2 | UI | Replace raw JSON-first UX with guided cards/forms while keeping expert editor. |
 | Instance management and background collaboration | Home + Instance Manager | Partial | M2 | UI/Platform | Foundation is live: persisted state, launcher manager tab, lifecycle endpoints, instance logs, and visible bound feedback. Remaining work is deeper orchestration and stronger enforcement. |
 | Tools and command workflows | Launcher Agent Tools tab | Partial | M2 | Tools | Agent Tools is now instance-scoped and capability-aware in the launcher. Remaining work is execution flow and server-side enforcement. |
 | App recovery/operator controls | Launcher App Management tab | Partial | M2 | Platform | App Mgmt now owns recovery cards, diagnostics, and operator logs. Remaining work is polish and deeper guardrails. |
@@ -93,8 +94,8 @@ Objective: every capability must either work inside GuppyPrime UI now or be trac
 | Milestone | Target Date | Theme |
 | --- | --- | --- |
 | M1 | June 30, 2026 (Q2 2026) | Surface Consolidation and Embedded Agent Baseline |
-| M2 | September 30, 2026 (Q3 2026) | Functional Parity for Builder and Tooling |
-| M3 | December 31, 2026 (Q4 2026) | Legacy Retirement and Productization Finish |
+| M2 | September 30, 2026 (Q3 2026) | UX Hierarchy, Workflow Entry, and Tooling Finish |
+| M3 | December 31, 2026 (Q4 2026) | Workspace Completion, Windows Fit, and Productization Finish |
 
 **M1 Exit Gate:** No new infrastructure tracks open until all M1 acceptance criteria
 pass and are committed to documentation. The gate is: embedded-only INIT live,
@@ -105,7 +106,7 @@ present. Date is firm.
 
 ### ~~M1 - Surface Consolidation (CLOSED Apr 13, 2026)~~ → **M2 Active**
 
-### **M2 - Functional Parity for Builder and Tooling (Highest) — Due September 30, 2026**
+### **M2 - UX Hierarchy, Workflow Entry, and Tooling Finish (Highest) — Due September 30, 2026**
 
 **[Detailed Breakdown: docs/M2_ENGINEERING_PLAN.md](docs/M2_ENGINEERING_PLAN.md)** — 8 workstreams, detailed PRDs, risk assessment, schedule, success metrics
 
@@ -116,31 +117,45 @@ present. Date is firm.
   - Home header quick-switcher and per-instance transcript restore are live.
   - New lifecycle endpoints and launcher Instance Manager foundation are live.
   - Explicit 5 configured / 2 runtime-active feedback is now live in API + launcher UI.
-  - Remaining acceptance work: richer collaboration flows and stronger enforcement beyond UI/API feedback.
+  - Remaining acceptance work: recast instances into workspaces with clearer purpose, context cues, and richer collaboration flows beyond UI/API feedback.
 
-- **Persona Builder v1 — Non-Technical UX**
-  - Tone slider (formal ↔ conversational).
-  - Verbosity slider (terse ↔ verbose).
-  - Teaching style (Socratic | Direct | Example-led).
-  - Scope toggle (global vs per-model).
-  - Live system prompt preview.
-  - Save to `runtime/persona_config.json` + hot reload.
-  - Acceptance: non-technical user can define persona without file editing.
+- **Current Focus Reset (Post Builder v1)**
+  - Persona Builder v1, route explainability, and voice assignment/import/preview are now live.
+  - The active push has moved to workflow productization, UX hierarchy, operator docs, validation breadth, and hardening.
+  - App Mgmt workflow-loop shortcuts, pilot-gate builder coverage, and voice upload guardrails are now part of this pass.
+  - Builder work is now primarily polish: empty states, teaching copy, and calmer non-technical flows.
 
-- **Model Assignment Editor + Route Visualizer**
-  - Assign models to task types (simple/complex/teaching/code).
-  - Edit fallback chain (pick 2–3 models).
-  - Health badges (✓ready | ⚠slow | ✗offline).
-  - Test run → mock query → show latency.
-  - Persist through `runtime/provider_registry.json`.
-  - Acceptance: every task type has a visible route strategy.
+- **UX Hierarchy + Daily Mode Pass**
+  - Make Home the undeniable daily surface with one obvious primary action and calmer default copy.
+  - Add first-run guidance and stronger empty states so new users can start without reading settings docs.
+  - Keep operator-heavy language and controls in App Mgmt instead of drifting back into Home.
+  - Acceptance: the launcher reads like one assistant with advanced layers, not six tools sharing one shell.
 
-- **Voice Assignment + Library**
-  - Engine: Kokoro, system TTS, optional ElevenLabs.
-  - Per-persona voice binding.
-  - Per-model voice override.
-  - Preview playback (interruption-safe).
-  - Acceptance: user can set voice globally, then override per-agent.
+- **Workspace Framing**
+  - Recast Instances into user-facing workspaces with plain-language purpose, saved context, and clearer naming cues.
+  - Keep runtime enforcement and diagnostics, but expose them through a workspace story first.
+  - Acceptance: a user can tell what each instance is for without understanding backend architecture.
+
+- **Route + Voice Transparency**
+  - Make route and voice choices readable in plain language from the daily surfaces, not only settings vocabulary.
+  - Add live health and latency evidence where users choose or review routes.
+  - Continue voice reliability work around interruption safety, transcript continuity, and stable preview behavior.
+  - Acceptance: users can understand why Guppy chose a route or voice without opening Settings.
+
+- **Local LLM + Local Memory Track**
+  - Evaluate MemPalace as a local-memory upgrade path for Guppy’s local-model workflows instead of treating it as a blind drop-in replacement.
+  - Keep the first integration adapter-shaped: retrieval spike, local-memory comparison, and optional backend wiring before any broad page rename.
+  - Plan a dedicated Local LLM page in the launcher so local fleet status, local memory readiness, and local recall trust do not stay scattered across Home, Models, and internals.
+  - Freeze the current Ollama/Qwen2.5 fleet as the benchmark baseline with a pinned manifest in `config/local_llm/models.json`.
+  - Build the harness before changing defaults: benchmark current baseline, then run `qwen3`, `gemma`, `mistral`, embedding, and runtime challengers against the same prompt pack.
+  - First runtime challengers: direct `llama.cpp`, `lemonade`, and a research-only `vllm-rocm` track if Guppy moves beyond desktop-first local serving.
+  - Acceptance: a user can see local model readiness and local memory state in one place, and we have measured whether MemPalace beats current semantic recall on real Guppy follow-ups.
+
+- **Starter Templates + Guided Workflow Entry**
+  - Add guided entry points for morning brief, focused research, file triage, and builder review.
+  - Keep templates scoped and explainable rather than broad connector sprawl.
+  - Acceptance: Home and workflow surfaces reduce blank-page anxiety for common daily jobs.
+
 
 - **Agent Tools + App Management Separation**
   - Split instance tools from operator recovery/diagnostics.
@@ -168,7 +183,8 @@ present. Date is firm.
 
 - iOS client
 - Live CRM writes
-- Shared Memory v1
+- Full Shared Memory v1 rollout
+- Broad connector expansion before workspace/context UX is clear
 - CI/CD deploy gates
 
 ### M3 - Legacy Retirement and Productization Finish — Due December 31, 2026
@@ -179,11 +195,20 @@ present. Date is firm.
 - Add in-app roadmap placeholders for not-yet-live capabilities.
   - Acceptance: every non-live feature has milestone label, owner, and short ETA in product UI.
 
+- Complete workspace/context containers.
+  - Acceptance: workspaces combine instructions, files, recurring context, and saved history without leaking runtime implementation details.
+
 - Run parity release gate.
   - Acceptance: all matrix rows are either Live or assigned with owner/milestone and tested fallback.
 
 - Complete daily workflow product loop inside GuppyPrime.
   - Acceptance: Morning, Workday, and Close flows are executable without leaving the unified UI.
+
+- Add faster Windows-native entry and continuity after Home/workspace flow is stable.
+  - Acceptance: quick invoke and ambient continuity improve access without bypassing approval and transparency patterns.
+
+- Stage the connector story only after workspace UX is coherent.
+  - Acceptance: any connector rollout has explicit scope, milestone, and user-facing rationale instead of broad undifferentiated expansion.
 
 ### 2026-04-13 (Dependency Split + Canonical Legacy Launch Gate + Doc Truth Cleanup)
 
@@ -195,32 +220,50 @@ present. Date is firm.
 - Reconciled core docs to match current launcher-first and packaging reality:
   - refreshed `README.md`, `docs/PROJECT_BRIEF.md`, `documentation/ARCHITECTURE.md`, `documentation/TRUTH_AUDIT.md`, `docs/PACKAGING.md`, `docs/TROUBLESHOOTING.md`, `instructions/DEVELOPMENT.md`, and `CONTRIBUTING.md`
 
+### 2026-04-14 (Builder Queue Activation + Off-Hours Approval Flow)
+
+- Corrected live-status docs to match current launcher state:
+  - `docs/PROJECT_BRIEF.md` now reflects that Persona Builder v1 is still pending while model routing and voice bindings are live
+  - `docs/M2_WEEK1_IMPLEMENTATION_QUEUE.md` now records W1-03 as reopened after doc-to-tree drift review
+- Fixed the beta release dry-run handoff reference:
+  - `tools/beta_release_dry_run.py` now checks the archived handoff file path under `docs/archive/planning-history/`
+- Activated the first in-app low-risk local builder path:
+  - launcher Agent Tools now includes a local builder queue panel backed by off-hours templates
+  - added shared builder task helpers under `utils/offhours_builder.py`
+  - added prompt/template catalog under `config/offhours_prompts/builder_task_templates.json`
+  - off-hours worker now supports `awaiting_approval`, approval application, and report output
+- Validation completed:
+  - focused builder + launcher tests passing
+  - beta release dry-run passes after path correction
+  - local builder task validated end to end: queue -> dry-run stage -> approval -> safe write
+  - reduced stress harness passed with zero API failures and latency well under current thresholds
+
 ## Priority Order (Rebuilt)
 
-### Track 1: Full Custom Builder First (Highest)
+### Track 1: Daily Surface + Workspace Hierarchy (Highest)
 
-Goal: deliver a complete in-app builder for personas, voices, and model assignment before expansion work.
+Goal: make Guppy feel like one daily assistant with advanced layers, not multiple tools sharing one shell.
 
-- Persona Builder v1
-  - visual editor (tone, verbosity, teaching style, constraints)
-  - global + per-model scope
-  - precedence inspector and conflict hints
+- Home daily mode
+  - one obvious primary action
+  - calm default state and first-run guidance
+  - stronger empty states across launcher surfaces
 
-- Model Assignment Builder v1
-  - per-task mode defaults
-  - route/fallback chain editor
-  - provider/model health badges
+- Workspace framing
+  - recast instances as user-facing workspaces
+  - visible purpose, context, and naming guidance
+  - groundwork for richer context containers in M3
 
-- Voice Builder v1
-  - engine-aware import and validation
-  - persona-to-voice and model-to-voice mapping
-  - preview, fallback policy, and interruption safety
+- Plain-language explainability
+  - route and voice decisions understandable from daily surfaces
+  - live health/latency evidence where users choose or review routes
+  - operator detail remains in App Mgmt, not Home
 
 Definition of done:
 
-1. Non-technical user can configure persona/model/voice without editing JSON files.
-2. Settings survive restart and show clear effective precedence.
-3. One-click restore to safe defaults exists for each builder section.
+1. Home has one obvious primary action and a calm default state.
+2. Non-technical users can start, choose a workspace, and understand route/voice decisions without reading docs or editing files.
+3. Advanced operational controls stay discoverable but visually secondary to daily assistant flow.
 
 ### Track 2: Daily Workflow Productization
 
@@ -229,14 +272,17 @@ Goal: turn existing runtime pieces into a repeatable daily operating flow.
 1. Morning boot flow with readiness checks and briefing output.
 2. Workday loop for capture, reminders, coding support, and lightweight automation.
 3. Evening close flow with daily report, follow-ups, and next-day setup.
-4. Shared Memory Catalog v1 for cross-agent recall and continuity, including canonical entity notes, source-linked memory entries with timestamps and confidence, and a query API for Guppy, Merlin, Council, and daemon workflows.
+4. Guided starter templates for common jobs like morning brief, focused research, file triage, and builder review.
+5. Workspace/context container UX that combines instructions, files, and recurring context without exposing raw implementation structure.
+6. Shared Memory Catalog v1 for cross-agent recall and continuity, including canonical entity notes, source-linked memory entries with timestamps and confidence, and a query API for Guppy, Merlin, Council, and daemon workflows.
 
 Definition of done:
 
 1. Daily workflow documented and executable in under 5 minutes setup.
 2. Recovery path is obvious when any subsystem is degraded.
-3. All workflow steps map to existing commands/tools in repo.
-4. Agents can retrieve and cite shared memory entries consistently in responses.
+3. Starter flows reduce blank-page anxiety and map to existing commands/tools in repo.
+4. Workspace context is legible enough that users understand where instructions/files/history live.
+5. Agents can retrieve and cite shared memory entries consistently in responses.
 
 ### Track 3: Windows General Assistant Viability
 
@@ -245,8 +291,9 @@ Goal: close the gap from pilot to broader Windows usability.
 1. Installer/update/uninstall polish.
 2. Permission and confirmation policy hardening for risky actions.
 3. Hardware profile fallback policy (no-GPU, low-RAM, intermittent network).
-4. Optional Microsoft Graph integrations after builder completion.
-5. Remote beta tester executable with limited-access runtime policy.
+4. Faster Windows-native entry and continuity after the daily surface is stable.
+5. Optional Microsoft Graph integrations after workspace UX is coherent.
+6. Remote beta tester executable with limited-access runtime policy.
 
 - one-folder signed EXE bundle for testers (no source tree required)
 - restricted tool allowlist and write-action confirmation policy
@@ -263,29 +310,30 @@ Definition of done:
 
 ### Week 1
 
-1. Persona Builder forms and scope assignment UI.
-2. Effective persona preview and precedence inspector.
-3. Tests for save/load/validate round-trip.
+1. Home daily mode pass with one obvious primary action.
+2. First-run guidance and stronger launcher empty states.
+3. Validation for calm default-state and onboarding copy flows.
 
 ### Week 2
 
-1. Model assignment and fallback chain editor.
-2. Provider/model cards with status badges.
-3. Route simulation preview in launcher.
+1. Reframe Instances into workspaces in copy, labels, and flow.
+2. Surface clearer purpose/context cues for active workspace selection.
+3. Tighten builder teaching surfaces so advanced settings do not become the front door.
 
 ### Week 3
 
-1. Voice import, mapping, and preview UI.
-2. Voice engine fallback policy controls.
-3. ElevenLabs-first optional mode with local fallback.
+1. Route and voice explanations in plain language on daily surfaces.
+2. Live health badges and latency evidence where users inspect routes.
+3. Voice transcript continuity and interruption-safety polish.
 
 ### Week 4
 
-1. Daily workflow polish and guided checklist in-app/docs.
-2. Windows viability hardening items (recovery UX, profile fallback rules).
-3. Pilot gate + acceptance sweep and release decision.
-4. Shared Memory Catalog schema + ingestion/retrieval smoke checks.
-5. Remote beta package dry run with limited-access policy verification.
+1. Starter templates for morning brief, focused research, file triage, and builder review.
+2. Daily workflow polish and guided checklist in-app/docs.
+3. Windows viability hardening items (recovery UX, profile fallback rules).
+4. Pilot gate + acceptance sweep and release decision.
+5. Shared Memory Catalog schema + ingestion/retrieval smoke checks.
+6. Remote beta package dry run with limited-access policy verification.
 
 ## Acceptance Gates
 
@@ -297,13 +345,16 @@ A build is release-ready for pilot when all are true:
 4. Settings recovery can restore safe operation in one pass.
 5. Daily workflow checklist completes end-to-end in one session.
 6. Remote beta EXE profile passes restricted-tool and auth-scope checks.
+7. Home has one obvious primary action and a calm default state.
+8. Route and voice decisions are understandable without opening Settings.
+9. Advanced operational detail stays in App Mgmt, not Home.
 
 ## Defer Until After Track 1
 
-To protect focus, do not expand these until the custom builder is complete:
+To protect focus, do not expand these until Track 1 is complete:
 
 1. New CRM/VoIP live write integrations.
-2. Broad external connector expansion.
+2. Broad external connector expansion before workspace/context UX is clear.
 3. Additional specialist surfaces that bypass launcher UX.
 
 ## Handoff Notes
@@ -338,6 +389,201 @@ Canonical active planning and execution remains in this file's current roadmap, 
 
 ## Handoff Log
 
+### 2026-04-14 (Spacing Pass + Deeper Evidence + Tool Policy Framing)
+
+- Continued the launcher-first M2 pass as one integrated shell + evidence slice:
+  - tightened top bar, transcript, composer, and tray spacing so the launcher reads as one softer native chat product instead of separate densities
+  - narrowed the tray, reduced top-bar pressure, and trimmed composer/transcript proportions for more usable chat room
+  - pushed fuller live evidence out of Home and into the heavier surfaces:
+    - Models now keeps route-plan copy and live route evidence separate, with clearer cloud/local readiness wording
+    - Voices now reports default runtime voice, binding counts, selected engine readiness, and active selection in plainer language
+    - App Mgmt now carries explicit route evidence and richer workflow evidence alongside existing runtime/recovery context
+  - hardened Agent Tools around the same permission policy helpers the repo already uses:
+    - tool cards now surface capability + runtime-policy framing
+    - restricted tools no longer prime Home if triggered indirectly
+    - Home prompts are more task-shaped and clearer about safe scope
+  - kept improving workspace framing:
+    - launcher role labels now use clearer workspace names like builder collaborator / read-only reference / operations workspace
+    - workspace purpose language was refreshed toward recurring-context framing instead of raw instance mechanics
+- Verified with focused launcher coverage:
+  - `.venv\Scripts\python.exe -m compileall ui\launcher\components\topbar.py ui\launcher\components\status_panel.py ui\launcher\views\assistant_view.py ui\launcher\views\models_view.py ui\launcher\views\voices_view.py ui\launcher\views\advanced_view.py ui\launcher\views\tools_view.py ui\launcher\views\instance_manager_view.py ui\launcher\launcher_window.py utils\instance_capabilities.py tests\smoke\test_launcher_interactions_smoke.py tests\unit\test_models_routes.py tests\unit\test_voices_view_validation.py`
+  - `.venv\Scripts\python.exe -m pytest tests\smoke\test_launcher_interactions_smoke.py tests\unit\test_models_routes.py tests\unit\test_voices_view_validation.py tests\unit\test_chat_routing_alignment.py -q`
+- Follow-up:
+  - finish the remaining workspace-manager truth pass so role counts and collaboration cues are even more explicit
+  - extend the policy-backed tool framing into more server-backed execution seams where it materially affects runtime behavior
+  - keep Home calm while making Models / Voices / App Mgmt the canonical source of live readiness evidence
+
+### 2026-04-14 (Messenger-Style Launcher Softness Pass)
+
+- Continued the launcher-first M2 design execution with a stronger chat-room bias:
+  - removed the large Home hero from the visible chat surface and kept transcript + composer as the primary objects on screen
+  - collapsed starter actions into smaller composer-adjacent chips instead of a separate middle block
+  - moved active chat context into a top-bar pill so mode/persona/profile no longer compete with the room itself
+  - softened transcript bubbles, composer proportions, and bottom rhythm toward a calmer iOS-messenger feel
+  - softened the right tray cards/buttons/media dock so the tray now matches the same lower-density visual language as Home
+  - replaced the old sidebar badge treatment with a painted guppy-style fish mark and more distinct left-rail symbols
+  - fixed hidden activity/status labels that were surfacing as stray popup widgets after the layout simplification
+- Verified with focused launcher coverage:
+  - `.venv\Scripts\python.exe -m compileall ui\launcher\views\assistant_view.py ui\launcher\components\sidebar.py ui\launcher\components\topbar.py ui\launcher\components\status_panel.py ui\launcher\launcher_window.py tests\smoke\test_launcher_interactions_smoke.py`
+  - `.venv\Scripts\python.exe -m pytest tests\smoke\test_launcher_interactions_smoke.py tests\unit\test_chat_routing_alignment.py -q`
+- Follow-up:
+  - tighten final spacing pressure across top bar / transcript / tray in a live render pass
+  - deepen route and voice evidence into fuller live state without re-cluttering Home
+  - continue App Mgmt workflow evidence and Agent Tools execution hardening
+
+### 2026-04-14 (Launcher Prompt Chain Follow-On: Live Evidence, Workflow Outcomes, Tool Handoffs, Empty States)
+
+- Extended the launcher-first M2 polish pass without changing backend contracts:
+  - Home route preview now carries a compact evidence line, and voice summaries now include source plus readiness wording.
+  - Models now folds the latest runtime latency into route-readiness language when that evidence is available.
+  - Voices now keeps a persistent readiness summary instead of relying only on transient assignment status text.
+  - App Mgmt workflow loops now report short outcomes alongside next-step guidance, so load/run actions explain what happened and what to check next.
+  - Agent Tools now prime Home with task-specific prompts instead of raw tool keys, and filtered-empty states now tell users how to recover.
+- Verified with focused launcher coverage:
+  - `.venv\Scripts\python.exe -m compileall ui\launcher\views\models_view.py ui\launcher\views\voices_view.py ui\launcher\views\tools_view.py ui\launcher\views\advanced_view.py ui\launcher\views\assistant_view.py ui\launcher\launcher_window.py tests\smoke\test_launcher_interactions_smoke.py`
+  - `.venv\Scripts\python.exe -m pytest tests\smoke\test_launcher_interactions_smoke.py tests\unit\test_models_routes.py tests\unit\test_voices_view_validation.py -q`
+- Remaining follow-up:
+  - deepen launcher evidence from light readiness/latency hints into fuller live state
+  - persist workflow outcomes beyond launcher-local labels and terminal output
+  - continue tightening execution behavior behind the improved Agent Tools prompt handoff
+
+### 2026-04-14 (Launcher Prompt Chain: Route/Voice Clarity, Starters, Tool Split, Workflow Guidance)
+
+- Continued the M2 launcher execution chain after the Home/workspace pass:
+  - Home now surfaces voice source in plain language, starter actions for morning brief / focused research / file triage / builder review, and route preview context that stays aligned with those starters.
+  - Models now explains route choices in plainer language and shows readiness context for cloud/local routing.
+  - Voices now reads more clearly for non-technical users with default/active voice wording and visible persona/model binding summaries.
+  - Agent Tools and App Mgmt now reinforce a cleaner split: Agent Tools reads as workspace task work, while App Mgmt reads as recovery / diagnostics / workflow loops / operator logs.
+  - App Mgmt workflow shortcuts now include clearer next-step guidance after load/run actions.
+- Verified with focused launcher coverage:
+  - `.venv\Scripts\python.exe -m compileall ui\launcher\views\models_view.py ui\launcher\views\voices_view.py ui\launcher\views\assistant_view.py ui\launcher\views\tools_view.py ui\launcher\views\advanced_view.py ui\launcher\launcher_window.py tests\unit\test_models_routes.py tests\unit\test_voices_view_validation.py tests\smoke\test_launcher_interactions_smoke.py`
+  - `.venv\Scripts\python.exe -m pytest tests\unit\test_models_routes.py tests\unit\test_voices_view_validation.py tests\smoke\test_launcher_interactions_smoke.py -q`
+- Remaining follow-up:
+  - deepen route/voice evidence into fuller live health and latency signals
+  - persist richer workflow outcomes beyond terminal/status text
+  - continue tightening server-side execution flow behind the clearer Agent Tools vs App Mgmt split
+
+### 2026-04-14 (Home Daily Mode + Workspace Framing Launcher Pass)
+
+- Shipped the launcher-first UX slice for today's M2 focus without changing backend instance contracts:
+  - Home now reads as a calmer daily assistant surface with clearer start-here guidance, workspace summary, and plain-language runtime / route / health text.
+  - top-level launcher navigation now presents `WORKSPACES` in the visible shell while internal `instance*` names remain unchanged in code, API, config, and tests.
+  - Instance Manager copy now frames entries as workspaces with role/purpose language and friendlier create/update affordances.
+- Verified with focused launcher regression coverage:
+  - `.venv\Scripts\python.exe -m compileall ui\launcher\views\assistant_view.py ui\launcher\views\instance_manager_view.py ui\launcher\components\topbar.py ui\launcher\components\sidebar.py ui\launcher\launcher_window.py tests\smoke\test_launcher_interactions_smoke.py`
+  - `.venv\Scripts\python.exe -m pytest tests\smoke\test_launcher_interactions_smoke.py -q`
+- Remaining follow-up:
+  - deepen workspace context beyond copy into richer saved-context containers later in M3
+  - continue route/voice health evidence and starter workflow templates on top of this calmer Home surface
+
+### 2026-04-14 (Competitive UX Recommendations Merged Into Timeline)
+
+- Reviewed `docs/generated/competitive_ux_analysis_2026-04-14.md` against the active roadmap and folded the highest-signal recommendations into execution planning instead of creating a separate strategy appendix.
+- Re-sequenced active work around:
+  - Home daily mode and first-run guidance
+  - Instances reframed as workspaces
+  - plain-language route/voice transparency with live health evidence
+  - starter templates for common assistant jobs
+- Updated M2, M3, the rebuilt track order, the 30-day plan, and acceptance gates so the roadmap now reflects a daily-assistant-first hierarchy.
+
+### 2026-04-14 (Lifecycle Evidence Artifact + Recovery Re-Sync Failure Signal)
+
+- Extended release evidence and recovery observability:
+  - `tools/validate_live_lifecycle.py` now writes `runtime/lifecycle_validation_report.json` in addition to printing its report.
+  - pilot validation now includes a dry-run lifecycle gate entry and snapshot path in `tools/pilot_exit_check.py`.
+  - launcher repair-token re-sync failures now emit a distinct `repair_token_resync_failed` event instead of collapsing into a generic 403-only path.
+- Added focused regression coverage:
+  - `tests/unit/test_validate_live_lifecycle.py` now checks report-file output.
+  - `tests/unit/test_pilot_exit_decision_canary.py` now covers lifecycle dry-run gate wiring.
+  - `tests/unit/test_security_hardening.py` now covers invalid/empty repair-token refresh behavior in the launcher.
+
+### 2026-04-14 (Instance Self-Healing Persistence + Pilot Report Resilience)
+
+- Hardened API self-healing for instance metadata:
+  - normalized `config/instances.json` and `runtime/instance_state.json` now persist back to disk on read paths instead of only healing in memory.
+  - chat/voice-active instance resolution, `/instances`, and instance-query flows now repair malformed instance artifacts as part of normal traffic.
+- Hardened pilot-gate report generation:
+  - `tools/pilot_exit_check.py` now converts gate execution exceptions into failed gate entries so `runtime/pilot_exit_report.json` is still written even when a verifier times out or crashes.
+- Added focused regression coverage:
+  - extended malformed-instance runtime smoke to assert repaired files are written back to disk.
+  - added chat-path persistence coverage for active-instance repair.
+  - added `tests/unit/test_pilot_exit_report_resilience.py` to verify pilot report creation on gate-exception paths.
+
+### 2026-04-14 (Verifier Truthfulness + Safer Settings Persistence)
+
+- Hardened operator and validation truthfulness:
+  - `tools/validate_live_lifecycle.py` now returns non-zero when any lifecycle action fails while still printing the full JSON report.
+  - `tools/verify_ollama_runtime.py` now treats `ollama ps` failure as a readiness failure and records that state in the snapshot.
+- Reduced partial-save risk in launcher Settings:
+  - runtime and persona writes now use atomic JSON helpers where available.
+  - `ui/launcher/views/settings_view.py` now validates payloads up front, persists persona/runtime settings in one guarded sequence, and attempts rollback if the second write fails.
+- Added focused regression coverage:
+  - `tests/unit/test_validate_live_lifecycle.py`
+  - `tests/unit/test_verify_ollama_runtime.py`
+  - launcher settings rollback coverage in `tests/smoke/test_launcher_interactions_smoke.py`
+
+### 2026-04-14 (Workflow Productization + Voice Upload Guardrails + Doc Truth Refresh)
+
+- Continued the post-builder pass with workflow and hardening work:
+  - App Mgmt now includes workflow-loop shortcuts that can load or run Morning Boot, acceptance snapshot, midday stability, evening close, and overnight low-compute commands in the embedded terminal.
+  - `/chat/voice` now streams uploads to disk with content-type checks and a configurable size ceiling before transcription starts.
+  - `tools/pilot_exit_check.py` now includes builder regression suites in the runtime gate command so pilot readiness covers shipped builder surfaces.
+- Docs and runbooks were refreshed to match current state:
+  - `GOALS.md`, `DAILY_WORKFLOW.md`, `instructions/OPERATIONS.md`, `docs/PROJECT_BRIEF.md`, `docs/TROUBLESHOOTING.md`, `docs/PACKAGING.md`, `README.md`, and active `ROADMAP.md` sections now reflect that builder v1 is live and the next focus is workflow productization plus hardening.
+- Verification target for this pass:
+  - launcher interaction smoke now covers workflow recipe loading.
+  - runtime smoke now covers oversized voice upload rejection.
+
+### 2026-04-14 (Builder Surfaces - Persona End-to-End + Route Explainability + Voice Lifecycle)
+
+- Completed the next launcher-first builder slice across Settings, Models, Voices, launcher shell, and API:
+  - Persona Builder now runs end-to-end from `ui/launcher/views/settings_view.py` through launcher persona selection into `src/guppy/api/server.py` prompt assembly via personalization overlays.
+  - Assistant surface now carries route-preview context so chat mode/persona changes and queued commands show why a route was selected.
+  - Models view now includes sample-query route explainability on top of route/fallback editing.
+  - Voices view now loads live persona/model choices, supports custom voice imports, keeps binding summaries visible, and uses the voice backend path for more stable non-Edge previews.
+- Shared personalization helpers landed in `utils/personalization_config.py`:
+  - persona resolution by explicit selection or model assignment
+  - persona prompt overlay construction
+  - voice binding resolution with model > persona > default precedence
+- Docs updated to reflect current launcher reality:
+  - `docs/PROJECT_BRIEF.md` now marks Persona Builder v1, route explainability, and voice assignment/import/preview as live, with follow-up gaps narrowed to polish and broader validation.
+- Verification evidence:
+  - `.venv\\Scripts\\python.exe -m compileall utils/personalization_config.py ui/launcher/views/assistant_view.py ui/launcher/views/settings_view.py ui/launcher/views/models_view.py ui/launcher/views/voices_view.py ui/launcher/views/instance_manager_view.py ui/launcher/launcher_window.py src/guppy/api/server.py` -> passed.
+  - `.venv\\Scripts\\python.exe -m pytest tests/unit/test_personalization_resolution.py tests/unit/test_models_routes.py tests/unit/test_voices_view_validation.py tests/smoke/test_launcher_interactions_smoke.py tests/smoke/test_runtime_smoke.py -q` -> 39 passed.
+
+### 2026-04-14 (/chat Prompt Gate Follow-Through + Streaming/Voice Alignment)
+
+- Continued the prompt-context latency slice from the prior handoff:
+  - factored shared prompt assembly in `src/guppy/api/server.py` so `/chat`, `/chat/voice`, websocket chat, and instance queries use the same light-vs-rich context decision.
+  - websocket payloads now honor optional `mode` when selecting prompt richness.
+- Added focused regression coverage in `tests/smoke/test_runtime_smoke.py`:
+  - verified lightweight `/chat` requests stay on the light prompt path.
+  - verified short voice transcriptions and websocket chat messages also skip memory/semantic enrichment unless needed.
+- Verification evidence:
+  - `.venv\\Scripts\\python.exe -m pytest tests/smoke/test_runtime_smoke.py -k "light_prompt_context or websocket or voice" -q` -> passed.
+  - `.venv\\Scripts\\python.exe -m pytest tests/smoke/test_runtime_smoke.py tests/smoke/test_launcher_interactions_smoke.py -q` -> 30 passed.
+  - `.venv\\Scripts\\python.exe -m compileall src/guppy/api/server.py tests/smoke/test_runtime_smoke.py` -> passed.
+
+### 2026-04-14 (CodexGPT Handoff - Docs Canonicality + /chat Latency Slice)
+
+- Completed the runtime artifact hygiene follow-up for BOM handling:
+  - verified `runtime/stress_run_output.txt` had a real UTF-8 BOM and removed it.
+  - hardened `tests/smoke/stress_system.py` with `_write_json_no_bom()` so future JSON reports stay UTF-8 without BOM.
+- Landed doc-entrypoint labeling so historical material stops competing with canonical docs:
+  - added `docs/README.md` as the operational/product docs front door.
+  - updated `documentation/README.md` to explicitly pair `documentation/` with `docs/` and demote archive/history material.
+- Landed a focused `/chat` latency reduction before inference:
+  - `src/guppy/api/server.py` now uses `_should_use_rich_chat_prompt_context()` to keep lightweight turns off the expensive memory/semantic prompt path.
+  - `guppy_core/system_prompt.py` now supports optional memory/semantic inclusion plus short TTL caching for memory briefing, semantic context, and window context.
+  - added smoke coverage in `tests/smoke/test_runtime_smoke.py` for light vs rich prompt behavior.
+- Verification status:
+  - latest code edits have not yet been validated with targeted pytest after the prompt-path changes.
+  - `get_errors` shows broad pre-existing/static-analysis noise in `src/guppy/api/server.py`; `guppy_core/system_prompt.py` and `tests/smoke/test_runtime_smoke.py` showed no file-level errors.
+- Next step for CodexGPT:
+  - run focused verification first: `.venv\\Scripts\\python.exe -m pytest tests/smoke/test_runtime_smoke.py -q`
+  - if green, run a small `/chat` latency comparison or smoke path to confirm the lighter prompt path helps real request latency.
+  - avoid touching unrelated in-flight repo changes; this slice was intentionally limited to docs labeling and `/chat` prompt assembly cost.
+
 ### 2026-04-14 (M2 Progress - Unified Launcher Home Refresh + Instance Manager Foundation)
 
 - Continued the unified launcher product surface instead of creating a second launcher:
@@ -362,7 +608,7 @@ Canonical active planning and execution remains in this file's current roadmap, 
 - Added targeted regression coverage for voice validation helpers:
   - new `tests/test_voices_view_validation.py` verifies engine capability gating and engine/voice catalog validation.
 - Verification evidence:
-  - `python -m pytest tests/test_models_routes.py tests/test_voices_view_validation.py tests/test_launcher_interactions_smoke.py -q` -> passed.
+  - `python -m pytest tests/test_models_routes.py tests/test_voices_view_validation.py tests/smoke/test_launcher_interactions_smoke.py -q` -> passed.
 - Next queued task: W1-06 Agent Tools and App Management Split Skeleton.
 
 ### 2026-04-13 (M2 Week 1 Execution - W1-04 Complete)
@@ -374,7 +620,7 @@ Canonical active planning and execution remains in this file's current roadmap, 
 - Added targeted regression coverage for route helper logic:
   - new `tests/test_models_routes.py` verifies route target extraction and fallback token parsing.
 - Verification evidence:
-  - `python -m pytest tests/test_models_routes.py tests/test_launcher_interactions_smoke.py -q` -> passed.
+  - `python -m pytest tests/test_models_routes.py tests/smoke/test_launcher_interactions_smoke.py -q` -> passed.
 - Next queued task: W1-05 Voice Engine Abstraction Design Stub.
 
 ### 2026-04-13 (M2 Week 1 Execution - W1-01/W1-02/W1-03 Complete + Chat 429 Hotfix)
@@ -395,7 +641,7 @@ Canonical active planning and execution remains in this file's current roadmap, 
   - added live system-prompt preview panel that updates from control changes.
   - preserved existing guided save behavior to avoid backend schema churn in Week 1.
 - Verification evidence:
-  - `python -m pytest tests/test_launcher_interactions_smoke.py tests/test_runtime_smoke.py tests/test_security_hardening.py -v` -> 49 passed.
+  - `python -m pytest tests/smoke/test_launcher_interactions_smoke.py tests/smoke/test_runtime_smoke.py tests/unit/test_security_hardening.py -v` -> 49 passed.
   - `python tools/check_architecture_boundaries.py` -> passed.
   - `python tools/check_wrapper_integrity.py` -> passed.
   - `python tools/check_doc_ownership.py` -> passed.
@@ -1199,5 +1445,35 @@ Use this format for the next roadmap update:
 - Changed:
 - Verified:
 - Follow-up:
+
+### 2026-04-14
+
+- Changed: Reworked launcher Home into a chat-first messenger-style surface, moved heavy runtime/routing/recovery context into App Mgmt, shifted quick workspace tools into the right tray, and replaced the old right-rail syslog/init area with a reserved media dock.
+- Verified: `.venv\Scripts\python.exe -m pytest tests\smoke\test_launcher_interactions_smoke.py tests\unit\test_models_routes.py tests\unit\test_voices_view_validation.py -q`
+- Follow-up: Validate the new chat shell against live launcher runtime again, then decide whether Agent Tools should stay as a builder-only surface or collapse fully into Home + tray.
+
+### 2026-04-14
+
+- Changed: Pushed a full launcher redesign pass across tokens, stylesheet, sidebar, top bar, Home, and the right tray. The shell now uses a warmer gallery-like light theme, stronger editorial type, a richer empty-state composition, and more art-directed gradients/cards while keeping the launcher architecture intact.
+- Verified: `.venv\Scripts\python.exe -m pytest tests\smoke\test_launcher_interactions_smoke.py tests\unit\test_models_routes.py tests\unit\test_voices_view_validation.py tests\unit\test_chat_routing_alignment.py -q`
+- Follow-up: Run the live launcher to tune spacing, icon density, and any last typography/copy adjustments from the real window, then decide whether to deepen the art direction into Models/Voices/Workspaces too.
+
+### 2026-04-14
+
+- Changed: Finished the workspace-manager truth pass by adding visible role-mix and collaboration-fit cues to Workspaces, then hardened the server-side `/instances/{name}/query` seam so source workspaces must pass the same policy-backed cross-workspace query check the launcher now explains.
+- Verified: `.venv\Scripts\python.exe -m pytest tests\smoke\test_launcher_interactions_smoke.py tests\smoke\test_runtime_smoke.py tests\unit\test_instance_controls.py tests\unit\test_chat_routing_alignment.py -q`
+- Follow-up: Keep deepening workspace purpose/collaboration cues, then carry the same explicit policy checks into any remaining server-backed runtime bridges that can still bypass launcher framing.
+
+### 2026-04-14
+
+- Changed: Cloned and evaluated `MemPalace/mempalace` as a candidate local-memory backend, documented the feasibility call in `docs/MEMPALACE_EVALUATION.md`, added a Local LLM + local-memory track to M2, and switched the launcher app icon to the Guppy fish mark at the application level.
+- Verified: repo inspection of `vendor/mempalace` plus `.venv\Scripts\python.exe -m compileall src\guppy\apps\launcher_app.py ui\launcher\components\sidebar.py`
+- Follow-up: run the retrieval spike against real Guppy local-chat history, then design the dedicated Local LLM page before renaming the current Home surface.
+
+### 2026-04-15
+
+- Changed: Added the concrete Local LLM planning package: pinned local-model manifest in `config/local_llm/models.json`, starter benchmark prompt pack in `config/local_llm/benchmark_prompts.json`, benchmark/promotion rules in `docs/LOCAL_LLM_BENCHMARK_SPEC.md`, and a first-tranche implementation plan in `docs/LOCAL_LLM_IMPLEMENTATION_PLAN.md`.
+- Verified: `python -c "import json, pathlib; json.loads(pathlib.Path('config/local_llm/models.json').read_text(encoding='utf-8')); json.loads(pathlib.Path('config/local_llm/benchmark_prompts.json').read_text(encoding='utf-8'))"`
+- Follow-up: wire `tools/verify_ollama_runtime.py` to the manifest, add `tools/local_llm_harness.py`, then build the memory adapter seam before opening the dedicated Local LLM page.
 
 Keep this template at the bottom of the roadmap.

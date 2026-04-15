@@ -20,20 +20,4 @@ AGENTS = [
         "accent": "#00c8ff",
         "advanced": False,
     },
-    {
-        "id": "merlin",
-        "label": "MERLIN",
-        "title": "Lexmechanic",
-        "script": "merlin_ui.py",
-        "accent": "#c9a84c",
-        "advanced": True,
-    },
-    {
-        "id": "council",
-        "label": "COUNCIL",
-        "title": "Conclave of the Omnissiah",
-        "script": "council_ui.py",
-        "accent": "#8888ee",
-        "advanced": True,
-    },
 ]

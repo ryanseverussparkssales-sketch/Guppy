@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.guppy.paths import CHROMA_DIR, MEMORY_DB_PATH
+from src.guppy.memory.backend_adapter import get_memory_backend_id, get_memory_backend_impl
 from utils.db_utils import open_db as _open_db
 
 import requests
@@ -28,7 +29,11 @@ CHROMA_PATH = CHROMA_DIR
 
 
 def _backend() -> str:
-    return (os.environ.get("GUPPY_SEMANTIC_BACKEND", "sqlite") or "sqlite").strip().lower()
+    return get_memory_backend_impl()
+
+
+def _backend_id() -> str:
+    return get_memory_backend_id()
 
 
 def _conn() -> sqlite3.Connection:
@@ -244,12 +249,15 @@ def remember_semantic(key: str, value: str, category: str = "general") -> str:
         return "Error: key and value are required for semantic memory."
 
     try:
-        if _backend() == "chroma":
+        backend = _backend()
+        if backend == "mempalace":
+            raise RuntimeError("MemPalace adapter is planned but not implemented yet")
+        if backend == "chroma":
             return _remember_chroma(k, v, c)
         return _remember_sqlite(k, v, c)
     except Exception as e:
         return (
-            f"Error: semantic remember failed ({_backend()}). {e}. "
+            f"Error: semantic remember failed ({_backend_id()}). {e}. "
             f"Ensure Ollama is running and model '{EMBED_MODEL}' is installed."
         )
 
@@ -263,12 +271,15 @@ def recall_semantic(query: str, n: int = 5, category: str = "") -> str:
     cat = (category or "").strip()
 
     try:
-        if _backend() == "chroma":
+        backend = _backend()
+        if backend == "mempalace":
+            raise RuntimeError("MemPalace adapter is planned but not implemented yet")
+        if backend == "chroma":
             return _recall_chroma(q, limit, cat)
         return _recall_sqlite(q, limit, cat)
     except Exception as e:
         return (
-            f"Error: semantic recall failed ({_backend()}). {e}. "
+            f"Error: semantic recall failed ({_backend_id()}). {e}. "
             f"Ensure Ollama is running and model '{EMBED_MODEL}' is installed."
         )
 

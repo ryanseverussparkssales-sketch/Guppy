@@ -6,6 +6,15 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from utils.safe_io import write_json_atomic
+    _ATOMIC_IO = True
+except Exception:
+    _ATOMIC_IO = False
+
+    def write_json_atomic(_path, _data):
+        return False
+
+try:
     import psutil
     PSUTIL_OK = True
 except Exception:
@@ -165,7 +174,11 @@ def save_app_settings(settings: dict[str, Any]) -> Path:
     merged.update({k: v for k, v in settings.items() if k in DEFAULT_SETTINGS})
     merged["runtime_profile"] = _normalize_profile(merged.get("runtime_profile"))
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    SETTINGS_PATH.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+    if _ATOMIC_IO:
+        if not write_json_atomic(SETTINGS_PATH, merged):
+            raise OSError(f"Failed to write settings atomically: {SETTINGS_PATH}")
+    else:
+        SETTINGS_PATH.write_text(json.dumps(merged, indent=2), encoding="utf-8")
     return SETTINGS_PATH
 
 
