@@ -371,13 +371,11 @@ class InstanceManagerView(QWidget):
         self._connector_enabled.setStyleSheet(
             f"QCheckBox {{ color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; }}"
         )
-        self._connector_account = QLineEdit()
-        self._connector_account.setPlaceholderText("account id (for example: main)")
-        self._connector_provider = QLineEdit()
-        self._connector_provider.setPlaceholderText("provider (for example: hubspot)")
+        self._connector_account = QComboBox()
+        self._connector_provider = QComboBox()
         for widget in (self._connector_account, self._connector_provider):
             widget.setStyleSheet(
-                f"QLineEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
+                f"QComboBox {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
                 f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
             )
         connector_row2.addWidget(self._connector_enabled)
@@ -422,6 +420,12 @@ class InstanceManagerView(QWidget):
         self._connector_status = _mono("Connector binding editor ready", T.DIM, T.FS_TINY)
         self._connector_status.setWordWrap(True)
         connectors_layout.addWidget(self._connector_status)
+        self._connector_validation = _mono("Binding validation will appear here after connector data loads.", T.DIM, T.FS_TINY)
+        self._connector_validation.setWordWrap(True)
+        connectors_layout.addWidget(self._connector_validation)
+        self._connector_history = _mono("Connector history will appear here after verify/connect activity runs.", T.DIM, T.FS_TINY)
+        self._connector_history.setWordWrap(True)
+        connectors_layout.addWidget(self._connector_history)
 
         connector_actions = QHBoxLayout()
         connector_actions.addStretch()
@@ -475,6 +479,9 @@ class InstanceManagerView(QWidget):
         self._governance_workspace.currentTextChanged.connect(self._load_governance_editor)
         self._connector_workspace.currentTextChanged.connect(self._load_connector_binding_editor)
         self._connector_id.currentTextChanged.connect(self._load_connector_binding_editor)
+        self._connector_provider.currentIndexChanged.connect(self._refresh_connector_binding_feedback)
+        self._connector_account.currentIndexChanged.connect(self._refresh_connector_binding_feedback)
+        self._connector_enabled.stateChanged.connect(self._refresh_connector_binding_feedback)
         self._governance_save_btn.clicked.connect(self._emit_governance_save)
         self._connector_save_btn.clicked.connect(self._emit_connector_binding_save)
         self._save_btn = save_btn
@@ -507,6 +514,28 @@ class InstanceManagerView(QWidget):
             seen.add(lowered)
             lines.append(lowered)
         return lines
+
+    @staticmethod
+    def _selector_label(item: dict[str, object], *, fallback: str) -> str:
+        label = str(item.get("label", item.get("id", fallback)) or fallback).strip() or fallback
+        auth_state = str(item.get("auth_state", "") or "").strip().upper()
+        if auth_state:
+            label += f" [{auth_state}]"
+        return label
+
+    @staticmethod
+    def _history_line(payload: dict[str, object]) -> str:
+        last_action = str(payload.get("last_action", "") or "").strip()
+        last_action_at = str(payload.get("last_action_at", "") or "").strip()
+        last_result = str(payload.get("last_result", "") or "").strip()
+        if not last_action:
+            return "Connector history: no verify/connect activity has been recorded yet."
+        summary = f"Connector history: last {last_action}"
+        if last_action_at:
+            summary += f" @ {last_action_at}"
+        if last_result:
+            summary += f" | {last_result}"
+        return summary
 
     def _load_governance_editor(self, workspace_name: str) -> None:
         target = str(workspace_name or "").strip()
@@ -561,8 +590,30 @@ class InstanceManagerView(QWidget):
         connector_payload = connector_map.get(connector_id, {})
         binding = connector_payload.get("binding", {}) if isinstance(connector_payload.get("binding"), dict) else {}
         self._connector_enabled.setChecked(bool(binding.get("enabled", False)))
-        self._connector_account.setText(str(binding.get("account_id", "") or ""))
-        self._connector_provider.setText(str(binding.get("provider", "") or ""))
+        provider_rows = [row for row in connector_payload.get("providers", []) if isinstance(row, dict)] if isinstance(connector_payload.get("providers"), list) else []
+        account_rows = [row for row in connector_payload.get("accounts", []) if isinstance(row, dict)] if isinstance(connector_payload.get("accounts"), list) else []
+        saved_provider = str(binding.get("provider", "") or "").strip().lower()
+        saved_account = str(binding.get("account_id", "") or "").strip().lower()
+        self._connector_provider.blockSignals(True)
+        self._connector_provider.clear()
+        self._connector_provider.addItem("(no provider)", "")
+        for row in provider_rows:
+            self._connector_provider.addItem(self._selector_label(row, fallback="provider"), str(row.get("id", "")))
+        if saved_provider and self._connector_provider.findData(saved_provider) < 0:
+            self._connector_provider.addItem(f"{saved_provider} [SAVED / UNAVAILABLE]", saved_provider)
+        provider_idx = self._connector_provider.findData(saved_provider)
+        self._connector_provider.setCurrentIndex(0 if provider_idx < 0 else provider_idx)
+        self._connector_provider.blockSignals(False)
+        self._connector_account.blockSignals(True)
+        self._connector_account.clear()
+        self._connector_account.addItem("(no account)", "")
+        for row in account_rows:
+            self._connector_account.addItem(self._selector_label(row, fallback="account"), str(row.get("id", "")))
+        if saved_account and self._connector_account.findData(saved_account) < 0:
+            self._connector_account.addItem(f"{saved_account} [SAVED / UNAVAILABLE]", saved_account)
+        account_idx = self._connector_account.findData(saved_account)
+        self._connector_account.setCurrentIndex(0 if account_idx < 0 else account_idx)
+        self._connector_account.blockSignals(False)
         self._connector_action_allow.setPlainText(
             "\n".join(str(item) for item in binding.get("action_allow", []) if str(item).strip())
         )
@@ -583,6 +634,37 @@ class InstanceManagerView(QWidget):
             f"Editing {workspace_name or 'workspace'} / {connector_id or 'connector'} | auth={auth_state} | "
             f"source={source} | workspace auth mode={auth_mode}"
         )
+        self._refresh_connector_binding_feedback()
+
+    def _refresh_connector_binding_feedback(self, *_args) -> None:
+        workspace_name = self._connector_workspace.currentText().strip()
+        connector_id = self._connector_id.currentText().strip().lower()
+        connector_payload = self._connectors_by_name.get(workspace_name, {}).get(connector_id, {})
+        validation = connector_payload.get("binding_validation", {}) if isinstance(connector_payload.get("binding_validation"), dict) else {}
+        provider_rows = [row for row in connector_payload.get("providers", []) if isinstance(row, dict)] if isinstance(connector_payload.get("providers"), list) else []
+        account_rows = [row for row in connector_payload.get("accounts", []) if isinstance(row, dict)] if isinstance(connector_payload.get("accounts"), list) else []
+        selected_provider = str(self._connector_provider.currentData() or "").strip().lower()
+        selected_account = str(self._connector_account.currentData() or "").strip().lower()
+        provider_payload = next((row for row in provider_rows if str(row.get("id", "")).strip().lower() == selected_provider), {})
+        account_payload = next((row for row in account_rows if str(row.get("id", "")).strip().lower() == selected_account), {})
+        validation_bits: list[str] = []
+        if not self._connector_enabled.isChecked():
+            validation_bits.append("Workspace binding is currently disabled.")
+        if provider_payload:
+            validation_bits.append(str(provider_payload.get("auth_detail", "") or "").strip())
+        elif provider_rows:
+            validation_bits.append("Choose a provider from the machine inventory before saving.")
+        if account_payload:
+            validation_bits.append(str(account_payload.get("auth_detail", "") or "").strip())
+        elif account_rows:
+            validation_bits.append("Choose an available account from the machine inventory before saving.")
+        validation_bits.append(str(validation.get("message", "") or "").strip())
+        self._connector_validation.setText(
+            "Validation: " + " | ".join(bit for bit in validation_bits if bit)
+        )
+        self._connector_history.setText(
+            self._history_line(connector_payload.get("history", {}) if isinstance(connector_payload.get("history"), dict) else {})
+        )
 
     def _emit_connector_binding_save(self) -> None:
         workspace_name = self._connector_workspace.currentText().strip()
@@ -595,8 +677,8 @@ class InstanceManagerView(QWidget):
                 "name": workspace_name,
                 "connector": connector_id,
                 "enabled": self._connector_enabled.isChecked(),
-                "account_id": self._connector_account.text().strip().lower(),
-                "provider": self._connector_provider.text().strip().lower(),
+                "account_id": str(self._connector_account.currentData() or "").strip().lower(),
+                "provider": str(self._connector_provider.currentData() or "").strip().lower(),
                 "action_allow": self._parse_policy_lines(self._connector_action_allow.toPlainText()),
                 "action_block": self._parse_policy_lines(self._connector_action_block.toPlainText()),
                 "endpoint_allow": self._parse_policy_lines(self._connector_endpoint_allow.toPlainText()),

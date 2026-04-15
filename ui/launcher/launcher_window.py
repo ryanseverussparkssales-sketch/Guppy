@@ -253,6 +253,7 @@ class LauncherWindow(QMainWindow):
         self._embedded_online: set[str] = set()
         self._assistant_events: SimpleQueue[tuple[str, str, int]] = SimpleQueue()
         self._recovery_events: SimpleQueue[dict[str, object]] = SimpleQueue()
+        self._active_windows_ops_chain: dict[str, object] | None = None
         self._last_instance_snapshot: dict[str, object] = {}
         self._instance_snapshot_expires_at = 0.0
         self._instance_snapshot_ttl_s = float(os.environ.get("GUPPY_INSTANCE_SNAPSHOT_TTL_S", "6.0"))
@@ -357,6 +358,7 @@ class LauncherWindow(QMainWindow):
         self._advanced_view.recovery_requested.connect(self._on_recovery_requested)
         self._advanced_view.windows_ops_requested.connect(self._on_windows_ops_requested)
         self._advanced_view.connector_action_requested.connect(self._on_connector_action_requested)
+        self._advanced_view.terminal_recipe_finished.connect(self._on_terminal_recipe_finished)
         self._models_view.model_selected.connect(self._on_model_selected)
         self._models_view.runtime_settings_saved.connect(self._on_runtime_settings_saved)
         self._voices_view.bindings_changed.connect(self._on_voice_bindings_changed)
@@ -1433,9 +1435,33 @@ class LauncherWindow(QMainWindow):
             )
         summary = str(result.get("summary", "") or "").strip() or f"{connector_id} {action} completed"
         ok = bool(result.get("ok", False))
+        next_step = str(result.get("next_step", "") or "").strip()
+        result_code = str(result.get("result_code", "") or "").strip()
+        fix_target = str(result.get("fix_target", "") or "").strip()
+        history = result.get("history", {}) if isinstance(result.get("history"), dict) else {}
+        action_record = history.get("last_action_record", {}) if isinstance(history.get("last_action_record"), dict) else {}
+        event_id = str(action_record.get("event_id", history.get("last_event_id", "")) or "").strip()
+        status = result.get("status", {}) if isinstance(result.get("status"), dict) else {}
         self._advanced_view.append_log(summary)
+        if next_step:
+            self._advanced_view.append_log("next step: " + next_step + (f" | fix in: {fix_target}" if fix_target else ""))
         self._status_panel.append_syslog(summary)
-        self._log_launcher_event("connector_action", connector=connector_id, action=action, ok=ok, summary=summary)
+        self._set_daily_activity(summary)
+        self._log_launcher_event(
+            "connector_action_result",
+            connector=connector_id,
+            action=action,
+            ok=ok,
+            summary=summary,
+            provider=body["provider"],
+            account_id=body["account_id"],
+            event_id=event_id,
+            integration_event=str(action_record.get("integration_event", "") or ""),
+            auth_state=str(status.get("auth_state", "") or ""),
+            result_code=result_code,
+            next_step=next_step,
+            fix_target=fix_target,
+        )
         self._refresh_instance_views(load_logs=False, force=True)
 
     def _on_instance_delete_requested(self, name: str) -> None:
@@ -1504,6 +1530,412 @@ class LauncherWindow(QMainWindow):
 
     def _tool_state_path(self) -> Path:
         return _RUNTIME / "launcher_tools_state.json"
+
+    def _windows_ops_state_path(self) -> Path:
+        return _RUNTIME / "windows_ops_state.json"
+
+    @staticmethod
+    def _windows_ops_chain_steps(action: str) -> list[str]:
+        normalized = str(action or "").strip().lower()
+        if normalized == "restart_runtime":
+            return ["restart_daemon", "warmup", "audit_runtime"]
+        if normalized == "repair_runtime":
+            return ["health_snapshot", "warmup", "audit_runtime"]
+        return []
+
+    @staticmethod
+    def _windows_ops_chain_changes(action: str) -> str:
+        normalized = str(action or "").strip().lower()
+        if normalized == "restart_runtime":
+            return "Restarted the daemon, then refreshed warmup and runtime-audit evidence."
+        if normalized == "repair_runtime":
+            return "Captured a fresh health snapshot, then reran warmup and runtime-audit evidence."
+        return ""
+
+    @staticmethod
+    def _repo_python_path() -> Path:
+        candidates = [
+            _RUNTIME.parent / ".venv" / "Scripts" / "python.exe",
+            _RUNTIME.parent / ".venv" / "bin" / "python",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return Path(sys.executable)
+
+    @staticmethod
+    def _run_repo_python(args: list[str], *, timeout_s: float = 45.0) -> str:
+        python_path = LauncherWindow._repo_python_path()
+        try:
+            proc = subprocess.run(
+                [str(python_path), *args],
+                cwd=str(_RUNTIME.parent),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout_s,
+            )
+        except Exception as exc:
+            return f"error:{exc}"
+        text = (proc.stdout or "").strip() or (proc.stderr or "").strip()
+        if proc.returncode != 0:
+            return f"error:{text or proc.returncode}"
+        return text
+
+    @staticmethod
+    def _snapshot_file_signature(path: Path | None) -> dict[str, object]:
+        target = path if isinstance(path, Path) else None
+        if target is None or not target.exists():
+            return {"path": str(target) if target is not None else "", "exists": False, "mtime": "", "size": 0}
+        stat = target.stat()
+        return {
+            "path": str(target),
+            "exists": True,
+            "mtime": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+            "size": int(stat.st_size),
+        }
+
+    @staticmethod
+    def _latest_runtime_artifact(*patterns: str) -> Path | None:
+        candidates: list[Path] = []
+        for pattern in patterns:
+            candidates.extend(_RUNTIME.glob(pattern))
+        if not candidates:
+            return None
+        return max(candidates, key=lambda path: path.stat().st_mtime)
+
+    @staticmethod
+    def _collect_windows_service_snapshot() -> dict[str, object]:
+        return {
+            "python_path": str(LauncherWindow._repo_python_path()),
+            "python_version": LauncherWindow._run_repo_python(["--version"], timeout_s=15.0),
+            "pip_version": LauncherWindow._run_repo_python(["-m", "pip", "--version"], timeout_s=25.0),
+            "challenger_snapshot": LauncherWindow._snapshot_file_signature(_RUNTIME / "runtime_challenger_snapshot.json"),
+            "diagnostics_bundle": LauncherWindow._snapshot_file_signature(
+                LauncherWindow._latest_runtime_artifact("diagnostics_bundle_*.json", "diagnostics_*.json")
+            ),
+            "pilot_exit_report": LauncherWindow._snapshot_file_signature(_RUNTIME / "pilot_exit_report.json"),
+        }
+
+    @staticmethod
+    def _windows_service_snapshot_changes(before: dict[str, object], after: dict[str, object]) -> str:
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            return ""
+        bits: list[str] = []
+        before_pip = str(before.get("pip_version", "") or "").strip()
+        after_pip = str(after.get("pip_version", "") or "").strip()
+        if before_pip and after_pip and before_pip != after_pip:
+            bits.append(f"pip changed: {before_pip} -> {after_pip}")
+        before_python = str(before.get("python_version", "") or "").strip()
+        after_python = str(after.get("python_version", "") or "").strip()
+        if before_python and after_python and before_python != after_python:
+            bits.append(f"python changed: {before_python} -> {after_python}")
+        for key, label in (
+            ("challenger_snapshot", "challenger snapshot refreshed"),
+            ("diagnostics_bundle", "diagnostics bundle refreshed"),
+            ("pilot_exit_report", "pilot exit report refreshed"),
+        ):
+            previous = before.get(key, {})
+            current = after.get(key, {})
+            if not isinstance(previous, dict) or not isinstance(current, dict):
+                continue
+            if bool(current.get("exists")) and (
+                str(previous.get("path", "") or "").strip() != str(current.get("path", "") or "").strip()
+                or str(previous.get("mtime", "") or "").strip() != str(current.get("mtime", "") or "").strip()
+                or int(previous.get("size", 0) or 0) != int(current.get("size", 0) or 0)
+            ):
+                bits.append(label)
+        if not bits:
+            return "No file-backed servicing delta was detected beyond command completion."
+        return " | ".join(bits)
+
+    @staticmethod
+    def _windows_ops_guidance(action: str, *, ok: bool, phase: str = "completed") -> dict[str, str]:
+        normalized = str(action or "").strip().lower()
+        lifecycle_phase = str(phase or "completed").strip().lower() or "completed"
+        if lifecycle_phase == "queued":
+            if normalized in {"verify_runtime", "update_runtime"}:
+                return {
+                    "next_step": "Watch the App Mgmt terminal for completion evidence and wait for the servicing ref to appear.",
+                    "fix_target": "App Mgmt > Windows Ops",
+                    "docs_hint": "docs/TROUBLESHOOTING.md",
+                    "entry_point": "python src/guppy/cli/launch.py launcher",
+                }
+            if normalized in {"restart_runtime", "repair_runtime"}:
+                return {
+                    "next_step": "Wait for the queued recovery chain to finish, then review the final servicing summary before you retry anything.",
+                    "fix_target": "App Mgmt > Windows Ops",
+                    "docs_hint": "docs/SUPERVISION_WINDOWS.md",
+                    "entry_point": "bin/launch_api_supervised.bat",
+                }
+        if ok:
+            if normalized == "verify_runtime":
+                return {
+                    "next_step": "Runtime verification passed. If you need a fresh desktop build, run build_executable.bat --no-clean next.",
+                    "fix_target": "build_executable.bat",
+                    "docs_hint": "docs/PACKAGING.md",
+                    "entry_point": "build_executable.bat --no-clean",
+                }
+            if normalized == "update_runtime":
+                return {
+                    "next_step": "Update postflight passed. Re-run VERIFY after major runtime changes, or package with build_executable.bat --no-clean.",
+                    "fix_target": "build_executable.bat",
+                    "docs_hint": "docs/PACKAGING.md",
+                    "entry_point": "build_executable.bat --no-clean",
+                }
+            if normalized == "restart_runtime":
+                return {
+                    "next_step": "Restart completed. If the API still looks stale, run REPAIR next; otherwise keep working.",
+                    "fix_target": "App Mgmt > Windows Ops",
+                    "docs_hint": "docs/SUPERVISION_WINDOWS.md",
+                    "entry_point": "bin/launch_api_supervised.bat",
+                }
+            if normalized == "repair_runtime":
+                return {
+                    "next_step": "Repair completed. Re-run VERIFY when you want a fresh health read, then package or relaunch as needed.",
+                    "fix_target": "App Mgmt VERIFY + build_executable.bat",
+                    "docs_hint": "docs/TROUBLESHOOTING.md",
+                    "entry_point": "python src/guppy/cli/launch.py launcher",
+                }
+        else:
+            if normalized == "verify_runtime":
+                return {
+                    "next_step": "Run REPAIR next. If dependency or build checks are the problem, run UPDATE before you retry VERIFY.",
+                    "fix_target": "App Mgmt REPAIR / UPDATE",
+                    "docs_hint": "docs/TROUBLESHOOTING.md",
+                    "entry_point": "python src/guppy/cli/launch.py launcher",
+                }
+            if normalized == "update_runtime":
+                return {
+                    "next_step": "Open the terminal evidence, fix requirements or packaging entry points, then rerun UPDATE.",
+                    "fix_target": "requirements.txt / requirements-optional.txt / build_executable.bat",
+                    "docs_hint": "docs/PACKAGING.md",
+                    "entry_point": "build_executable.bat --no-clean",
+                }
+            if normalized == "restart_runtime":
+                return {
+                    "next_step": "Check the supervised API entry point, then rerun RESTART or fall back to REPAIR.",
+                    "fix_target": "bin/launch_api_supervised.bat",
+                    "docs_hint": "docs/SUPERVISION_WINDOWS.md",
+                    "entry_point": "bin/launch_api_supervised.bat",
+                }
+            if normalized == "repair_runtime":
+                return {
+                    "next_step": "Inspect launcher logs and supervision guidance before retrying repair so you fix the underlying packaging or runtime fault first.",
+                    "fix_target": "runtime/launcher_events.jsonl / docs/SUPERVISION_WINDOWS.md",
+                    "docs_hint": "docs/SUPERVISION_WINDOWS.md",
+                    "entry_point": "bin/launch_api_supervised.bat",
+                }
+        return {
+            "next_step": "Review the latest servicing evidence before taking the next installer or repair action.",
+            "fix_target": "App Mgmt > Windows Ops",
+            "docs_hint": "docs/TROUBLESHOOTING.md",
+            "entry_point": "python src/guppy/cli/launch.py launcher",
+        }
+
+    @staticmethod
+    def _summarize_windows_recipe_result(payload: dict[str, object]) -> tuple[str, str]:
+        label = str(payload.get("label", "WINDOWS OPS") or "WINDOWS OPS").strip()
+        steps_total = int(payload.get("steps_total", 0) or 0)
+        steps_completed = int(payload.get("steps_completed", 0) or 0)
+        failed_steps = [item for item in payload.get("failed_steps", []) if isinstance(item, dict)] if isinstance(payload.get("failed_steps"), list) else []
+        ok = bool(payload.get("ok", False))
+        summary = (
+            f"{label} completed {steps_completed}/{steps_total} servicing step(s)."
+            if ok
+            else f"{label} stopped after {steps_completed}/{steps_total} successful servicing step(s)."
+        )
+        if failed_steps:
+            failed = failed_steps[0]
+            summary += f" Failed step {int(failed.get('index', 0) or 0)}."
+        changes = str(payload.get("changes", "") or "").strip()
+        if failed_steps:
+            failed = failed_steps[0]
+            command = str(failed.get("command", "") or "").strip()
+            changes = (
+                f"{changes} Failed command: {command}."
+                if changes and command
+                else f"Failed command: {command}."
+                if command
+                else changes or "A servicing step failed before the recipe completed."
+            )
+        return summary, changes
+
+    def _record_windows_ops_state(
+        self,
+        action: str,
+        summary: str,
+        changes: str,
+        *,
+        ok: bool,
+        commands: list[str] | None = None,
+        event_id: str = "",
+        steps_completed: int | None = None,
+        steps_total: int | None = None,
+        phase: str = "completed",
+        next_step: str = "",
+        fix_target: str = "",
+        docs_hint: str = "",
+        entry_point: str = "",
+    ) -> None:
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "action": str(action or "").strip().lower(),
+            "ok": bool(ok),
+            "summary": str(summary or "").strip(),
+            "changes": str(changes or "").strip(),
+            "commands": [str(item).strip() for item in (commands or []) if str(item).strip()],
+            "event_id": str(event_id or "").strip(),
+            "steps_completed": int(steps_completed or 0) if steps_completed is not None else None,
+            "steps_total": int(steps_total or 0) if steps_total is not None else None,
+            "phase": str(phase or "completed").strip().lower() or "completed",
+            "next_step": str(next_step or "").strip(),
+            "fix_target": str(fix_target or "").strip(),
+            "docs_hint": str(docs_hint or "").strip(),
+            "entry_point": str(entry_point or "").strip(),
+        }
+        _write_json(self._windows_ops_state_path(), payload)
+        self._advanced_view.set_windows_ops_feedback(
+            str(action or "").strip().lower(),
+            str(summary or "").strip() + (
+                f" | Ref: {str(event_id or '').strip()}" if str(event_id or "").strip() else ""
+            ),
+            (
+                str(changes or "").strip()
+                + (
+                    f" | Steps: {int(steps_completed or 0)}/{int(steps_total or 0)}"
+                    if steps_completed is not None and steps_total is not None
+                    else ""
+                )
+            ),
+            ok=bool(ok),
+            next_step=str(next_step or "").strip(),
+            fix_target=str(fix_target or "").strip(),
+            docs_hint=str(docs_hint or "").strip(),
+            entry_point=str(entry_point or "").strip(),
+        )
+
+    def _start_windows_ops_chain(self, action: str) -> None:
+        normalized = str(action or "").strip().lower()
+        steps = self._windows_ops_chain_steps(normalized)
+        self._active_windows_ops_chain = {
+            "action": normalized,
+            "expected_steps": steps,
+            "results": [],
+            "changes": self._windows_ops_chain_changes(normalized),
+        } if steps else None
+
+    def _update_windows_ops_chain(self, action: str, *, ok: bool, summary: str) -> bool:
+        chain = self._active_windows_ops_chain
+        if not isinstance(chain, dict):
+            return False
+        normalized_action = str(action or "").strip().lower()
+        expected = [str(item) for item in chain.get("expected_steps", []) if str(item).strip()]
+        if normalized_action not in expected:
+            return False
+        results = chain.get("results", [])
+        if not isinstance(results, list):
+            results = []
+        results.append({"action": normalized_action, "ok": bool(ok), "summary": str(summary or "").strip()})
+        chain["results"] = results
+        self._active_windows_ops_chain = chain
+        if len(results) < len(expected):
+            return True
+        parent_action = str(chain.get("action", normalized_action) or normalized_action)
+        parent_label = parent_action.replace("_", " ")
+        overall_ok = all(bool(item.get("ok", False)) for item in results if isinstance(item, dict))
+        rendered = " | ".join(
+            f"{str(item.get('action', 'step') or 'step')}={'OK' if bool(item.get('ok', False)) else 'FAIL'}"
+            for item in results
+            if isinstance(item, dict)
+        )
+        summary_text = f"{parent_label} completed | {rendered}"
+        change_text = str(chain.get("changes", "") or "").strip()
+        guidance = self._windows_ops_guidance(parent_action, ok=overall_ok, phase="completed")
+        final_detail = next(
+            (
+                str(item.get("summary", "") or "").strip()
+                for item in reversed(results)
+                if isinstance(item, dict) and str(item.get("summary", "") or "").strip()
+            ),
+            "",
+        )
+        if final_detail:
+            change_text = f"{change_text} Last result: {final_detail}" if change_text else f"Last result: {final_detail}"
+        self._record_windows_ops_state(
+            parent_action,
+            summary_text,
+            change_text,
+            ok=overall_ok,
+            steps_completed=len(results),
+            steps_total=len(expected),
+            phase="completed",
+            next_step=str(guidance.get("next_step", "") or ""),
+            fix_target=str(guidance.get("fix_target", "") or ""),
+            docs_hint=str(guidance.get("docs_hint", "") or ""),
+            entry_point=str(guidance.get("entry_point", "") or ""),
+        )
+        self._log_launcher_event(
+            "windows_ops_completed",
+            action=parent_action,
+            ok=overall_ok,
+            steps_completed=len(results),
+            steps_total=len(expected),
+            summary=summary_text,
+            next_step=str(guidance.get("next_step", "") or ""),
+            fix_target=str(guidance.get("fix_target", "") or ""),
+        )
+        self._active_windows_ops_chain = None
+        return True
+
+    def _on_terminal_recipe_finished(self, payload: dict) -> None:
+        if not isinstance(payload, dict):
+            return
+        if str(payload.get("kind", "") or "").strip().lower() != "windows_ops":
+            return
+        action = str(payload.get("action", "") or "").strip().lower()
+        summary, changes = self._summarize_windows_recipe_result(payload)
+        pre_snapshot = payload.get("pre_snapshot", {}) if isinstance(payload.get("pre_snapshot"), dict) else {}
+        post_snapshot = self._collect_windows_service_snapshot()
+        dynamic_changes = self._windows_service_snapshot_changes(pre_snapshot, post_snapshot)
+        if dynamic_changes:
+            changes = f"{changes} | {dynamic_changes}" if changes else dynamic_changes
+        ok = bool(payload.get("ok", False))
+        guidance = self._windows_ops_guidance(action, ok=ok, phase="completed")
+        event_id = str(payload.get("id", "") or "").strip()
+        commands = [str(item).strip() for item in payload.get("commands", []) if str(item).strip()] if isinstance(payload.get("commands"), list) else []
+        steps_completed = int(payload.get("steps_completed", 0) or 0)
+        steps_total = int(payload.get("steps_total", 0) or 0)
+        self._status_panel.append_syslog(summary)
+        self._advanced_view.append_log(summary)
+        self._set_daily_activity(summary)
+        self._record_windows_ops_state(
+            action,
+            summary,
+            changes,
+            ok=ok,
+            commands=commands,
+            event_id=event_id,
+            steps_completed=steps_completed,
+            steps_total=steps_total,
+            phase="completed",
+            next_step=str(guidance.get("next_step", "") or ""),
+            fix_target=str(guidance.get("fix_target", "") or ""),
+            docs_hint=str(guidance.get("docs_hint", "") or ""),
+            entry_point=str(guidance.get("entry_point", "") or ""),
+        )
+        self._log_launcher_event(
+            "windows_ops_completed",
+            action=action,
+            ok=ok,
+            steps_completed=steps_completed,
+            steps_total=steps_total,
+            summary=summary,
+            event_id=event_id,
+            next_step=str(guidance.get("next_step", "") or ""),
+            fix_target=str(guidance.get("fix_target", "") or ""),
+        )
 
     def _load_tool_states(self) -> None:
         path = self._tool_state_path()
@@ -1803,6 +2235,17 @@ class LauncherWindow(QMainWindow):
                 self._set_daily_activity(f"Recovery {action}: {summary}")
                 self._assistant_view.set_recovery_summary(f"{action}: {summary}", healthy=ok)
                 self._advanced_view.set_daily_context_recovery(self._assistant_view._recovery_summary.text(), ok=ok)
+                if self._update_windows_ops_chain(action, ok=ok, summary=summary):
+                    processed += 1
+                    continue
+                recovery_changes = {
+                    "health_snapshot": "Refreshed the launcher-visible health snapshot and operator evidence.",
+                    "warmup": "Refreshed startup-readiness and runtime-freshness evidence.",
+                    "restart_daemon": "Restarted the daemon and prepared the runtime for follow-up health checks.",
+                    "audit_runtime": "Re-ran runtime audit evidence and refreshed diagnostics guidance.",
+                }.get(action, "")
+                if recovery_changes:
+                    self._record_windows_ops_state(action, summary, recovery_changes, ok=ok)
             processed += 1
 
     def _on_tool_hint_requested(self, tool_key: str) -> None:
@@ -2386,53 +2829,180 @@ class LauncherWindow(QMainWindow):
         self._assistant_view.set_input_text(query)
 
     @staticmethod
-    def _windows_ops_recipe(action: str) -> tuple[str, list[str]]:
+    def _windows_ops_plan(action: str) -> dict[str, object]:
         target = (action or "").strip().lower()
         python_bin = ".venv\\Scripts\\python.exe"
         if target == "verify_runtime":
-            return (
-                "WINDOWS VERIFY",
-                [
+            return {
+                "label": "WINDOWS VERIFY",
+                "commands": [
+                    f"{python_bin} tools/verify_ollama_runtime.py --prompt ok",
+                    f"{python_bin} tools/verify_runtime_challengers.py",
+                    f"{python_bin} tools/verify_logging_health.py --emit-probe --require-fresh-core",
+                ],
+                "changes": "Refreshes local-runtime readiness, challenger availability, and logging-health evidence in one pass.",
+            }
+        if target == "update_runtime":
+            return {
+                "label": "WINDOWS UPDATE",
+                "commands": [
+                    f"{python_bin} -m pip install --upgrade pip setuptools wheel",
+                    f"{python_bin} -m pip install -r requirements.txt",
+                    f"{python_bin} -m pip install -r requirements-optional.txt",
+                    f"{python_bin} tools/validate_build_checks.py",
                     f"{python_bin} tools/verify_ollama_runtime.py --prompt ok",
                     f"{python_bin} tools/verify_runtime_challengers.py",
                 ],
-            )
-        if target == "update_runtime":
-            return (
-                "WINDOWS UPDATE",
-                [
-                    f"{python_bin} -m pip install -r requirements.txt",
-                    f"{python_bin} -m pip install -r requirements-optional.txt",
-                ],
-            )
-        return "", []
+                "changes": "Refreshes the launcher Python toolchain plus base and optional runtime dependencies, then runs post-update validation.",
+            }
+        if target == "restart_runtime":
+            return {
+                "label": "WINDOWS RESTART",
+                "commands": [],
+                "changes": "Restarts the daemon, then re-runs warmup and runtime audit checks automatically.",
+            }
+        if target == "repair_runtime":
+            return {
+                "label": "WINDOWS REPAIR",
+                "commands": [],
+                "changes": "Captures a health snapshot, refreshes startup state, and re-runs the runtime audit automatically.",
+            }
+        return {"label": "", "commands": [], "changes": ""}
+
+    @staticmethod
+    def _windows_ops_recipe(action: str) -> tuple[str, list[str]]:
+        plan = LauncherWindow._windows_ops_plan(action)
+        return str(plan.get("label", "") or ""), [str(item) for item in plan.get("commands", []) if str(item).strip()]
 
     def _on_windows_ops_requested(self, action: str) -> None:
         target = (action or "").strip().lower()
+        plan = self._windows_ops_plan(target)
+        label = str(plan.get("label", "") or "").strip()
+        changes = str(plan.get("changes", "") or "").strip()
         if target in {"verify_runtime", "update_runtime"}:
             label, commands = self._windows_ops_recipe(target)
             if not commands:
                 self._status_panel.append_syslog(f"windows ops unavailable: {action}")
                 return
-            queued = self._advanced_view.queue_terminal_recipe(commands, label=label)
+            guidance = self._windows_ops_guidance(target, ok=True, phase="queued")
+            queued = self._advanced_view.queue_terminal_recipe(
+                commands,
+                label=label,
+                recipe_context={
+                    "kind": "windows_ops",
+                    "action": target,
+                    "changes": changes,
+                    "pre_snapshot": self._collect_windows_service_snapshot(),
+                },
+            )
             if queued:
-                self._set_daily_activity(f"{label.title()} queued in App Mgmt terminal")
+                summary = f"{label.title()} queued in App Mgmt terminal"
+                self._set_daily_activity(summary)
                 self._status_panel.append_syslog(f"{label.lower()} queued")
-                self._log_launcher_event("windows_ops_action", action=target, queued=True, commands=len(commands))
+                self._record_windows_ops_state(
+                    target,
+                    summary,
+                    changes,
+                    ok=True,
+                    commands=commands,
+                    phase="queued",
+                    next_step=str(guidance.get("next_step", "") or ""),
+                    fix_target=str(guidance.get("fix_target", "") or ""),
+                    docs_hint=str(guidance.get("docs_hint", "") or ""),
+                    entry_point=str(guidance.get("entry_point", "") or ""),
+                )
+                self._log_launcher_event(
+                    "windows_ops_action",
+                    action=target,
+                    queued=True,
+                    commands=len(commands),
+                    next_step=str(guidance.get("next_step", "") or ""),
+                    fix_target=str(guidance.get("fix_target", "") or ""),
+                )
             else:
+                summary = f"{label.title()} failed to queue"
                 self._status_panel.append_syslog(f"{label.lower()} failed to queue")
-                self._log_launcher_event("windows_ops_action", action=target, queued=False, commands=len(commands))
+                failed_guidance = self._windows_ops_guidance(target, ok=False, phase="queue_failed")
+                self._record_windows_ops_state(
+                    target,
+                    summary,
+                    changes or "No update commands were queued.",
+                    ok=False,
+                    commands=commands,
+                    phase="queue_failed",
+                    next_step=str(failed_guidance.get("next_step", "") or ""),
+                    fix_target=str(failed_guidance.get("fix_target", "") or ""),
+                    docs_hint=str(failed_guidance.get("docs_hint", "") or ""),
+                    entry_point=str(failed_guidance.get("entry_point", "") or ""),
+                )
+                self._log_launcher_event(
+                    "windows_ops_action",
+                    action=target,
+                    queued=False,
+                    commands=len(commands),
+                    next_step=str(failed_guidance.get("next_step", "") or ""),
+                    fix_target=str(failed_guidance.get("fix_target", "") or ""),
+                )
             return
         if target == "restart_runtime":
+            summary = "Windows restart queued: restart daemon -> warmup -> audit"
             self._status_panel.append_syslog("windows restart requested")
-            self._log_launcher_event("windows_ops_action", action=target, queued=True)
+            self._set_daily_activity(summary)
+            self._start_windows_ops_chain(target)
+            guidance = self._windows_ops_guidance(target, ok=True, phase="queued")
+            self._record_windows_ops_state(
+                target,
+                summary,
+                changes,
+                ok=True,
+                steps_completed=0,
+                steps_total=len(self._windows_ops_chain_steps(target)),
+                phase="queued",
+                next_step=str(guidance.get("next_step", "") or ""),
+                fix_target=str(guidance.get("fix_target", "") or ""),
+                docs_hint=str(guidance.get("docs_hint", "") or ""),
+                entry_point=str(guidance.get("entry_point", "") or ""),
+            )
+            self._log_launcher_event(
+                "windows_ops_action",
+                action=target,
+                queued=True,
+                next_step=str(guidance.get("next_step", "") or ""),
+                fix_target=str(guidance.get("fix_target", "") or ""),
+            )
             self._on_recovery_requested("restart_daemon")
+            QTimer.singleShot(650, lambda: self._on_recovery_requested("warmup"))
+            QTimer.singleShot(1400, lambda: self._on_recovery_requested("audit_runtime"))
             return
         if target == "repair_runtime":
+            summary = "Windows repair queued: snapshot -> warmup -> audit"
             self._status_panel.append_syslog("windows repair requested")
-            self._log_launcher_event("windows_ops_action", action=target, queued=True)
-            self._on_recovery_requested("warmup")
-            QTimer.singleShot(250, lambda: self._on_recovery_requested("audit_runtime"))
+            self._set_daily_activity(summary)
+            self._start_windows_ops_chain(target)
+            guidance = self._windows_ops_guidance(target, ok=True, phase="queued")
+            self._record_windows_ops_state(
+                target,
+                summary,
+                changes,
+                ok=True,
+                steps_completed=0,
+                steps_total=len(self._windows_ops_chain_steps(target)),
+                phase="queued",
+                next_step=str(guidance.get("next_step", "") or ""),
+                fix_target=str(guidance.get("fix_target", "") or ""),
+                docs_hint=str(guidance.get("docs_hint", "") or ""),
+                entry_point=str(guidance.get("entry_point", "") or ""),
+            )
+            self._log_launcher_event(
+                "windows_ops_action",
+                action=target,
+                queued=True,
+                next_step=str(guidance.get("next_step", "") or ""),
+                fix_target=str(guidance.get("fix_target", "") or ""),
+            )
+            self._on_recovery_requested("health_snapshot")
+            QTimer.singleShot(250, lambda: self._on_recovery_requested("warmup"))
+            QTimer.singleShot(1000, lambda: self._on_recovery_requested("audit_runtime"))
             return
         self._status_panel.append_syslog(f"windows ops unavailable: {action}")
 

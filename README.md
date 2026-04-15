@@ -44,6 +44,9 @@ Archived historical docs now live under `docs/archive/`, split between `root-his
   - `settings_view.py` remains in-tree but is currently attached inside App Mgmt rather than exposed as a standalone nav tab
   - `launcher_window.py` as the shell that composes sidebar, top bar, stacked views, and right status panel
 - Launcher bootstrap starts `guppy_api.py` and `guppy_hub.py` asynchronously when needed so the UI does not block on service startup.
+- The API and router surfaces were both split behind their public modules so the repo now stays under the changed-file line-cap guard without changing the public import paths:
+  - `src/guppy/api/server.py` remains the canonical API module and now assembles its surface from `_server_fragment_*.py`
+  - `src/guppy/inference/router.py` remains the canonical routing module and now delegates to smaller fragment modules
 - Standalone Merlin/Council desktop surfaces are no longer part of the recommended daily path; compatibility material remains in `legacy_surfaces/` and behind explicit legacy launch gating.
 - The canonical CLI currently exposes `guppy`, `launcher`, `guppyprime`, `hub`, and `api`.
 
@@ -120,12 +123,18 @@ Behavior wired in launcher shell:
 - Guard checks passing today:
   - `python tools/check_architecture_boundaries.py`
   - `python tools/check_wrapper_integrity.py`
+  - `python tools/check_core_surface_integrity.py`
   - `python tools/check_doc_ownership.py`
+  - `python tools/validate_build_checks.py`
 - Runtime verification passing today:
   - `.venv\\Scripts\\python.exe tools/verify_ollama_runtime.py --prompt ok`
   - `.venv\\Scripts\\python.exe tools/verify_runtime_challengers.py`
 - Structural guard passing today:
   - `python tools/check_new_module_line_cap.py`
+- Pilot exit gate passing today:
+  - `python tools/pilot_exit_check.py --allow-limited-go --python .venv\\Scripts\\python.exe`
+- Core surface note:
+  - `guppy_core/` is the canonical shared backend surface; the old root `guppy_core.py` shim has been deliberately retired.
 
 ### Current Snapshot
 
@@ -144,8 +153,8 @@ Historical deep status narratives are intentionally archived to avoid duplicated
 - Smart dispatcher (Phases 1-3): Task classification → Haiku-first routing with fallback chain
 - **Phase 4 voice fast-path**: Wake-word → Haiku-first always (`voice_triggered` flag), <2s latency target
 - **Phase 5 response cache**: TTL-based module-level cache for simple/tool-free queries; cache hits skip API entirely
-- Local + Claude routing: `guppy_core/`, `src/guppy/inference/router.py` (root shim: `inference_router.py`)
-- FastAPI remote surface: `src/guppy/api/server.py`, `src/guppy/api/auth.py` (root shims: `guppy_api.py`, `guppy_api_auth.py`) — strict mode active, public endpoint live at `guppy.sparkscuriositystudio.com`
+- Local + Claude routing: `guppy_core/`, `src/guppy/inference/router.py` plus its router fragments (root shim: `inference_router.py`)
+- FastAPI remote surface: `src/guppy/api/server.py` plus `_server_fragment_*.py`, with auth helpers in `src/guppy/api/auth.py` (root shims: `guppy_api.py`, `guppy_api_auth.py`) — strict mode active, public endpoint live at `guppy.sparkscuriositystudio.com`
 - Supervisor-first API lifecycle: app-managed daemon startup/shutdown is disabled by default; external supervisor is preferred on Windows
 - Web client alpha: `web/index.html`, `web/turnstile.js` — Cloudflare Turnstile wired with real site key
 - API smoke testing: `tests/smoke/smoke_api.py`
@@ -161,8 +170,9 @@ Historical deep status narratives are intentionally archived to avoid duplicated
 - Scheduled news briefs: `src/guppy/daemon/daemon.py` also generates world-news reports at `12:00`, `18:00`, and `22:00` (saved as `runtime/daily_reports/YYYY-MM-DD-news-HH00.md`)
 - Local LLM benchmarking lane: manifest-backed verification, harness output, review packets, and runtime-challenger snapshots under `config/local_llm/`, `src/guppy/local_llm/`, `tools/local_llm_*`, and `runtime/local_llm_benchmarks/`
 - Workspace governance v2: `config/tool_permissions.json` plus the Workspaces editor now support per-workspace auth mode, tool allow/block lists, endpoint filters, operator notes, and live editing instead of config-file-only changes
-- Connector auth/policy telemetry: Agent Tools now distinguishes connector auth readiness, endpoint-scope denial, and workspace-policy denial so blocked actions explain why they were stopped
-- Windows ops surface: App Mgmt now carries a dedicated Windows install/update/diagnostics panel plus one-click verify, update, restart, and repair actions
+- Connector governance v1: shared machine-level connector auth now sits behind a normalized connector-management layer with inventory/action endpoints, Workspaces connector bindings persisted in `config/connector_bindings.json`, and per-workspace action/account/provider/endpoint policy on top of the coarse capability system
+- Connector operator flow: Workspaces now owns per-workspace connector binding and policy editing, App Mgmt owns machine-level `verify`, `connect`, `reconnect`, `disconnect`, and secret-management flows, and Agent Tools cards explain whether a connector stop came from workspace binding, action policy, account/provider mismatch, host auth readiness, or endpoint scope
+- Windows ops surface: App Mgmt now carries a dedicated Windows install/update/diagnostics panel plus one-click verify, update, restart, and repair actions backed by the embedded terminal and guarded recovery paths
 - **Phase 11 ambient banner**: `AmbientBanner` widget in `guppy_ui.py` — non-intrusive offer bar between chat and input; shows Haiku's suggested action; "Ask Guppy" pre-fills input; auto-dismisses 30s
 - 77 tools registered in `guppy_core/tool_registry.py` including `run_python`, `notify`, `web_summarize`, `github`, `semantic_remember/recall`, Gmail, Spotify, calendar, and more
 - Revenue dashboard route plus CRM/VoIP scaffolding: `src/guppy/api/server.py`, `src/guppy/integrations/crm_voip.py`
@@ -176,8 +186,8 @@ Historical deep status narratives are intentionally archived to avoid duplicated
 - Historical specialist material remains under `legacy_surfaces/` and archive docs, but the supported product path is the unified launcher plus background instances.
 - **Vault agent schema**: `vault-scraper` Modelfile has base schema; production use needs a per-media-type schema registry and dedup logic.
 - **CI quality gates**: Workflow added at `.github/workflows/quality-gates.yml` to run schema audit and core smoke/workflow tests on push/PR.
-- **Professional governance depth**: editable workspace auth modes, allow/block lists, endpoint filters, connector auth-state reasons, and clearer launcher policy reasons are now live, but deeper credential provisioning, connector-specific scope editors, and admin workflows still need hardening.
-- **Windows ops depth**: App Mgmt now makes install/runtime/data-path/repair state legible and actionable, but broader installer/update automation and richer repair orchestration still need hardening.
+- **Professional governance depth**: editable workspace auth modes, allow/block lists, endpoint filters, connector bindings, machine-level connector inventory/actions, and connector-specific policy reasons are now live. Remaining work is deeper credential lifecycle polish, richer provider/account UX, and broader admin workflows.
+- **Windows ops depth**: App Mgmt now makes install/runtime/data-path/repair state legible and actionable with launcher-visible commands. Remaining work is broader installer/update automation, richer repair choreography, and longer-haul servicing polish.
 - Packaging: one-folder distribution is now the default path for pilot builds; one-file packaging remains optional.
 - `web_summarize` tool uses HTTP+Haiku fallback until `FIRECRAWL_API_KEY` is set.
 - Async FastAPI handlers wrap sync inference via `run_in_executor` — acceptable at butler scale, but concurrent API requests will queue against the thread pool.
@@ -326,9 +336,9 @@ VS Code tasks in this workspace also cover the main launch flows.
 
 ### Runtime Truth Sources
 
-- API behavior and readiness: `src/guppy/api/server.py` (wrapper: `guppy_api.py`)
+- API behavior and readiness: `src/guppy/api/server.py` plus `_server_fragment_*.py` (wrapper: `guppy_api.py`)
 - Auth behavior: `src/guppy/api/auth.py` (wrapper: `guppy_api_auth.py`)
-- Routing behavior: `src/guppy/inference/router.py` (wrapper: `inference_router.py`)
+- Routing behavior: `src/guppy/inference/router.py` plus router fragments (wrapper: `inference_router.py`)
 - Tool surface: `guppy_core/tool_registry.py`, `guppy_core/tool_runner.py`
 - Current active work and handoff notes: `ROADMAP.md`
 
@@ -387,6 +397,8 @@ The remote/API layer already exists and should be treated as alpha, not planned 
 - Base URL: `http://127.0.0.1:8081`
 - Auth: `POST /auth/verify`
 - Health and readiness: `GET /status`, `GET /startup/check`, `GET /logs/recent`
+- Workspace management: `GET /instances`, `POST /instances`, `POST /instances/{name}/activate`, `POST /instances/{name}/governance`, `GET /instances/{name}/logs`, `POST /instances/{name}/query`
+- Connector management: `GET /connectors`, `POST /connectors/{id}/verify|connect|reconnect|disconnect`, `GET /instances/{name}/connectors`, `POST /instances/{name}/connectors/{connector}`
 - Chat: `POST /chat`, `POST /chat/voice`, `WebSocket /ws`
 - Business reporting: `GET /revenue/dashboard`
 

@@ -274,6 +274,10 @@ class RuntimeSmokeTests(unittest.TestCase):
             verify_resp = client.post("/connectors/gmail/verify", json={"account_id": "main"})
             self.assertEqual(verify_resp.status_code, 200)
             self.assertEqual(verify_resp.json().get("connector"), "gmail")
+            self.assertTrue(verify_resp.json().get("event_id"))
+            self.assertIn("result_code", verify_resp.json())
+            self.assertIn("next_step", verify_resp.json())
+            self.assertIn("timeline", verify_resp.json().get("history", {}))
 
             binding_resp = client.post(
                 "/instances/builder-collab/connectors/gmail",

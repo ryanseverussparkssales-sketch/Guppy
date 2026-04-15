@@ -283,6 +283,15 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                             "id": "gmail",
                             "auth_state": "ready",
                             "source": "token_cache",
+                            "history": {
+                                "last_action": "verify",
+                                "last_action_at": "2026-04-15T10:00:00+00:00",
+                                "last_result": "Gmail verify passed.",
+                            },
+                            "binding_validation": {
+                                "state": "ready",
+                                "message": "Workspace binding matches the current machine inventory.",
+                            },
                             "binding": {
                                 "enabled": True,
                                 "account_id": "main",
@@ -298,6 +307,13 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                             "id": "calendar",
                             "auth_state": "ready",
                             "source": "token_cache",
+                            "accounts": [
+                                {
+                                    "id": "primary",
+                                    "label": "Primary calendar",
+                                    "auth_state": "ready",
+                                }
+                            ],
                             "binding": {
                                 "enabled": True,
                                 "account_id": "main",
@@ -335,6 +351,23 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                             "id": "gmail",
                             "auth_state": "ready",
                             "source": "token_cache",
+                            "accounts": [
+                                {
+                                    "id": "sales",
+                                    "label": "sales@company.com",
+                                    "auth_state": "ready",
+                                    "auth_detail": "Cached browser token is present for Gmail account sales.",
+                                }
+                            ],
+                            "history": {
+                                "last_action": "verify",
+                                "last_action_at": "2026-04-15T11:30:00+00:00",
+                                "last_result": "Gmail account sales verified.",
+                            },
+                            "binding_validation": {
+                                "state": "ready",
+                                "message": "Workspace binding matches the current machine inventory.",
+                            },
                             "binding": {
                                 "enabled": True,
                                 "account_id": "sales",
@@ -350,6 +383,23 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                             "id": "crm",
                             "auth_state": "missing",
                             "source": "keyring",
+                            "providers": [
+                                {
+                                    "id": "hubspot",
+                                    "label": "HubSpot",
+                                    "auth_state": "missing",
+                                    "auth_detail": "HubSpot still needs HUBSPOT_API_KEY.",
+                                }
+                            ],
+                            "history": {
+                                "last_action": "verify",
+                                "last_action_at": "2026-04-15T11:45:00+00:00",
+                                "last_result": "CRM verify: missing credentials.",
+                            },
+                            "binding_validation": {
+                                "state": "unbound",
+                                "message": "Workspace is not bound to this connector yet.",
+                            },
                             "binding": {
                                 "enabled": False,
                                 "account_id": "",
@@ -392,11 +442,13 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         view._connector_workspace.setCurrentText("builder-collab")
         view._connector_id.setCurrentText("gmail")
         self.assertTrue(view._connector_enabled.isChecked())
-        self.assertEqual(view._connector_account.text(), "sales")
+        self.assertEqual(view._connector_account.currentData(), "sales")
         self.assertIn("compose", view._connector_action_allow.toPlainText())
         self.assertIn("cleanup", view._connector_action_block.toPlainText())
         self.assertIn("connector://gmail", view._connector_endpoint_allow.toPlainText())
         self.assertIn("Builder can draft from sales", view._connector_note.text())
+        self.assertIn("matches the current machine inventory", view._connector_validation.text())
+        self.assertIn("last verify", view._connector_history.text().lower())
 
         view.set_logs("builder-collab", [])
         self.assertIn("No recent conversation or ops activity yet for workspace builder-collab", view._logs.toPlainText())
@@ -479,9 +531,51 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                     "auth_detail": "HubSpot key is stored, but verify has not succeeded yet.",
                     "source": "keyring",
                     "accounts": [],
-                    "providers": [{"id": "hubspot", "label": "HubSpot"}],
+                    "providers": [
+                        {
+                            "id": "hubspot",
+                            "label": "HubSpot",
+                            "auth_state": "partial",
+                            "auth_detail": "HubSpot still needs verify confirmation.",
+                            "required_fields": ["CRM_API_KEY"],
+                            "field_details": [
+                                {
+                                    "key": "CRM_API_KEY",
+                                    "label": "API Key",
+                                    "placeholder": "crm-api-key",
+                                    "validation_hint": "Use the provider API key value.",
+                                    "masked": True,
+                                    "present": False,
+                                    "missing": True,
+                                    "step": 1,
+                                    "total_steps": 1,
+                                }
+                            ],
+                            "setup_summary": "Step 1/1: add API Key.",
+                            "next_field": {
+                                "key": "CRM_API_KEY",
+                                "label": "API Key",
+                                "placeholder": "crm-api-key",
+                                "validation_hint": "Use the provider API key value.",
+                                "masked": True,
+                                "step": 1,
+                                "total_steps": 1,
+                            },
+                            "scope_label": "contacts + opportunities",
+                        }
+                    ],
                     "actions_supported": ["verify", "connect", "disconnect"],
                     "secret_fields": ["CRM_API_KEY"],
+                    "scope_telemetry": {
+                        "summary": "CRM bindings can pin a provider and narrow contact/opportunity actions.",
+                        "endpoint_prefixes": ["connector://crm/hubspot", "connector://crm/hubspot/contacts"],
+                    },
+                    "history": {
+                        "last_action": "verify",
+                        "last_action_at": "2026-04-15T12:00:00+00:00",
+                        "last_result": "CRM verify: partial",
+                        "last_event_id": "crm-verify-12345",
+                    },
                 }
             ]
         )
@@ -490,7 +584,13 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Auth kind: api_key", view._connector_state_lbl.text())
         self.assertIn("PARTIAL", view._connector_auth_lbl.text())
         self.assertIn("KEYRING", view._connector_auth_lbl.text())
-        self.assertIn("CRM_API_KEY", view._connector_secret_lbl.text())
+        self.assertIn("API Key", view._connector_secret_lbl.text())
+        self.assertIn("HubSpot still needs verify confirmation", view._connector_validation_lbl.text())
+        self.assertIn("connector://crm/hubspot", view._connector_scope_lbl.text())
+        self.assertIn("last verify", view._connector_history_lbl.text().lower())
+        self.assertIn("Recent attempts:", view._connector_recent_lbl.text())
+        self.assertIn("Ref:", view._connector_history_lbl.text())
+        self.assertIn("Guided setup:", view._connector_setup_lbl.text())
 
         view._connector_provider.setCurrentIndex(1)
         view._connector_secret_key.setCurrentIndex(1)
@@ -504,6 +604,65 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertEqual(emitted[0]["secret_key"], "CRM_API_KEY")
         self.assertEqual(emitted[0]["secret_value"], "test-secret")
         self.assertEqual(emitted[1]["action"], "disconnect")
+
+    def test_app_management_connector_blocks_secret_save_without_value(self):
+        view = AdvancedView()
+        emitted: list[dict[str, str]] = []
+        view.connector_action_requested.connect(emitted.append)
+        view.set_connector_inventory(
+            [
+                {
+                    "id": "crm",
+                    "auth_kind": "provider_secret",
+                    "auth_state": "missing",
+                    "auth_detail": "Salesforce still needs provider secrets.",
+                    "source": "none",
+                    "providers": [
+                        {
+                            "id": "salesforce",
+                            "label": "Salesforce",
+                            "auth_state": "missing",
+                            "auth_detail": "Salesforce still needs access token and org URL.",
+                            "required_fields": ["SALESFORCE_ACCESS_TOKEN", "SALESFORCE_INSTANCE_URL"],
+                            "field_details": [
+                                {
+                                    "key": "SALESFORCE_ACCESS_TOKEN",
+                                    "label": "Access Token",
+                                    "placeholder": "00D...!....",
+                                    "validation_hint": "Use the access token string, not a URL.",
+                                    "masked": True,
+                                    "present": False,
+                                    "missing": True,
+                                    "step": 1,
+                                    "total_steps": 2,
+                                }
+                            ],
+                            "setup_summary": "Step 1/2: add Access Token.",
+                            "next_field": {
+                                "key": "SALESFORCE_ACCESS_TOKEN",
+                                "label": "Access Token",
+                                "validation_hint": "Use the access token string, not a URL.",
+                            },
+                            "next_step": "App Mgmt: save Access Token for Salesforce, then run Verify.",
+                            "fix_target": "App Mgmt > Connector Inventory",
+                        }
+                    ],
+                    "accounts": [],
+                    "actions_supported": ["verify", "connect", "disconnect"],
+                    "secret_fields": ["SALESFORCE_ACCESS_TOKEN", "SALESFORCE_INSTANCE_URL"],
+                    "next_step": "App Mgmt: save Access Token for Salesforce, then run Verify.",
+                    "fix_target": "App Mgmt > Connector Inventory",
+                    "history": {"timeline": [], "recent_events": []},
+                }
+            ]
+        )
+
+        view._connector_provider.setCurrentIndex(1)
+        view._connector_secret_key.setCurrentIndex(1)
+        view._emit_connector_action("save_secret")
+
+        self.assertFalse(emitted)
+        self.assertIn("blocked", view._syslog.toPlainText().lower())
 
     def test_voices_view_surfaces_persistent_readiness_evidence(self):
         view = VoicesView()
@@ -584,6 +743,23 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         finally:
             models_view_module.ModelsView._refresh = old_refresh
 
+    def test_app_management_windows_ops_feedback_surfaces_fix_guidance(self):
+        view = AdvancedView()
+        view.set_windows_ops_feedback(
+            "update_runtime",
+            "WINDOWS UPDATE completed | Ref: recipe-1",
+            "Refreshes runtime dependencies.",
+            ok=True,
+            next_step="Package a new desktop build after update verification.",
+            fix_target="build_executable.bat",
+            docs_hint="docs/PACKAGING.md",
+            entry_point="build_executable.bat --no-clean",
+        )
+
+        self.assertIn("build_executable.bat", view._windows_next_lbl.text())
+        self.assertIn("docs/PACKAGING.md", view._windows_next_lbl.text())
+        self.assertIn("Ref: recipe-1", view._windows_service_lbl.text())
+
     def test_app_management_terminal_accepts_focus_and_output_append(self):
         view = AdvancedView()
         view.focus_terminal("terminal opened")
@@ -613,6 +789,141 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertTrue(any("verify_ollama_runtime.py --prompt ok" in cmd for cmd in verify_commands))
         self.assertEqual(update_label, "WINDOWS UPDATE")
         self.assertTrue(any("pip install -r requirements.txt" in cmd for cmd in update_commands))
+        self.assertTrue(any("validate_build_checks.py" in cmd for cmd in update_commands))
+        self.assertTrue(any("verify_runtime_challengers.py" in cmd for cmd in update_commands))
+
+    def test_launcher_windows_service_snapshot_changes_report_artifact_refresh(self):
+        before = {
+            "pip_version": "pip 24.0 from before",
+            "python_version": "Python 3.12.0",
+            "challenger_snapshot": {"path": "runtime/runtime_challenger_snapshot.json", "exists": True, "mtime": "2026-04-15T10:00:00+00:00", "size": 100},
+            "diagnostics_bundle": {"path": "runtime/diagnostics_1.json", "exists": True, "mtime": "2026-04-15T10:00:00+00:00", "size": 100},
+            "pilot_exit_report": {"path": "runtime/pilot_exit_report.json", "exists": True, "mtime": "2026-04-15T10:00:00+00:00", "size": 100},
+        }
+        after = {
+            "pip_version": "pip 25.0 from after",
+            "python_version": "Python 3.12.0",
+            "challenger_snapshot": {"path": "runtime/runtime_challenger_snapshot.json", "exists": True, "mtime": "2026-04-15T11:00:00+00:00", "size": 120},
+            "diagnostics_bundle": {"path": "runtime/diagnostics_2.json", "exists": True, "mtime": "2026-04-15T11:00:00+00:00", "size": 140},
+            "pilot_exit_report": {"path": "runtime/pilot_exit_report.json", "exists": True, "mtime": "2026-04-15T10:00:00+00:00", "size": 100},
+        }
+
+        summary = launcher_window.LauncherWindow._windows_service_snapshot_changes(before, after)
+
+        self.assertIn("pip changed", summary)
+        self.assertIn("challenger snapshot refreshed", summary)
+        self.assertIn("diagnostics bundle refreshed", summary)
+
+    def test_launcher_windows_ops_guidance_points_update_failures_at_packaging_fix_path(self):
+        guidance = launcher_window.LauncherWindow._windows_ops_guidance("update_runtime", ok=False, phase="completed")
+
+        self.assertIn("requirements.txt", guidance["fix_target"])
+        self.assertEqual(guidance["docs_hint"], "docs/PACKAGING.md")
+        self.assertIn("build_executable.bat", guidance["entry_point"])
+
+    def test_app_management_terminal_recipe_markers_emit_servicing_payload(self):
+        view = AdvancedView()
+        emitted: list[dict[str, object]] = []
+        view.terminal_recipe_finished.connect(emitted.append)
+
+        recipe_id, _wrapped = view._build_tracked_recipe_commands(
+            ["python tools/verify_ollama_runtime.py --prompt ok", "python tools/verify_runtime_challengers.py"],
+            label="WINDOWS VERIFY",
+            recipe_context={"kind": "windows_ops", "action": "verify_runtime", "changes": "Refreshes readiness evidence."},
+        )
+
+        self.assertTrue(view._handle_terminal_recipe_marker(f"__GUPPY_RECIPE__|start|{recipe_id}|2|WINDOWS VERIFY"))
+        self.assertTrue(view._handle_terminal_recipe_marker(f"__GUPPY_RECIPE__|step|{recipe_id}|1|0"))
+        self.assertTrue(view._handle_terminal_recipe_marker(f"__GUPPY_RECIPE__|step|{recipe_id}|2|1"))
+        self.assertTrue(view._handle_terminal_recipe_marker(f"__GUPPY_RECIPE__|end|{recipe_id}|1"))
+
+        self.assertTrue(emitted)
+        payload = emitted[-1]
+        self.assertEqual(payload["action"], "verify_runtime")
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["steps_total"], 2)
+        self.assertEqual(payload["steps_completed"], 2)
+        self.assertTrue(payload["failed_steps"])
+
+    def test_launcher_windows_ops_completion_persists_structured_state(self):
+        class _AdvancedStub:
+            def __init__(self) -> None:
+                self.feedback: list[tuple[str, str, str, bool]] = []
+                self.logs: list[str] = []
+
+            def set_windows_ops_feedback(
+                self,
+                action: str,
+                summary: str,
+                changes: str,
+                ok: bool = True,
+                **_kwargs,
+            ) -> None:
+                self.feedback.append((action, summary, changes, ok))
+
+            def append_log(self, text: str) -> None:
+                self.logs.append(text)
+
+        class _LauncherStub:
+            def __init__(self, runtime_dir: Path) -> None:
+                self._status_panel = _DummyStatusPanel()
+                self._advanced_view = _AdvancedStub()
+                self._daily: list[str] = []
+                self.logged: list[tuple[str, dict[str, object]]] = []
+                self._runtime_dir = runtime_dir
+
+            def _windows_ops_state_path(self) -> Path:
+                return self._runtime_dir / "windows_ops_state.json"
+
+            def _set_daily_activity(self, text: str) -> None:
+                self._daily.append(text)
+
+            def _log_launcher_event(self, event: str, **fields: object) -> None:
+                self.logged.append((event, fields))
+
+        with tempfile.TemporaryDirectory() as td:
+            runtime_dir = Path(td)
+            stub = _LauncherStub(runtime_dir)
+            stub._summarize_windows_recipe_result = launcher_window.LauncherWindow._summarize_windows_recipe_result
+            stub._collect_windows_service_snapshot = staticmethod(lambda: {"pip_version": "after"})
+            stub._windows_service_snapshot_changes = staticmethod(lambda before, after: "pip changed during servicing")
+            stub._windows_ops_guidance = staticmethod(
+                lambda action, ok, phase="completed": {
+                    "next_step": f"{action} guidance {phase} {'ok' if ok else 'fail'}",
+                    "fix_target": "App Mgmt > Windows Ops",
+                    "docs_hint": "docs/TROUBLESHOOTING.md",
+                    "entry_point": "python src/guppy/cli/launch.py launcher",
+                }
+            )
+            stub._record_windows_ops_state = launcher_window.LauncherWindow._record_windows_ops_state.__get__(stub, _LauncherStub)
+            stub._on_terminal_recipe_finished = launcher_window.LauncherWindow._on_terminal_recipe_finished.__get__(stub, _LauncherStub)
+
+            stub._on_terminal_recipe_finished(
+                {
+                    "kind": "windows_ops",
+                    "action": "verify_runtime",
+                    "label": "WINDOWS VERIFY",
+                    "ok": True,
+                    "id": "recipe-abc123",
+                    "commands": ["python tools/verify_ollama_runtime.py --prompt ok"],
+                    "steps_completed": 1,
+                    "steps_total": 1,
+                    "failed_steps": [],
+                    "changes": "Refreshes readiness evidence.",
+                    "pre_snapshot": {"pip_version": "before"},
+                }
+            )
+
+            payload = __import__("json").loads((runtime_dir / "windows_ops_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["action"], "verify_runtime")
+            self.assertEqual(payload["event_id"], "recipe-abc123")
+            self.assertEqual(payload["steps_completed"], 1)
+            self.assertEqual(payload["steps_total"], 1)
+            self.assertEqual(payload["phase"], "completed")
+            self.assertIn("pip changed during servicing", payload["changes"])
+            self.assertTrue(payload["next_step"])
+            self.assertTrue(payload["fix_target"])
+            self.assertTrue(any(event == "windows_ops_completed" for event, _fields in stub.logged))
 
     def test_settings_view_persists_persona_builder_config(self):
         old_settings_path = runtime_profile.SETTINGS_PATH

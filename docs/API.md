@@ -1,6 +1,7 @@
 # API Reference
 
-Canonical implementation lives in `src/guppy/api/server.py` with auth helpers in `src/guppy/api/auth.py`.
+Canonical implementation lives in `src/guppy/api/server.py`, which now assembles the public FastAPI surface from `_server_fragment_*.py`.
+Auth helpers live in `src/guppy/api/auth.py`.
 Root files `guppy_api.py` and `guppy_api_auth.py` are compatibility shims.
 
 ## Base URL
@@ -51,7 +52,7 @@ Root files `guppy_api.py` and `guppy_api_auth.py` are compatibility shims.
 ### `GET /instances`
 
 - Header: `Authorization: Bearer <jwt>`
-- Returns configured workspaces/instances, active instance, limits, normalization warnings, and per-workspace `governance` summaries
+- Returns configured workspaces/instances, active instance, limits, normalization warnings, per-workspace `governance` summaries, and per-workspace connector summaries under `connectors`
 - Each `governance` summary now includes:
   - `auth_mode`
   - `auth_mode_label`
@@ -61,6 +62,17 @@ Root files `guppy_api.py` and `guppy_api_auth.py` are compatibility shims.
   - `endpoint_block`
   - `policy_note`
   - `capabilities` (`read`, `write`, `execute`, `network`)
+- Each connector summary now includes:
+  - `id`
+  - `category`
+  - `auth_kind`
+  - `auth_state`
+  - `auth_detail`
+  - `source`
+  - `accounts`
+  - `providers`
+  - `actions_supported`
+  - `binding`
 
 ### `POST /instances`
 
@@ -92,6 +104,25 @@ Root files `guppy_api.py` and `guppy_api_auth.py` are compatibility shims.
   - `policy_note` (optional string)
 - Saves workspace governance policy and returns the normalized `governance` payload now active for that workspace
 
+### `GET /instances/{name}/connectors`
+
+- Header: `Authorization: Bearer <jwt>`
+- Returns the connector summary rows for the named workspace, including machine-level auth state plus the workspace binding payload currently in effect
+
+### `POST /instances/{name}/connectors/{connector}`
+
+- Header: `Authorization: Bearer <jwt>`
+- Body:
+  - `enabled` (optional bool)
+  - `account_id` (optional string)
+  - `provider` (optional string)
+  - `action_allow` (optional list of connector action ids)
+  - `action_block` (optional list of connector action ids)
+  - `endpoint_allow` (optional list of connector endpoint filters)
+  - `endpoint_block` (optional list of connector endpoint filters)
+  - `note` (optional string)
+- Saves the workspace connector binding in `config/connector_bindings.json` and returns the updated workspace connector rows
+
 ### `DELETE /instances/{name}`
 
 - Header: `Authorization: Bearer <jwt>`
@@ -114,6 +145,98 @@ Root files `guppy_api.py` and `guppy_api_auth.py` are compatibility shims.
 - Runs a bounded cross-instance query and can return `busy`, `timeout`, or a completed response
 - The same endpoint-aware workspace governance used by launcher tools is enforced here before the bridge runs
 
+## Connectors
+
+Connector auth remains machine-level. Workspace-specific connector access is layered on top through workspace bindings and the coarse workspace governance policy.
+
+### `GET /connectors`
+
+- Header: `Authorization: Bearer <jwt>`
+- Returns the machine-level connector inventory across the currently shipped connector families:
+  - `gmail`
+  - `calendar`
+  - `spotify`
+  - `youtube`
+  - `crm`
+  - `voip`
+- Each connector row includes:
+  - `id`
+  - `category`
+  - `auth_kind`
+  - `auth_state`
+  - `auth_detail`
+  - `source` (`env`, `keyring`, `file`, `token_cache`, `mixed`, or `none`)
+  - `accounts`
+  - `providers`
+  - `actions_supported`
+  - `secret_fields`
+  - `history`
+- Provider-backed connectors now also expose guided setup metadata under each provider row:
+  - `field_details` with per-field labels, placeholders, validation hints, masking guidance, and presence state
+  - `setup_state`
+  - `setup_summary`
+  - `next_field`
+  - `verify_check_summary`
+  - `next_step`
+  - `fix_target`
+- `history` now includes queryable action references:
+  - `last_event_id`
+  - `last_verify_event_id`
+  - `last_action_record`
+  - `last_verify_record`
+  - `recent_events`
+  - `timeline`
+  - `recent_summary`
+
+### `POST /connectors/{id}/verify`
+
+- Header: `Authorization: Bearer <jwt>`
+- Optional body:
+  - `provider`
+  - `account_id`
+- Runs a non-destructive readiness check and returns the refreshed connector status
+- Response includes:
+  - `ok`
+  - `summary`
+  - `status`
+  - `history`
+  - `event_id`
+  - `result_code`
+  - `next_step`
+  - `fix_target`
+- `history.last_action_record.event_id` is the stable operator-facing reference for the verify attempt and matches the integration telemetry event payload.
+
+### `POST /connectors/{id}/connect`
+
+- Header: `Authorization: Bearer <jwt>`
+- Optional body:
+  - `provider`
+  - `account_id`
+  - `secret_key`
+  - `secret_value`
+- Starts or updates machine-level connector auth. For API-key style connectors this can also persist a secret through the OS keyring-backed secret store when available.
+- For provider-secret connectors with multiple required fields, the connector inventory exposes the next required field and validation guidance so the launcher can step operators through setup one field at a time.
+- Response includes `history.last_action_record.event_id` plus refreshed provider readiness, including remaining missing fields when setup is still incomplete.
+- The same response also returns `result_code`, `next_step`, and `fix_target` so operator surfaces can point directly at the next repair action.
+
+### `POST /connectors/{id}/reconnect`
+
+- Header: `Authorization: Bearer <jwt>`
+- Optional body:
+  - `provider`
+  - `account_id`
+- Re-runs the connect path for connectors that support reconnect semantics, primarily OAuth/file-backed flows
+
+### `POST /connectors/{id}/disconnect`
+
+- Header: `Authorization: Bearer <jwt>`
+- Optional body:
+  - `provider`
+  - `account_id`
+  - `secret_key`
+- Clears or detaches machine-level connector auth state where supported
+- Responses include the refreshed `history` payload and stable action reference ids in the last-action record.
+
 ## Logs and Telemetry
 
 ### `GET /logs/recent`
@@ -131,6 +254,25 @@ Root files `guppy_api.py` and `guppy_api_auth.py` are compatibility shims.
   - `since_minutes` (optional, default `1440`)
   - `limit` (optional, default `200`, max `1000`)
   - `backend` (optional): `auto` (default), `sqlite`, `jsonl`
+- Integration connector actions are queryable here with:
+  - `stream=integration_events`
+  - `event=connector.verify | connector.connect | connector.reconnect | connector.disconnect | connector.policy_denied | connector.auth_state_changed | workspace.connector_binding_saved`
+- Connector action payloads now include:
+  - `event_id`
+  - `connector`
+  - `action`
+  - `provider`
+  - `account_id`
+  - `secret_key` (field name only, never the secret value)
+  - `auth_state`
+  - `ok`
+  - `summary`
+  - `result_code`
+  - `next_step`
+  - `fix_target`
+  - `provider_auth_state`
+  - `verify_check_summary`
+- JSONL fallback and SQLite-backed telemetry both normalize integration events so the same filters work in either backend mode.
 
 ### `GET /telemetry/report`
 

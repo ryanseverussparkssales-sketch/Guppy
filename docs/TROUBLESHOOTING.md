@@ -48,15 +48,44 @@
 
 - Open Agent Tools for the active workspace and read the tool card details.
 - Blocked actions now explain whether the stop came from:
-  - missing connector auth
+  - workspace not bound to that connector
+  - connector action policy
+  - account or provider mismatch
+  - missing host auth
   - endpoint scope filtering
-  - workspace policy
-- Open Workspaces and review the governance editor for that workspace:
-  - `auth mode`
-  - `tool allow` / `tool block`
-  - `endpoint allow` / `endpoint block`
-  - operator note
-- If the workspace policy looks correct, use App Mgmt `WINDOWS INSTALL / UPDATE / DIAGNOSTICS` to verify which runtime is active and whether the local backend is healthy.
+  - coarse workspace policy
+- Open Workspaces and review both editors for that workspace:
+  - governance editor:
+    - `auth mode`
+    - `tool allow` / `tool block`
+    - `endpoint allow` / `endpoint block`
+    - operator note
+  - connector bindings editor:
+    - `enabled`
+    - `account_id`
+    - `provider`
+    - `action allow` / `action block`
+    - `endpoint allow` / `endpoint block`
+    - operator note
+- Open App Mgmt `CONNECTOR INVENTORY + AUTH` when the fix belongs to machine auth instead of workspace policy:
+  - use `VERIFY` to confirm readiness
+  - use `CONNECT` / `RECONNECT` for OAuth- or file-backed connectors
+  - use `SAVE SECRET` / `CLEAR SECRET` for API-key or provider-secret connectors
+- App Mgmt `WINDOWS INSTALL / UPDATE / DIAGNOSTICS` remains the right place to verify which local runtime is active, where Guppy stores data, and which repair path to try next.
+
+## Connector verify/connect/reconnect/disconnect does not do what I expect
+
+- Open App Mgmt `CONNECTOR INVENTORY + AUTH`.
+- Choose the connector first, then set provider/account only when that connector exposes them.
+- If the connector uses secrets:
+  - select the secret field from the dropdown
+  - enter the value
+  - use `SAVE SECRET` to persist it through the machine-level connector flow
+- If `VERIFY` still reports missing auth:
+  - confirm the expected env var or keyring entry exists
+  - for Gmail/Calendar/Spotify, confirm the expected token/cache or credential files are present on this machine
+  - for CRM/VoIP, confirm the selected provider is actually the one configured
+- If App Mgmt shows the connector ready but the tool is still blocked, the remaining issue is usually the active workspace binding or its connector endpoint/action policy in Workspaces.
 
 ## Need to know what is installed, which runtime is active, or where Guppy stores data
 

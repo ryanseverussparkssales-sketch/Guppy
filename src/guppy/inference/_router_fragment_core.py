@@ -97,6 +97,10 @@ class InferenceRouter:
         self.fallback_chain = ["local", "haiku", "sonnet"]
         self._classification_cache: dict[tuple[str, str], str] = {}
         self._classification_cache_max = 256
+        # Freeze semantic-classifier mode at construction time so test helpers
+        # and long-lived router instances do not change behavior mid-lifecycle
+        # when unrelated code mutates process-level environment variables.
+        self.semantic_classifier_enabled = self._bool_env("GUPPY_SEMANTIC_CLASSIFIER", True)
         self._legacy_model_aliases = {
             "guppy-teach": "merlin",
             "guppy-code": "merlin-code",
@@ -167,10 +171,7 @@ class InferenceRouter:
         if cached in {"simple", "complex", "teaching"}:
             return cached
 
-        semantic_enabled = os.environ.get("GUPPY_SEMANTIC_CLASSIFIER", "1").strip().lower() in {
-            "1", "true", "yes", "on"
-        }
-        if semantic_enabled and self.anthropic_available:
+        if self.semantic_classifier_enabled and self.anthropic_available:
             task = self._classify_task_semantic(user_text=user_text, system_prompt=system_prompt)
             if task in {"simple", "complex", "teaching"}:
                 self._classification_cache[cache_key] = task
@@ -251,10 +252,6 @@ class InferenceRouter:
                 return "simple"
             return "teaching"
 
-        # Length heuristic: very short messages are usually simple
-        if len(user_text or "") < 50:
-            return "simple"
-
         # Simple keywords (fast with Haiku)
         simple_keywords = {
             "what time", "what date", "remind me", "list", "format",
@@ -274,6 +271,11 @@ class InferenceRouter:
         }
         if any(k in combined_lower for k in teaching_keywords):
             return "teaching"
+
+        # Length heuristic: very short messages are usually simple once they
+        # have failed the explicit complex/teaching intent checks above.
+        if len(user_text or "") < 50:
+            return "simple"
 
         # Default to complex (safer to over-dispatch to Sonnet than under-dispatch)
         return "complex"

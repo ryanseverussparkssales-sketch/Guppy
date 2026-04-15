@@ -3,11 +3,25 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from utils import connector_bindings, connector_manager
 
 
 class ConnectorManagerTests(unittest.TestCase):
+    def test_crm_status_exposes_provider_readiness_metadata(self):
+        status = connector_manager.connector_status("crm")
+
+        self.assertIn("scope_telemetry", status)
+        self.assertTrue(status["providers"])
+        first = status["providers"][0]
+        self.assertIn("required_fields", first)
+        self.assertIn("endpoint_prefixes", first)
+        self.assertIn("auth_detail", first)
+        self.assertIn("setup_summary", first)
+        self.assertIn("next_field", first)
+        self.assertIn("field_details", first)
+
     def test_workspace_binding_round_trip_persists_fields(self):
         with tempfile.TemporaryDirectory() as td:
             config_path = Path(td) / "connector_bindings.json"
@@ -112,3 +126,79 @@ class ConnectorManagerTests(unittest.TestCase):
             )
             self.assertFalse(allowed)
             self.assertEqual(context["reason_code"], "connector_host_auth_missing")
+
+    def test_verify_action_records_history(self):
+        old_runtime_dir = connector_manager._RUNTIME_DIR
+        old_state_path = connector_manager._CONNECTOR_STATE_PATH
+        old_events_path = connector_manager._INTEGRATION_EVENTS_PATH
+        with tempfile.TemporaryDirectory() as td:
+            runtime_dir = Path(td)
+            connector_manager._RUNTIME_DIR = runtime_dir
+            connector_manager._CONNECTOR_STATE_PATH = runtime_dir / "connector_state.json"
+            connector_manager._INTEGRATION_EVENTS_PATH = runtime_dir / "integration_events.jsonl"
+            try:
+                result = connector_manager.run_connector_action("youtube", "verify")
+                history = result.get("history", {})
+                self.assertIn("last_verified_at", history)
+                self.assertIn("last_result", history)
+                self.assertTrue(history.get("last_event_id", ""))
+                self.assertTrue(history.get("last_action_record", {}).get("event_id", ""))
+                self.assertTrue(history.get("recent_events"))
+            finally:
+                connector_manager._RUNTIME_DIR = old_runtime_dir
+                connector_manager._CONNECTOR_STATE_PATH = old_state_path
+                connector_manager._INTEGRATION_EVENTS_PATH = old_events_path
+
+    def test_salesforce_provider_status_exposes_verify_checks(self):
+        secrets = {
+            "SALESFORCE_ACCESS_TOKEN": "00Dxx0000000001!token",
+            "SALESFORCE_INSTANCE_URL": "https://example.my.salesforce.com",
+        }
+
+        def fake_secret(key: str, *, fallback: str | None = None) -> str:
+            return secrets.get(key, fallback or "")
+
+        with patch("src.guppy.integrations.crm_voip.read_machine_secret", side_effect=fake_secret):
+            status = connector_manager.connector_status("crm", provider="salesforce")
+
+        salesforce = next(
+            row for row in status["providers"] if row["id"] == "salesforce"
+        )
+        self.assertEqual(salesforce["auth_state"], "ready")
+        self.assertTrue(salesforce["verify_summary"])
+        self.assertTrue(salesforce["verify_checks"])
+        self.assertTrue(all(item["passed"] for item in salesforce["verify_checks"]))
+        self.assertTrue(salesforce["verify_check_summary"])
+        self.assertIn("Workspaces", salesforce["next_step"])
+
+    def test_twilio_verify_uses_provider_specific_summary(self):
+        old_runtime_dir = connector_manager._RUNTIME_DIR
+        old_state_path = connector_manager._CONNECTOR_STATE_PATH
+        old_events_path = connector_manager._INTEGRATION_EVENTS_PATH
+        secrets = {
+            "TWILIO_ACCOUNT_SID": "AC123456789012345678901234567890",
+            "TWILIO_AUTH_TOKEN": "twilio-auth-token",
+        }
+
+        def fake_secret(key: str, *, fallback: str | None = None) -> str:
+            return secrets.get(key, fallback or "")
+
+        with tempfile.TemporaryDirectory() as td:
+            runtime_dir = Path(td)
+            connector_manager._RUNTIME_DIR = runtime_dir
+            connector_manager._CONNECTOR_STATE_PATH = runtime_dir / "connector_state.json"
+            connector_manager._INTEGRATION_EVENTS_PATH = runtime_dir / "integration_events.jsonl"
+            try:
+                with patch("src.guppy.integrations.crm_voip.read_machine_secret", side_effect=fake_secret):
+                    result = connector_manager.run_connector_action("voip", "verify", provider="twilio")
+                self.assertTrue(result["ok"])
+                self.assertIn("Twilio verify passed", result["summary"])
+                self.assertIn("outbound calling", result["summary"])
+                self.assertTrue(result["event_id"])
+                self.assertEqual(result["result_code"], "ready")
+                self.assertIn("Workspaces", result["next_step"])
+                self.assertTrue(result["history"].get("timeline"))
+            finally:
+                connector_manager._RUNTIME_DIR = old_runtime_dir
+                connector_manager._CONNECTOR_STATE_PATH = old_state_path
+                connector_manager._INTEGRATION_EVENTS_PATH = old_events_path

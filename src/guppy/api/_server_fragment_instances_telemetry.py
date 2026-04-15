@@ -398,7 +398,10 @@ def _emit_integration_heartbeat(reason: str) -> None:
     path = _stream_jsonl_map["integration_events"]
     record = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(timezone.utc).isoformat(),
         "event_type": "integration_heartbeat",
+        "event": "integration_heartbeat",
+        "level": "info",
         "payload": {
             "state": "idle",
             "reason": reason,
@@ -534,9 +537,9 @@ def _query_jsonl_telemetry(
         if path is None:
             continue
         for row in _read_jsonl_tail(path, limit=max(limit * 3, 120)):
-            evt_name = str(row.get("event", "")).strip()
+            evt_name = str(row.get("event", row.get("event_type", ""))).strip()
             evt_level = str(row.get("level", "")).strip().lower() or "info"
-            ts_txt = row.get("ts")
+            ts_txt = row.get("ts", row.get("timestamp"))
             ts_obj = _parse_iso_ts(ts_txt)
             if cutoff is not None:
                 if ts_obj is None or ts_obj.timestamp() < cutoff:

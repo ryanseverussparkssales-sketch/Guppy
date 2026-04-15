@@ -109,6 +109,22 @@ def test_router_initialization():
     except Exception as e:
         raise AssertionError(f"Router initialization failed: {e}") from e
 
+
+def test_semantic_classifier_mode_is_instance_stable():
+    """Router should keep the classifier mode it was created with."""
+    previous = os.environ.get("GUPPY_SEMANTIC_CLASSIFIER")
+    os.environ["GUPPY_SEMANTIC_CLASSIFIER"] = "0"
+    try:
+        router = InferenceRouter()
+        os.environ["GUPPY_SEMANTIC_CLASSIFIER"] = "1"
+        assert router.semantic_classifier_enabled is False
+        assert router._classify_task("Research REST API best practices") == "complex"
+    finally:
+        if previous is None:
+            os.environ.pop("GUPPY_SEMANTIC_CLASSIFIER", None)
+        else:
+            os.environ["GUPPY_SEMANTIC_CLASSIFIER"] = previous
+
 if __name__ == "__main__":
     print("\n" + "=" * 70)
     print("PHASE 1 SMART DISPATCH VALIDATION TEST SUITE")

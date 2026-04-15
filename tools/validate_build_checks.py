@@ -1,4 +1,5 @@
 import ast
+import subprocess
 import sys
 from pathlib import Path
 
@@ -7,8 +8,40 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+def _preferred_python() -> Path:
+    candidates = [
+        ROOT / ".venv" / "Scripts" / "python.exe",
+        ROOT / ".venv" / "bin" / "python",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return Path(sys.executable)
+
+
+VALIDATION_PYTHON = _preferred_python()
+
+
+def _run_python_snippet(snippet: str) -> tuple[bool, str]:
+    try:
+        proc = subprocess.run(
+            [str(VALIDATION_PYTHON), "-c", snippet],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+        )
+    except Exception as exc:
+        return False, str(exc)
+    detail = (proc.stdout or "").strip() or (proc.stderr or "").strip()
+    return proc.returncode == 0, detail
+
+
 def check_imports() -> bool:
     print("[3] Checking core module imports...")
+    print(f"    using {VALIDATION_PYTHON}")
     mods = [
         "guppy_core",
         "guppy_memory",
@@ -25,30 +58,33 @@ def check_imports() -> bool:
     ]
     ok = True
     for m in mods:
-        try:
-            __import__(m)
+        success, detail = _run_python_snippet(f"import {m}")
+        if success:
             print(f"    OK  {m}")
-        except Exception as e:
+        else:
             ok = False
-            print(f"    FAIL  {m}: {e}")
+            print(f"    FAIL  {m}: {detail}")
     print()
     return ok
 
 
 def check_tool_count() -> bool:
     print("[4] Checking tool count >= 70...")
-    try:
-        import guppy_core
-
-        n = len(guppy_core.TOOLS)
-        good = n >= 70
-        print(f"    {'OK' if good else 'FAIL'}  {n} tools registered")
-        print()
-        return good
-    except Exception as e:
-        print(f"    FAIL  {e}")
+    success, detail = _run_python_snippet("import guppy_core; print(len(guppy_core.TOOLS))")
+    if not success:
+        print(f"    FAIL  {detail}")
         print()
         return False
+    try:
+        n = int((detail or "0").splitlines()[-1].strip())
+    except Exception:
+        print(f"    FAIL  unexpected tool count output: {detail}")
+        print()
+        return False
+    good = n >= 70
+    print(f"    {'OK' if good else 'FAIL'}  {n} tools registered")
+    print()
+    return good
 
 
 def check_syntax() -> bool:
@@ -56,7 +92,7 @@ def check_syntax() -> bool:
     files = [
         "guppy_launcher.py",
         "ui/launcher/launcher_window.py",
-        "guppy_core.py",
+        "guppy_core/__init__.py",
         "guppy_hub.py",
         "guppy_voice.py",
         "guppy_daemon.py",
@@ -66,8 +102,11 @@ def check_syntax() -> bool:
     ok = True
     for file_name in files:
         try:
-            ast.parse(Path(file_name).read_text(encoding="utf-8"))
+            ast.parse(Path(file_name).read_text(encoding="utf-8-sig"))
             print(f"    OK  {file_name}")
+        except FileNotFoundError as e:
+            ok = False
+            print(f"    FAIL  {file_name}: {e}")
         except SyntaxError as e:
             ok = False
             print(f"    FAIL  {file_name}: {e}")

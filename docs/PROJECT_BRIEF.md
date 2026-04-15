@@ -21,7 +21,7 @@ Guppy is a Windows-first, local-first personal assistant focused on:
 
 ## Runtime Services
 
-1. API: src/guppy/api/server.py (wrapper: guppy_api.py)
+1. API: src/guppy/api/server.py plus `_server_fragment_*.py` (wrapper: guppy_api.py)
 2. Hub/tray: guppy_hub.py (wrapper), src/guppy/apps/hub_app.py (implementation)
 3. Daemon: src/guppy/daemon/daemon.py (wrapper: guppy_daemon.py)
 
@@ -52,8 +52,9 @@ Guppy is a Windows-first, local-first personal assistant focused on:
 23. The launcher app icon now uses the Guppy fish mark, matching the shell branding instead of leaving the fish only as an internal sidebar motif.
 24. Local LLM now has a dedicated launcher surface, so manifest state, benchmark artifacts, review packets, memory posture, and runtime-challenger recommendations no longer stay scattered across Home and Models.
 25. Workspace governance is now productized on top of the capability system with an editable Workspaces UI for per-workspace auth modes, tool allow/block lists, endpoint filters, operator notes, and clearer policy reasons in Agent Tools.
-26. Blocked tool telemetry now distinguishes connector auth readiness, endpoint scope denial, and workspace-policy denial instead of collapsing everything into one coarse restriction reason, and Agent Tools surfaces the connector auth state directly.
-27. App Mgmt now includes a Windows install/update/diagnostics surface with installed-runtime visibility, active local backend, data paths, repair-token posture, latest diagnostics artifact visibility, and one-click verify/update/restart/repair actions.
+26. Connector governance v1 is now live as workspace bindings over shared machine auth: Workspaces edits connector bindings and policy, App Mgmt owns machine-level connector verify/connect/reconnect/disconnect plus secret-management actions, and the API/runtime enforce both layers before connector tools run.
+27. Blocked tool telemetry now distinguishes connector unbound/action/account/provider/auth failures plus endpoint scope and workspace-policy denials instead of collapsing everything into one coarse restriction reason, and Agent Tools surfaces the connector auth state directly.
+28. App Mgmt now includes a Windows install/update/diagnostics surface with installed-runtime visibility, active local backend, data paths, repair-token posture, latest diagnostics artifact visibility, and one-click verify/update/restart/repair actions.
 
 What is live in the M2 launcher shell right now:
 
@@ -77,7 +78,7 @@ What is live in the M2 launcher shell right now:
 8. Workspace framing is stronger, but recurring-context and collaboration cues still need to deepen beyond the current role mix / fit layer.
 9. Dependency and packaging surface is still broader than the long-term product target because local, cloud, provider, and voice stacks still share one base runtime bundle.
 10. Local LLM evidence is now centralized in its own launcher surface, but promotion decisions still need more reviewer scores, broader challenger comparison, and a clearer default-runtime decision between Ollama and the new Lemonade lane.
-11. Governance and Windows ops now have stronger productized surfaces, but workspace credential lifecycle, connector-specific scope editing, and broader installer/update automation still need deeper productization.
+11. Governance and Windows ops now have stronger productized surfaces, but richer provider/account UX, deeper workspace credential lifecycle polish, and broader installer/update automation still need deeper productization.
 
 ## Developer Rules
 
@@ -97,7 +98,7 @@ What is live in the M2 launcher shell right now:
 
 1. `tests/unit/` is the default fast regression suite.
 2. `tests/integration/` holds runtime or hardware-adjacent tests; interactive PTT smoke is explicitly kept out of default pytest.
-3. `tests/smoke/` holds smoke and stress scripts kept out of the default pytest run.
+3. `tests/smoke/` contains both pytest-collected smoke coverage and standalone/manual smoke-stress scripts, so it should not be described as entirely outside the default pytest run.
 
 ## Where To Look
 

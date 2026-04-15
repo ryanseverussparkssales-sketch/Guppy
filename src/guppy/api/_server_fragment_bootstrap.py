@@ -38,7 +38,6 @@ from collections import Counter
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 import uvicorn
 from jose import JWTError, jwt
 import urllib.request
@@ -277,6 +276,19 @@ except Exception:
     def build_persona_prompt_overlay(*, requested_persona: str = "", model_id: str = "", persona_config: dict[str, Any] | None = None):
         del requested_persona, model_id, persona_config
         return {}, ""
+
+from src.guppy.api._server_fragment_models import (
+    ChatRequest,
+    ConnectorActionRequest,
+    InstanceConfigRequest,
+    InstanceConnectorBindingRequest,
+    InstanceGovernanceRequest,
+    InstanceQueryRequest,
+    RepairRequest,
+    TokenResponse,
+    TurnstileToken,
+    VoiceChatRequest,
+)
 
 # â”€â”€ Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -521,76 +533,6 @@ def _clear_chat_idempotency_key(key: str) -> None:
         _chat_idempotency_records.pop(key, None)
 
 # â”€â”€ Pydantic Models â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-class ChatRequest(BaseModel):
-    message: str
-    session_id: Optional[str] = None
-    mode: Optional[str] = None
-    persona: Optional[str] = None
-    history: Optional[List[Dict[str, str]]] = None
-    use_claude: Optional[bool] = True
-    idempotency_key: Optional[str] = None
-
-class VoiceChatRequest(BaseModel):
-    session_id: Optional[str] = None
-    use_claude: Optional[bool] = True
-
-class TurnstileToken(BaseModel):
-    token: str
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-
-
-class RepairRequest(BaseModel):
-    action: str
-    dry_run: bool = False
-
-
-class InstanceQueryRequest(BaseModel):
-    message: str
-    source_instance: Optional[str] = None
-    timeout_s: float = 5.0
-
-
-class InstanceConfigRequest(BaseModel):
-    name: str
-    description: str = ""
-    mode: str = "auto"
-    persona: str = "guppy"
-    voice: str = "default"
-    enabled: bool = True
-    type: str = "user_instance"
-
-
-class InstanceGovernanceRequest(BaseModel):
-    auth_mode: str = "runtime_default"
-    tool_allow: List[str] = []
-    tool_block: List[str] = []
-    endpoint_allow: List[str] = []
-    endpoint_block: List[str] = []
-    policy_note: str = ""
-
-
-class ConnectorActionRequest(BaseModel):
-    provider: str = ""
-    account_id: str = ""
-    secret_key: str = ""
-    secret_value: str = ""
-
-
-class InstanceConnectorBindingRequest(BaseModel):
-    enabled: bool = False
-    account_id: str = ""
-    provider: str = ""
-    action_allow: List[str] = []
-    action_block: List[str] = []
-    endpoint_allow: List[str] = []
-    endpoint_block: List[str] = []
-    note: str = ""
-
 
 _RICH_PROMPT_DIRECT_CUES = (
     "remember",

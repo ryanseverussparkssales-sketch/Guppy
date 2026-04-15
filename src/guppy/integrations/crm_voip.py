@@ -18,6 +18,7 @@ import json
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict
+from urllib.parse import urlparse
 
 from src.guppy.paths import RUNTIME_DIR
 from utils.connector_manager import read_machine_secret
@@ -202,6 +203,134 @@ def _provider_ready(provider: str) -> bool:
     if p == "zoho":
         return bool(read_machine_secret("ZOHO_ACCESS_TOKEN").strip())
     return False
+
+
+def _check_result(check_id: str, label: str, passed: bool, detail: str) -> dict[str, Any]:
+    return {
+        "id": str(check_id or "").strip(),
+        "label": str(label or "").strip(),
+        "state": "pass" if passed else "fail",
+        "passed": bool(passed),
+        "detail": str(detail or "").strip(),
+    }
+
+
+def _valid_url_host(value: str) -> tuple[bool, str]:
+    cleaned = str(value or "").strip()
+    if not cleaned:
+        return False, ""
+    try:
+        parsed = urlparse(cleaned)
+    except Exception:
+        return False, ""
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return False, ""
+    return True, parsed.netloc.lower()
+
+
+def verify_connector_provider(connector: str, provider: str) -> dict[str, Any]:
+    normalized_connector = str(connector or "").strip().lower()
+    normalized_provider = str(provider or "").strip().lower()
+    checks: list[dict[str, Any]] = []
+    summary = ""
+    scope_detail = ""
+    auth_state = "missing"
+
+    if normalized_connector == "crm":
+        if normalized_provider == "hubspot":
+            token = read_machine_secret("HUBSPOT_API_KEY").strip()
+            looks_valid = token.startswith("pat-") or len(token) >= 20
+            checks = [
+                _check_result("hubspot_api_key_present", "Private app token present", bool(token), "Token is stored for this machine." if token else "Missing HUBSPOT_API_KEY."),
+                _check_result("hubspot_api_key_shape", "Token format looks plausible", looks_valid, "Token resembles a HubSpot private app token." if looks_valid else "Token is present but does not look like a modern HubSpot private app token."),
+            ]
+            auth_state = "ready" if all(item["passed"] for item in checks) else "partial" if token else "missing"
+            summary = "HubSpot verify passed for contacts + opportunities." if auth_state == "ready" else "HubSpot verify found missing or weak private app token readiness."
+            scope_detail = "Expected scope: contacts + opportunities via a machine-level HubSpot private app token."
+        elif normalized_provider == "salesforce":
+            token = read_machine_secret("SALESFORCE_ACCESS_TOKEN").strip()
+            instance_url = read_machine_secret("SALESFORCE_INSTANCE_URL").strip()
+            url_ok, host = _valid_url_host(instance_url)
+            salesforce_host = host.endswith("salesforce.com") or host.endswith("force.com")
+            checks = [
+                _check_result("salesforce_access_token_present", "Access token present", bool(token), "Access token is stored for this machine." if token else "Missing SALESFORCE_ACCESS_TOKEN."),
+                _check_result("salesforce_instance_url_present", "Instance URL present", bool(instance_url), "Instance URL is stored for this machine." if instance_url else "Missing SALESFORCE_INSTANCE_URL."),
+                _check_result("salesforce_instance_url_valid", "Instance URL looks valid", url_ok and salesforce_host, f"Using Salesforce host {host}." if url_ok and salesforce_host else "Instance URL must be an https Salesforce org host."),
+            ]
+            auth_state = "ready" if all(item["passed"] for item in checks) else "partial" if token or instance_url else "missing"
+            summary = "Salesforce verify passed for contacts + opportunities." if auth_state == "ready" else "Salesforce verify found missing token or invalid org URL readiness."
+            scope_detail = "Expected scope: contacts + opportunities against the configured Salesforce org host."
+        elif normalized_provider == "gohighlevel":
+            token = read_machine_secret("GOHIGHLEVEL_API_KEY").strip()
+            looks_valid = len(token) >= 16
+            checks = [
+                _check_result("gohighlevel_api_key_present", "API key present", bool(token), "API key is stored for this machine." if token else "Missing GOHIGHLEVEL_API_KEY."),
+                _check_result("gohighlevel_api_key_shape", "API key length looks plausible", looks_valid, "API key length looks plausible." if looks_valid else "API key is present but unusually short."),
+            ]
+            auth_state = "ready" if all(item["passed"] for item in checks) else "partial" if token else "missing"
+            summary = "GoHighLevel verify passed for contacts + pipelines." if auth_state == "ready" else "GoHighLevel verify found missing or weak API-key readiness."
+            scope_detail = "Expected scope: contacts + pipelines via a machine-level GoHighLevel API key."
+        elif normalized_provider == "zoho":
+            token = read_machine_secret("ZOHO_ACCESS_TOKEN").strip()
+            looks_valid = len(token) >= 20 and not token.lower().startswith("http")
+            checks = [
+                _check_result("zoho_access_token_present", "Access token present", bool(token), "Access token is stored for this machine." if token else "Missing ZOHO_ACCESS_TOKEN."),
+                _check_result("zoho_access_token_shape", "Token format looks plausible", looks_valid, "Access token shape looks plausible." if looks_valid else "Access token is present but does not look like a Zoho access token."),
+            ]
+            auth_state = "ready" if all(item["passed"] for item in checks) else "partial" if token else "missing"
+            summary = "Zoho verify passed for contacts + deals." if auth_state == "ready" else "Zoho verify found missing or weak access-token readiness."
+            scope_detail = "Expected scope: contacts + deals via a machine-level Zoho access token."
+        else:
+            return {
+                "auth_state": "missing",
+                "summary": "Unknown CRM provider.",
+                "checks": [],
+                "scope_detail": "",
+            }
+    elif normalized_connector == "voip":
+        if normalized_provider == "twilio":
+            sid = read_machine_secret("TWILIO_ACCOUNT_SID").strip()
+            token = read_machine_secret("TWILIO_AUTH_TOKEN").strip()
+            sid_ok = sid.startswith("AC") and len(sid) >= 12
+            token_ok = len(token) >= 8
+            checks = [
+                _check_result("twilio_account_sid_present", "Account SID present", bool(sid), "Account SID is stored for this machine." if sid else "Missing TWILIO_ACCOUNT_SID."),
+                _check_result("twilio_account_sid_shape", "Account SID format looks valid", sid_ok, "Account SID starts with AC." if sid_ok else "Twilio Account SID should start with AC."),
+                _check_result("twilio_auth_token_present", "Auth token present", bool(token), "Auth token is stored for this machine." if token else "Missing TWILIO_AUTH_TOKEN."),
+                _check_result("twilio_auth_token_shape", "Auth token length looks plausible", token_ok, "Auth token length looks plausible." if token_ok else "Twilio auth token is present but unusually short."),
+            ]
+            auth_state = "ready" if all(item["passed"] for item in checks) else "partial" if sid or token else "missing"
+            summary = "Twilio verify passed for outbound calling." if auth_state == "ready" else "Twilio verify found missing SID/token readiness."
+            scope_detail = "Expected scope: outbound calling with a machine-level Twilio Account SID and auth token."
+        elif normalized_provider == "generic":
+            checks = [
+                _check_result("generic_voip_manual_handoff", "Manual provider handoff", True, "Generic SIP remains operator-managed and does not require stored Guppy secrets in this pass."),
+            ]
+            auth_state = "optional"
+            summary = "Generic SIP verify is informational only in this pass."
+            scope_detail = "Expected scope: manual provider handoff for outbound calling."
+        else:
+            return {
+                "auth_state": "missing",
+                "summary": "Unknown VoIP provider.",
+                "checks": [],
+                "scope_detail": "",
+            }
+    else:
+        return {
+            "auth_state": "missing",
+            "summary": "Unknown connector family.",
+            "checks": [],
+            "scope_detail": "",
+        }
+
+    return {
+        "auth_state": auth_state,
+        "summary": summary,
+        "checks": checks,
+        "scope_detail": scope_detail,
+        "ok": auth_state in {"ready", "optional"},
+    }
 
 
 def crm_upsert_contact(

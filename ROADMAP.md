@@ -62,10 +62,12 @@ These capabilities exist now and are usable in pilot:
 12. Atomic file I/O via utils/safe_io.py — no more torn reads from partial writes.
 13. guppy_core is a proper package (guppy_core/) with clean submodule boundaries.
 14. Local LLM benchmarking is beyond planning now: manifest validation, harness artifacts, human review packets, memory-backend comparisons, and runtime-challenger snapshots are all live in-tree.
-15. Default repo verification is green from `.venv\Scripts\python.exe -m pytest -q`, and the changed-file line-cap guard is now cleared by the `server.py` and `router.py` split.
+15. Default repo verification is green from `.venv\Scripts\python.exe -m pytest -q`; `check_core_surface_integrity.py`, `validate_build_checks.py`, and `tools/pilot_exit_check.py --allow-limited-go --python .venv\Scripts\python.exe` are also passing, and the changed-file line-cap guard is now cleared by the `server.py` and `router.py` split.
 16. Workspace governance now has an editable first productized layer: per-workspace auth mode, tool allow/block lists, endpoint filters, operator notes, and clearer operator-visible policy reasons are live through the existing capability system plus the Workspaces editor.
-17. Blocked connector actions now report whether the stop came from missing auth, endpoint scope, or workspace policy instead of a single coarse denial reason.
-18. App Mgmt now includes a dedicated Windows install/update/diagnostics surface with visible runtime/data-path evidence plus one-click verify, update, restart, and repair actions.
+17. Connector governance v1 is now live as workspace bindings over shared machine auth: `config/tool_permissions.json` remains the coarse guardrail, `config/connector_bindings.json` adds per-workspace connector/account/provider/action/endpoint policy, and the runtime enforces both layers before connector tool execution.
+18. App Mgmt now includes a machine-level connector inventory/auth surface with `verify`, `connect`, `reconnect`, `disconnect`, and secret-management flows across Gmail, Calendar, Spotify, YouTube, CRM, and VoIP.
+19. Blocked connector actions now report whether the stop came from an unbound workspace connector, connector action policy, account/provider mismatch, host auth readiness, or endpoint scope instead of a single coarse denial reason.
+20. App Mgmt now includes a dedicated Windows install/update/diagnostics surface with visible runtime/data-path evidence plus one-click verify, update, restart, and repair actions.
 
 ## What Is Not Yet Fully Productized
 
@@ -74,7 +76,7 @@ These capabilities exist now and are usable in pilot:
 3. Route and voice decisions still need richer plain-language health and latency evidence beyond the current explainability pass.
 4. In-app workflow productization still needs richer execution evidence and stronger Morning/Workday/Close polish.
 5. End-user installer/update lifecycle and broader hardware fallback hardening remain open.
-6. Tool/connectors governance now has an editable operator surface and clearer blocked-action telemetry, but connector-specific auth provisioning, workspace credential lifecycle, and policy editing UX still need deeper productization.
+6. Tool/connectors governance now has an editable operator surface, machine-level connector inventory/actions, and workspace connector binding policy, but richer provider/account UX, deeper credential lifecycle polish, and broader admin workflows still need productization.
 7. Windows install/update/diagnostics are now legible and actionable in App Mgmt, but broader installer/update automation and richer repair choreography still need deeper productization.
 
 ## GuppyPrime Parity Matrix
@@ -108,6 +110,69 @@ Objective: every capability must either work inside GuppyPrime UI now or be trac
 pass and are committed to documentation. The gate is: embedded-only INIT live,
 transcript UX stable, right-rail policy enforced, and no-freeze startup telemetry
 present. Date is firm.
+
+## Execution Board (Refreshed Apr 15, 2026)
+
+This board is the active execution queue. Items are ordered by product leverage,
+not by implementation convenience. Status values:
+
+- `active` = in current execution pass
+- `next` = ready to start once the active card lands
+- `queued` = scoped and sequenced, but waiting on upstream work
+- `watch` = important, but not on the critical path this week
+
+| Priority | Track | Status | Current Tranche | Acceptance Criteria | Depends On | Target Window |
+| --- | --- | --- | --- | --- | --- | --- |
+| P0 | Connector Governance V2 | active | Provider-specific readiness, verify detail, scope telemetry, guided multi-field auth for CRM + VoIP | App Mgmt can explain what is missing, what passed, and where to fix it for Salesforce/Twilio/HubSpot/Zoho/GoHighLevel without config-file editing | Existing connector governance v1 surface | Apr 15 - May 02 |
+| P1 | Windows Servicing V2 | next | Installer/update automation, stronger verify/update/restart/repair choreography, durable change summaries | Operator can answer what is installed, what changed, what is active, and how to repair it from App Mgmt alone | Current Windows ops panel and recovery paths | Apr 29 - May 16 |
+| P2 | Workspace Framing | next | Recast instances into clearer user-facing workspaces with stronger recurring-context and collaboration cues | A user can tell what each workspace is for without backend knowledge | Stable governance + connector workflow | May 06 - May 23 |
+| P3 | Home / Chat-First Polish | queued | First-run guidance, calmer transcript/composer rhythm, starter-path polish | New users can start productive work from Home without reading operator docs | Workspace framing direction | May 20 - Jun 06 |
+| P4 | Route + Voice Trust Layer | queued | Better plain-language route reasoning, readiness, latency evidence, and device-state clarity | Users can understand route/voice choices and recovery state from launcher surfaces | Home polish and servicing evidence | Jun 03 - Jun 20 |
+| P5 | Local LLM Promotion Flow | queued | Runtime/default decision workflow, benchmark-to-promotion evidence, clearer role mapping | Default local runtime/model choices are measurable and auditable from the product | Servicing and trust layers | Jun 17 - Jul 03 |
+| P6 | Packaging / Release Hardening | watch | Reduce environment drift, unify release/build rails, improve package-policy evidence | Release verification is one repeatable path, not several partially overlapping ones | Servicing automation | Jul 01 - Jul 17 |
+| P7 | Legacy / Historical Debt | watch | Keep pruning legacy aliases, obsolete references, and archive assumptions | Live surface is unmistakable in docs and code | Ongoing | Rolling |
+
+### Current Sprint Focus
+
+1. Connector Governance V2
+   - Provider-specific verify adapters and readiness checks for CRM + VoIP.
+   - Guided multi-field provider setup polish in App Mgmt.
+   - Queryable connector action/result telemetry and operator-visible fix guidance.
+2. Windows Servicing V2 preparation
+   - Inventory installer/update/repair seams after connector verify adapters land.
+   - Keep operator logs and change summaries aligned with the future servicing path.
+   - Turn update into a postflight-validated servicing loop with before/after evidence.
+
+### Immediate Card Breakdown
+
+1. Card CG2.1 - Provider verify adapters
+   - Status: done
+   - Scope: Salesforce, Twilio, HubSpot, Zoho, GoHighLevel readiness checks with operator-facing pass/fail detail.
+   - Acceptance: `verify` is more than auth-state echo; provider rows surface concrete readiness checks.
+2. Card CG2.2 - Guided auth flow polish
+   - Status: done
+   - Scope: step-by-step provider field guidance, stronger inline validation, cleaner next-action prompts.
+   - Acceptance: App Mgmt always advances operators to the next missing field or verify step.
+3. Card CG2.3 - Queryable telemetry alignment
+   - Status: done
+   - Scope: normalize connector action/result payloads across API docs, launcher logs, and telemetry query surfaces.
+   - Acceptance: every verify/connect attempt has a stable operator-visible reference and filterable event payload.
+4. Card WO2.1 - Servicing action evidence
+   - Status: done
+   - Scope: durable verify/update/restart/repair output summaries and clearer “what changed” feedback.
+   - Acceptance: operator logs answer what changed without reading raw terminal output.
+5. Card WO2.2 - Update automation + postflight verification
+   - Status: done
+   - Scope: make App Mgmt update run dependency refresh plus build/runtime postflight checks, then persist before/after servicing evidence.
+   - Acceptance: update is more than pip install; it leaves a completed servicing record with validation steps and concrete environment/artifact deltas.
+6. Card WO2.3 - Installer + repair choreography
+   - Status: done
+   - Scope: tighten installer/build entry points, repair sequencing, and operator-visible "where to fix this" guidance for packaging/runtime recovery.
+   - Acceptance: App Mgmt can point operators at the right install/build/repair path without them reconstructing it from docs and scripts.
+7. Card WO2.4 - Packaging/install automation lane
+   - Status: active
+   - Scope: turn the packaging and supervised-launch paths into more direct launcher-driven actions with clearer completion evidence.
+   - Acceptance: operators can trigger the most common package/install follow-ups from App Mgmt instead of assembling the commands manually.
 
 ## GuppyPrime Action Queue (Prioritized With Milestones)
 
@@ -306,6 +371,25 @@ present. Date is firm.
   - App Mgmt now exposes one-click `VERIFY`, `UPDATE`, `RESTART`, and `REPAIR` flows, routing verify/update into the embedded terminal and restart/repair into the existing guarded recovery path.
 - Verified with focused regression coverage:
   - `.venv\Scripts\python.exe -m pytest tests\unit\test_instance_controls.py tests\smoke\test_launcher_interactions_smoke.py tests\smoke\test_runtime_smoke.py -q`
+  - `python tools/check_new_module_line_cap.py`
+
+### 2026-04-15 (Connector Governance V1 + API/Docs Truth Pass)
+
+- Finished the next connector-governance tranche as workspace bindings over shared machine auth:
+  - added `utils/connector_manager.py` and `utils/connector_bindings.py` so Gmail, Calendar, Spotify, YouTube, CRM, and VoIP now share one normalized connector contract for status, auth/source detail, supported actions, accounts/providers, and operator-facing telemetry.
+  - added persisted workspace connector bindings in `config/connector_bindings.json` with `enabled`, `account_id`, `provider`, action allow/block lists, endpoint allow/block lists, and operator note fields.
+  - kept `config/tool_permissions.json` as the coarse workspace guardrail and layered connector binding checks on top for action/account/provider/auth enforcement.
+- Productized the operator flow across launcher and API:
+  - App Mgmt now shows a machine-level connector inventory with `verify`, `connect`, `reconnect`, `disconnect`, and secret-management actions.
+  - Workspaces now includes an editable connector-binding panel alongside the existing governance editor.
+  - `/connectors`, `/connectors/{id}/{action}`, `/instances/{name}/connectors`, and `/instances/{name}/connectors/{connector}` are now live, and `/instances` now includes connector summary data for first render.
+- Tightened runtime denials and telemetry:
+  - connector tool checks now emit structured reasons for `connector_unbound`, `connector_action_blocked`, `connector_account_unavailable`, `connector_provider_unconfigured`, and `connector_host_auth_missing`.
+  - Agent Tools now points operators to Workspaces or App Mgmt depending on where the fix belongs.
+- Reconciled repo docs to the shipped surface:
+  - refreshed `README.md`, `ROADMAP.md`, `docs/API.md`, and `docs/TROUBLESHOOTING.md` so the API, connector workflow, and Windows/operator guidance match the live tree.
+- Verified with focused regression coverage:
+  - `.venv\Scripts\python.exe -m pytest tests\unit\test_connector_manager.py tests\unit\test_instance_controls.py tests\smoke\test_launcher_interactions_smoke.py tests\smoke\test_runtime_smoke.py -q`
   - `python tools/check_new_module_line_cap.py`
 
 ## Priority Order (Rebuilt)
