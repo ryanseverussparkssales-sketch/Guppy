@@ -89,6 +89,13 @@ Deliverables:
 2. Memory backend status
 3. Benchmark summaries
 4. Readiness and fallback evidence
+5. A narrow opt-in runtime lane so challengers like Lemonade can be exercised inside Guppy before any default promotion call
+
+Current truth:
+
+1. The first Lemonade product seam now exists in the API server.
+2. It is opt-in through explicit `local` mode rather than a silent swap of `ollama` mode.
+3. The first lane is intentionally chat-only until tool-loop parity is proven.
 
 ## First Implementation Tasks
 

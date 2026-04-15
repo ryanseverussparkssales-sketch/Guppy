@@ -32,6 +32,7 @@ from guppy_core.tool_metrics import (
 from guppy_core.tool_registry import _validate_tool_input  # noqa: F401
 from guppy_core.system_prompt import REPORTS_DIR
 from utils.instance_capabilities import check_instance_tool_permission
+from utils.connector_manager import get_workspace_connector_context
 
 try:
     import pyautogui
@@ -71,6 +72,34 @@ _TOOL_GUARD_LOCK = _TOOL_GUARD_LOCK
 _TOOL_GUARDS = _TOOL_GUARDS
 
 
+def _apply_workspace_connector_runtime_context(
+    tool_name: str,
+    inp: dict,
+    *,
+    instance_name: str | None = None,
+) -> dict:
+    if not instance_name:
+        return inp
+    try:
+        context = get_workspace_connector_context(tool_name, instance_name, metadata=inp)
+    except Exception:
+        return inp
+    connector_id = str(context.get("connector_id", "") or "")
+    provider = str(context.get("provider", "") or "").strip()
+    account_id = str(context.get("account_id", "") or "").strip()
+    if provider and not str(inp.get("provider", "") or "").strip():
+        inp["provider"] = provider
+    if account_id and not str(inp.get("account", "") or "").strip():
+        inp["account"] = account_id
+    if connector_id == "gmail" and account_id and str(tool_name or "").strip().lower() != "gmail_switch_account":
+        try:
+            from media_tools import gmail_switch_account
+            gmail_switch_account(account_id)
+        except Exception:
+            return inp
+    return inp
+
+
 def _safe_tool_metric_call(label: str, fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
@@ -99,6 +128,11 @@ def run_tool(
     """
     if not isinstance(inp, dict):
         inp = {}
+    inp = _apply_workspace_connector_runtime_context(
+        name,
+        dict(inp),
+        instance_name=instance_name,
+    )
 
     started = time.perf_counter()
 
@@ -141,10 +175,28 @@ def run_tool(
         })
         return f"Error: {reason}"
 
+    permission_endpoint = str(
+        inp.get("endpoint")
+        or inp.get("url")
+        or inp.get("base_url")
+        or inp.get("host")
+        or ""
+    ).strip()
+    permission_metadata = {
+        "url": inp.get("url"),
+        "endpoint_target": inp.get("target_instance") or inp.get("instance"),
+        "workspace_auth": bool(inp.get("workspace_auth")),
+        "provider": inp.get("provider"),
+        "account": inp.get("account"),
+        "account_id": inp.get("account_id"),
+        "calendar_id": inp.get("calendar_id"),
+    }
     permitted, permission_reason, _permissions = check_instance_tool_permission(
         name,
         instance_name=instance_name,
         instance_type=instance_type,
+        endpoint=permission_endpoint or None,
+        metadata=permission_metadata,
     )
     if not permitted:
         _safe_tool_metric_call(

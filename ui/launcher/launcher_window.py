@@ -59,6 +59,7 @@ from .views import (
     ToolsView,
     SettingsView,
     AdvancedView,
+    LocalLLMView,
     ModelsView,
     VoicesView,
 )
@@ -99,6 +100,58 @@ except Exception:
 
     def read_instance_log_tail(*_args, **_kwargs):
         return []
+
+try:
+    from utils.instance_capabilities import resolve_instance_permissions, set_instance_tool_permission_policy
+    _INSTANCE_GOVERNANCE_BACKEND = True
+except Exception:
+    _INSTANCE_GOVERNANCE_BACKEND = False
+
+    def resolve_instance_permissions(
+        instance_name: str | None = None,
+        instance_type: str | None = None,
+        config_path=None,
+    ):
+        del instance_name, instance_type, config_path
+        return {}
+
+    def set_instance_tool_permission_policy(instance_name: str, policy_entry: dict, *, config_path=None):
+        del instance_name, policy_entry, config_path
+        return None
+
+try:
+    from utils.connector_manager import (
+        connector_inventory,
+        run_connector_action,
+        save_workspace_connector_binding,
+        workspace_connector_inventory,
+    )
+    _CONNECTOR_MANAGER_BACKEND = True
+except Exception:
+    _CONNECTOR_MANAGER_BACKEND = False
+
+    def connector_inventory():
+        return []
+
+    def workspace_connector_inventory(workspace_name: str, *, config_path=None):
+        del workspace_name, config_path
+        return []
+
+    def save_workspace_connector_binding(workspace_name: str, connector_id: str, payload: dict, *, config_path=None):
+        del workspace_name, connector_id, payload, config_path
+        return None
+
+    def run_connector_action(
+        connector_id: str,
+        action: str,
+        *,
+        provider: str = "",
+        account_id: str = "",
+        secret_key: str = "",
+        secret_value: str = "",
+    ):
+        del connector_id, action, provider, account_id, secret_key, secret_value
+        return {"ok": False, "summary": "connector manager unavailable", "status": {}}
 
 try:
     from src.guppy.voice.voice import GuppyVoice
@@ -260,6 +313,7 @@ class LauncherWindow(QMainWindow):
         self._tools_view      = ToolsView(self)
         self._advanced_view   = AdvancedView(self)
         self._settings_view   = SettingsView(self)
+        self._local_llm_view  = LocalLLMView(self)
         self._models_view     = ModelsView(self)
         self._voices_view     = VoicesView(self)
         self._advanced_view.attach_settings_panel(self._settings_view)
@@ -269,6 +323,7 @@ class LauncherWindow(QMainWindow):
             self._instance_manager_view,
             self._tools_view,
             self._advanced_view,
+            self._local_llm_view,
             self._models_view,
             self._voices_view,
         ]:
@@ -300,7 +355,10 @@ class LauncherWindow(QMainWindow):
         self._tools_view.builder_task_requested.connect(self._on_builder_task_requested)
         self._status_panel.tool_requested.connect(self._on_tool_hint_requested)
         self._advanced_view.recovery_requested.connect(self._on_recovery_requested)
+        self._advanced_view.windows_ops_requested.connect(self._on_windows_ops_requested)
+        self._advanced_view.connector_action_requested.connect(self._on_connector_action_requested)
         self._models_view.model_selected.connect(self._on_model_selected)
+        self._models_view.runtime_settings_saved.connect(self._on_runtime_settings_saved)
         self._voices_view.bindings_changed.connect(self._on_voice_bindings_changed)
         self._topbar.search_submitted.connect(self._on_search)
         self._topbar.quick_action.connect(self._on_quick_action)
@@ -315,6 +373,8 @@ class LauncherWindow(QMainWindow):
         self._instance_manager_view.refresh_requested.connect(self._on_instance_manager_refresh)
         self._instance_manager_view.activate_requested.connect(self._on_instance_selected)
         self._instance_manager_view.create_requested.connect(self._on_instance_create_requested)
+        self._instance_manager_view.governance_save_requested.connect(self._on_instance_governance_save_requested)
+        self._instance_manager_view.connector_binding_save_requested.connect(self._on_instance_connector_binding_save_requested)
         self._instance_manager_view.delete_requested.connect(self._on_instance_delete_requested)
         self._instance_manager_view.logs_requested.connect(self._on_instance_logs_requested)
         self._topbar.instance_selected.connect(self._on_instance_selected)
@@ -639,6 +699,7 @@ class LauncherWindow(QMainWindow):
         self._drain_recovery_events()
         self._update_sys_strip()
         data: dict = {}
+        api_status: dict[str, object] = {}
 
         # Heartbeats
         data["guppy_online"]  = (_RUNTIME / "guppy.heartbeat").exists()
@@ -654,6 +715,20 @@ class LauncherWindow(QMainWindow):
         data["last_query"]   = gs.get("last_query", "—")
         if data["last_query"] in {"", "—"} and self._last_command:
             data["last_query"] = self._last_command
+
+        try:
+            payload = self._http_json(
+                "/status",
+                method="GET",
+                timeout=0.75,
+                retry_auth_on_401=True,
+                auth_retry_reason="status_poll",
+            )
+            if isinstance(payload, dict):
+                api_status = payload
+        except Exception:
+            api_status = {}
+        data["status"] = str(api_status.get("status", "healthy" if data["guppy_online"] else "degraded") or "unknown")
 
         voice_summary = str(data.get("voice_engine", data.get("voice", "edge")) or "edge")
         active_model_id = self._assistant_model_id(
@@ -711,10 +786,11 @@ class LauncherWindow(QMainWindow):
             f"Recovery: {'stable' if guppy_online else 'needs attention'}",
             ok=guppy_online,
         )
+        self._models_view.set_status_snapshot(api_status)
         self._advanced_view.set_status_snapshot(
             {
                 "status": data.get("status", "healthy"),
-                "startup_readiness": gs.get("startup_readiness", {}),
+                "startup_readiness": api_status.get("startup_readiness", gs.get("startup_readiness", {})) if isinstance(api_status, dict) else gs.get("startup_readiness", {}),
                 "voice_tts_backend": data.get("voice_engine", "edge"),
                 "voice_stt_backend": gs.get("stt_backend", "unknown"),
                 "voice_binding": voice_summary,
@@ -744,7 +820,7 @@ class LauncherWindow(QMainWindow):
         if (
             not self._auth_self_check_ok
             and not self._auth_self_check_inflight
-            and self._api_reachable(timeout=0.2)
+            and bool(api_status)
             and (time.monotonic() - self._auth_self_check_last_attempt) >= 5.0
         ):
             self._auth_self_check_inflight = True
@@ -897,6 +973,8 @@ class LauncherWindow(QMainWindow):
             name = str(item.get("name", "")).strip()
             if not name:
                 continue
+            instance_type = str(item.get("type", "user_instance") or "user_instance")
+            governance = resolve_instance_permissions(name, instance_type)
             runtime = state_items.get(name, {}) if isinstance(state_items, dict) else {}
             items.append(
                 {
@@ -905,7 +983,7 @@ class LauncherWindow(QMainWindow):
                     "mode": str(item.get("mode", "auto") or "auto"),
                     "persona": str(item.get("persona", "guppy") or "guppy"),
                     "voice": str(item.get("voice", "default") or "default"),
-                    "type": str(item.get("type", "user_instance") or "user_instance"),
+                    "type": instance_type,
                     "created_at": item.get("created_at"),
                     "enabled": bool(item.get("enabled", True)),
                     "status": str(runtime.get("status", "idle") or "idle"),
@@ -913,6 +991,21 @@ class LauncherWindow(QMainWindow):
                     "last_updated": runtime.get("last_updated"),
                     "message_count": int(runtime.get("message_count", 0) or 0),
                     "model_currently_using": str(runtime.get("model_currently_using", item.get("mode", "auto")) or "auto"),
+                    "governance": {
+                        "auth_mode": str(governance.get("_auth_mode", "runtime_default") or "runtime_default"),
+                        "tool_allow": list(governance.get("_tool_allow", [])),
+                        "tool_block": list(governance.get("_tool_block", [])),
+                        "endpoint_allow": list(governance.get("_endpoint_allow", [])),
+                        "endpoint_block": list(governance.get("_endpoint_block", [])),
+                        "policy_note": str(governance.get("_policy_note", "") or ""),
+                        "capabilities": {
+                            "read": bool(governance.get("read", False)),
+                            "write": bool(governance.get("write", False)),
+                            "execute": bool(governance.get("execute", False)),
+                            "network": bool(governance.get("network", False)),
+                        },
+                    },
+                    "connectors": workspace_connector_inventory(name),
                 }
             )
         if not items:
@@ -931,6 +1024,16 @@ class LauncherWindow(QMainWindow):
                     "last_updated": None,
                     "message_count": 0,
                     "model_currently_using": "auto",
+                    "governance": {
+                        "auth_mode": "runtime_default",
+                        "tool_allow": [],
+                        "tool_block": [],
+                        "endpoint_allow": [],
+                        "endpoint_block": [],
+                        "policy_note": "",
+                        "capabilities": {"read": True, "write": True, "execute": True, "network": True},
+                    },
+                    "connectors": workspace_connector_inventory("guppy-primary"),
                 }
             ]
             active = "guppy-primary"
@@ -973,6 +1076,20 @@ class LauncherWindow(QMainWindow):
             self._instance_snapshot_expires_at = now + max(2.0, self._instance_snapshot_ttl_s)
         return snapshot
 
+    def _fetch_connector_inventory(self) -> list[dict]:
+        try:
+            payload = self._http_json(
+                "/connectors",
+                method="GET",
+                timeout=1.5,
+                retry_auth_on_401=True,
+                auth_retry_reason="connectors_list",
+            )
+            rows = payload.get("connectors", []) if isinstance(payload, dict) else []
+            return [item for item in rows if isinstance(item, dict)]
+        except Exception:
+            return [item for item in connector_inventory() if isinstance(item, dict)]
+
     def _load_instance_history_from_logs(self, name: str) -> list[dict[str, str]]:
         if not _INSTANCE_LOGGER_AVAILABLE:
             return []
@@ -1010,6 +1127,7 @@ class LauncherWindow(QMainWindow):
         snapshot = self._fetch_instance_snapshot(force=force)
         self._last_instance_snapshot = snapshot
         self._instance_manager_view.set_instances(snapshot)
+        self._advanced_view.set_connector_inventory(self._fetch_connector_inventory())
         items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
         enabled_names = [
             str(item.get("name", "")).strip()
@@ -1104,6 +1222,7 @@ class LauncherWindow(QMainWindow):
         self._set_daily_activity(f"Active workspace: {active}")
         self._instance_manager_view.set_instances(snapshot)
         self._advanced_view.set_instance_snapshot(snapshot)
+        self._advanced_view.set_connector_inventory(self._fetch_connector_inventory())
         items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
         active_payload = next(
             (
@@ -1189,6 +1308,135 @@ class LauncherWindow(QMainWindow):
         self._instance_manager_view.set_status(f"Workspace {name} {action}")
         self._status_panel.append_syslog(f"workspace {name} {action}")
         self._refresh_instance_views(load_logs=True, force=True)
+
+    def _on_instance_governance_save_requested(self, payload: dict) -> None:
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            self._instance_manager_view.set_governance_status("Workspace name is required for governance save.", ok=False)
+            return
+        body = {
+            "auth_mode": str(payload.get("auth_mode", "runtime_default") or "runtime_default"),
+            "tool_allow": list(payload.get("tool_allow", []) or []),
+            "tool_block": list(payload.get("tool_block", []) or []),
+            "endpoint_allow": list(payload.get("endpoint_allow", []) or []),
+            "endpoint_block": list(payload.get("endpoint_block", []) or []),
+            "policy_note": str(payload.get("policy_note", "") or "").strip(),
+        }
+        try:
+            self._http_json(
+                f"/instances/{name}/governance",
+                method="POST",
+                payload=body,
+                timeout=3.0,
+                retry_auth_on_401=True,
+                auth_retry_reason="instance_governance_save",
+            )
+        except Exception as e:
+            if not _INSTANCE_GOVERNANCE_BACKEND:
+                self._instance_manager_view.set_governance_status(f"Governance save failed: {e}", ok=False)
+                self._status_panel.append_syslog(f"workspace governance save failed: {e}")
+                return
+            try:
+                instance_type = str(payload.get("instance_type", "user_instance") or "user_instance")
+                resolved = resolve_instance_permissions(name, instance_type)
+                set_instance_tool_permission_policy(
+                    name,
+                    {
+                        "read": bool(resolved.get("read", False)),
+                        "write": bool(resolved.get("write", False)),
+                        "execute": bool(resolved.get("execute", False)),
+                        "network": bool(resolved.get("network", False)),
+                        **body,
+                    },
+                )
+            except Exception as local_error:
+                self._instance_manager_view.set_governance_status(f"Governance save failed: {local_error}", ok=False)
+                self._status_panel.append_syslog(f"workspace governance save failed: {local_error}")
+                return
+        self._instance_manager_view.set_governance_status(f"Governance saved for {name}")
+        self._status_panel.append_syslog(f"workspace governance saved: {name}")
+        self._log_launcher_event("workspace_governance_saved", instance=name, auth_mode=body["auth_mode"])
+        self._refresh_instance_views(load_logs=True, force=True)
+
+    def _on_instance_connector_binding_save_requested(self, payload: dict) -> None:
+        name = str(payload.get("name", "")).strip()
+        connector_id = str(payload.get("connector", "")).strip().lower()
+        if not name or not connector_id:
+            self._instance_manager_view.set_connector_binding_status("Workspace and connector are required for save.", ok=False)
+            return
+        body = {
+            "enabled": bool(payload.get("enabled", False)),
+            "account_id": str(payload.get("account_id", "") or "").strip().lower(),
+            "provider": str(payload.get("provider", "") or "").strip().lower(),
+            "action_allow": list(payload.get("action_allow", []) or []),
+            "action_block": list(payload.get("action_block", []) or []),
+            "endpoint_allow": list(payload.get("endpoint_allow", []) or []),
+            "endpoint_block": list(payload.get("endpoint_block", []) or []),
+            "note": str(payload.get("note", "") or "").strip(),
+        }
+        try:
+            self._http_json(
+                f"/instances/{name}/connectors/{connector_id}",
+                method="POST",
+                payload=body,
+                timeout=3.0,
+                retry_auth_on_401=True,
+                auth_retry_reason="instance_connector_binding_save",
+            )
+        except Exception as e:
+            if not _CONNECTOR_MANAGER_BACKEND:
+                self._instance_manager_view.set_connector_binding_status(f"Connector binding save failed: {e}", ok=False)
+                self._status_panel.append_syslog(f"connector binding save failed: {e}")
+                return
+            try:
+                save_workspace_connector_binding(name, connector_id, body)
+            except Exception as local_error:
+                self._instance_manager_view.set_connector_binding_status(f"Connector binding save failed: {local_error}", ok=False)
+                self._status_panel.append_syslog(f"connector binding save failed: {local_error}")
+                return
+        self._instance_manager_view.set_connector_binding_status(f"Connector binding saved for {name} / {connector_id}")
+        self._status_panel.append_syslog(f"connector binding saved: {name} / {connector_id}")
+        self._log_launcher_event("workspace_connector_binding_saved", instance=name, connector=connector_id)
+        self._refresh_instance_views(load_logs=False, force=True)
+
+    def _on_connector_action_requested(self, payload: dict) -> None:
+        connector_id = str(payload.get("connector", "")).strip().lower()
+        action = str(payload.get("action", "")).strip().lower()
+        if not connector_id or not action:
+            return
+        body = {
+            "provider": str(payload.get("provider", "") or "").strip().lower(),
+            "account_id": str(payload.get("account_id", "") or "").strip().lower(),
+            "secret_key": str(payload.get("secret_key", "") or "").strip(),
+            "secret_value": str(payload.get("secret_value", "") or "").strip(),
+        }
+        try:
+            result = self._http_json(
+                f"/connectors/{connector_id}/{action}",
+                method="POST",
+                payload=body,
+                timeout=6.0,
+                retry_auth_on_401=True,
+                auth_retry_reason="connector_action",
+            )
+        except Exception as e:
+            if not _CONNECTOR_MANAGER_BACKEND:
+                self._advanced_view.append_log(f"connector action failed: {e}")
+                return
+            result = run_connector_action(
+                connector_id,
+                action,
+                provider=body["provider"],
+                account_id=body["account_id"],
+                secret_key=body["secret_key"],
+                secret_value=body["secret_value"],
+            )
+        summary = str(result.get("summary", "") or "").strip() or f"{connector_id} {action} completed"
+        ok = bool(result.get("ok", False))
+        self._advanced_view.append_log(summary)
+        self._status_panel.append_syslog(summary)
+        self._log_launcher_event("connector_action", connector=connector_id, action=action, ok=ok, summary=summary)
+        self._refresh_instance_views(load_logs=False, force=True)
 
     def _on_instance_delete_requested(self, name: str) -> None:
         target = (name or "").strip()
@@ -2124,11 +2372,69 @@ class LauncherWindow(QMainWindow):
         self._refresh_personalization_state()
         self._update_route_preview(self._last_command)
 
+    def _on_runtime_settings_saved(self, settings: dict) -> None:
+        backend = str(settings.get("local_runtime_backend", "ollama") or "ollama").strip().lower() or "ollama"
+        self._status_panel.append_syslog(f"local runtime saved -> {backend}")
+        self._refresh_personalization_state()
+        self._update_route_preview(self._last_command)
+        self._log_launcher_event("local_runtime_saved", backend=backend)
+
     def _on_search(self, query: str) -> None:
         if not query.strip():
             return
         self._on_tab_change(0)
         self._assistant_view.set_input_text(query)
+
+    @staticmethod
+    def _windows_ops_recipe(action: str) -> tuple[str, list[str]]:
+        target = (action or "").strip().lower()
+        python_bin = ".venv\\Scripts\\python.exe"
+        if target == "verify_runtime":
+            return (
+                "WINDOWS VERIFY",
+                [
+                    f"{python_bin} tools/verify_ollama_runtime.py --prompt ok",
+                    f"{python_bin} tools/verify_runtime_challengers.py",
+                ],
+            )
+        if target == "update_runtime":
+            return (
+                "WINDOWS UPDATE",
+                [
+                    f"{python_bin} -m pip install -r requirements.txt",
+                    f"{python_bin} -m pip install -r requirements-optional.txt",
+                ],
+            )
+        return "", []
+
+    def _on_windows_ops_requested(self, action: str) -> None:
+        target = (action or "").strip().lower()
+        if target in {"verify_runtime", "update_runtime"}:
+            label, commands = self._windows_ops_recipe(target)
+            if not commands:
+                self._status_panel.append_syslog(f"windows ops unavailable: {action}")
+                return
+            queued = self._advanced_view.queue_terminal_recipe(commands, label=label)
+            if queued:
+                self._set_daily_activity(f"{label.title()} queued in App Mgmt terminal")
+                self._status_panel.append_syslog(f"{label.lower()} queued")
+                self._log_launcher_event("windows_ops_action", action=target, queued=True, commands=len(commands))
+            else:
+                self._status_panel.append_syslog(f"{label.lower()} failed to queue")
+                self._log_launcher_event("windows_ops_action", action=target, queued=False, commands=len(commands))
+            return
+        if target == "restart_runtime":
+            self._status_panel.append_syslog("windows restart requested")
+            self._log_launcher_event("windows_ops_action", action=target, queued=True)
+            self._on_recovery_requested("restart_daemon")
+            return
+        if target == "repair_runtime":
+            self._status_panel.append_syslog("windows repair requested")
+            self._log_launcher_event("windows_ops_action", action=target, queued=True)
+            self._on_recovery_requested("warmup")
+            QTimer.singleShot(250, lambda: self._on_recovery_requested("audit_runtime"))
+            return
+        self._status_panel.append_syslog(f"windows ops unavailable: {action}")
 
     def _on_home_starter_requested(self, starter_id: str, prompt: str) -> None:
         self._on_tab_change(0)

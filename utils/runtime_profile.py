@@ -34,6 +34,13 @@ DEFAULT_SETTINGS = {
     "enable_voice": True,
     "wake_word_default": False,
     "default_mode": "auto",
+    "local_runtime_backend": "ollama",
+    "lemonade_base_url": "http://localhost:13305/api/v1",
+    "lemonade_fast_model": "",
+    "lemonade_complex_model": "",
+    "lemonade_teach_model": "",
+    "lemonade_code_model": "",
+    "lemonade_vault_model": "",
 }
 
 
@@ -166,6 +173,22 @@ def load_app_settings() -> dict[str, Any]:
         if env_value is not None:
             settings[setting_key] = env_value
 
+    local_runtime_backend = os.environ.get("GUPPY_LOCAL_RUNTIME_BACKEND", "").strip().lower()
+    if local_runtime_backend in {"ollama", "lemonade"}:
+        settings["local_runtime_backend"] = local_runtime_backend
+
+    for setting_key, env_name in (
+        ("lemonade_base_url", "GUPPY_LEMONADE_BASE_URL"),
+        ("lemonade_fast_model", "GUPPY_LEMONADE_FAST_MODEL"),
+        ("lemonade_complex_model", "GUPPY_LEMONADE_COMPLEX_MODEL"),
+        ("lemonade_teach_model", "GUPPY_LEMONADE_TEACH_MODEL"),
+        ("lemonade_code_model", "GUPPY_LEMONADE_CODE_MODEL"),
+        ("lemonade_vault_model", "GUPPY_LEMONADE_VAULT_MODEL"),
+    ):
+        env_value = os.environ.get(env_name)
+        if env_value is not None:
+            settings[setting_key] = str(env_value)
+
     return settings
 
 
@@ -199,6 +222,15 @@ def apply_settings_to_env(settings: dict[str, Any]) -> dict[str, Any]:
     os.environ["GUPPY_ENABLE_DAEMON"] = "1" if merged.get("enable_daemon") else "0"
     os.environ["GUPPY_ENABLE_VOICE"] = "1" if merged.get("enable_voice") else "0"
     os.environ["GUPPY_WAKE_WORD_DEFAULT"] = "1" if merged.get("wake_word_default") else "0"
+    os.environ["GUPPY_LOCAL_RUNTIME_BACKEND"] = str(merged.get("local_runtime_backend", "ollama") or "ollama").strip().lower()
+    os.environ["GUPPY_LEMONADE_BASE_URL"] = str(
+        merged.get("lemonade_base_url", "http://localhost:13305/api/v1") or "http://localhost:13305/api/v1"
+    ).strip()
+    os.environ["GUPPY_LEMONADE_FAST_MODEL"] = str(merged.get("lemonade_fast_model", "") or "").strip()
+    os.environ["GUPPY_LEMONADE_COMPLEX_MODEL"] = str(merged.get("lemonade_complex_model", "") or "").strip()
+    os.environ["GUPPY_LEMONADE_TEACH_MODEL"] = str(merged.get("lemonade_teach_model", "") or "").strip()
+    os.environ["GUPPY_LEMONADE_CODE_MODEL"] = str(merged.get("lemonade_code_model", "") or "").strip()
+    os.environ["GUPPY_LEMONADE_VAULT_MODEL"] = str(merged.get("lemonade_vault_model", "") or "").strip()
     return merged
 
 

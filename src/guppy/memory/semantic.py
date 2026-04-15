@@ -19,6 +19,7 @@ from pathlib import Path
 
 from src.guppy.paths import CHROMA_DIR, MEMORY_DB_PATH
 from src.guppy.memory.backend_adapter import get_memory_backend_id, get_memory_backend_impl
+from src.guppy.memory.mempalace_adapter import mempalace_recall, mempalace_remember
 from utils.db_utils import open_db as _open_db
 
 import requests
@@ -251,7 +252,7 @@ def remember_semantic(key: str, value: str, category: str = "general") -> str:
     try:
         backend = _backend()
         if backend == "mempalace":
-            raise RuntimeError("MemPalace adapter is planned but not implemented yet")
+            return mempalace_remember(k, v, c)
         if backend == "chroma":
             return _remember_chroma(k, v, c)
         return _remember_sqlite(k, v, c)
@@ -273,7 +274,7 @@ def recall_semantic(query: str, n: int = 5, category: str = "") -> str:
     try:
         backend = _backend()
         if backend == "mempalace":
-            raise RuntimeError("MemPalace adapter is planned but not implemented yet")
+            return mempalace_recall(q, n=limit, category=cat)
         if backend == "chroma":
             return _recall_chroma(q, limit, cat)
         return _recall_sqlite(q, limit, cat)

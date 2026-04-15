@@ -5,8 +5,11 @@ APP MGMT tab - app-level recovery actions, diagnostics, settings, and operator l
 from __future__ import annotations
 
 import json
+import os
 import queue
+import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -27,6 +30,15 @@ from PySide6.QtWidgets import (
 from .. import tokens as T
 
 _ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+try:
+    from utils.runtime_profile import load_app_settings
+    _RUNTIME_SETTINGS_BACKEND = True
+except Exception:
+    _RUNTIME_SETTINGS_BACKEND = False
+
+    def load_app_settings() -> dict[str, object]:
+        return {}
 
 _WORKFLOW_RECIPES: list[dict[str, object]] = [
     {
@@ -95,6 +107,8 @@ def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = Fa
 
 class AdvancedView(QWidget):
     recovery_requested = Signal(str)
+    windows_ops_requested = Signal(str)
+    connector_action_requested = Signal(dict)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -103,6 +117,8 @@ class AdvancedView(QWidget):
         self._terminal_queue: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
         self._terminal_process: subprocess.Popen[str] | None = None
         self._terminal_focus_pending = False
+        self._windows_ops: dict[str, str] = self._build_windows_ops_snapshot()
+        self._connector_inventory: list[dict[str, object]] = []
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -241,6 +257,133 @@ class AdvancedView(QWidget):
             widget.setWordWrap(True)
             diag_layout.addWidget(widget)
         layout.addWidget(diag_frame)
+
+        windows_ops = QFrame()
+        windows_ops.setStyleSheet(
+            f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
+        )
+        windows_ops_layout = QVBoxLayout(windows_ops)
+        windows_ops_layout.setContentsMargins(16, 14, 16, 14)
+        windows_ops_layout.setSpacing(8)
+        windows_ops_layout.addWidget(_mono("WINDOWS INSTALL / UPDATE / DIAGNOSTICS", T.PRIMARY, T.FS_TINY, True))
+        windows_ops_layout.addWidget(
+            _mono(
+                "Keep the desktop runtime legible here: what is installed, which local runtime is active, where data lives, and which repair path to run next.",
+                T.DIM,
+                T.FS_SMALL,
+            )
+        )
+        self._windows_install_lbl = _mono("", T.TEXT, T.FS_SMALL)
+        self._windows_runtime_lbl = _mono("", T.DIM, T.FS_SMALL)
+        self._windows_paths_lbl = _mono("", T.DIM, T.FS_SMALL)
+        self._windows_repair_lbl = _mono("", T.DIM, T.FS_SMALL)
+        self._windows_update_lbl = _mono("", T.PRIMARY_DIM, T.FS_SMALL)
+        self._windows_diagnostics_lbl = _mono("", T.DIM, T.FS_SMALL)
+        windows_actions = QHBoxLayout()
+        for label, action, accent in [
+            ("VERIFY", "verify_runtime", T.PRIMARY),
+            ("UPDATE", "update_runtime", T.PRIMARY_DIM),
+            ("RESTART", "restart_runtime", T.ERROR),
+            ("REPAIR", "repair_runtime", T.SECONDARY),
+        ]:
+            btn = QPushButton(label)
+            btn.setStyleSheet(
+                f"QPushButton {{ background: {T.BG0}; color: {accent}; border: 1px solid {accent};"
+                f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+                f"QPushButton:hover {{ background: {accent}; color: {T.BG}; }}"
+            )
+            btn.clicked.connect(lambda _=False, a=action: self.windows_ops_requested.emit(a))
+            windows_actions.addWidget(btn)
+        windows_actions.addStretch()
+        windows_ops_layout.addLayout(windows_actions)
+        for widget in (
+            self._windows_install_lbl,
+            self._windows_runtime_lbl,
+            self._windows_paths_lbl,
+            self._windows_repair_lbl,
+            self._windows_update_lbl,
+            self._windows_diagnostics_lbl,
+        ):
+            widget.setWordWrap(True)
+            windows_ops_layout.addWidget(widget)
+        layout.addWidget(windows_ops)
+
+        connectors_frame = QFrame()
+        connectors_frame.setStyleSheet(
+            f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
+        )
+        connectors_layout = QVBoxLayout(connectors_frame)
+        connectors_layout.setContentsMargins(16, 14, 16, 14)
+        connectors_layout.setSpacing(8)
+        connectors_layout.addWidget(_mono("CONNECTOR INVENTORY + AUTH", T.PRIMARY, T.FS_TINY, True))
+        connectors_layout.addWidget(
+            _mono(
+                "Machine-level connector auth lives here. Verify readiness, reconnect OAuth-backed tools, and manage stored secrets without changing workspace policy.",
+                T.DIM,
+                T.FS_SMALL,
+            )
+        )
+        connector_row1 = QHBoxLayout()
+        self._connector_cb = QComboBox()
+        self._connector_cb.setStyleSheet(
+            f"QComboBox {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
+            f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
+        )
+        self._connector_cb.currentIndexChanged.connect(self._sync_connector_controls)
+        self._connector_provider = QComboBox()
+        self._connector_account = QComboBox()
+        self._connector_secret_key = QComboBox()
+        for combo in (self._connector_provider, self._connector_account, self._connector_secret_key):
+            combo.setStyleSheet(
+                f"QComboBox {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
+                f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
+            )
+        connector_row1.addWidget(self._connector_cb, stretch=2)
+        connector_row1.addWidget(self._connector_provider, stretch=1)
+        connector_row1.addWidget(self._connector_account, stretch=1)
+        connectors_layout.addLayout(connector_row1)
+
+        self._connector_secret_value = QLineEdit()
+        self._connector_secret_value.setPlaceholderText("secret value for API-key or provider-backed connectors")
+        self._connector_secret_value.setStyleSheet(
+            f"QLineEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
+            f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
+        )
+        connectors_layout.addWidget(self._connector_secret_value)
+
+        connector_actions = QHBoxLayout()
+        for label, action, accent in [
+            ("VERIFY", "verify", T.PRIMARY),
+            ("CONNECT", "connect", T.PRIMARY_DIM),
+            ("RECONNECT", "reconnect", T.SECONDARY),
+            ("DISCONNECT", "disconnect", T.ERROR),
+            ("SAVE SECRET", "save_secret", T.PRIMARY_DIM),
+            ("CLEAR SECRET", "clear_secret", T.ERROR),
+        ]:
+            btn = QPushButton(label)
+            btn.setStyleSheet(
+                f"QPushButton {{ background: {T.BG0}; color: {accent}; border: 1px solid {accent};"
+                f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+                f"QPushButton:hover {{ background: {accent}; color: {T.BG}; }}"
+            )
+            btn.clicked.connect(lambda _=False, a=action: self._emit_connector_action(a))
+            connector_actions.addWidget(btn)
+        connector_actions.addStretch()
+        connectors_layout.addLayout(connector_actions)
+
+        self._connector_state_lbl = _mono("Connector inventory waiting for first refresh", T.DIM, T.FS_SMALL)
+        self._connector_auth_lbl = _mono("Auth: unavailable", T.DIM, T.FS_SMALL)
+        self._connector_detail_lbl = _mono("Detail: unavailable", T.DIM, T.FS_SMALL)
+        self._connector_secret_lbl = _mono("Secret fields: unavailable", T.DIM, T.FS_TINY)
+        for widget in (
+            self._connector_state_lbl,
+            self._connector_auth_lbl,
+            self._connector_detail_lbl,
+            self._connector_secret_lbl,
+        ):
+            widget.setWordWrap(True)
+            connectors_layout.addWidget(widget)
+        layout.addWidget(connectors_frame)
 
         workflow_frame = QFrame()
         workflow_frame.setStyleSheet(
@@ -423,6 +566,7 @@ class AdvancedView(QWidget):
         self._terminal_timer.timeout.connect(self._drain_terminal_queue)
         self._terminal_timer.start(150)
         self._sync_workflow_recipe()
+        self._refresh_windows_ops_labels()
 
     def attach_settings_panel(self, widget: QWidget) -> None:
         while self._settings_host.count():
@@ -443,6 +587,11 @@ class AdvancedView(QWidget):
         msg = (text or "Recovery idle").strip() or "Recovery idle"
         self._recovery_status.setText(msg)
         self._last_recovery_lbl.setText(f"Last recovery: {msg}")
+        runtime_line = self._windows_ops.get("runtime", "")
+        self._windows_ops = self._build_windows_ops_snapshot()
+        if runtime_line:
+            self._windows_ops["runtime"] = runtime_line
+        self._refresh_windows_ops_labels()
 
     def set_daily_context_activity(self, text: str) -> None:
         msg = (text or "launcher ready").strip() or "launcher ready"
@@ -469,6 +618,10 @@ class AdvancedView(QWidget):
         )
 
     def set_status_snapshot(self, payload: dict[str, object]) -> None:
+        runtime_line = self._windows_ops.get("runtime", "")
+        self._windows_ops = self._build_windows_ops_snapshot()
+        if runtime_line:
+            self._windows_ops["runtime"] = runtime_line
         api_state = str(payload.get("status", "unknown") or "unknown").upper()
         startup = payload.get("startup_readiness", {})
         startup_overall = "unknown"
@@ -493,6 +646,19 @@ class AdvancedView(QWidget):
             state = str(envelope.get("state", "unknown") or "unknown")
             detail = str(envelope.get("message", envelope.get("detail", "")) or "").strip()
             self._resource_lbl.setText(f"Resource envelope: {state}" + (f" | {detail}" if detail else ""))
+        self._refresh_windows_ops_labels()
+
+        local_runtime = payload.get("local_runtime", {})
+        if isinstance(local_runtime, dict):
+            configured_backend = self._configured_local_runtime_backend()
+            live_backend = str(local_runtime.get("backend", configured_backend.lower()) or configured_backend).strip().upper()
+            live_state = str(local_runtime.get("state", "unknown") or "unknown").strip().upper()
+            live_detail = str(local_runtime.get("detail", "") or "").strip()
+            self._windows_ops["runtime"] = (
+                f"Configured local runtime: {configured_backend} | Live backend: {live_backend} | State: {live_state}"
+                + (f" | {live_detail}" if live_detail else "")
+            )
+            self._refresh_windows_ops_labels()
 
     def set_instance_snapshot(self, payload: dict[str, object]) -> None:
         limits = payload.get("limits", {}) if isinstance(payload, dict) else {}
@@ -505,9 +671,152 @@ class AdvancedView(QWidget):
             f"Instances: active={active_instance} | configured {configured}/{max_configured} | runtime-active {active_runtime}/{max_active_runtime}"
         )
 
+    def set_connector_inventory(self, items: list[dict[str, object]]) -> None:
+        self._connector_inventory = [item for item in items if isinstance(item, dict)]
+        current = self._connector_cb.currentText().strip().lower()
+        self._connector_cb.blockSignals(True)
+        self._connector_cb.clear()
+        for item in self._connector_inventory:
+            connector_id = str(item.get("id", "")).strip().lower()
+            if connector_id:
+                self._connector_cb.addItem(connector_id)
+        if self._connector_cb.count() == 0:
+            for connector_id in ("gmail", "calendar", "spotify", "youtube", "crm", "voip"):
+                self._connector_cb.addItem(connector_id)
+        idx = self._connector_cb.findText(current)
+        self._connector_cb.setCurrentIndex(max(0, idx))
+        self._connector_cb.blockSignals(False)
+        self._sync_connector_controls()
+
+    def _current_connector_payload(self) -> dict[str, object]:
+        connector_id = self._connector_cb.currentText().strip().lower()
+        return next(
+            (
+                item
+                for item in self._connector_inventory
+                if str(item.get("id", "")).strip().lower() == connector_id
+            ),
+            {},
+        )
+
+    def _sync_connector_controls(self) -> None:
+        item = self._current_connector_payload()
+        providers = item.get("providers", []) if isinstance(item.get("providers"), list) else []
+        accounts = item.get("accounts", []) if isinstance(item.get("accounts"), list) else []
+        secret_fields = item.get("secret_fields", []) if isinstance(item.get("secret_fields"), list) else []
+        for combo, values, default_label in (
+            (self._connector_provider, providers, "(provider)"),
+            (self._connector_account, accounts, "(account)"),
+        ):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem(default_label, "")
+            for value in values:
+                if not isinstance(value, dict):
+                    continue
+                combo.addItem(str(value.get("label", value.get("id", "")) or value.get("id", "")), str(value.get("id", "")))
+            combo.blockSignals(False)
+        self._connector_secret_key.blockSignals(True)
+        self._connector_secret_key.clear()
+        self._connector_secret_key.addItem("(secret field)", "")
+        for field in secret_fields:
+            self._connector_secret_key.addItem(str(field), str(field))
+        self._connector_secret_key.blockSignals(False)
+        connector_id = str(item.get("id", self._connector_cb.currentText()) or self._connector_cb.currentText()).strip().lower()
+        auth_kind = str(item.get("auth_kind", "unknown") or "unknown")
+        auth_state = str(item.get("auth_state", "unknown") or "unknown").upper()
+        source = str(item.get("source", "none") or "none").upper()
+        detail = str(item.get("auth_detail", "") or "").strip()
+        actions = [str(action) for action in item.get("actions_supported", []) if str(action).strip()]
+        self._connector_state_lbl.setText(
+            f"Connector: {connector_id or '-'} | Auth kind: {auth_kind} | Actions: {', '.join(actions) or 'none'}"
+        )
+        self._connector_auth_lbl.setText(f"Auth: {auth_state} | Source: {source}")
+        self._connector_detail_lbl.setText(f"Detail: {detail or 'No connector detail available.'}")
+        self._connector_secret_lbl.setText(
+            "Secret fields: " + (", ".join(str(field) for field in secret_fields) if secret_fields else "none")
+        )
+
+    def _emit_connector_action(self, action: str) -> None:
+        connector_id = self._connector_cb.currentText().strip().lower()
+        if not connector_id:
+            self.append_log("connector action ignored: choose a connector first")
+            return
+        resolved_action = "connect" if action == "save_secret" else "disconnect" if action == "clear_secret" else action
+        self.connector_action_requested.emit(
+            {
+                "connector": connector_id,
+                "action": resolved_action,
+                "provider": str(self._connector_provider.currentData() or "").strip(),
+                "account_id": str(self._connector_account.currentData() or "").strip(),
+                "secret_key": str(self._connector_secret_key.currentData() or "").strip(),
+                "secret_value": self._connector_secret_value.text().strip(),
+            }
+        )
+
     def _set_log_filter(self, value: str) -> None:
         self._log_filter = (value or "ALL").strip().upper() or "ALL"
         self._refresh_operator_logs()
+
+    def _configured_local_runtime_backend(self) -> str:
+        settings = load_app_settings() if _RUNTIME_SETTINGS_BACKEND else {}
+        backend = str(
+            settings.get("local_runtime_backend", os.environ.get("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama"))
+        ).strip().lower() or "ollama"
+        return backend.upper()
+
+    def _latest_runtime_artifact(self, *patterns: str) -> Path | None:
+        candidates: list[Path] = []
+        runtime_dir = _ROOT / "runtime"
+        for pattern in patterns:
+            candidates.extend(runtime_dir.glob(pattern))
+        if not candidates:
+            return None
+        return max(candidates, key=lambda path: path.stat().st_mtime)
+
+    def _build_windows_ops_snapshot(self) -> dict[str, str]:
+        runtime_dir = _ROOT / "runtime"
+        config_dir = _ROOT / "config"
+        settings_path = runtime_dir / "app_settings.json"
+        launcher_events = runtime_dir / "launcher_events.jsonl"
+        venv_python = _ROOT / ".venv" / "Scripts" / "python.exe"
+        supervisor_script = _ROOT / "bin" / "launch_api_supervised.bat"
+        build_script = _ROOT / "build_executable.bat"
+        repair_file = runtime_dir / "repair_token.txt"
+        latest_bundle = self._latest_runtime_artifact("diagnostics_bundle_*.json", "diagnostics_*.json")
+        latest_bundle_text = str(latest_bundle) if latest_bundle is not None else "none yet"
+        install_bits: list[str] = []
+        install_bits.append(f"Launcher python: {sys.executable}")
+        install_bits.append(f"Repo python: {'present' if venv_python.exists() else 'missing'}")
+        install_bits.append(f"Ollama CLI: {'found' if shutil.which('ollama') else 'missing'}")
+        install_bits.append(f"Lemonade CLI: {'found' if shutil.which('lemonade') else 'missing'}")
+        install_bits.append(f"Supervisor script: {'ready' if supervisor_script.exists() else 'missing'}")
+        install_bits.append(f"Packager: {'ready' if build_script.exists() else 'missing'}")
+
+        repair_hint = "keyring-backed first; file fallback present" if repair_file.exists() else "keyring-backed first; file fallback not present"
+        return {
+            "install": "Installed surface: " + " | ".join(install_bits),
+            "runtime": f"Configured local runtime: {self._configured_local_runtime_backend()} | Live backend: waiting for first status poll",
+            "paths": f"Data paths: runtime={runtime_dir} | config={config_dir} | settings={settings_path}",
+            "repair": f"Repair path: {repair_hint} | API relaunch: {supervisor_script}",
+            "update": (
+                "Update path: python -m pip install -r requirements.txt | "
+                "optional extras: python -m pip install -r requirements-optional.txt | "
+                "daily launcher: python src/guppy/cli/launch.py launcher"
+            ),
+            "diagnostics": (
+                f"Diagnostics: launcher log={launcher_events} | latest bundle={latest_bundle_text} | "
+                "runtime check: python tools/verify_ollama_runtime.py --prompt ok"
+            ),
+        }
+
+    def _refresh_windows_ops_labels(self) -> None:
+        self._windows_install_lbl.setText(self._windows_ops.get("install", "Installed surface: unavailable"))
+        self._windows_runtime_lbl.setText(self._windows_ops.get("runtime", "Configured local runtime: unavailable"))
+        self._windows_paths_lbl.setText(self._windows_ops.get("paths", "Data paths: unavailable"))
+        self._windows_repair_lbl.setText(self._windows_ops.get("repair", "Repair path: unavailable"))
+        self._windows_update_lbl.setText(self._windows_ops.get("update", "Update path: unavailable"))
+        self._windows_diagnostics_lbl.setText(self._windows_ops.get("diagnostics", "Diagnostics: unavailable"))
 
     def focus_operator_logs(self, log_filter: str = "ALL", note: str = "") -> None:
         target = (log_filter or "ALL").strip().upper() or "ALL"
@@ -524,6 +833,9 @@ class AdvancedView(QWidget):
         if note:
             self._append_terminal_output(note)
         self._terminal_input.setFocus()
+
+    def queue_terminal_recipe(self, commands: list[str], *, label: str) -> bool:
+        return self._run_terminal_commands(commands, label=label)
 
     def _workflow_recipe(self) -> dict[str, object]:
         recipe_id = str(self._workflow_cb.currentData() or "")

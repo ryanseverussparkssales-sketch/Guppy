@@ -7,9 +7,9 @@ This folder is the canonical source for active operational and product-facing re
 - `docs/PROJECT_BRIEF.md`
   - Current product surface, runtime scope, live features, and current gaps.
 - `docs/API.md`
-  - Active API surface and canonical implementation ownership.
+  - Active API surface, instance governance payload shape, and canonical implementation ownership.
 - `docs/TROUBLESHOOTING.md`
-  - Active operator troubleshooting steps.
+  - Active operator troubleshooting steps, including workspace governance and Windows ops actions.
 - `docs/VOICE.md`
   - Current voice implementation notes and runtime guidance.
 - `docs/PACKAGING.md`

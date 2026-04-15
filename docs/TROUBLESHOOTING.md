@@ -44,6 +44,35 @@
   - `python -m pytest tests/unit/test_personalization_resolution.py tests/unit/test_models_routes.py tests/unit/test_voices_view_validation.py -q`
 - Use App Mgmt `WORKFLOW LOOPS` to load the acceptance or midday checks without leaving the launcher.
 
+## A connector action is blocked and the reason is unclear
+
+- Open Agent Tools for the active workspace and read the tool card details.
+- Blocked actions now explain whether the stop came from:
+  - missing connector auth
+  - endpoint scope filtering
+  - workspace policy
+- Open Workspaces and review the governance editor for that workspace:
+  - `auth mode`
+  - `tool allow` / `tool block`
+  - `endpoint allow` / `endpoint block`
+  - operator note
+- If the workspace policy looks correct, use App Mgmt `WINDOWS INSTALL / UPDATE / DIAGNOSTICS` to verify which runtime is active and whether the local backend is healthy.
+
+## Need to know what is installed, which runtime is active, or where Guppy stores data
+
+- Open App Mgmt and read the `WINDOWS INSTALL / UPDATE / DIAGNOSTICS` section.
+- It now shows:
+  - installed runtime/tooling signals (`.venv`, Ollama CLI, Lemonade CLI, supervisor script, packager)
+  - configured and live local runtime backend
+  - runtime/config/settings data paths
+  - repair-token posture and the supervisor relaunch path
+  - latest diagnostics artifact and launcher log path
+- It also gives one-click actions for `VERIFY`, `UPDATE`, `RESTART`, and `REPAIR`:
+  - `VERIFY` queues the runtime verification commands in the embedded terminal
+  - `UPDATE` queues the dependency refresh commands in the embedded terminal
+  - `RESTART` uses the guarded daemon restart path
+  - `REPAIR` runs the warmup plus audit flow
+
 ## Ollama connection issues
 
 - Verify Ollama service is running:

@@ -20,18 +20,101 @@ Root files `guppy_api.py` and `guppy_api_auth.py` are compatibility shims.
 - Header: `Authorization: Bearer <jwt>`
 - Returns token-source diagnostics used by the launcher auth handshake
 
-## Status and Telemetry
+## Core Status
+
+### `GET /`
+
+- No auth header required
+- Returns a minimal API liveness payload
+
+### `GET /metrics`
+
+- Header: `Authorization: Bearer <jwt>`
+- Returns request counts, status-code buckets, slow-request totals, and average latency
+- Useful for operator diagnostics without reading raw logs
 
 ### `GET /status`
 
 - Header: `Authorization: Bearer <jwt>`
 - Returns daemon/window context and subsystem availability
+- Includes `local_runtime`, `startup_readiness`, and `resource_envelope` snapshots
 - Includes `resource_envelope` snapshot when daemon monitoring is active
 
 ### `GET /startup/check`
 
 - Header: `Authorization: Bearer <jwt>`
 - Returns startup readiness checks for key API dependencies
+- `checks.local_runtime` reports the currently selected local backend (`ollama` or `lemonade`)
+
+## Instances
+
+### `GET /instances`
+
+- Header: `Authorization: Bearer <jwt>`
+- Returns configured workspaces/instances, active instance, limits, normalization warnings, and per-workspace `governance` summaries
+- Each `governance` summary now includes:
+  - `auth_mode`
+  - `auth_mode_label`
+  - `tool_allow`
+  - `tool_block`
+  - `endpoint_allow`
+  - `endpoint_block`
+  - `policy_note`
+  - `capabilities` (`read`, `write`, `execute`, `network`)
+
+### `POST /instances`
+
+- Header: `Authorization: Bearer <jwt>`
+- Body:
+  - `name` (string, required)
+  - `description` (optional string)
+  - `mode` (optional string, default `auto`)
+  - `persona` (optional string, default `guppy`)
+  - `voice` (optional string, default `default`)
+  - `enabled` (optional bool, default `true`)
+  - `type` (optional string, default `user_instance`)
+- Creates or updates an instance and returns updated limit accounting
+
+### `POST /instances/{name}/activate`
+
+- Header: `Authorization: Bearer <jwt>`
+- Marks the named instance as active and updates runtime state
+
+### `POST /instances/{name}/governance`
+
+- Header: `Authorization: Bearer <jwt>`
+- Body:
+  - `auth_mode` (string: `runtime_default | workspace_token_required | local_only | disabled`)
+  - `tool_allow` (optional list of tool ids)
+  - `tool_block` (optional list of tool ids)
+  - `endpoint_allow` (optional list of endpoint filter patterns)
+  - `endpoint_block` (optional list of endpoint filter patterns)
+  - `policy_note` (optional string)
+- Saves workspace governance policy and returns the normalized `governance` payload now active for that workspace
+
+### `DELETE /instances/{name}`
+
+- Header: `Authorization: Bearer <jwt>`
+- Deletes an instance unless it is the last configured instance
+
+### `GET /instances/{name}/logs`
+
+- Header: `Authorization: Bearer <jwt>`
+- Query params:
+  - `limit` (optional, default `50`)
+- Returns recent per-instance log entries plus a summary block
+
+### `POST /instances/{name}/query`
+
+- Header: `Authorization: Bearer <jwt>`
+- Body:
+  - `message` (string, required)
+  - `source_instance` (optional string, default `launcher`)
+  - `timeout_s` (optional float, capped at `5.0`)
+- Runs a bounded cross-instance query and can return `busy`, `timeout`, or a completed response
+- The same endpoint-aware workspace governance used by launcher tools is enforced here before the bridge runs
+
+## Logs and Telemetry
 
 ### `GET /logs/recent`
 
@@ -91,7 +174,11 @@ Repair token notes:
 - Body:
   - `message` (string)
   - `session_id` (optional)
+  - `mode` (optional: `auto | claude | ollama | local | code | teaching | vault`)
+  - `persona` (optional)
+  - `history` (optional list of `{role, content}` items)
   - `use_claude` (optional bool)
+  - `idempotency_key` (optional string)
 
 ### `POST /chat/voice`
 
@@ -106,11 +193,3 @@ Repair token notes:
 - Client first message: `{ "token": "<jwt>" }`
 - Then send chat events with `message`, `session_id` (optional), `use_claude` (optional)
 - Server emits chunk events and `{ "done": true }`
-
-## Smoke Path
-
-Use the current smoke script from the reorganized test tree:
-
-```powershell
-python tests/smoke/smoke_api.py
-```

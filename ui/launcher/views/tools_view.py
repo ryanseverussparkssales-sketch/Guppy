@@ -21,8 +21,11 @@ from ..components import BuilderTaskPanel
 from .. import tokens as T
 
 try:
-    from utils.instance_capabilities import check_instance_tool_permission, required_capability_for_tool
+    from utils.instance_capabilities import auth_mode_label, check_instance_tool_permission, required_capability_for_tool
 except ImportError:
+    def auth_mode_label(mode: str) -> str:
+        return str(mode or "runtime default").strip() or "runtime default"
+
     def required_capability_for_tool(tool_name: str) -> str:
         del tool_name
         return "execute"
@@ -102,6 +105,60 @@ _INSTANCE_TOOL_CATALOG: list[dict[str, object]] = [
         "reason": "Reserved for higher-trust workspaces.",
         "dry_run": True,
     },
+    {
+        "key": "send_email",
+        "name": "GMAIL",
+        "category": "CONNECTOR",
+        "description": "Send or clean up Gmail from the workspace-bound account when machine auth and workspace binding both allow it.",
+        "allowed_types": {"user_instance", "admin_instance", "builder_instance"},
+        "reason": "Connector access now respects workspace bindings, account choice, and machine-level auth.",
+        "dry_run": False,
+    },
+    {
+        "key": "calendar_events",
+        "name": "CALENDAR",
+        "category": "CONNECTOR",
+        "description": "Read upcoming calendar events from the workspace-bound calendar scope.",
+        "allowed_types": {"user_instance", "admin_instance", "builder_instance", "read_only_instance"},
+        "reason": "Calendar reads stay subject to workspace connector policy and host auth readiness.",
+        "dry_run": False,
+    },
+    {
+        "key": "spotify_current",
+        "name": "SPOTIFY",
+        "category": "CONNECTOR",
+        "description": "Inspect or control Spotify when the workspace binding and machine auth are ready.",
+        "allowed_types": {"user_instance", "admin_instance", "builder_instance"},
+        "reason": "Media connectors now have the same workspace governance story as file and code tools.",
+        "dry_run": False,
+    },
+    {
+        "key": "youtube_search",
+        "name": "YOUTUBE",
+        "category": "CONNECTOR",
+        "description": "Search or open YouTube through the workspace connector binding and machine auth posture.",
+        "allowed_types": {"user_instance", "admin_instance", "builder_instance", "read_only_instance"},
+        "reason": "YouTube connector access is now visible through the same workspace policy surface.",
+        "dry_run": False,
+    },
+    {
+        "key": "crm_upsert_contact",
+        "name": "CRM",
+        "category": "CONNECTOR",
+        "description": "Prepare CRM writes against the workspace-bound provider when the provider configuration is ready.",
+        "allowed_types": {"user_instance", "admin_instance", "builder_instance"},
+        "reason": "Business connectors must now pass workspace binding, provider, and auth checks.",
+        "dry_run": True,
+    },
+    {
+        "key": "voip_place_call",
+        "name": "VOIP",
+        "category": "CONNECTOR",
+        "description": "Prepare or place outbound calls through the workspace-bound VoIP provider.",
+        "allowed_types": {"user_instance", "admin_instance"},
+        "reason": "VoIP stays restricted to higher-trust workspaces and now shows connector policy reasons explicitly.",
+        "dry_run": True,
+    },
 ]
 
 
@@ -129,6 +186,26 @@ def _workspace_type_label(instance_type: str) -> str:
         "read_only_instance": "read-only reference",
         "admin_instance": "operations workspace",
     }.get(value, value.replace("_", " ").strip() or "workspace")
+
+
+def _render_scope_list(items: list[str], label: str) -> str:
+    if not items:
+        return f"{label}: inherited"
+    preview = ", ".join(item.replace("_", " ") for item in items[:3])
+    if len(items) > 3:
+        preview += f", +{len(items) - 3} more"
+    return f"{label}: {preview}"
+
+
+def _render_endpoint_scope(allow: list[str], block: list[str]) -> str:
+    if not allow and not block:
+        return "Endpoint filters: inherited"
+    parts: list[str] = []
+    if allow:
+        parts.append(_render_scope_list(allow, "allow"))
+    if block:
+        parts.append(_render_scope_list(block, "block"))
+    return "Endpoint filters: " + " | ".join(parts)
 
 
 class _ToolCard(QFrame):
@@ -177,6 +254,9 @@ class _ToolCard(QFrame):
         self._scope_lbl = _mono("", T.DIM, T.FS_TINY)
         self._scope_lbl.setWordWrap(True)
         root.addWidget(self._scope_lbl)
+        self._policy_lbl = _mono("", T.PRIMARY_DIM, T.FS_TINY)
+        self._policy_lbl.setWordWrap(True)
+        root.addWidget(self._policy_lbl)
         self._guard_lbl = _mono("", T.DIM, T.FS_TINY)
         self._guard_lbl.setWordWrap(True)
         root.addWidget(self._guard_lbl)
@@ -196,7 +276,7 @@ class _ToolCard(QFrame):
 
     def apply_context(self, instance_name: str, instance_type: str) -> None:
         allowed_by_type = _tool_allowed(self._tool, instance_type)
-        policy_allowed, policy_reason, _permissions = check_instance_tool_permission(
+        policy_allowed, policy_reason, permissions = check_instance_tool_permission(
             self.tool_key,
             instance_name=instance_name,
             instance_type=instance_type,
@@ -205,12 +285,71 @@ class _ToolCard(QFrame):
         self._state = "ready" if allowed else "restricted"
         self._reason = str(self._tool.get("reason", "")).strip()
         capability = required_capability_for_tool(self.tool_key)
+        auth_mode = auth_mode_label(str(permissions.get("_auth_mode", "runtime_default") or "runtime_default")).upper()
+        tool_allow = [str(item) for item in permissions.get("_tool_allow", []) if str(item).strip()]
+        tool_block = [str(item) for item in permissions.get("_tool_block", []) if str(item).strip()]
+        endpoint_allow = [str(item) for item in permissions.get("_endpoint_allow", []) if str(item).strip()]
+        endpoint_block = [str(item) for item in permissions.get("_endpoint_block", []) if str(item).strip()]
+        policy_note = str(permissions.get("_policy_note", "") or "").strip()
+        resolved_endpoint = str(permissions.get("_resolved_endpoint", "") or "").strip()
+        connector = str(permissions.get("_connector", "workspace_tool") or "workspace_tool").replace("_", " ").upper()
+        connector_auth_state = str(permissions.get("_connector_auth_state", "unknown") or "unknown").upper()
+        connector_auth_detail = str(permissions.get("_connector_auth_detail", "") or "").strip()
+        connector_auth_source = str(permissions.get("_connector_auth_source", "none") or "none").upper()
+        connector_action = str(permissions.get("_connector_action", "") or "").strip().replace("_", " ").upper()
+        connector_binding_enabled = bool(permissions.get("_connector_binding_enabled", False))
+        connector_binding_inherited = bool(permissions.get("_connector_binding_inherited", False))
+        connector_binding_account = str(permissions.get("_connector_binding_account", "") or "").strip()
+        connector_binding_provider = str(permissions.get("_connector_binding_provider", "") or "").strip()
+        connector_binding_action_allow = [str(item) for item in permissions.get("_connector_binding_action_allow", []) if str(item).strip()]
+        connector_binding_action_block = [str(item) for item in permissions.get("_connector_binding_action_block", []) if str(item).strip()]
+        connector_binding_endpoint_allow = [str(item) for item in permissions.get("_connector_binding_endpoint_allow", []) if str(item).strip()]
+        connector_binding_endpoint_block = [str(item) for item in permissions.get("_connector_binding_endpoint_block", []) if str(item).strip()]
+        connector_binding_note = str(permissions.get("_connector_binding_note", "") or "").strip()
+        policy_reason_code = str(permissions.get("_policy_reason_code", "") or "").strip().lower()
         workspace_gate = "Workspace/role check allows" if allowed_by_type else "Workspace/role check blocks"
-        runtime_gate = "runtime policy allows" if policy_allowed else "runtime policy blocks"
-        policy_text = f"Requires {capability} capability. {workspace_gate}; {runtime_gate}."
+        runtime_gate = "governance policy allows" if policy_allowed else "governance policy blocks"
+        policy_text = f"Requires {capability} capability. {workspace_gate}; {runtime_gate}. Auth mode: {auth_mode}."
+        if resolved_endpoint:
+            policy_text += f" Endpoint scope resolves to {resolved_endpoint}."
         if bool(self._tool.get("dry_run", False)):
             policy_text += " Home priming only appears when the real runtime step is allowed."
         self._guard_lbl.setText(policy_text)
+        governance_text = " | ".join(
+            [
+                f"AUTH MODE: {auth_mode}",
+                f"CONNECTOR: {connector}",
+                f"CONNECTOR AUTH: {connector_auth_state}",
+                f"AUTH SOURCE: {connector_auth_source}",
+                f"BINDING: {'enabled' if connector_binding_enabled else 'not bound'}"
+                + (" (inherited)" if connector_binding_inherited else ""),
+                f"CONNECTOR ACTION: {connector_action or 'DEFAULT'}",
+                _render_scope_list(tool_allow, "Allow list"),
+                _render_scope_list(tool_block, "Block list"),
+                _render_endpoint_scope(endpoint_allow, endpoint_block),
+            ]
+        )
+        if connector_binding_account:
+            governance_text += f" | Account: {connector_binding_account}"
+        if connector_binding_provider:
+            governance_text += f" | Provider: {connector_binding_provider}"
+        if connector_binding_action_allow or connector_binding_action_block:
+            governance_text += (
+                f" | Connector actions: {_render_scope_list(connector_binding_action_allow, 'allow')}"
+                f" | {_render_scope_list(connector_binding_action_block, 'block')}"
+            )
+        if connector_binding_endpoint_allow or connector_binding_endpoint_block:
+            governance_text += (
+                " | Connector endpoint filters: "
+                + _render_endpoint_scope(connector_binding_endpoint_allow, connector_binding_endpoint_block).replace("Endpoint filters: ", "")
+            )
+        if connector_auth_detail:
+            governance_text += f" | Auth detail: {connector_auth_detail}"
+        if connector_binding_note:
+            governance_text += f" | Binding note: {connector_binding_note}"
+        if policy_note:
+            governance_text += f" | Note: {policy_note}"
+        self._policy_lbl.setText(governance_text)
         if allowed:
             self._status_lbl.setText("READY")
             self._status_lbl.setStyleSheet(
@@ -226,9 +365,19 @@ class _ToolCard(QFrame):
                 f"color: {T.ERROR}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
             )
             restriction = policy_reason or self._reason
+            fix_hint = {
+                "connector_unbound": "Fix in Workspaces: bind this connector to the active workspace.",
+                "connector_action_blocked": "Fix in Workspaces: adjust connector action allow/block policy.",
+                "connector_account_unavailable": "Fix in Workspaces: choose a valid connector account for this machine.",
+                "connector_provider_unconfigured": "Fix in Workspaces or App Mgmt: choose a valid provider and verify host config.",
+                "connector_host_auth_missing": "Fix in App Mgmt: connect or verify the machine-level connector auth.",
+                "endpoint_block": "Fix in Workspaces: loosen the connector endpoint block filter if this is intentional.",
+                "endpoint_allow": "Fix in Workspaces: expand the connector endpoint allow filter if this is intentional.",
+            }.get(policy_reason_code, "")
             self._scope_lbl.setText(
                 f"This workspace cannot use {self.tool_key.replace('_', ' ')} right now. "
                 f"Blocked in {instance_name} ({_workspace_type_label(instance_type)}). {restriction}"
+                + (f" {fix_hint}" if fix_hint else "")
             )
             self._hint_btn.setEnabled(False)
 
@@ -314,7 +463,7 @@ class ToolsView(QWidget):
         self._boundary_lbl.setWordWrap(True)
         layout.addWidget(self._boundary_lbl)
         self._execution_lbl = _mono(
-            "Execution stays gated by workspace permissions and runtime policy, even when a tool is visible in the tray.",
+            "Execution stays gated by workspace permissions, auth mode, allow/block lists, and endpoint policy, even when a tool is visible in the tray.",
             T.DIM,
             T.FS_SMALL,
         )
@@ -424,7 +573,7 @@ class ToolsView(QWidget):
             f"{name} can launch quick workspace tools from the right tray. This page keeps builder queue context and permission framing."
         )
         self._execution_lbl.setText(
-            f"{name} can only run tools that match its workspace role and runtime policy. Restricted tools stay blocked even if the prompt is primed from the tray."
+            f"{name} can only run tools that match its workspace role, auth mode, and governance policy. Restricted tools stay blocked even if the prompt is primed from the tray."
         )
         self._builder_panel.set_instance_context(name, instance_type)
         for card in self._tool_cards.values():

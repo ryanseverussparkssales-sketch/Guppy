@@ -30,13 +30,15 @@ import urllib.parse
 import webbrowser
 from pathlib import Path
 
+from utils.connector_manager import read_machine_secret
+
 
 # ── Spotify ────────────────────────────────────────────────────────────────────
 
 def _get_spotify():
     """Return (spotipy.Spotify, None) or (None, setup_instructions_str)."""
-    cid     = os.environ.get("SPOTIFY_CLIENT_ID", "")
-    csecret = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
+    cid     = read_machine_secret("SPOTIFY_CLIENT_ID")
+    csecret = read_machine_secret("SPOTIFY_CLIENT_SECRET")
     if not cid or not csecret:
         return None, (
             "Spotify API not configured. Add to launch_guppy.bat / launch_council.bat:\n"
@@ -50,7 +52,7 @@ def _get_spotify():
         sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
             client_id=cid,
             client_secret=csecret,
-            redirect_uri=os.environ.get("SPOTIFY_REDIRECT_URI", "http://localhost:8888/callback"),
+            redirect_uri=read_machine_secret("SPOTIFY_REDIRECT_URI", fallback="http://localhost:8888/callback"),
             scope=(
                 "user-modify-playback-state "
                 "user-read-playback-state "

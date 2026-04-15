@@ -1,6 +1,6 @@
 # Roadmap and Handoff
 
-Last updated: April 14, 2026 — **M1 Exit Gate PASSED**
+Last updated: April 15, 2026 — **M1 Exit Gate PASSED**
 
 Historical note: this file preserves handoff and execution history. Older entries may reference pre-migration root paths or runtime utility locations; use `README.md`, `instructions/OPERATIONS.md`, and `docs/PROJECT_BRIEF.md` for current commands and canonical module paths.
 
@@ -48,10 +48,10 @@ Guppy should be the default daily assistant on a Microsoft PC:
 
 These capabilities exist now and are usable in pilot:
 
-1. Unified launcher is evolving toward Home, Instance Manager, Agent Tools, App Management, Models, and Voices, with settings folded into App Mgmt.
+1. Unified launcher is evolving toward Home, Instance Manager, Agent Tools, App Management, Local LLM, Models, and Voices, with settings folded into App Mgmt.
 2. Launcher auto-starts guppy_api.py and guppy_hub.py on open — no manual service management required.
-3. Home surface now carries active-instance, background-activity, runtime-facts, and recovery-summary context.
-4. Instance Manager foundation is live with persisted config/state plus create, activate, delete, and log-view endpoints, and explicit 5 configured / 2 runtime-active UX feedback.
+3. Home is now a chat-first daily surface; heavier runtime, routing, workflow, and recovery context lives in App Mgmt and the deeper Models/Voices surfaces.
+4. Workspace management is live with persisted config/state plus create, activate, delete, and log-view endpoints, and explicit 5 configured / 2 runtime-active UX feedback.
 5. Local 5-model fleet with runtime verification tooling.
 6. Router modes for local, paired, code, and vault workflows.
 7. Voice path with wake-word/PTT, Kokoro and fallback behavior.
@@ -61,6 +61,11 @@ These capabilities exist now and are usable in pilot:
 11. Pilot gate automation via tools/pilot_exit_check.py.
 12. Atomic file I/O via utils/safe_io.py — no more torn reads from partial writes.
 13. guppy_core is a proper package (guppy_core/) with clean submodule boundaries.
+14. Local LLM benchmarking is beyond planning now: manifest validation, harness artifacts, human review packets, memory-backend comparisons, and runtime-challenger snapshots are all live in-tree.
+15. Default repo verification is green from `.venv\Scripts\python.exe -m pytest -q`, and the changed-file line-cap guard is now cleared by the `server.py` and `router.py` split.
+16. Workspace governance now has an editable first productized layer: per-workspace auth mode, tool allow/block lists, endpoint filters, operator notes, and clearer operator-visible policy reasons are live through the existing capability system plus the Workspaces editor.
+17. Blocked connector actions now report whether the stop came from missing auth, endpoint scope, or workspace policy instead of a single coarse denial reason.
+18. App Mgmt now includes a dedicated Windows install/update/diagnostics surface with visible runtime/data-path evidence plus one-click verify, update, restart, and repair actions.
 
 ## What Is Not Yet Fully Productized
 
@@ -69,6 +74,8 @@ These capabilities exist now and are usable in pilot:
 3. Route and voice decisions still need richer plain-language health and latency evidence beyond the current explainability pass.
 4. In-app workflow productization still needs richer execution evidence and stronger Morning/Workday/Close polish.
 5. End-user installer/update lifecycle and broader hardware fallback hardening remain open.
+6. Tool/connectors governance now has an editable operator surface and clearer blocked-action telemetry, but connector-specific auth provisioning, workspace credential lifecycle, and policy editing UX still need deeper productization.
+7. Windows install/update/diagnostics are now legible and actionable in App Mgmt, but broader installer/update automation and richer repair choreography still need deeper productization.
 
 ## GuppyPrime Parity Matrix
 
@@ -76,13 +83,13 @@ Objective: every capability must either work inside GuppyPrime UI now or be trac
 
 | Capability Domain | Current Surface | GuppyPrime Status | Milestone | Owner | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Core chat transcript above input | Launcher Assistant | In progress | M1 | UI | Responses now route to embedded transcript; continue polish and streaming UX. |
-| Agent activation (Guppy/Merlin/Council) | Launcher status rail INIT | In progress | M1 | UI | INIT should always initialize embedded sessions; no legacy window spawn from default flow. |
+| Core chat transcript above input | Launcher Assistant | Live | M1 | UI | Embedded transcript is the default path; remaining work is polish and streaming UX. |
+| Agent activation (Guppy/Merlin/Council) | Launcher status rail INIT | Live | M1 | UI | Embedded INIT is enforced in the default flow; no legacy window spawn from default launcher actions. |
 | Recovery controls (snapshot/warmup/restart/audit) | Launcher App Mgmt + tray/top bar surfaces | Live | M1 | Platform | Keep as productized operator path. |
 | Runtime health and syslog rail | Launcher right panel | Live | M1 | Platform | Status-only by policy; no primary chat content in right rail. |
 | Model management and selection | Launcher Models tab | Live | M1 | ModelOps | Keep route/fallback cards aligned with runtime. |
-| Voice library and preview | Launcher Voices tab | Partial | M2 | Voice | Complete import, assignment, and interruption-safe preview flow. |
-| Persona/provider/voice config editing | Launcher App Mgmt settings section | Partial | M2 | UI | Replace raw JSON-first UX with guided cards/forms while keeping expert editor. |
+| Voice library and preview | Launcher Voices tab | Live | M2 | Voice | Import, assignment, and preview flow are wired; remaining work is broader real-device validation and polish. |
+| Persona/provider/voice config editing | Launcher App Mgmt settings section | Live | M2 | UI | Guided editing is live; remaining work is calmer UX, stronger guardrails, and expert-path cleanup. |
 | Instance management and background collaboration | Home + Instance Manager | Partial | M2 | UI/Platform | Foundation is live: persisted state, launcher manager tab, lifecycle endpoints, instance logs, and visible bound feedback. Remaining work is deeper orchestration and stronger enforcement. |
 | Tools and command workflows | Launcher Agent Tools tab | Partial | M2 | Tools | Agent Tools is now instance-scoped and capability-aware in the launcher. Remaining work is execution flow and server-side enforcement. |
 | App recovery/operator controls | Launcher App Management tab | Partial | M2 | Platform | App Mgmt now owns recovery cards, diagnostics, and operator logs. Remaining work is polish and deeper guardrails. |
@@ -145,10 +152,10 @@ present. Date is firm.
 - **Local LLM + Local Memory Track**
   - Evaluate MemPalace as a local-memory upgrade path for Guppy’s local-model workflows instead of treating it as a blind drop-in replacement.
   - Keep the first integration adapter-shaped: retrieval spike, local-memory comparison, and optional backend wiring before any broad page rename.
-  - Plan a dedicated Local LLM page in the launcher so local fleet status, local memory readiness, and local recall trust do not stay scattered across Home, Models, and internals.
+  - Dedicated Local LLM page is now live in the launcher so local fleet status, local memory posture, benchmark evidence, and challenger recommendations no longer stay scattered across Home, Models, and internals.
   - Freeze the current Ollama/Qwen2.5 fleet as the benchmark baseline with a pinned manifest in `config/local_llm/models.json`.
-  - Build the harness before changing defaults: benchmark current baseline, then run `qwen3`, `gemma`, `mistral`, embedding, and runtime challengers against the same prompt pack.
-  - First runtime challengers: direct `llama.cpp`, `lemonade`, and a research-only `vllm-rocm` track if Guppy moves beyond desktop-first local serving.
+  - The harness, review-packet emitter, memory-backend compare path, and dedicated launcher evidence surface are now live; current remaining work is promotion decisions, governance, and installer/ops polish.
+  - Runtime challenger probe is now live: on this Windows + RX 7900 XTX host, `llama.cpp` is currently the benchmark-first challenger, `lemonade` is the integration-first challenger, and `vllm-rocm` remains research-only.
   - Acceptance: a user can see local model readiness and local memory state in one place, and we have measured whether MemPalace beats current semantic recall on real Guppy follow-ups.
 
 - **Starter Templates + Guided Workflow Entry**
@@ -237,6 +244,69 @@ present. Date is firm.
   - beta release dry-run passes after path correction
   - local builder task validated end to end: queue -> dry-run stage -> approval -> safe write
   - reduced stress harness passed with zero API failures and latency well under current thresholds
+
+### 2026-04-15 (Repo Truth Review + Verification Pass + Competitive Gap Reset)
+
+- Corrected top-level docs to match the live tree:
+  - `README.md` now reflects the active launcher tabs, App Mgmt-embedded settings, compatibility-only legacy surfaces, and the live Local LLM benchmark/runtime-challenger track.
+  - this roadmap now reflects that Home is chat-first, the deeper runtime story lives outside Home, and several previously "partial" launcher capabilities are in fact live with hardening still open.
+- Fixed verification drift in the test bootstrap:
+  - added a Qt/offscreen pytest bootstrap in `conftest.py` so widget-based unit tests can instantiate launcher views consistently from the default suite.
+  - added a defensive alias fallback in `src/guppy/inference/router.py` so `_ollama_call()` still returns `None` on network failure even when the router is constructed through stripped-down test harnesses.
+
+### 2026-04-15 (Server/Router Split + API Truth Pass + Local LLM Surface)
+
+- Cleared the active changed-file line-cap failure without breaking compatibility imports:
+  - split `src/guppy/inference/router.py` into smaller fragments and kept the public module surface stable.
+  - split `src/guppy/api/server.py` into smaller fragments, preserved the FastAPI app surface, and kept monkeypatched test seams intact.
+- Restored and hardened local-runtime API behavior during the split:
+  - kept Lemonade/Ollama runtime selection, local runtime status reporting, and launcher-facing status payloads alive after the server refactor.
+  - updated `docs/API.md` so the documented route set now matches the live FastAPI surface, including `/`, `/metrics`, and the `/instances*` lifecycle/query endpoints.
+- Shipped the dedicated launcher Local LLM page:
+  - added `ui/launcher/views/local_llm_view.py` plus launcher/sidebar wiring so benchmark artifacts, memory baseline, review packets, and challenger recommendations now live in one calm evidence surface outside Home.
+- Verified with focused regression coverage:
+  - `python tools/check_new_module_line_cap.py`
+  - `.venv\Scripts\python.exe -m pytest tests\unit\test_chat_routing_alignment.py tests\unit\test_security_hardening.py tests\smoke\test_runtime_smoke.py tests\smoke\test_launcher_interactions_smoke.py -q`
+- Validation completed:
+  - `.venv\Scripts\python.exe -m pytest -q` -> passing
+  - `python tools/check_architecture_boundaries.py` -> passing
+  - `python tools/check_wrapper_integrity.py` -> passing
+  - `python tools/check_doc_ownership.py` -> passing
+  - `.venv\Scripts\python.exe tools/verify_ollama_runtime.py --prompt ok` -> READY
+  - `.venv\Scripts\python.exe tools/verify_runtime_challengers.py` -> `llama.cpp` benchmark-first, `lemonade` integration-first, `vllm-rocm` research-only
+- Remaining hardening signal from the repo review:
+  - installer/update/repair ergonomics still needed to catch up with the broader launcher product surface
+  - workspace governance needed a richer operator-facing layer beyond raw capability booleans
+- Competitive-review reset for the next execution pass:
+  - prioritize packaging/update reliability, a dedicated Local LLM surface, stronger permissions/governance visibility, and module-splitting before broad connector growth or new surface sprawl.
+
+### 2026-04-15 (Workspace Governance Productization + Windows Ops Surface)
+
+- Productized the existing capability system instead of replacing it:
+  - `config/tool_permissions.json` now supports per-workspace `auth_mode`, tool allow/block lists, endpoint allow/block filters, and operator-facing policy notes.
+  - `utils/instance_capabilities.py` now resolves those richer policies while staying backward-compatible with the existing capability booleans and tuple contract.
+  - API/tool-runner enforcement now passes endpoint context into policy checks so local-only or filtered workspaces can block external connector scopes before execution.
+- Brought the launcher policy and operations story up to product level:
+  - Agent Tools cards now show auth mode, allow/block scope, endpoint filters, and clearer restriction reasons instead of only coarse capability text.
+  - App Mgmt now includes a dedicated Windows install/update/diagnostics section covering what is installed, which local runtime is configured/live, where runtime/config data lives, how repair token flow works, and which diagnostics artifact was written most recently.
+- Reconciled the status-owner docs to current truth:
+  - refreshed `README.md`, `ROADMAP.md`, `docs/PROJECT_BRIEF.md`, and `docs/TROUBLESHOOTING.md` so the Local LLM page, line-cap cleanup, governance layer, and Windows ops surface all match the live tree.
+- Verified with focused regression coverage:
+  - `.venv\Scripts\python.exe -m pytest tests\unit\test_instance_controls.py tests\smoke\test_launcher_interactions_smoke.py tests\smoke\test_runtime_smoke.py -q`
+
+### 2026-04-15 (Editable Governance UI + Connector Auth Telemetry + Windows Ops Actions)
+
+- Moved governance from config-only to launcher-editable:
+  - Workspaces now exposes a governance editor for auth mode, tool allow/block lists, endpoint filters, and operator notes.
+  - API now serves governance summaries on `/instances` and accepts edits through `POST /instances/{name}/governance`.
+- Tightened blocked-action telemetry:
+  - permission metadata now carries connector name, connector auth state/detail, and a structured policy reason code so blocked actions can distinguish auth failures, endpoint scope failures, and workspace-policy denials.
+  - Agent Tools cards now surface connector auth state alongside the existing role/policy explanation.
+- Turned Windows ops into action:
+  - App Mgmt now exposes one-click `VERIFY`, `UPDATE`, `RESTART`, and `REPAIR` flows, routing verify/update into the embedded terminal and restart/repair into the existing guarded recovery path.
+- Verified with focused regression coverage:
+  - `.venv\Scripts\python.exe -m pytest tests\unit\test_instance_controls.py tests\smoke\test_launcher_interactions_smoke.py tests\smoke\test_runtime_smoke.py -q`
+  - `python tools/check_new_module_line_cap.py`
 
 ## Priority Order (Rebuilt)
 
@@ -1475,5 +1545,81 @@ Use this format for the next roadmap update:
 - Changed: Added the concrete Local LLM planning package: pinned local-model manifest in `config/local_llm/models.json`, starter benchmark prompt pack in `config/local_llm/benchmark_prompts.json`, benchmark/promotion rules in `docs/LOCAL_LLM_BENCHMARK_SPEC.md`, and a first-tranche implementation plan in `docs/LOCAL_LLM_IMPLEMENTATION_PLAN.md`.
 - Verified: `python -c "import json, pathlib; json.loads(pathlib.Path('config/local_llm/models.json').read_text(encoding='utf-8')); json.loads(pathlib.Path('config/local_llm/benchmark_prompts.json').read_text(encoding='utf-8'))"`
 - Follow-up: wire `tools/verify_ollama_runtime.py` to the manifest, add `tools/local_llm_harness.py`, then build the memory adapter seam before opening the dedicated Local LLM page.
+
+### 2026-04-15
+
+- Changed: Added the first launcher-facing Local LLM runtime control surface in `ui/launcher/views/models_view.py`. The Models page can now switch the local runtime between `ollama` and `lemonade`, persist the Lemonade endpoint plus fast/complex/teach/code/vault role mappings through `runtime/app_settings.json`, and push those values back into the live launcher env without hand-editing `.env`.
+- Verified: `python -m py_compile ui\launcher\views\models_view.py ui\launcher\launcher_window.py utils\runtime_profile.py tests\smoke\test_launcher_interactions_smoke.py tests\unit\test_models_routes.py`, `.venv\Scripts\python.exe -m pytest tests\unit\test_models_routes.py -q`, and `.venv\Scripts\python.exe -m pytest tests\smoke\test_launcher_interactions_smoke.py -q`.
+- Observed: this is the right control-surface cut for the current Lemonade lane. Runtime choice and alias mapping now live where users already inspect local models and route behavior, while the rest of the launcher contract stays unchanged.
+- Follow-up: add richer runtime evidence into the Models surface itself from `/status`, then decide whether `auto` local fallback and paired-local paths should also honor the saved runtime selection.
+
+### 2026-04-15
+
+- Changed: Implemented the first Local LLM execution tranche: `tools/verify_ollama_runtime.py` now reads the pinned manifest by default and records manifest metadata in the runtime snapshot, `tools/local_llm_harness.py` now runs the benchmark prompt pack and writes benchmark artifacts under `runtime/local_llm_benchmarks/`, and the semantic memory path now includes a backend adapter seam so `semantic-sqlite`, `semantic-chroma`, and a future `mempalace-adapter` can be benchmarked without changing the chat contract.
+- Verified: `.venv\Scripts\python.exe -m pytest tests\unit\test_verify_ollama_runtime.py tests\unit\test_local_llm_manifest.py tests\unit\test_local_llm_harness.py tests\unit\test_memory_backend_adapter.py -q`, `.venv\Scripts\python.exe tools\verify_ollama_runtime.py --skip-ping`, `.venv\Scripts\python.exe tools\local_llm_harness.py --max-prompts-per-track 1 --timeout 90`, and a preserved 10-case baseline run at `runtime/local_llm_benchmarks/reviews/2026-04-15_baseline_10case.json`.
+- Follow-up: run challenger passes against the same harness, starting with `qwen3:8b` and `qwen3:30b`, and use the new baseline artifacts to tune local prompt-path/task-fit issues before opening the dedicated Local LLM page.
+
+### 2026-04-15
+
+- Changed: Finished the next Local LLM evidence tranche. Pulled `qwen3:8b` and `qwen3:30b` into Ollama, added explicit `--think` handling so Qwen challenger runs stop failing on hidden thinking-mode empties, added a controlled `guppy_local` harness mode for Guppy-style local-lane benchmarking, added seeded memory fixtures in `config/local_llm/benchmark_memory_seeds.json`, and finished a stable `mempalace-adapter` path that benchmarks from the new memory seam without changing the chat contract.
+- Verified: `.venv\Scripts\python.exe -m pytest tests\unit\test_local_llm_harness.py tests\unit\test_memory_backend_adapter.py tests\unit\test_mempalace_adapter.py tests\unit\test_verify_ollama_runtime.py tests\unit\test_local_llm_manifest.py -q`, `ollama pull qwen3:8b`, `ollama pull qwen3:30b`, `tools/local_llm_harness.py --all-tracks-model-tag qwen3:8b --prompt-style raw --think false`, `--prompt-style guppy`, `--prompt-style guppy_local`, the same three passes for `qwen3:30b`, and seeded recall runs at `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_semantic_qwen3-8b_guppy-local.json`, `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_mempalace_qwen3-8b_guppy-local.json`, and `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_compare_qwen3-8b_guppy-local.json`.
+- Observed: `qwen3:8b` is currently the healthier challenger for Guppy’s local lane on this machine. In the controlled `guppy_local` pass it averaged about `10.4s` across the five tracks versus about `18.7s` for `qwen3:30b`, and the 30b model still tends to narrate its own reasoning more often than desired. In the seeded memory comparison, `semantic-sqlite` and `mempalace-adapter` both surfaced the intended memories with near-identical retrieval previews, so there is still no evidence to promote MemPalace over the baseline yet.
+- Follow-up: add reviewer scores/notes to the new challenger artifacts, repeat the seeded memory comparison on more real Guppy follow-ups and additional challenger models, and only then spend energy on the dedicated Local LLM page and any backend promotion decision.
+
+### 2026-04-15
+
+- Changed: Started the first in-product Lemonade lane instead of treating it only as a benchmark target. `src/guppy/api/server.py` now has a narrow local-runtime selector, explicit `local` mode can route through Lemonade when `GUPPY_LOCAL_RUNTIME_BACKEND=lemonade`, Lemonade model aliases can be mapped with `GUPPY_LEMONADE_*_MODEL`, and `/status` plus `/startup/check` now expose the selected local runtime with backend/model/detail evidence.
+- Verified: `python -m py_compile src\guppy\api\server.py tests\unit\test_chat_routing_alignment.py tests\smoke\test_runtime_smoke.py`, `.venv\Scripts\python.exe -m pytest tests\unit\test_chat_routing_alignment.py -q`, and `.venv\Scripts\python.exe -m pytest tests\smoke\test_runtime_smoke.py -q`.
+- Observed: this is the right first product cut for Lemonade. It gives Guppy a real opt-in local-runtime lane without silently changing the meaning of explicit `ollama` mode or claiming tool-calling parity that has not been proven yet. The current Lemonade path is intentionally chat-only and depends on explicit model mapping for Guppy’s local role aliases.
+- Follow-up: add a launcher-facing Local LLM/runtime control surface, decide whether any `auto` local fallbacks should also honor the selected runtime, and only then consider extending the Lemonade lane into richer tool-loop or paired-local paths.
+
+### 2026-04-15
+
+- Changed: Ran the stronger same-family runtime comparison requested for the Llama 3.2 instruct line by pulling `llama3.2:3b` into Ollama and `Llama-3.2-3B-Instruct-GGUF` into Lemonade, then benchmarking both through the same `guppy_local` harness slice. Emitted human-review packets for both new 3B runtime artifacts.
+- Verified: `ollama pull llama3.2:3b`, `lemonade pull Llama-3.2-3B-Instruct-GGUF`, `tools/local_llm_harness.py --all-tracks-model-tag llama3.2:3b --prompt-style guppy_local --think false --max-prompts-per-track 1`, and the matching Lemonade run at `runtime/local_llm_benchmarks/reviews/2026-04-15_llama3.2-3b_lemonade_guppy-local.json`.
+- Observed: the stronger 3B same-family comparison preserved the runtime gap. Ollama `llama3.2:3b` averaged about `8.9s` across the five-track Guppy-local slice, while Lemonade `Llama-3.2-3B-Instruct-GGUF` averaged about `0.7s`. Both runs completed all five tracks successfully, so this is now stronger evidence that Lemonade can materially outperform Ollama on this machine for small/medium instruct workloads. The remaining question is still answer quality: Lemonade is fast and responsive, but several previews still read more brittle or overconfident than we would want for a default Guppy lane.
+- Follow-up: score the new 3B runtime review packets, then either 1) run one final higher-value same-family comparison in the local sweet spot, or 2) begin a narrow Lemonade integration seam for an opt-in local lane if the human review scores support it.
+
+### 2026-04-15
+
+- Changed: Extended `tools/local_llm_harness.py` with a real `lemonade` runtime path, including runtime override/base-url handling and OpenAI-compatible `chat/completions` execution. Pulled `Qwen3-0.6B-GGUF` and `Llama-3.2-1B-Instruct-GGUF` into Lemonade, pulled the matching small Ollama challengers `qwen3:0.6b` and `llama3.2:1b`, and emitted review packets for the first runtime-backed Llama comparison artifacts.
+- Verified: `.venv\Scripts\python.exe -m pytest tests\unit\test_local_llm_harness.py -q`, `.venv\Scripts\python.exe tools\local_llm_harness.py --all-tracks-model-tag qwen3:0.6b --prompt-style guppy_local --think false`, the matching Lemonade pass for `Qwen3-0.6B-GGUF`, then the cleaner instruct-model pair at `runtime/local_llm_benchmarks/reviews/2026-04-15_llama3.2-1b_ollama_guppy-local.json` and `runtime/local_llm_benchmarks/reviews/2026-04-15_llama3.2-1b_lemonade_guppy-local.json`.
+- Observed: the first tiny-Qwen Lemonade pass proved the runtime path but also exposed a product-fit issue: `Qwen3-0.6B-GGUF` often returned `reasoning_content` with empty final content on Guppy-style prompts, so the runtime is live but that particular small reasoning model is not a trustworthy chat benchmark. The first clean runtime-vs-runtime pair came from the small Llama instruct models instead: Ollama `llama3.2:1b` averaged about `4.8s` across the five-track `guppy_local` slice, while Lemonade `Llama-3.2-1B-Instruct-GGUF` averaged about `0.9s` on the same slice. Lemonade is dramatically faster in this first pass, but some answers are also more brittle and less grounded, so this is a promising runtime result rather than a promotion decision.
+- Follow-up: run one more same-family runtime comparison at a slightly stronger model size, then add reviewer scores to the new Llama runtime artifacts before making any claim that Lemonade should outrank Ollama for Guppy’s default local lane.
+
+### 2026-04-15
+
+- Changed: Installed the official Windows Lemonade Server minimal build (`10.2.0`) and added the first usable backend by installing `llamacpp:rocm` on the `RX 7900 XTX` host. Refreshed `runtime/runtime_challenger_snapshot.json` after install so Lemonade now shows as actually installed instead of only host-compatible.
+- Verified: official installer at `https://github.com/lemonade-sdk/lemonade/releases/latest/download/lemonade-server-minimal.msi`, `C:\Users\Ryan\AppData\Local\lemonade_server\bin\lemonade.exe --version`, `lemonade backends`, `lemonade status`, `Invoke-WebRequest http://localhost:13305/api/v1/health`, and `.venv\Scripts\python.exe tools\verify_runtime_challengers.py` with the Lemonade `bin` directory present on `PATH`.
+- Observed: Lemonade is now the first installed non-Ollama runtime challenger in the workspace. The server is live on port `13305`, `llamacpp:rocm` is installed, no models are loaded yet, and the current probe still keeps `llama.cpp` as the best benchmark-first challenger while confirming Lemonade as the best integration-first challenger.
+- Follow-up: pull a small Lemonade GGUF model or import a matching challenger model, then add the first harness/runtime override seam so Guppy can benchmark a real Lemonade-backed lane instead of only detecting that the runtime exists.
+
+### 2026-04-15
+
+- Changed: Added the first runtime-challenger probe layer with `tools/verify_runtime_challengers.py` plus manifest-backed host-fit helpers in `src/guppy/local_llm/runtime_challengers.py`. The probe now classifies runtime challengers against the current machine, checks whether their binaries are actually present, and writes `runtime/runtime_challenger_snapshot.json` with separate benchmark-first and integration-first recommendations.
+- Verified: `.venv\Scripts\python.exe -m pytest tests\unit\test_runtime_challengers.py tests\unit\test_local_llm_manifest.py tests\unit\test_verify_ollama_runtime.py -q`, `.venv\Scripts\python.exe -m compileall src\guppy\local_llm\runtime_challengers.py tools\verify_runtime_challengers.py`, and `.venv\Scripts\python.exe tools\verify_runtime_challengers.py`.
+- Observed: on this Windows + `AMD Radeon RX 7900 XTX` host, `llama.cpp` is the right benchmark-first runtime challenger, `lemonade` is the right integration-first runtime challenger, and `vllm-rocm` remains research-only. Both `llama.cpp` and `lemonade` fit the host well, but neither runtime is installed yet; Lemonade is currently only present as a cloned vendor repo.
+- Follow-up: install one runtime challenger instead of debating in the abstract, then add a minimal runtime-override seam so the benchmark harness can record a real non-Ollama backend rather than only a planned one.
+
+### 2026-04-15
+
+- Changed: Completed the next challenger-memory tranche by running the broader seeded semantic-vs-MemPalace comparison pack against `gemma3:12b` and `mistral-small3.1:24b`, then emitted human-review packets for `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_compare_gemma3-12b_guppy-local_broad.json` and `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_compare_mistral-small3.1-24b_guppy-local_broad.json`.
+- Verified: `tools/local_llm_harness.py --prompt-file config/local_llm/benchmark_prompts_memory_recall.json --all-tracks-model-tag gemma3:12b --prompt-style guppy_local --think false --compare-memory-backends semantic-sqlite mempalace-adapter --memory-seed-file config/local_llm/benchmark_memory_seeds_broad.json --max-prompts-per-track 8`, the same broad comparison for `mistral-small3.1:24b`, and `tools/local_llm_review_packet.py` for both new comparison artifacts.
+- Observed: both non-Qwen challengers stayed stable across the full 16-case broad memory comparison, but neither displaced the current read on this machine. `gemma3:12b` averaged about `8.9s` across the broad comparison and `mistral-small3.1:24b` averaged about `11.6s`, yet both still answered the seeded “safer default challenger” follow-up by pointing back to `qwen3:8b`. `semantic-sqlite` and `mempalace-adapter` again remained close enough that there is still no promotion case for MemPalace.
+- Follow-up: get human reviewer scores into the new Gemma and Mistral artifact packets, then use those scores plus the existing Qwen evidence to decide whether any non-Qwen role deserves more targeted benchmarking or whether the next investment should move to runtime-serving challengers instead.
+
+### 2026-04-15
+
+- Changed: Continued the challenger sweep by pulling `gemma3:12b` and `mistral-small3.1:24b` into Ollama, then running the same five-track harness slice in both `raw` and `guppy_local` modes. Emitted new human-review packets for `runtime/local_llm_benchmarks/reviews/2026-04-15_gemma3-12b_guppy-local.json` and `runtime/local_llm_benchmarks/reviews/2026-04-15_mistral-small3.1-24b_guppy-local.json`.
+- Verified: `.venv\Scripts\python.exe -m pytest tests\unit\test_local_llm_harness.py tests\unit\test_local_llm_review_packet.py tests\unit\test_memory_backend_adapter.py tests\unit\test_mempalace_adapter.py tests\unit\test_verify_ollama_runtime.py tests\unit\test_local_llm_manifest.py -q`, `ollama pull gemma3:12b`, `ollama pull mistral-small3.1:24b`, `tools/local_llm_harness.py --all-tracks-model-tag gemma3:12b --prompt-style raw --think false --max-prompts-per-track 1`, `--prompt-style guppy_local`, and the same two passes for `mistral-small3.1:24b`.
+- Observed: `gemma3:12b` is now the fastest challenger in the controlled `guppy_local` slice at about `9.3s` average across the five tracks, ahead of `qwen3:8b` at about `10.4s`, but its repo/tool answers are currently more generic and less Guppy-specific. `mistral-small3.1:24b` stayed stable and cleaner than `qwen3:30b`, but averaged about `12.9s` and still reads less pointed than `qwen3:8b`. On this machine, `qwen3:8b` still looks like the healthiest overall local-lane candidate until the new human review packets are filled.
+- Follow-up: have a human reviewer score the new Gemma and Mistral packets, then extend the memory-focused comparison to the strongest non-Qwen challenger before changing any default local-model role assignments.
+
+### 2026-04-15
+
+- Changed: Added a human-review workflow for Local LLM artifacts with stable `record_id`s in `tools/local_llm_harness.py` and a packet emit/apply tool in `tools/local_llm_review_packet.py`. Added a broader memory-follow-up pack in `config/local_llm/benchmark_prompts_memory_recall.json` plus a broader seed pack in `config/local_llm/benchmark_memory_seeds_broad.json`, then reran the `qwen3:8b` seeded semantic-vs-MemPalace comparison against the broader real Guppy follow-up set.
+- Verified: `.venv\Scripts\python.exe -m pytest tests\unit\test_local_llm_harness.py tests\unit\test_local_llm_review_packet.py tests\unit\test_memory_backend_adapter.py tests\unit\test_mempalace_adapter.py tests\unit\test_verify_ollama_runtime.py tests\unit\test_local_llm_manifest.py -q`, `tools/local_llm_review_packet.py` against the existing Qwen artifacts, and the broader recall runs at `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_semantic_qwen3-8b_guppy-local_broad.json`, `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_mempalace_qwen3-8b_guppy-local_broad.json`, and `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_compare_qwen3-8b_guppy-local_broad.json`.
+- Observed: the broader eight-prompt recall pass kept both memory backends stable and close in latency at roughly `8.1s` to `8.3s`, with both backends surfacing the intended memory blocks on the same seeded follow-ups. The broadened pass also exposed one missing seed about the machine-specific Qwen challenger call, which is now included in the broad seed pack.
+- Follow-up: have a human reviewer fill the emitted `*.human_review_packet.json` files for the current Qwen and memory artifacts, then promote only if the manual scores agree with the current machine evidence.
 
 Keep this template at the bottom of the roadmap.

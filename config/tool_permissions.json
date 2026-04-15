@@ -1,23 +1,43 @@
 {
-  "version": 1,
+  "version": 2,
   "defaults": {
     "read": true,
     "write": false,
     "execute": false,
-    "network": true
+    "network": true,
+    "auth_mode": "runtime_default",
+    "policy_note": "Workspaces inherit the shared launcher/API auth path unless a workspace override narrows tool or endpoint scope."
   },
   "instances": {
     "guppy-primary": {
       "read": true,
       "write": true,
       "execute": true,
-      "network": true
+      "network": true,
+      "auth_mode": "runtime_default",
+      "policy_note": "Primary workspace can use the full trusted local tool surface, subject to runtime auth and global safety guards."
     },
     "builder-collab": {
       "read": true,
       "write": true,
       "execute": false,
-      "network": true
+      "network": true,
+      "auth_mode": "local_only",
+      "tool_allow": [
+        "query_instance",
+        "write_file"
+      ],
+      "tool_block": [
+        "execute_command"
+      ],
+      "endpoint_allow": [
+        "instance://*",
+        "http://localhost*"
+      ],
+      "endpoint_block": [
+        "https://external*"
+      ],
+      "policy_note": "Builder stays local-first."
     }
   }
 }

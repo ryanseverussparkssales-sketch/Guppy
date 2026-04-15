@@ -4,7 +4,7 @@ Guppy is a local-first multi-agent assistant with a unified launcher as the prim
 
 Guppy is built as a Butler-style personal assistant first, with daily-use speed, routing accuracy, and voice ergonomics prioritized over sales or CRM workflows.
 
-- Unified launcher: default front door for assistant, instances, agent tools, app management, model library, and voice library
+- Unified launcher: default front door for assistant, instances, agent tools, app management, Local LLM evidence, model library, and voice library
 - Background collaboration: `guppy-primary` foreground plus optional `builder-collab`
 - Teaching and coding specialization: routed through `guppy-teach` and `guppy-code` instead of separate desktop windows
 
@@ -35,15 +35,16 @@ Archived historical docs now live under `docs/archive/`, split between `root-his
 
 ## Current State
 
-### Unified Launcher System (2026-04-14)
+### Unified Launcher System (2026-04-15)
 
 - Primary desktop entry point is `guppy_launcher.py`.
 - New modular UI architecture is in `ui/launcher/`:
   - `components/` for reusable UI widgets
-  - `views/` for Assistant, Tools, Settings, Advanced, Models, and Voices tabs
+  - `views/` for Assistant, Workspaces, Tools, App Mgmt, Local LLM, Models, and Voices
+  - `settings_view.py` remains in-tree but is currently attached inside App Mgmt rather than exposed as a standalone nav tab
   - `launcher_window.py` as the shell that composes sidebar, top bar, stacked views, and right status panel
 - Launcher bootstrap starts `guppy_api.py` and `guppy_hub.py` asynchronously when needed so the UI does not block on service startup.
-- Standalone Merlin/Council desktop surfaces have been removed from the active repo path; specialization now lives in routed models, personas, and background instances.
+- Standalone Merlin/Council desktop surfaces are no longer part of the recommended daily path; compatibility material remains in `legacy_surfaces/` and behind explicit legacy launch gating.
 - The canonical CLI currently exposes `guppy`, `launcher`, `guppyprime`, `hub`, and `api`.
 
 ### Historical Surface Retirement Policy
@@ -87,6 +88,7 @@ Implemented launcher tab views:
 - `ui/launcher/views/tools_view.py`
 - `ui/launcher/views/settings_view.py`
 - `ui/launcher/views/advanced_view.py`
+- `ui/launcher/views/local_llm_view.py`
 - `ui/launcher/views/models_view.py`
 - `ui/launcher/views/voices_view.py`
 
@@ -111,6 +113,19 @@ Behavior wired in launcher shell:
   - JSONL streams remain for append-only traces
   - SQLite mirror is written by `utils/operational_telemetry.py`
 - Background work has hard low-power ceilings in runtime profiles (`utils/runtime_profile.py`) for daemon polling, ambient checks, and API timeouts.
+
+### Verification Snapshot (2026-04-15)
+
+- Default test suite passes from the repo virtualenv: `.venv\\Scripts\\python.exe -m pytest -q`
+- Guard checks passing today:
+  - `python tools/check_architecture_boundaries.py`
+  - `python tools/check_wrapper_integrity.py`
+  - `python tools/check_doc_ownership.py`
+- Runtime verification passing today:
+  - `.venv\\Scripts\\python.exe tools/verify_ollama_runtime.py --prompt ok`
+  - `.venv\\Scripts\\python.exe tools/verify_runtime_challengers.py`
+- Structural guard passing today:
+  - `python tools/check_new_module_line_cap.py`
 
 ### Current Snapshot
 
@@ -144,6 +159,10 @@ Historical deep status narratives are intentionally archived to avoid duplicated
 - Proactive daemon + ambient watcher: `src/guppy/daemon/daemon.py` (root shim: `guppy_daemon.py`) — agent health checks, reminder nudges, clipboard/window polling; Haiku semantic gate filters clipboard content before offering
 - Daily activity + world-news diary: `src/guppy/daemon/daemon.py` compiles a daily markdown report from RSS headlines, runtime logs, memory/tasks, manual events, and yesterday's report reference (saved to `runtime/daily_reports/YYYY-MM-DD.md`)
 - Scheduled news briefs: `src/guppy/daemon/daemon.py` also generates world-news reports at `12:00`, `18:00`, and `22:00` (saved as `runtime/daily_reports/YYYY-MM-DD-news-HH00.md`)
+- Local LLM benchmarking lane: manifest-backed verification, harness output, review packets, and runtime-challenger snapshots under `config/local_llm/`, `src/guppy/local_llm/`, `tools/local_llm_*`, and `runtime/local_llm_benchmarks/`
+- Workspace governance v2: `config/tool_permissions.json` plus the Workspaces editor now support per-workspace auth mode, tool allow/block lists, endpoint filters, operator notes, and live editing instead of config-file-only changes
+- Connector auth/policy telemetry: Agent Tools now distinguishes connector auth readiness, endpoint-scope denial, and workspace-policy denial so blocked actions explain why they were stopped
+- Windows ops surface: App Mgmt now carries a dedicated Windows install/update/diagnostics panel plus one-click verify, update, restart, and repair actions
 - **Phase 11 ambient banner**: `AmbientBanner` widget in `guppy_ui.py` — non-intrusive offer bar between chat and input; shows Haiku's suggested action; "Ask Guppy" pre-fills input; auto-dismisses 30s
 - 77 tools registered in `guppy_core/tool_registry.py` including `run_python`, `notify`, `web_summarize`, `github`, `semantic_remember/recall`, Gmail, Spotify, calendar, and more
 - Revenue dashboard route plus CRM/VoIP scaffolding: `src/guppy/api/server.py`, `src/guppy/integrations/crm_voip.py`
@@ -157,6 +176,8 @@ Historical deep status narratives are intentionally archived to avoid duplicated
 - Historical specialist material remains under `legacy_surfaces/` and archive docs, but the supported product path is the unified launcher plus background instances.
 - **Vault agent schema**: `vault-scraper` Modelfile has base schema; production use needs a per-media-type schema registry and dedup logic.
 - **CI quality gates**: Workflow added at `.github/workflows/quality-gates.yml` to run schema audit and core smoke/workflow tests on push/PR.
+- **Professional governance depth**: editable workspace auth modes, allow/block lists, endpoint filters, connector auth-state reasons, and clearer launcher policy reasons are now live, but deeper credential provisioning, connector-specific scope editors, and admin workflows still need hardening.
+- **Windows ops depth**: App Mgmt now makes install/runtime/data-path/repair state legible and actionable, but broader installer/update automation and richer repair orchestration still need hardening.
 - Packaging: one-folder distribution is now the default path for pilot builds; one-file packaging remains optional.
 - `web_summarize` tool uses HTTP+Haiku fallback until `FIRECRAWL_API_KEY` is set.
 - Async FastAPI handlers wrap sync inference via `run_in_executor` — acceptable at butler scale, but concurrent API requests will queue against the thread pool.
@@ -206,7 +227,7 @@ The old broad capability catalog and historical handoff/completion docs have bee
 
 ### Launcher Layout
 
-- Left sidebar: Home, Instances, Agent Tools, App Mgmt, Settings, Models, Voices
+- Left sidebar: Home, Workspaces, Tools, App Mgmt, Local LLM, Models, Voices
 - Top bar: session controls + search
 - Center stack: active surface view
 - Right status panel: live runtime state and recent system log
@@ -293,13 +314,14 @@ VS Code tasks in this workspace also cover the main launch flows.
 ### Useful Checks
 
 ```powershell
-# Default pytest gate excludes the interactive PTT hardware smoke.
-python -m pytest
-python tests/integration/test_ptt.py
-python tests/smoke/smoke_api.py
-python tools/verify_ollama_runtime.py
-python tools/verify_provider_runtime.py
-python tools/verify_logging_health.py --emit-probe
+# Use the repo virtualenv or activate it first; system Python may not have pytest installed.
+.venv\Scripts\python.exe -m pytest
+.venv\Scripts\python.exe tests/integration/test_ptt.py
+.venv\Scripts\python.exe tests/smoke/smoke_api.py
+.venv\Scripts\python.exe tools/verify_ollama_runtime.py
+.venv\Scripts\python.exe tools/verify_runtime_challengers.py
+.venv\Scripts\python.exe tools/verify_provider_runtime.py
+.venv\Scripts\python.exe tools/verify_logging_health.py --emit-probe
 ```
 
 ### Runtime Truth Sources

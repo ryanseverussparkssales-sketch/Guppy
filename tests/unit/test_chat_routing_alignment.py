@@ -95,6 +95,51 @@ def test_local_mode_uses_tiered_model_with_tool_capable_wrapper() -> None:
     assert kwargs["model_override"] == "guppy-fast"
 
 
+def test_local_mode_can_use_opt_in_lemonade_runtime() -> None:
+    router = _FakeRouter()
+
+    with patch.dict(
+        guppy_api.os.environ,
+        {
+            "GUPPY_LOCAL_RUNTIME_BACKEND": "lemonade",
+            "GUPPY_LEMONADE_FAST_MODEL": "Llama-3.2-1B-Instruct-GGUF",
+        },
+        clear=False,
+    ), patch.object(guppy_api, "GUPPY_CORE_AVAILABLE", True), patch.object(
+        guppy_api, "INFERENCE_ROUTER_AVAILABLE", True
+    ), patch.object(guppy_api, "get_router", return_value=router), patch.object(
+        guppy_api, "_call_selected_local_runtime", return_value="Lemonade lane answer"
+    ) as local_call, patch.object(guppy_api, "_call_ollama_with_tools") as ollama_call:
+        response = guppy_api._call_unified_inference("Ping", "SYSTEM", mode="local")
+
+    assert response == "Lemonade lane answer"
+    local_call.assert_called_once()
+    ollama_call.assert_not_called()
+    _, kwargs = local_call.call_args
+    assert kwargs["model_override"] == "guppy-fast"
+
+
+def test_local_runtime_status_reports_partial_when_alias_mapped_lane_is_usable() -> None:
+    with patch.dict(
+        guppy_api.os.environ,
+        {
+            "GUPPY_LOCAL_RUNTIME_BACKEND": "lemonade",
+            "GUPPY_LEMONADE_FAST_MODEL": "Llama-3.2-1B-Instruct-GGUF",
+        },
+        clear=False,
+    ), patch.object(
+        guppy_api,
+        "_fetch_lemonade_model_ids",
+        return_value={"Llama-3.2-1B-Instruct-GGUF"},
+    ):
+        payload = guppy_api._build_local_runtime_status()
+
+    assert payload["backend"] == "lemonade"
+    assert payload["state"] == "PARTIAL"
+    assert "fast" in payload["available_roles"]
+    assert "complex" in payload["missing_roles"]
+
+
 def test_claude_mode_raises_clear_error_when_route_is_unavailable() -> None:
     router = _FakeRouter()
     router.anthropic_available = False

@@ -4,6 +4,7 @@ from .instance_manager_view import InstanceManagerView
 from .tools_view import ToolsView
 from .settings_view import SettingsView
 from .advanced_view import AdvancedView
+from .local_llm_view import LocalLLMView
 from .models_view import ModelsView
 from .voices_view import VoicesView
 
@@ -13,6 +14,7 @@ __all__ = [
     "ToolsView",
     "SettingsView",
     "AdvancedView",
+    "LocalLLMView",
     "ModelsView",
     "VoicesView",
 ]

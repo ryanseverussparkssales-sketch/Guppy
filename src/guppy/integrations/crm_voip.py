@@ -17,10 +17,10 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict
 
 from src.guppy.paths import RUNTIME_DIR
+from utils.connector_manager import read_machine_secret
 from utils.session_logger import rotate_jsonl_file
 
 INTEGRATION_LOG = RUNTIME_DIR / "integration_events.jsonl"
@@ -112,12 +112,15 @@ def _log_event(event_type: str, payload: Dict[str, Any]) -> None:
 def list_external_integrations() -> str:
     crm_lines = []
     for provider in SUPPORTED_CRM:
-        enabled = bool(os.environ.get(f"{provider.upper()}_API_KEY", "").strip())
+        if provider == "salesforce":
+            enabled = bool(read_machine_secret("SALESFORCE_ACCESS_TOKEN").strip()) and bool(read_machine_secret("SALESFORCE_INSTANCE_URL").strip())
+        else:
+            enabled = bool(read_machine_secret(f"{provider.upper()}_API_KEY").strip())
         crm_lines.append(f"- {provider}: {'configured' if enabled else 'not configured'}")
 
     voip_provider = os.environ.get("VOIP_PROVIDER", "twilio").strip().lower() or "twilio"
-    voip_enabled = bool(os.environ.get("TWILIO_ACCOUNT_SID", "").strip()) and bool(
-        os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+    voip_enabled = bool(read_machine_secret("TWILIO_ACCOUNT_SID").strip()) and bool(
+        read_machine_secret("TWILIO_AUTH_TOKEN").strip()
     )
 
     lines = [
@@ -144,7 +147,7 @@ def get_foundation_readiness() -> dict:
         section_rows = {}
         for provider, spec in providers.items():
             required_env = spec.get("required_env", [])
-            present = [k for k in required_env if os.environ.get(k, "").strip()]
+            present = [k for k in required_env if read_machine_secret(k).strip()]
             missing = [k for k in required_env if k not in present]
             configured = len(missing) == 0
             snapshot["total_connections"] += 1
@@ -189,15 +192,15 @@ def get_foundation_readiness_text() -> str:
 def _provider_ready(provider: str) -> bool:
     p = (provider or "").strip().lower()
     if p == "hubspot":
-        return bool(os.environ.get("HUBSPOT_API_KEY", "").strip())
+        return bool(read_machine_secret("HUBSPOT_API_KEY").strip())
     if p == "salesforce":
-        return bool(os.environ.get("SALESFORCE_ACCESS_TOKEN", "").strip()) and bool(
-            os.environ.get("SALESFORCE_INSTANCE_URL", "").strip()
+        return bool(read_machine_secret("SALESFORCE_ACCESS_TOKEN").strip()) and bool(
+            read_machine_secret("SALESFORCE_INSTANCE_URL").strip()
         )
     if p == "gohighlevel":
-        return bool(os.environ.get("GOHIGHLEVEL_API_KEY", "").strip())
+        return bool(read_machine_secret("GOHIGHLEVEL_API_KEY").strip())
     if p == "zoho":
-        return bool(os.environ.get("ZOHO_ACCESS_TOKEN", "").strip())
+        return bool(read_machine_secret("ZOHO_ACCESS_TOKEN").strip())
     return False
 
 
@@ -293,8 +296,8 @@ def voip_place_call(
     }
     _log_event("voip.place_call.request", payload)
 
-    configured = bool(os.environ.get("TWILIO_ACCOUNT_SID", "").strip()) and bool(
-        os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+    configured = bool(read_machine_secret("TWILIO_ACCOUNT_SID").strip()) and bool(
+        read_machine_secret("TWILIO_AUTH_TOKEN").strip()
     )
 
     if dry_run or not configured:

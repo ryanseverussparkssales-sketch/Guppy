@@ -61,15 +61,18 @@ class RuntimeSmokeTests(unittest.TestCase):
 
         self.assertIn("status", status_data)
         self.assertIn("voice_status", status_data)
+        self.assertIn("local_runtime", status_data)
         self.assertIn("resource_envelope", status_data)
         self.assertIn("requests_total", metrics_data)
         self.assertIn("session_events", logs_data)
         self.assertIn("agent_performance", logs_data)
         self.assertIn("overall", startup_data)
         self.assertIn("checks", startup_data)
+        self.assertIn("local_runtime", startup_data["checks"])
         self.assertIn("instances", instances_data)
         self.assertIn("limits", instances_data)
         self.assertIn("warnings", instances_data)
+        self.assertIn("governance", instances_data["instances"][0])
         self.assertIn("source", telemetry_query_data)
         self.assertIn("events", telemetry_query_data)
         self.assertIn("count", telemetry_query_data)
@@ -239,8 +242,62 @@ class RuntimeSmokeTests(unittest.TestCase):
             self.assertEqual(target.get("type"), "builder_instance")
             self.assertIn("created_at", target)
             self.assertIn("model_currently_using", target)
+            self.assertIn("governance", target)
+            self.assertIn("connectors", target)
             self.assertEqual(payload["limits"]["configured"], 2)
             self.assertEqual(payload["limits"]["max_configured"], 5)
+
+            governance_resp = client.post(
+                "/instances/builder-collab/governance",
+                json={
+                    "auth_mode": "local_only",
+                    "tool_allow": ["query_instance", "write_file"],
+                    "tool_block": ["execute_command"],
+                    "endpoint_allow": ["instance://*", "http://localhost*"],
+                    "endpoint_block": ["https://external*"],
+                    "policy_note": "Builder stays local-first.",
+                },
+            )
+            self.assertEqual(governance_resp.status_code, 200)
+            governance_payload = governance_resp.json().get("governance", {})
+            self.assertEqual(governance_payload.get("auth_mode"), "local_only")
+            self.assertIn("query_instance", governance_payload.get("tool_allow", []))
+            self.assertIn("execute_command", governance_payload.get("tool_block", []))
+
+            connectors_resp = client.get("/connectors")
+            self.assertEqual(connectors_resp.status_code, 200)
+            connector_items = connectors_resp.json().get("connectors", [])
+            gmail_item = next(item for item in connector_items if item.get("id") == "gmail")
+            self.assertIn("auth_state", gmail_item)
+            self.assertIn("actions_supported", gmail_item)
+
+            verify_resp = client.post("/connectors/gmail/verify", json={"account_id": "main"})
+            self.assertEqual(verify_resp.status_code, 200)
+            self.assertEqual(verify_resp.json().get("connector"), "gmail")
+
+            binding_resp = client.post(
+                "/instances/builder-collab/connectors/gmail",
+                json={
+                    "enabled": True,
+                    "account_id": "sales",
+                    "provider": "",
+                    "action_allow": ["compose", "send"],
+                    "action_block": ["cleanup"],
+                    "endpoint_allow": ["connector://gmail*"],
+                    "endpoint_block": [],
+                    "note": "Builder can draft from sales.",
+                },
+            )
+            self.assertEqual(binding_resp.status_code, 200)
+            saved_rows = binding_resp.json().get("connectors", [])
+            saved_gmail = next(item for item in saved_rows if item.get("id") == "gmail")
+            self.assertTrue(saved_gmail.get("binding", {}).get("enabled"))
+            self.assertEqual(saved_gmail.get("binding", {}).get("account_id"), "sales")
+
+            workspace_connectors_resp = client.get("/instances/builder-collab/connectors")
+            self.assertEqual(workspace_connectors_resp.status_code, 200)
+            workspace_rows = workspace_connectors_resp.json().get("connectors", [])
+            self.assertTrue(any(item.get("id") == "gmail" for item in workspace_rows))
 
             activate_resp = client.post("/instances/builder-collab/activate")
             self.assertEqual(activate_resp.status_code, 200)

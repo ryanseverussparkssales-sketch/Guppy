@@ -6,3 +6,4 @@ openwakeword
 
 # Optional semantic-memory backend. Default backend uses SQLite.
 chromadb
+onnxruntime

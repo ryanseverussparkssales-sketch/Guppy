@@ -55,7 +55,9 @@ def test_friendly_route_target_formats_provider_and_named_routes() -> None:
 
 
 def test_route_evidence_for_decision_uses_live_environment_words() -> None:
-    view = ModelsView()
+    view = ModelsView.__new__(ModelsView)
+    view._local_runtime_backend = "ollama"
+    view._local_cards = []
 
     text = view._route_evidence_for_decision({"route": "haiku"})
 

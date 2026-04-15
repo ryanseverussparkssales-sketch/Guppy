@@ -9,12 +9,15 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 try:
     from PySide6.QtWidgets import QApplication, QPushButton
     from ui.launcher.components.agent_card import AgentCard
+    from ui.launcher.components.sidebar import Sidebar
     from ui.launcher.components.status_panel import StatusPanel
     from ui.launcher.components.topbar import TopBar
     from ui.launcher.views.assistant_view import AssistantView
     from ui.launcher.views.advanced_view import AdvancedView
     from ui.launcher.views.instance_manager_view import InstanceManagerView
+    from ui.launcher.views.local_llm_view import LocalLLMView
     from ui.launcher.views.models_view import ModelsView
+    from ui.launcher.views import models_view as models_view_module
     from ui.launcher.views import settings_view as settings_view_module
     from ui.launcher.views.tools_view import ToolsView
     from ui.launcher.views.voices_view import VoicesView
@@ -132,6 +135,17 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         topbar._instance_cb.setCurrentText("guppy-primary")
         self.assertTrue(selected)
         self.assertEqual(selected[-1], "guppy-primary")
+
+    def test_sidebar_exposes_dedicated_local_llm_surface(self):
+        sidebar = Sidebar()
+        labels = [item._label.text() for item in sidebar._items]
+        self.assertIn("LOCAL LLM", labels)
+
+    def test_local_llm_view_loads_repo_artifacts_without_touching_home(self):
+        view = LocalLLMView()
+        view.refresh()
+        self.assertIn("Latest run", view._summary_lbl.text())
+        self.assertIn("guppy-fast", view._manifest_lbl.text())
 
     def test_topbar_quick_actions_emit_for_live_buttons(self):
         topbar = TopBar()
@@ -255,6 +269,47 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                     "status": "active",
                     "enabled": True,
                     "last_message": "ready",
+                    "governance": {
+                        "auth_mode": "runtime_default",
+                        "tool_allow": [],
+                        "tool_block": [],
+                        "endpoint_allow": [],
+                        "endpoint_block": [],
+                        "policy_note": "Primary workspace inherits the shared runtime policy.",
+                        "capabilities": {"read": True, "write": True, "execute": True, "network": True},
+                    },
+                    "connectors": [
+                        {
+                            "id": "gmail",
+                            "auth_state": "ready",
+                            "source": "token_cache",
+                            "binding": {
+                                "enabled": True,
+                                "account_id": "main",
+                                "provider": "",
+                                "action_allow": [],
+                                "action_block": [],
+                                "endpoint_allow": [],
+                                "endpoint_block": [],
+                                "note": "",
+                            },
+                        },
+                        {
+                            "id": "calendar",
+                            "auth_state": "ready",
+                            "source": "token_cache",
+                            "binding": {
+                                "enabled": True,
+                                "account_id": "main",
+                                "provider": "",
+                                "action_allow": [],
+                                "action_block": [],
+                                "endpoint_allow": [],
+                                "endpoint_block": [],
+                                "note": "",
+                            },
+                        },
+                    ],
                 },
                 {
                     "name": "builder-collab",
@@ -266,6 +321,47 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                     "status": "idle",
                     "enabled": False,
                     "last_message": "",
+                    "governance": {
+                        "auth_mode": "local_only",
+                        "tool_allow": ["query_instance", "write_file"],
+                        "tool_block": ["execute_command"],
+                        "endpoint_allow": ["instance://*"],
+                        "endpoint_block": ["https://external*"],
+                        "policy_note": "Builder stays local-first.",
+                        "capabilities": {"read": True, "write": True, "execute": False, "network": True},
+                    },
+                    "connectors": [
+                        {
+                            "id": "gmail",
+                            "auth_state": "ready",
+                            "source": "token_cache",
+                            "binding": {
+                                "enabled": True,
+                                "account_id": "sales",
+                                "provider": "",
+                                "action_allow": ["compose", "send"],
+                                "action_block": ["cleanup"],
+                                "endpoint_allow": ["connector://gmail*"],
+                                "endpoint_block": [],
+                                "note": "Builder can draft from sales.",
+                            },
+                        },
+                        {
+                            "id": "crm",
+                            "auth_state": "missing",
+                            "source": "keyring",
+                            "binding": {
+                                "enabled": False,
+                                "account_id": "",
+                                "provider": "hubspot",
+                                "action_allow": [],
+                                "action_block": ["delete"],
+                                "endpoint_allow": ["connector://crm/hubspot*"],
+                                "endpoint_block": [],
+                                "note": "CRM stays disabled until hubspot auth is verified.",
+                            },
+                        },
+                    ],
                 },
             ],
             "warnings": ["disabled instance retained"],
@@ -284,7 +380,23 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Builder 1", view._role_mix_lbl.text())
         self.assertIn("Active workspace fit:", view._collab_lbl.text())
         self.assertIn("Warnings: 1", view._summary_lbl.text())
+        self.assertEqual(view._governance_workspace.currentText(), "guppy-primary")
+        self.assertIn("runtime_default", view._governance_status.text())
         self.assertIn("hello", view._logs.toPlainText())
+
+        view._governance_workspace.setCurrentText("builder-collab")
+        self.assertEqual(view._governance_auth_mode.currentText(), "local_only")
+        self.assertIn("query_instance", view._tool_allow.toPlainText())
+        self.assertIn("execute_command", view._tool_block.toPlainText())
+        self.assertIn("Builder stays local-first", view._governance_note.text())
+        view._connector_workspace.setCurrentText("builder-collab")
+        view._connector_id.setCurrentText("gmail")
+        self.assertTrue(view._connector_enabled.isChecked())
+        self.assertEqual(view._connector_account.text(), "sales")
+        self.assertIn("compose", view._connector_action_allow.toPlainText())
+        self.assertIn("cleanup", view._connector_action_block.toPlainText())
+        self.assertIn("connector://gmail", view._connector_endpoint_allow.toPlainText())
+        self.assertIn("Builder can draft from sales", view._connector_note.text())
 
         view.set_logs("builder-collab", [])
         self.assertIn("No recent conversation or ops activity yet for workspace builder-collab", view._logs.toPlainText())
@@ -297,7 +409,8 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         )
 
         states = view.current_tool_states()
-        self.assertEqual(states["read_file"], "ready")
+        self.assertEqual(states["read_file"], "restricted")
+        self.assertEqual(states["query_instance"], "ready")
         self.assertEqual(states["write_file"], "restricted")
         self.assertIn("ACTIVE WORKSPACE:", view._context_lbl.text())
         self.assertIn("APP MGMT", view._boundary_lbl.text())
@@ -306,7 +419,9 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("COLLABORATOR CAP REACHED", view._limits_lbl.text())
         self.assertEqual(view._tool_cards["read_file"]._hint_btn.text(), "PRIME HOME")
         self.assertIn("cannot use write file right now", view._tool_cards["write_file"]._scope_lbl.text().lower())
-        self.assertIn("runtime policy", view._tool_cards["write_file"]._guard_lbl.text().lower())
+        self.assertIn("governance policy", view._tool_cards["write_file"]._guard_lbl.text().lower())
+        self.assertIn("auth mode:", view._tool_cards["query_instance"]._policy_lbl.text().lower())
+        self.assertIn("local only", view._tool_cards["query_instance"]._policy_lbl.text().lower())
         self.assertFalse(view._builder_panel._queue_btn.isEnabled())
 
         view.set_instance_context(
@@ -347,6 +462,48 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("headroom stable", view._resource_lbl.text())
         self.assertIn("warmup", view._last_recovery_lbl.text().lower())
         self.assertIn("Latest activity:", view._daily_activity_lbl.text())
+        self.assertIn("installed surface:", view._windows_install_lbl.text().lower())
+        self.assertIn("configured local runtime:", view._windows_runtime_lbl.text().lower())
+        self.assertIn("data paths:", view._windows_paths_lbl.text().lower())
+
+    def test_app_management_connector_inventory_emits_normalized_actions(self):
+        view = AdvancedView()
+        emitted: list[dict[str, str]] = []
+        view.connector_action_requested.connect(emitted.append)
+        view.set_connector_inventory(
+            [
+                {
+                    "id": "crm",
+                    "auth_kind": "api_key",
+                    "auth_state": "partial",
+                    "auth_detail": "HubSpot key is stored, but verify has not succeeded yet.",
+                    "source": "keyring",
+                    "accounts": [],
+                    "providers": [{"id": "hubspot", "label": "HubSpot"}],
+                    "actions_supported": ["verify", "connect", "disconnect"],
+                    "secret_fields": ["CRM_API_KEY"],
+                }
+            ]
+        )
+
+        self.assertEqual(view._connector_cb.currentText(), "crm")
+        self.assertIn("Auth kind: api_key", view._connector_state_lbl.text())
+        self.assertIn("PARTIAL", view._connector_auth_lbl.text())
+        self.assertIn("KEYRING", view._connector_auth_lbl.text())
+        self.assertIn("CRM_API_KEY", view._connector_secret_lbl.text())
+
+        view._connector_provider.setCurrentIndex(1)
+        view._connector_secret_key.setCurrentIndex(1)
+        view._connector_secret_value.setText("test-secret")
+        view._emit_connector_action("save_secret")
+        view._emit_connector_action("clear_secret")
+
+        self.assertEqual(emitted[0]["connector"], "crm")
+        self.assertEqual(emitted[0]["action"], "connect")
+        self.assertEqual(emitted[0]["provider"], "hubspot")
+        self.assertEqual(emitted[0]["secret_key"], "CRM_API_KEY")
+        self.assertEqual(emitted[0]["secret_value"], "test-secret")
+        self.assertEqual(emitted[1]["action"], "disconnect")
 
     def test_voices_view_surfaces_persistent_readiness_evidence(self):
         view = VoicesView()
@@ -365,6 +522,67 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         view = ModelsView()
 
         self.assertIn("Try the kind of question", view._route_preview_lbl.text())
+
+    def test_models_view_persists_local_runtime_preferences(self):
+        old_settings_path = runtime_profile.SETTINGS_PATH
+        old_runtime_dir = runtime_profile.RUNTIME_DIR
+        old_backend_flag = models_view_module._RUNTIME_SETTINGS_BACKEND
+        old_refresh = models_view_module.ModelsView._refresh
+
+        with tempfile.TemporaryDirectory() as td:
+            runtime_dir = Path(td)
+            runtime_profile.RUNTIME_DIR = runtime_dir
+            runtime_profile.SETTINGS_PATH = runtime_dir / "app_settings.json"
+            models_view_module._RUNTIME_SETTINGS_BACKEND = True
+            models_view_module.ModelsView._refresh = lambda self: None
+
+            try:
+                first = models_view_module.ModelsView()
+                first._runtime_backend_cb.setCurrentText("LEMONADE")
+                first._lemonade_base_url_input.setText("http://localhost:13305/api/v1")
+                first._lemonade_role_inputs["lemonade_fast_model"].setCurrentText("Llama-3.2-1B-Instruct-GGUF")
+                first._lemonade_role_inputs["lemonade_complex_model"].setCurrentText("Llama-3.2-3B-Instruct-GGUF")
+                first._save_runtime_settings()
+
+                second = models_view_module.ModelsView()
+                self.assertEqual(second._runtime_backend_cb.currentText(), "LEMONADE")
+                self.assertEqual(second._lemonade_role_inputs["lemonade_fast_model"].currentText(), "Llama-3.2-1B-Instruct-GGUF")
+                self.assertEqual(second._lemonade_role_inputs["lemonade_complex_model"].currentText(), "Llama-3.2-3B-Instruct-GGUF")
+                self.assertEqual(runtime_profile.load_app_settings().get("local_runtime_backend"), "lemonade")
+            finally:
+                models_view_module.ModelsView._refresh = old_refresh
+                models_view_module._RUNTIME_SETTINGS_BACKEND = old_backend_flag
+                runtime_profile.SETTINGS_PATH = old_settings_path
+                runtime_profile.RUNTIME_DIR = old_runtime_dir
+
+    def test_models_view_surfaces_live_runtime_evidence_from_status(self):
+        old_refresh = models_view_module.ModelsView._refresh
+        models_view_module.ModelsView._refresh = lambda self: None
+        try:
+            view = models_view_module.ModelsView()
+            view.set_status_snapshot(
+                {
+                    "status": "healthy",
+                    "local_runtime": {
+                        "backend": "lemonade",
+                        "state": "PARTIAL",
+                        "detail": "Lemonade is reachable, but the default local model alias is not mapped yet.",
+                        "requested_model": "guppy",
+                        "resolved_model": "guppy-fast",
+                        "base_url": "http://localhost:13305/api/v1",
+                        "tool_loop": "limited",
+                        "available_roles": ["fast", "code"],
+                        "missing_roles": ["complex", "teaching", "vault"],
+                    },
+                }
+            )
+
+            self.assertIn("LIVE LANE: PARTIAL", view._runtime_live_lbl.text())
+            self.assertIn("server runtime LEMONADE", view._runtime_live_lbl.text())
+            self.assertIn("Missing mapped roles: COMPLEX, TEACHING, VAULT", view._runtime_live_lbl.text())
+            self.assertIn("Available mapped roles: FAST, CODE", view._runtime_live_lbl.text())
+        finally:
+            models_view_module.ModelsView._refresh = old_refresh
 
     def test_app_management_terminal_accepts_focus_and_output_append(self):
         view = AdvancedView()
@@ -386,6 +604,15 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Outcome: Loaded the first command", view._workflow_outcome_lbl.text())
         self.assertIn("Evidence:", view._workflow_evidence_lbl.text())
         self.assertIn("python tools/verify_ollama_runtime.py --prompt ok", view._terminal_output.toPlainText())
+
+    def test_launcher_windows_ops_recipe_exposes_verify_and_update_commands(self):
+        verify_label, verify_commands = launcher_window.LauncherWindow._windows_ops_recipe("verify_runtime")
+        update_label, update_commands = launcher_window.LauncherWindow._windows_ops_recipe("update_runtime")
+
+        self.assertEqual(verify_label, "WINDOWS VERIFY")
+        self.assertTrue(any("verify_ollama_runtime.py --prompt ok" in cmd for cmd in verify_commands))
+        self.assertEqual(update_label, "WINDOWS UPDATE")
+        self.assertTrue(any("pip install -r requirements.txt" in cmd for cmd in update_commands))
 
     def test_settings_view_persists_persona_builder_config(self):
         old_settings_path = runtime_profile.SETTINGS_PATH

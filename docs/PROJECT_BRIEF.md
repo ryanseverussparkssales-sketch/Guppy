@@ -1,6 +1,6 @@
 # Guppy Project Brief
 
-Last updated: 2026-04-14
+Last updated: 2026-04-15
 
 ## Purpose
 
@@ -27,7 +27,7 @@ Guppy is a Windows-first, local-first personal assistant focused on:
 
 ## What Is Live
 
-1. Launcher-first workflow with Home, Workspaces, Agent Tools, App Mgmt, Models, and Voices.
+1. Launcher-first workflow with Home, Workspaces, Agent Tools, App Mgmt, Local LLM, Models, and Voices.
 2. Embedded INIT path and launcher bootstrap auto-start the API and hub asynchronously when needed.
 3. Startup guardrails and runtime telemetry markers.
 4. Recovery operations now live under App Mgmt as the single operational surface.
@@ -50,11 +50,15 @@ Guppy is a Windows-first, local-first personal assistant focused on:
 21. Workspaces now shows role mix and collaboration-fit cues directly in the manager, so users can see how many daily/builder/reference/ops contexts they have and what the active workspace is best suited for.
 22. Cross-workspace query now follows the same policy framing server-side that the launcher explains client-side, so blocked source workspaces are denied before the bridge runs.
 23. The launcher app icon now uses the Guppy fish mark, matching the shell branding instead of leaving the fish only as an internal sidebar motif.
+24. Local LLM now has a dedicated launcher surface, so manifest state, benchmark artifacts, review packets, memory posture, and runtime-challenger recommendations no longer stay scattered across Home and Models.
+25. Workspace governance is now productized on top of the capability system with an editable Workspaces UI for per-workspace auth modes, tool allow/block lists, endpoint filters, operator notes, and clearer policy reasons in Agent Tools.
+26. Blocked tool telemetry now distinguishes connector auth readiness, endpoint scope denial, and workspace-policy denial instead of collapsing everything into one coarse restriction reason, and Agent Tools surfaces the connector auth state directly.
+27. App Mgmt now includes a Windows install/update/diagnostics surface with installed-runtime visibility, active local backend, data paths, repair-token posture, latest diagnostics artifact visibility, and one-click verify/update/restart/repair actions.
 
 What is live in the M2 launcher shell right now:
 
 1. Unified launcher entrypoint is `guppy_launcher.py` with canonical implementation in `src/guppy/apps/launcher_app.py` and `ui/launcher/`.
-2. Current navigation model is Home, Workspaces, Agent Tools, App Mgmt, Models, and Voices, with settings folded into App Mgmt.
+2. Current navigation model is Home, Workspaces, Agent Tools, App Mgmt, Local LLM, Models, and Voices, with settings folded into App Mgmt.
 3. Home is now a chat-first daily surface with a consumer-messenger lean: workspace chat stays central, heavy context is off the canvas, and the active launcher context is controlled from the top bar instead of a large in-room panel.
 4. App Mgmt now carries runtime facts, route preview, recovery summary, workflow loops, and settings, while the right tray owns softened quick tools, add-on spaces, and the media slot.
 5. Workspace-first launcher framing is now live in the UI: the visible shell talks about workspaces, while backend instance contracts remain unchanged for safety.
@@ -72,8 +76,8 @@ What is live in the M2 launcher shell right now:
 7. Workflow loop productization is underway: App Mgmt now has launcher-first workflow shortcuts, next-step guidance, and short outcome summaries, but richer execution evidence and tighter UX still need work.
 8. Workspace framing is stronger, but recurring-context and collaboration cues still need to deepen beyond the current role mix / fit layer.
 9. Dependency and packaging surface is still broader than the long-term product target because local, cloud, provider, and voice stacks still share one base runtime bundle.
-10. The Local LLM story is still fragmented across Home, Models, and memory internals; a dedicated Local LLM surface and a clearer local-memory backend strategy are not shipped yet.
-11. The local-model modernization track is now planned, but not yet implemented: the manifest, benchmark spec, and challenger list are in repo, while the harness, memory adapter seam, and dedicated Local LLM page still need to be built.
+10. Local LLM evidence is now centralized in its own launcher surface, but promotion decisions still need more reviewer scores, broader challenger comparison, and a clearer default-runtime decision between Ollama and the new Lemonade lane.
+11. Governance and Windows ops now have stronger productized surfaces, but workspace credential lifecycle, connector-specific scope editing, and broader installer/update automation still need deeper productization.
 
 ## Developer Rules
 

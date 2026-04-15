@@ -101,6 +101,8 @@ Every benchmark run should capture:
    - 1-5 human review score for usefulness.
 8. `notes`
    - Short reviewer note for regressions, hallucinations, or recall noise.
+9. `record_id`
+   - Stable per-record key for review packet mapping and artifact updates.
 
 ## Artifact Layout
 
@@ -112,6 +114,27 @@ Benchmark outputs should land here:
    - Append-only run history.
 3. `runtime/local_llm_benchmarks/reviews/`
    - Optional per-run review notes.
+4. `*.human_review_packet.json`
+   - Human review packet emitted from an artifact with `tools/local_llm_review_packet.py`.
+   - Carries prompt, route, preview, and blank `review_score` / `notes` fields for manual scoring.
+
+Runtime-backed passes may also override the backend used for the run.
+
+1. `runtime_backend`
+   - `ollama` or a challenger such as `lemonade`.
+2. `runtime_base_url`
+   - Optional endpoint base recorded in the artifact for local challenger runs.
+
+## Human Review Workflow
+
+Use the benchmark artifacts for machine evidence and a sidecar packet for manual judgment.
+
+1. Emit a review packet:
+   - `python tools/local_llm_review_packet.py runtime/local_llm_benchmarks/reviews/<artifact>.json`
+2. Fill `review_score`, `notes`, and `reviewer` in the generated `*.human_review_packet.json`.
+3. Apply the packet back into the artifact:
+   - `python tools/local_llm_review_packet.py runtime/local_llm_benchmarks/reviews/<artifact>.json --apply-packet runtime/local_llm_benchmarks/reviews/<artifact>.human_review_packet.json`
+4. Use the updated artifact summary before any promotion call.
 
 ## Promotion Rules
 
@@ -132,6 +155,7 @@ A challenger memory backend can replace the current path only if:
 2. It improves recall usefulness without materially increasing prompt noise.
 3. It remains rebuildable from raw local history.
 4. The result is recorded in the benchmark artifact path and summarized in the roadmap handoff log.
+5. Human review packets are filled for the candidate and baseline artifacts being compared.
 
 ### Runtime promotion
 
@@ -140,6 +164,7 @@ A runtime challenger can replace Ollama only if:
 1. It passes at least one cold-start and one warm-start run on this machine.
 2. It covers the required baseline roles.
 3. It does not break the current launcher/API assumptions without a documented migration plan.
+4. It is benchmarked through the same harness/prompt slice as the Ollama baseline, not only via install or health checks.
 
 ## First Implementation Slice
 
