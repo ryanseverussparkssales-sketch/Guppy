@@ -7,13 +7,7 @@ Usage:
     python seed_profile.py
     .venv\\Scripts\\python.exe seed_profile.py
 """
-import sys
-from pathlib import Path
-
-# Make sure guppy_memory is importable from any working directory
-sys.path.insert(0, str(Path(__file__).parent))
-
-from guppy_memory import remember, save_contact
+from src.guppy.memory.memory import remember, save_contact
 
 # ── Helper ─────────────────────────────────────────────────────────────────────
 results = []

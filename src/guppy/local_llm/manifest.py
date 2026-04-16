@@ -27,6 +27,11 @@ def get_baseline_model_entries(manifest: dict[str, Any]) -> list[dict[str, Any]]
     return [entry for entry in entries if isinstance(entry, dict)]
 
 
+def get_challenger_model_entries(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    entries = manifest.get("challenger_models") or []
+    return [entry for entry in entries if isinstance(entry, dict)]
+
+
 def get_runtime_backend_baseline(manifest: dict[str, Any]) -> str:
     runtime = manifest.get("runtime") or {}
     return str(runtime.get("baseline_backend") or "ollama").strip() or "ollama"
@@ -56,3 +61,42 @@ def get_manifest_artifact_path(
     if default is not None:
         return Path(default)
     raise KeyError(f"artifact path not found: {key}")
+
+
+def get_local_llm_policy_summary(manifest: dict[str, Any]) -> dict[str, Any]:
+    challengers = get_challenger_model_entries(manifest)
+    promotion_candidate = next(
+        (entry for entry in challengers if str(entry.get("status") or "").strip() == "promotion_candidate"),
+        None,
+    )
+    heavy_candidate = next(
+        (entry for entry in challengers if str(entry.get("status") or "").strip() == "heavy_lane_candidate"),
+        None,
+    )
+    daily_rejected = [
+        str(entry.get("tag") or "").strip()
+        for entry in challengers
+        if str(entry.get("status") or "").strip() == "daily_lane_rejected" and str(entry.get("tag") or "").strip()
+    ]
+    runtime = manifest.get("runtime") or {}
+    runtime_challengers = runtime.get("runtime_challengers") or []
+    runtime_ids = [
+        str(entry.get("id") or "").strip()
+        for entry in runtime_challengers
+        if isinstance(entry, dict) and str(entry.get("id") or "").strip()
+    ]
+    return {
+        "runtime_baseline": get_runtime_backend_baseline(manifest),
+        "memory_baseline": get_memory_backend_baseline(manifest),
+        "daily_model_promotion_candidate": str((promotion_candidate or {}).get("tag") or "").strip(),
+        "daily_model_promotion_note": str((promotion_candidate or {}).get("notes") or "").strip(),
+        "heavy_model_candidate": str((heavy_candidate or {}).get("tag") or "").strip(),
+        "heavy_model_note": str((heavy_candidate or {}).get("notes") or "").strip(),
+        "daily_lane_rejected_models": daily_rejected,
+        "runtime_challenger_ids": runtime_ids,
+        "summary": (
+            f"Production local runtime: {get_runtime_backend_baseline(manifest)} | "
+            f"daily lane candidate: {str((promotion_candidate or {}).get('tag') or '').strip() or 'unset'} | "
+            f"heavy fallback: {str((heavy_candidate or {}).get('tag') or '').strip() or 'unset'}"
+        ),
+    }

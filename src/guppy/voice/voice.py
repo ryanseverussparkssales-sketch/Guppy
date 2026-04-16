@@ -42,6 +42,19 @@ except Exception:
 TTS_ENABLED = True
 
 
+def _win_hidden_popen_flags() -> dict[str, object]:
+    if os.name != "nt":
+        return {}
+    flags: dict[str, object] = {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    }
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+    flags["startupinfo"] = startupinfo
+    return flags
+
+
 def clean_for_tts(text: str) -> str:
     """Strip markdown and symbol noise before passing text to speech synthesis."""
     text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
@@ -384,6 +397,7 @@ class GuppyVoice:
             stderr=subprocess.DEVNULL,
             text=True,
             env=env,
+            **_win_hidden_popen_flags(),
         )
         try:
             if self._tts_process.stdin:

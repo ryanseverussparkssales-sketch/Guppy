@@ -16,7 +16,7 @@ from pathlib import Path
 from guppy_core import run_tool as _run_tool, _mem, _MEM
 
 try:
-    from guppy_semantic_memory import build_semantic_prompt_context as _build_semantic_prompt_context
+    from src.guppy.memory.semantic import build_semantic_prompt_context as _build_semantic_prompt_context
 except Exception:
     _build_semantic_prompt_context = None
 
@@ -661,9 +661,17 @@ MERLIN_TOOLS = [
 def _get_clipboard() -> str:
     """Read the Windows clipboard via PowerShell."""
     try:
+        extra: dict[str, object] = {}
+        if os.name == "nt":
+            extra["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+            startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+            extra["startupinfo"] = startupinfo
         r = subprocess.run(
             ["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
             capture_output=True, text=True, timeout=5,
+            **extra,
         )
         return r.stdout.strip() or "(clipboard is empty)"
     except Exception as e:
@@ -674,10 +682,18 @@ def _set_clipboard(text: str) -> str:
     """Write text to the Windows clipboard — base64-encoded to avoid quoting issues."""
     try:
         b64 = base64.b64encode(text.encode("utf-8")).decode("ascii")
+        extra: dict[str, object] = {}
+        if os.name == "nt":
+            extra["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+            startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+            extra["startupinfo"] = startupinfo
         subprocess.run(
             ["powershell", "-NoProfile", "-Command",
              f"[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{b64}')) | Set-Clipboard"],
             capture_output=True, timeout=5,
+            **extra,
         )
         return f"Clipboard filled ({len(text)} chars)."
     except Exception as e:

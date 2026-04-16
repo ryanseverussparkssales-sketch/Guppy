@@ -1,25 +1,20 @@
 # Roadmap and Handoff
 
-Last updated: April 15, 2026 — **M1 Exit Gate PASSED**
+Last updated: April 16, 2026 - **M1 Exit Gate PASSED**
 
 Historical note: this file preserves handoff and execution history. Older entries may reference pre-migration root paths or runtime utility locations; use `README.md`, `instructions/OPERATIONS.md`, and `docs/PROJECT_BRIEF.md` for current commands and canonical module paths.
 
 ## M1 Status: CLOSED (April 13, 2026)
 
-- ✅ Embedded-only INIT live — `AgentCard._btn_init` wired to emit signal, no legacy window spawns
-- ✅ Transcript UX stable — "Processing..." moved to status strip, chat shows user→assistant turns only
-- ✅ Right-rail strictly operational — all content is status/logging only, no chat payloads
-- ✅ No-freeze startup telemetry — phases tracked with <750ms budget enforcement; all bootstrap async
+- Embedded-only INIT live: `AgentCard._btn_init` emits the embedded signal and no longer spawns legacy windows.
+- Transcript UX stable: "Processing..." stays in the status strip and chat shows user-to-assistant turns only.
+- Right-rail strictly operational: all content is status/logging only, with no primary chat payloads.
+- No-freeze startup telemetry: phases are tracked with the `<750ms` budget enforcement and bootstrap stays async.
 
-## Next Phase: M2 — Surface Consolidation: Multi-Instance, Home Primary, Tool Separation
+## Next Phase: M2 - Surface Consolidation: Multi-Instance, Home Primary, Tool Separation
 
-**M2 Planning Documents** (Read in order):
-
-1. [M2_UI_QUICK_REFERENCE.md](docs/M2_UI_QUICK_REFERENCE.md) — One-pager: tab structure, instance switching, tool separation
-2. [M2_UI_ARCHITECTURE_GUIDE.md](docs/M2_UI_ARCHITECTURE_GUIDE.md) — Comprehensive design spec with mockups, data model, inter-agent patterns
-3. [M2_ENGINEERING_PLAN.md](docs/M2_ENGINEERING_PLAN.md) — Full epics (0–6) with acceptance criteria, risks, schedule
-4. [M2_SCOPE_LOCK.md](docs/M2_SCOPE_LOCK.md) — Scope lock, decisions, blockers, escalation path
-5. [M2_LAUNCH_CHECKLIST.md](docs/M2_LAUNCH_CHECKLIST.md) — 8-week ramp plan, weekly tracking, go/no-go gates
+Historical M2 planning material now lives under `docs/archive/planning-history/m2/`.
+Use that archive for old design/spec context only; use `docs/PROJECT_BRIEF.md` and the active execution board below for current direction.
 
 Quick condensed project brief: `docs/PROJECT_BRIEF.md`
 
@@ -49,7 +44,7 @@ Guppy should be the default daily assistant on a Microsoft PC:
 These capabilities exist now and are usable in pilot:
 
 1. Unified launcher is evolving toward Home, Instance Manager, Agent Tools, App Management, Local LLM, Models, and Voices, with settings folded into App Mgmt.
-2. Launcher auto-starts guppy_api.py and guppy_hub.py on open — no manual service management required.
+2. Launcher auto-starts guppy_api.py and guppy_hub.py on open â€” no manual service management required.
 3. Home is now a chat-first daily surface; heavier runtime, routing, workflow, and recovery context lives in App Mgmt and the deeper Models/Voices surfaces.
 4. Workspace management is live with persisted config/state plus create, activate, delete, and log-view endpoints, and explicit 5 configured / 2 runtime-active UX feedback.
 5. Local 5-model fleet with runtime verification tooling.
@@ -59,7 +54,7 @@ These capabilities exist now and are usable in pilot:
 9. Runtime telemetry and logging health checks with JSONL rotation.
 10. Personalization/provider/voice schema scaffolds and JSON validate/reload/save flows.
 11. Pilot gate automation via tools/pilot_exit_check.py.
-12. Atomic file I/O via utils/safe_io.py — no more torn reads from partial writes.
+12. Atomic file I/O via utils/safe_io.py â€” no more torn reads from partial writes.
 13. guppy_core is a proper package (guppy_core/) with clean submodule boundaries.
 14. Local LLM benchmarking is beyond planning now: manifest validation, harness artifacts, human review packets, memory-backend comparisons, and runtime-challenger snapshots are all live in-tree.
 15. Default repo verification is green from `.venv\Scripts\python.exe -m pytest -q`; `check_core_surface_integrity.py`, `validate_build_checks.py`, and `tools/pilot_exit_check.py --allow-limited-go --python .venv\Scripts\python.exe` are also passing, and the changed-file line-cap guard is now cleared by the `server.py` and `router.py` split.
@@ -100,31 +95,36 @@ Objective: every capability must either work inside GuppyPrime UI now or be trac
 
 ## Milestone Calendar
 
-| Milestone | Target Date | Theme |
-| --- | --- | --- |
-| M1 | June 30, 2026 (Q2 2026) | Surface Consolidation and Embedded Agent Baseline |
-| M2 | September 30, 2026 (Q3 2026) | UX Hierarchy, Workflow Entry, and Tooling Finish |
-| M3 | December 31, 2026 (Q4 2026) | Workspace Completion, Windows Fit, and Productization Finish |
+| Milestone | Status | Active Window | Theme |
+| --- | --- | --- | --- |
+| M1 | Complete | Closed April 13, 2026 | Surface Consolidation and Embedded Agent Baseline |
+| M2 | Active | April 15, 2026 - September 30, 2026 | UX Hierarchy, Workflow Entry, and Tooling Finish |
+| M3 | Planned | October 1, 2026 - December 31, 2026 | Workspace Completion, Windows Fit, and Productization Finish |
+
+Timeline reset note: archived M2 planning files under `docs/archive/planning-history/m2/`
+preserve the original June planning model for historical reference only. Current sequencing
+and status now follow this active roadmap plus `docs/PROJECT_BRIEF.md`.
 
 **M1 Exit Gate:** No new infrastructure tracks open until all M1 acceptance criteria
 pass and are committed to documentation. The gate is: embedded-only INIT live,
 transcript UX stable, right-rail policy enforced, and no-freeze startup telemetry
 present. Date is firm.
 
-## Execution Board (Refreshed Apr 15, 2026)
+## Execution Board (Refreshed Apr 16, 2026)
 
 This board is the active execution queue. Items are ordered by product leverage,
 not by implementation convenience. Status values:
 
 - `active` = in current execution pass
+- `validation` = implementation landed and is in closeout / evidence confirmation
 - `next` = ready to start once the active card lands
 - `queued` = scoped and sequenced, but waiting on upstream work
 - `watch` = important, but not on the critical path this week
 
 | Priority | Track | Status | Current Tranche | Acceptance Criteria | Depends On | Target Window |
 | --- | --- | --- | --- | --- | --- | --- |
-| P0 | Connector Governance V2 | active | Provider-specific readiness, verify detail, scope telemetry, guided multi-field auth for CRM + VoIP | App Mgmt can explain what is missing, what passed, and where to fix it for Salesforce/Twilio/HubSpot/Zoho/GoHighLevel without config-file editing | Existing connector governance v1 surface | Apr 15 - May 02 |
-| P1 | Windows Servicing V2 | next | Installer/update automation, stronger verify/update/restart/repair choreography, durable change summaries | Operator can answer what is installed, what changed, what is active, and how to repair it from App Mgmt alone | Current Windows ops panel and recovery paths | Apr 29 - May 16 |
+| P0 | Connector Governance V2 | validation | Provider-specific readiness, guided auth, and telemetry alignment are implemented; close out evidence and keep provider detail stable while release-lane work finishes | App Mgmt can explain what is missing, what passed, and where to fix it for Salesforce/Twilio/HubSpot/Zoho/GoHighLevel without config-file editing | Existing connector governance v1 surface | Apr 16 - Apr 24 |
+| P1 | Windows Servicing V2 | active | Installer/update automation, stronger verify/update/restart/repair choreography, durable change summaries, and release-lane hardening | Operator can answer what is installed, what changed, what is active, and how to repair it from App Mgmt alone | Current Windows ops panel and recovery paths | Apr 16 - Apr 24 |
 | P2 | Workspace Framing | next | Recast instances into clearer user-facing workspaces with stronger recurring-context and collaboration cues | A user can tell what each workspace is for without backend knowledge | Stable governance + connector workflow | May 06 - May 23 |
 | P3 | Home / Chat-First Polish | queued | First-run guidance, calmer transcript/composer rhythm, starter-path polish | New users can start productive work from Home without reading operator docs | Workspace framing direction | May 20 - Jun 06 |
 | P4 | Route + Voice Trust Layer | queued | Better plain-language route reasoning, readiness, latency evidence, and device-state clarity | Users can understand route/voice choices and recovery state from launcher surfaces | Home polish and servicing evidence | Jun 03 - Jun 20 |
@@ -132,16 +132,32 @@ not by implementation convenience. Status values:
 | P6 | Packaging / Release Hardening | watch | Reduce environment drift, unify release/build rails, improve package-policy evidence | Release verification is one repeatable path, not several partially overlapping ones | Servicing automation | Jul 01 - Jul 17 |
 | P7 | Legacy / Historical Debt | watch | Keep pruning legacy aliases, obsolete references, and archive assumptions | Live surface is unmistakable in docs and code | Ongoing | Rolling |
 
-### Current Sprint Focus
+### Re-Baselined 6-Week Window (Apr 16 - May 29, 2026)
 
-1. Connector Governance V2
-   - Provider-specific verify adapters and readiness checks for CRM + VoIP.
-   - Guided multi-field provider setup polish in App Mgmt.
-   - Queryable connector action/result telemetry and operator-visible fix guidance.
-2. Windows Servicing V2 preparation
-   - Inventory installer/update/repair seams after connector verify adapters land.
-   - Keep operator logs and change summaries aligned with the future servicing path.
-   - Turn update into a postflight-validated servicing loop with before/after evidence.
+1. April 16 - April 24
+   - Close `R2.1` release-lane hardening.
+   - Align handoff artifacts and fix stale board/doc statuses.
+   - Keep Connector Governance V2 in validation while release evidence stabilizes.
+2. April 27 - May 08
+   - Promote Workspace Framing into the active product lane once `R2.1` evidence is stable.
+   - Ship clearer workspace language, recurring-context cues, and collaboration-fit framing.
+3. May 11 - May 22
+   - Ship Home/chat-first polish, first-run guidance, and calmer starter flows.
+   - Keep operator-heavy context deeper in App Mgmt, Models, and Voices.
+4. May 25 - May 29
+   - Run a mid-M2 review against servicing stability and Home/workspace acceptance.
+   - Decide whether `Route + Voice Trust Layer` starts June 1 or waits behind remaining servicing/release risk.
+
+### Current Execution Focus (Apr 16 - Apr 24)
+
+1. Windows Servicing V2
+   - Close release-lane hardening and keep servicing evidence operator-readable.
+   - Reduce the remaining manual handoff work in the package/install/release path.
+2. Connector Governance V2 validation
+   - Keep provider verify detail, guided auth, and telemetry outputs stable while the servicing lane closes.
+   - Treat this as evidence closeout, not a new feature build.
+3. Workspace Framing preparation
+   - Keep naming, recurring-context, and collaboration-fit direction ready to move into the active lane once `R2.1` is stable.
 
 ### Immediate Card Breakdown
 
@@ -159,7 +175,7 @@ not by implementation convenience. Status values:
    - Acceptance: every verify/connect attempt has a stable operator-visible reference and filterable event payload.
 4. Card WO2.1 - Servicing action evidence
    - Status: done
-   - Scope: durable verify/update/restart/repair output summaries and clearer “what changed” feedback.
+   - Scope: durable verify/update/restart/repair output summaries and clearer â€œwhat changedâ€ feedback.
    - Acceptance: operator logs answer what changed without reading raw terminal output.
 5. Card WO2.2 - Update automation + postflight verification
    - Status: done
@@ -181,15 +197,35 @@ not by implementation convenience. Status values:
    - Status: active
    - Scope: push the new package/install lane toward release-grade repeatability with better artifact/report handoff and fewer manual follow-up steps.
    - Acceptance: the common release path is mostly launcher-driven, with remaining manual steps explicit and evidence-backed.
-   - Progress: App Mgmt now persists release handoff refs for diagnostics, challenger, package, beta-policy, and dry-run artifacts in `windows_ops_state.json`, mirrors them into operator-visible launcher events, writes a canonical `runtime/windows_release_receipt.json` handoff file after completed servicing runs, emits a readable `runtime/windows_release_summary.md` companion summary for operator handoff, exposes a launcher-first `RELEASE DRY RUN` action for the beta release gate, surfaces parsed gate verdict details directly in App Mgmt plus operator logs, includes structured dry-run check/file breakdown in the release receipt for handoff-safe review, and now generates fix-first release recommendations with direct fix targets, docs hints, and entry commands from failed checks and missing handoff files across the receipt, live App Mgmt surface, and operator log stream.
+   - Progress: App Mgmt now persists release handoff refs for diagnostics, challenger, package, beta-policy, and dry-run artifacts in `windows_ops_state.json`, mirrors them into operator-visible launcher events, writes a canonical `runtime/windows_release_receipt.json` handoff file after completed servicing runs, emits a readable `runtime/windows_release_summary.md` companion summary for operator handoff, exposes both receipt and summary in the App Mgmt handoff line, exposes a launcher-first `RELEASE DRY RUN` action for the beta release gate, surfaces parsed gate verdict details directly in App Mgmt plus operator logs, includes structured dry-run check/file breakdown in the release receipt for handoff-safe review, and now generates fix-first release recommendations with direct fix targets, docs hints, and entry commands from failed checks and missing handoff files across the receipt, live App Mgmt surface, and operator log stream.
+
+### Architecture Note - April 16, 2026
+
+- Backend startup now distinguishes `API reachable` from `local chat ready`.
+- The API exposes local-runtime `chat_ready`, `chat_state`, `chat_detail`, and `chat_model` in `/status` and `/startup/check`.
+- API startup now triggers local-runtime warmup in the background instead of leaving the first launcher turn to discover a cold local model lane by timeout alone.
+- Local local-runtime calls now fail fast with a warmup-specific error when the Ollama lane is still cold, which gives the launcher a deterministic result path and keeps repo ownership of readiness in the backend instead of the UI shell.
+- `src/guppy/api/server.py` now aliases a real imported module (`src/guppy/api/server_runtime.py`) instead of stitching fragments with runtime `exec`.
+- The launcher now treats `/startup/check` as the backend-owned readiness source when deciding whether the API is ready for commands or has merely started warming.
+- The first extracted module slice is in place: root, metrics, auth handshake, `/status`, and `/startup/check` now register through imported route code backed by `ServerContext`.
+- The API route surfaces are now split by domain as imported modules: core status/auth, instances/connectors, repair/ops, and realtime chat/voice/ws all register through `ServerContext`.
+- Instance/config helpers, telemetry/repair helpers, and realtime/chat helpers now live in first-class service modules (`services_instances.py`, `services_ops.py`, `services_realtime.py`) while `server_runtime.py` keeps the public compatibility surface for routes/tests.
+- Startup/readiness and local-runtime warmup/status now live in `services_runtime.py`, leaving `server_runtime.py` as the app-composition shell plus the remaining middleware/lifespan/heartbeat seam.
+- Daemon runtime status, integration heartbeat throttling, repair-token lookup, window-context reads, and daemon restart behavior now flow through `ServerRuntimeState` plus `services_host.py` instead of being split across routes and module globals.
+- File-system layout now has an explicit shared path object (`server_paths.py`), and the API routes/services are starting to depend on that object instead of treating `_config_dir`, `_runtime_dir`, and related module globals as the real contract.
+- Smoke/security coverage now uses explicit API helpers to swap path and repair-token state for tests, which reduces accidental cross-test mutation of repo-local files while keeping the legacy globals as compatibility shims.
+- The route surfaces now consume a much wider explicit `ServerContext` contract for status, telemetry, repair, instance/workspace management, and realtime chat flow. `routes_core.py`, `routes_ops.py`, `routes_instances.py`, and `routes_realtime.py` now lean on named context capabilities instead of tunneling through `ctx.owner._...` for most service work.
+- Patch-sensitive route dependencies such as local inference and workspace-permission checks are now late-bound through the module surface, so the cleaned-up routers still honor the existing smoke/security tests that patch `guppy_api._call_unified_inference` and `guppy_api.check_instance_tool_permission`.
+- The owner-binding compatibility wrappers now preserve the original function signatures, which keeps FastAPI dependency injection stable while still letting `server_runtime.py` export the legacy helper names the routers/tests patch today.
+- Remaining architectural debt: keep shrinking the compatibility alias surface and eventually replace the last module-global shims (`_REPAIR_TOKEN`, file paths, and similar patch points) with explicit context/service dependencies once the tests no longer patch those globals directly.
 
 ## GuppyPrime Action Queue (Prioritized With Milestones)
 
-### ~~M1 - Surface Consolidation (CLOSED Apr 13, 2026)~~ → **M2 Active**
+### ~~M1 - Surface Consolidation (CLOSED Apr 13, 2026)~~ â†’ **M2 Active**
 
-### **M2 - UX Hierarchy, Workflow Entry, and Tooling Finish (Highest) — Due September 30, 2026**
+### **M2 - UX Hierarchy, Workflow Entry, and Tooling Finish (Highest) â€” Due September 30, 2026**
 
-**[Detailed Breakdown: docs/M2_ENGINEERING_PLAN.md](docs/M2_ENGINEERING_PLAN.md)** — 8 workstreams, detailed PRDs, risk assessment, schedule, success metrics
+Historical detailed breakdown: `docs/archive/planning-history/m2/M2_ENGINEERING_PLAN.md`
 
 **ACTIVE THIS WEEK (Week of Apr 15):**
 
@@ -224,7 +260,7 @@ not by implementation convenience. Status values:
   - Acceptance: users can understand why Guppy chose a route or voice without opening Settings.
 
 - **Local LLM + Local Memory Track**
-  - Evaluate MemPalace as a local-memory upgrade path for Guppy’s local-model workflows instead of treating it as a blind drop-in replacement.
+  - Evaluate MemPalace as a local-memory upgrade path for Guppyâ€™s local-model workflows instead of treating it as a blind drop-in replacement.
   - Keep the first integration adapter-shaped: retrieval spike, local-memory comparison, and optional backend wiring before any broad page rename.
   - Dedicated Local LLM page is now live in the launcher so local fleet status, local memory posture, benchmark evidence, and challenger recommendations no longer stay scattered across Home, Models, and internals.
   - Freeze the current Ollama/Qwen2.5 fleet as the benchmark baseline with a pinned manifest in `config/local_llm/models.json`.
@@ -256,9 +292,9 @@ not by implementation convenience. Status values:
 - **Off-Hours Agent Scaling**
   - Write tasks now common, not just read.
   - Merlin-code generates tests, schemas, and docstrings.
-  - Dry-run review loop: stage → human approve → apply.
+  - Dry-run review loop: stage â†’ human approve â†’ apply.
   - Budget: 3 writes/run max.
-  - Acceptance: 5–10 safe write tasks/week running unattended.
+  - Acceptance: 5â€“10 safe write tasks/week running unattended.
 
 **NOT IN M2 (Deferred):**
 
@@ -268,7 +304,7 @@ not by implementation convenience. Status values:
 - Broad connector expansion before workspace/context UX is clear
 - CI/CD deploy gates
 
-### M3 - Legacy Retirement and Productization Finish — Due December 31, 2026
+### M3 - Legacy Retirement and Productization Finish â€” Due December 31, 2026
 
 - Deprecate legacy standalone launchers from recommended daily path.
   - Acceptance: docs and launch scripts mark GuppyPrime as sole default surface, and canonical CLI keeps specialist legacy surfaces behind explicit compatibility gating.
@@ -305,7 +341,7 @@ not by implementation convenience. Status values:
 
 - Corrected live-status docs to match current launcher state:
   - `docs/PROJECT_BRIEF.md` now reflects that Persona Builder v1 is still pending while model routing and voice bindings are live
-  - `docs/M2_WEEK1_IMPLEMENTATION_QUEUE.md` now records W1-03 as reopened after doc-to-tree drift review
+  - `docs/archive/planning-history/m2/M2_WEEK1_IMPLEMENTATION_QUEUE.md` now records W1-03 as reopened after doc-to-tree drift review
 - Fixed the beta release dry-run handoff reference:
   - `tools/beta_release_dry_run.py` now checks the archived handoff file path under `docs/archive/planning-history/`
 - Activated the first in-app low-risk local builder path:
@@ -757,7 +793,7 @@ Canonical active planning and execution remains in this file's current roadmap, 
   - added `POST /instances`, `POST /instances/{name}/activate`, `DELETE /instances/{name}`, and `GET /instances/{name}/logs`.
   - added `ui/launcher/views/instance_manager_view.py` and wired it into `ui/launcher/launcher_window.py`.
   - launcher and bounded inter-instance query paths now write per-instance JSONL logs.
-- Updated documentation to match actual repo state in `docs/PROJECT_BRIEF.md`, `docs/M2_IMPLEMENTATION_BACKLOG.md`, and `docs/M2_UI_QUICK_REFERENCE.md`.
+- Updated documentation to match actual repo state in `docs/PROJECT_BRIEF.md`, `docs/archive/planning-history/m2/M2_IMPLEMENTATION_BACKLOG.md`, and `docs/archive/planning-history/m2/M2_UI_QUICK_REFERENCE.md`.
 - Verification evidence:
   - `python -m pytest tests/smoke/test_launcher_interactions_smoke.py tests/smoke/test_runtime_smoke.py` -> 16 passed.
 
@@ -1225,7 +1261,7 @@ Use this tracker first in each handoff update:
 
 **Syntax**: All 40+ Python files pass `py_compile` with no errors.
 
-**Port pivot propagated**: `8080` → `8081` corrected in `bin/launch_api.bat`, `guppy_api.py` (allowed origins), `guppy_hub.py` (default health-check port), `docs/API.md`, `CREDENTIALS_AUDIT.md`. Previously only the runtime files and tunnel config had been updated.
+**Port pivot propagated**: `8080` â†’ `8081` corrected in `bin/launch_api.bat`, `guppy_api.py` (allowed origins), `guppy_hub.py` (default health-check port), `docs/API.md`, `CREDENTIALS_AUDIT.md`. Previously only the runtime files and tunnel config had been updated.
 
 **Stale docs archived** to `docs/archive/root-history/`:
 
@@ -1233,65 +1269,65 @@ Use this tracker first in each handoff update:
 
 **Files relocated**:
 
-- `proxy8080.py` → `tools/proxy8080.py` (port-forwarding utility, not a top-level module)
-- `validate_phase_1_3_no_ui.py` → `tests/test_router_smoke.py` (promoted to permanent test)
-- `validate_phase_1_3.py` → `docs/archive/root-history/` (UI-dependent, phases done)
+- `proxy8080.py` â†’ `tools/proxy8080.py` (port-forwarding utility, not a top-level module)
+- `validate_phase_1_3_no_ui.py` â†’ `tests/test_router_smoke.py` (promoted to permanent test)
+- `validate_phase_1_3.py` â†’ `docs/archive/root-history/` (UI-dependent, phases done)
 
 **Deleted**:
 
-- `chroma_test_soak/` — soak test binary artifacts (verified Chroma works, data not needed)
-- `runtime/diagnostics_guppy_20260412_*.json` — 6 stale single-session diagnostics dumps
+- `chroma_test_soak/` â€” soak test binary artifacts (verified Chroma works, data not needed)
+- `runtime/diagnostics_guppy_20260412_*.json` â€” 6 stale single-session diagnostics dumps
 
 **No live code changed** beyond port number corrections. All model strings already current.
 
 **Flagged for Ryan** (not touched):
 
-- `AI_Project/` subfolder — appears to be a separate older project with its own venv. Not referenced by any Guppy code. Safe to delete or move out of repo, but not done without confirmation.
-- Root `Modelfile.guppy` / `Modelfile.merlin` — different from `models/` versions (different base model configs). Need Ryan to confirm which is current before pruning either.
+- `AI_Project/` subfolder â€” appears to be a separate older project with its own venv. Not referenced by any Guppy code. Safe to delete or move out of repo, but not done without confirmation.
+- Root `Modelfile.guppy` / `Modelfile.merlin` â€” different from `models/` versions (different base model configs). Need Ryan to confirm which is current before pruning either.
 
 ### 2026-04-12 (Phase 11 Ambient Awareness Complete)
 
 ### Ambient Offer To Proactive Banner
 
 - `AmbientWatcher._haiku_interesting_check()` added to `guppy_daemon.py`: calls Haiku with clipboard content, returns `(interesting: bool, action: str)`. Fails open (True) if no API key or call errors. Skips offer if `interesting=False`.
-- `AmbientBanner` widget added to `guppy_ui.py`: 42px bar between scroll area and input bar, hidden until an offer arrives. Shows Haiku's suggested action sentence, "Ask Guppy" button (pre-fills input), dismiss button (×), 30s auto-expire.
+- `AmbientBanner` widget added to `guppy_ui.py`: 42px bar between scroll area and input bar, hidden until an offer arrives. Shows Haiku's suggested action sentence, "Ask Guppy" button (pre-fills input), dismiss button (Ã—), 30s auto-expire.
 - `ambient_offer` IPC handler in `GuppyWindow._handle_cmd()` updated: was dumping into chat via `_bubble()`; now calls `self._ambient_banner.show_offer(action)`.
 - Phase 11 marked complete in ROADMAP.
 
 **Files changed**:
 
-- `guppy_daemon.py` — `_tick()` Haiku gate, `_haiku_interesting_check()` method
-- `guppy_ui.py` — `AmbientBanner` class, `_build_chat_pane()` banner slot, `ambient_offer` handler
+- `guppy_daemon.py` â€” `_tick()` Haiku gate, `_haiku_interesting_check()` method
+- `guppy_ui.py` â€” `AmbientBanner` class, `_build_chat_pane()` banner slot, `ambient_offer` handler
 
 ### 2026-04-12 (Benchmark + 5 items complete)
 
 **Doc-vs-reality audit findings**:
 
-- Smart dispatch tool loop was already wired (docs said "not yet") — `_claude()` has full `while True:` tool loop and `_smart_dispatch` calls it directly.
+- Smart dispatch tool loop was already wired (docs said "not yet") â€” `_claude()` has full `while True:` tool loop and `_smart_dispatch` calls it directly.
 - `ProactiveLoop` and `AmbientWatcher` are full implementations, not skeletons as docs claimed.
-- Actual tool count: 73 (after this session). README claimed 75, handoff claimed 65 — both stale.
+- Actual tool count: 73 (after this session). README claimed 75, handoff claimed 65 â€” both stale.
 - Tool calls through smart dispatch confirmed working. No code change needed.
 
-**Missing tools added to `guppy_core.py`** (tool count: 70 → 73):
+**Missing tools added to `guppy_core.py`** (tool count: 70 â†’ 73):
 
-- `run_python` — subprocess execution of Python snippets, `.venv` python, stdout/stderr capture, 1–60s configurable timeout
-- `notify` — Windows 11 toast via `win11toast`, fallback to ctypes MessageBox
-- `web_summarize` — HTTP fetch + Claude Haiku summary; Firecrawl if `FIRECRAWL_API_KEY` set
+- `run_python` â€” subprocess execution of Python snippets, `.venv` python, stdout/stderr capture, 1â€“60s configurable timeout
+- `notify` â€” Windows 11 toast via `win11toast`, fallback to ctypes MessageBox
+- `web_summarize` â€” HTTP fetch + Claude Haiku summary; Firecrawl if `FIRECRAWL_API_KEY` set
 
-**Phase 4 voice fast-path — COMPLETE**:
+**Phase 4 voice fast-path â€” COMPLETE**:
 
 - Added `voice_triggered` parameter to `Worker.__init__`
-- `_smart_dispatch` now short-circuits task classification when `voice_triggered=True` → always Haiku-first (2s latency target)
+- `_smart_dispatch` now short-circuits task classification when `voice_triggered=True` â†’ always Haiku-first (2s latency target)
 - `_trigger_wake_listen` passes `voice_triggered=True` to `_send_text`
 - TTS on completion was already wired; no change needed there
 
-**Scheduled `analyze_patterns()` — COMPLETE** (`guppy_hub.py`):
+**Scheduled `analyze_patterns()` â€” COMPLETE** (`guppy_hub.py`):
 
 - `OperatorCard.__init__` now starts two timers: 30s display refresh, 15min auto-analyze
 - `_auto_analyze()` runs `HubOperator.analyze_patterns(force=False)` in background thread
 - HubOperator internal throttle (1/hr) prevents excess API calls; timer just ensures it fires without manual button press
 
-**Phase 5 response cache — COMPLETE** (`guppy_ui.py`):
+**Phase 5 response cache â€” COMPLETE** (`guppy_ui.py`):
 
 - Module-level `_RESPONSE_CACHE` dict (TTL 5 min, max 100 entries, oldest-evicted)
 - Only caches `task_type == "simple"` responses where `tool_calls == 0`
@@ -1301,16 +1337,16 @@ Use this tracker first in each handoff update:
 
 **Files changed this session**:
 
-- `guppy_core.py` — added `run_python`, `notify`, `web_summarize` tool definitions + handlers
-- `guppy_ui.py` — `voice_triggered` param, Haiku fast-path, response cache
-- `guppy_hub.py` — `OperatorCard` scheduled refresh + auto-analyze timers
-- `guppy_semantic_memory.py` — Chroma upsert ID fix, warning removal, migrate helper
-- `ROADMAP.md` — this log entry
+- `guppy_core.py` â€” added `run_python`, `notify`, `web_summarize` tool definitions + handlers
+- `guppy_ui.py` â€” `voice_triggered` param, Haiku fast-path, response cache
+- `guppy_hub.py` â€” `OperatorCard` scheduled refresh + auto-analyze timers
+- `guppy_semantic_memory.py` â€” Chroma upsert ID fix, warning removal, migrate helper
+- `ROADMAP.md` â€” this log entry
 
 **Known deferred**:
 
-- Phase 6 (single inference path) — UIs still bypass router for non-auto modes; low urgency now that smart dispatch is the primary path
-- FIRECRAWL_API_KEY not set — `web_summarize` will fall back to HTTP+Haiku (works, just no JS rendering)
+- Phase 6 (single inference path) â€” UIs still bypass router for non-auto modes; low urgency now that smart dispatch is the primary path
+- FIRECRAWL_API_KEY not set â€” `web_summarize` will fall back to HTTP+Haiku (works, just no JS rendering)
 - `run_python` and `notify` available but not in Merlin/Council tool surfaces (only Guppy)
 
 ### 2026-04-12 (Chroma Unblocked)
@@ -1319,40 +1355,40 @@ Use this tracker first in each handoff update:
 
 - Ran soak test: 20 upserts + query against `chromadb 1.5.2` with `anonymized_telemetry=False`. No crash. All ops passed.
 - Root cause of prior deferred status: posthog telemetry thread. Already mitigated in code via `ANONYMIZED_TELEMETRY=FALSE` env + `Settings(anonymized_telemetry=False)`.
-- **Bug fixed** — `_remember_chroma` was using `f"{k}:{timestamp}"` as the Chroma ID, creating duplicate documents on every write instead of upserting. Fixed to use `key` as the ID.
-- **Cleaned up** — removed "experimental/deferred" warning prefixes that were being injected into tool return values (would corrupt Guppy's tool responses).
+- **Bug fixed** â€” `_remember_chroma` was using `f"{k}:{timestamp}"` as the Chroma ID, creating duplicate documents on every write instead of upserting. Fixed to use `key` as the ID.
+- **Cleaned up** â€” removed "experimental/deferred" warning prefixes that were being injected into tool return values (would corrupt Guppy's tool responses).
 - Added `migrate_sqlite_to_chroma()` helper for one-time migration of existing SQLite semantic memories.
 - Default backend remains `sqlite`. Enable Chroma with `GUPPY_SEMANTIC_BACKEND=chroma` in `.env`.
 - Chroma advantage: HNSW approximate nearest neighbor (scales, native distance). SQLite advantage: zero deps, fine for <10k memories.
 
 **Files changed**:
 
-- `guppy_semantic_memory.py` — fixed upsert ID, removed warning prefixes, added `migrate_sqlite_to_chroma()`
+- `guppy_semantic_memory.py` â€” fixed upsert ID, removed warning prefixes, added `migrate_sqlite_to_chroma()`
 
 ### 2026-04-12 (Strict Mode + Public Auth Complete)
 
 ### Remote API Hardening Complete
 
-- `GUPPY_DEV_MODE=0` set in `.env` — strict mode active
+- `GUPPY_DEV_MODE=0` set in `.env` â€” strict mode active
 - Cloudflare Turnstile widget created; site key + secret written to `.env` and `web/turnstile.js`
 - `CLOUDFLARE_HOSTNAME` set to `guppy.sparkscuriositystudio.com`; `GUPPY_ALLOWED_ORIGINS` updated
-- **Bug fixed** — `hub_operator.py` health check: default port `8000` → `8081`
-- **Bug fixed** — `guppy_api_auth.py`: stale shell env captured at import time; added `load_env_file(override=True)` at module level + `_refresh_runtime_config()` called before every auth operation
-- **Bug fixed** — `guppy_api.py`: `reload=True` was hardcoded; now mirrors `DEV_MODE` (can force with `GUPPY_API_RELOAD=1`)
-- **Port pivot** — ghost OS socket entries held `127.0.0.1:8080` (PIDs unkillable without reboot); API moved to `8081` (`GUPPY_API_PORT` env var)
-- Cloudflare tunnel ingress updated via API to route `guppy.sparkscuriositystudio.com` → `localhost:8081`
+- **Bug fixed** â€” `hub_operator.py` health check: default port `8000` â†’ `8081`
+- **Bug fixed** â€” `guppy_api_auth.py`: stale shell env captured at import time; added `load_env_file(override=True)` at module level + `_refresh_runtime_config()` called before every auth operation
+- **Bug fixed** â€” `guppy_api.py`: `reload=True` was hardcoded; now mirrors `DEV_MODE` (can force with `GUPPY_API_RELOAD=1`)
+- **Port pivot** â€” ghost OS socket entries held `127.0.0.1:8080` (PIDs unkillable without reboot); API moved to `8081` (`GUPPY_API_PORT` env var)
+- Cloudflare tunnel ingress updated via API to route `guppy.sparkscuriositystudio.com` â†’ `localhost:8081`
 - `~/.cloudflared/config.yml` written to ensure local config matches dashboard
-- **End-to-end verified**: `POST https://guppy.sparkscuriositystudio.com/auth/verify` with dummy token → `400 {"detail":"Invalid Turnstile token"}` — Cloudflare edge → tunnel → API → Turnstile verify chain all working
+- **End-to-end verified**: `POST https://guppy.sparkscuriositystudio.com/auth/verify` with dummy token â†’ `400 {"detail":"Invalid Turnstile token"}` â€” Cloudflare edge â†’ tunnel â†’ API â†’ Turnstile verify chain all working
 
 **Files changed this session**:
 
-- `.env` — `GUPPY_DEV_MODE`, `CLOUDFLARE_HOSTNAME`, `GUPPY_ALLOWED_ORIGINS`, `TURNSTILE_SECRET/SITE_KEY`, `GUPPY_JWT_SECRET`
-- `web/turnstile.js` — site key updated
-- `guppy_api.py` — `load_env_file(override=True)`, port via `GUPPY_API_PORT` env, reload respects `DEV_MODE`
-- `guppy_api_auth.py` — `load_env_file(override=True)` at module level, `_refresh_runtime_config()` added
-- `utils/hub_operator.py` — default API port `8000` → `8081`
-- `bin/start_tunnel.bat` — `LOCAL_PORT` `8080` → `8081`
-- `~/.cloudflared/config.yml` — new file, routes both hostnames to `localhost:8081`
+- `.env` â€” `GUPPY_DEV_MODE`, `CLOUDFLARE_HOSTNAME`, `GUPPY_ALLOWED_ORIGINS`, `TURNSTILE_SECRET/SITE_KEY`, `GUPPY_JWT_SECRET`
+- `web/turnstile.js` â€” site key updated
+- `guppy_api.py` â€” `load_env_file(override=True)`, port via `GUPPY_API_PORT` env, reload respects `DEV_MODE`
+- `guppy_api_auth.py` â€” `load_env_file(override=True)` at module level, `_refresh_runtime_config()` added
+- `utils/hub_operator.py` â€” default API port `8000` â†’ `8081`
+- `bin/start_tunnel.bat` â€” `LOCAL_PORT` `8080` â†’ `8081`
+- `~/.cloudflared/config.yml` â€” new file, routes both hostnames to `localhost:8081`
 
 **Known deferred**:
 
@@ -1365,23 +1401,23 @@ Use this tracker first in each handoff update:
 
 - Imported Merlin's system components into guppy_ui.py: `get_merlin_startup_system()` and `SPELL_MAP`
 - Enhanced `_smart_dispatch()` to detect task type and select appropriate persona:
-  - Teaching tasks (explain, teach, learn, etc.) → use `get_merlin_startup_system()`
-  - All other tasks → use Guppy's `get_startup_system()`
+  - Teaching tasks (explain, teach, learn, etc.) â†’ use `get_merlin_startup_system()`
+  - All other tasks â†’ use Guppy's `get_startup_system()`
 - Merlin persona now invoked automatically for teaching queries without user having to open separate window
 - Task classification reuses router's heuristics: Socratic teaching prompts route to Merlin, technical queries route to Guppy
 - UI feedback updated to show persona in use ("Smart routing via Merlin..." vs. "Smart routing via Guppy...")
-- All Merlin queries still respect smart fallback chain: Ollama (Merlin model preferred) → Haiku → Sonnet
-- Decision: Merlin stays local-only (Ollama) for teaching; no cloud fallback for teaching tasks (intentional—local model + Socratic style preferred)
+- All Merlin queries still respect smart fallback chain: Ollama (Merlin model preferred) â†’ Haiku â†’ Sonnet
+- Decision: Merlin stays local-only (Ollama) for teaching; no cloud fallback for teaching tasks (intentionalâ€”local model + Socratic style preferred)
 
 **CUMULATIVE STATUS (Phases 1-3 Complete)**:
 
-- ✓ Smart dispatcher core with task classification (15/15 tests passing)
-- ✓ Haiku-first routing (3s timeout, proper fallback chain with no retries)
-- ✓ Merlin automatic routing for teaching tasks (Socratic persona)
-- ✓ All integrated into guppy_ui.py Worker class
-- ✓ Mode="auto" now uses intelligent smart dispatch instead of legacy _route_auto_mode()
-- ✓ Backward compatible: manual modes ("claude", "ollama") still work
-- ✓ No new UI buttons: routing is invisible, just faster + smarter
+- âœ“ Smart dispatcher core with task classification (15/15 tests passing)
+- âœ“ Haiku-first routing (3s timeout, proper fallback chain with no retries)
+- âœ“ Merlin automatic routing for teaching tasks (Socratic persona)
+- âœ“ All integrated into guppy_ui.py Worker class
+- âœ“ Mode="auto" now uses intelligent smart dispatch instead of legacy _route_auto_mode()
+- âœ“ Backward compatible: manual modes ("claude", "ollama") still work
+- âœ“ No new UI buttons: routing is invisible, just faster + smarter
 
 **Impact Summary**:
 
@@ -1409,20 +1445,20 @@ Use this tracker first in each handoff update:
 - Enhanced `inference_router.py` with task classification and smart dispatch:
   - Added `_classify_task()` method: heuristic classification into simple/complex/teaching based on keywords and length
   - Added `query_smart()` method: Haiku-first routing for butler UX (<3s latency target)
-    - Simple tasks (lookup, format, summarize) → Haiku (2-3s)
-    - Complex tasks (build, debug, research, code) → Sonnet (5-10s)
-    - Teaching tasks (explain, teach, learn) → Merlin/Ollama (Socratic, local)
+    - Simple tasks (lookup, format, summarize) â†’ Haiku (2-3s)
+    - Complex tasks (build, debug, research, code) â†’ Sonnet (5-10s)
+    - Teaching tasks (explain, teach, learn) â†’ Merlin/Ollama (Socratic, local)
   - Updated `query()` signature to support mode parameter: "legacy" (local-first) or "smart" (Haiku-first, task-aware)
   - Added `route_inference_smart()` convenience function for UIs to use
   - Decision: Reduced OLLAMA_TIMEOUT from 30s to 10s (no longer primary path); added HAIKU_TIMEOUT_SMART of 3s
-  - Decision: No retry loops—once fallback starts, don't retry failed backend
+  - Decision: No retry loopsâ€”once fallback starts, don't retry failed backend
   
 - Integrated smart dispatch into `guppy_ui.py` Worker class:
   - Added import: `from inference_router import route_inference_smart`
   - Added `_smart_dispatch()` method: calls router, handles response streaming and history updates
   - Modified `run()` method: when mode="auto", now uses `_smart_dispatch()` instead of `_route_auto_mode()`
   - Legacy modes ("claude", "ollama") remain unchanged for backward compatibility
-  - Routing decision logged to UI as "routing (smart mode) • task-aware dispatch"
+  - Routing decision logged to UI as "routing (smart mode) â€¢ task-aware dispatch"
   
 - Design decisions recorded:
   - Smart dispatch is invisible to user (no new UI buttons; just faster/smarter)
@@ -1436,24 +1472,24 @@ Use this tracker first in each handoff update:
 
 **Validation Results**:
 
-- ✓ Router initialization: successful (Anthropic available status checked, timeouts set correctly)
-- ✓ Task classification: 15/15 tests passed (simple, complex, teaching queries all classified correctly)
-- ✓ Edge cases: handled (short queries, empty inputs, ambiguous queries default safely)
-- ✓ Syntax validation: both inference_router.py and guppy_ui.py pass error checks
-- ✓ Integration: router successfully imported and integrated into Guppy UI Worker class
+- âœ“ Router initialization: successful (Anthropic available status checked, timeouts set correctly)
+- âœ“ Task classification: 15/15 tests passed (simple, complex, teaching queries all classified correctly)
+- âœ“ Edge cases: handled (short queries, empty inputs, ambiguous queries default safely)
+- âœ“ Syntax validation: both inference_router.py and guppy_ui.py pass error checks
+- âœ“ Integration: router successfully imported and integrated into Guppy UI Worker class
 
 **Classifier Notes**:
 
 - Simple tasks (what, when, where, remind, format, summarize, list)
 - Complex tasks (build, debug, design, research, analyze, optimize)
 - Teaching tasks (explain, teach, learn, understand, how does, why is, concept)
-- Fallback: length < 50 chars → simple; default → complex (safe over-dispatch to Sonnet)
+- Fallback: length < 50 chars â†’ simple; default â†’ complex (safe over-dispatch to Sonnet)
 
 **Known Limitations (Deferred)**:
 
-- ⏸ Tool calls: Not yet supported in smart dispatch (Phase 1). Single-turn responses only.
+- â¸ Tool calls: Not yet supported in smart dispatch (Phase 1). Single-turn responses only.
   - Will be added in Phase 6 (Foundation work) via router enhancement to return full response metadata.
-- ⏸ Streaming: Smart dispatch returns full response text (no streaming like _claude has).
+- â¸ Streaming: Smart dispatch returns full response text (no streaming like _claude has).
   - Will be added in Phase 6 as part of foundation improvements.
 
 **Follow-up**:
@@ -1471,7 +1507,7 @@ Use this tracker first in each handoff update:
 - Analyzed current system: Ollama bottleneck is killing latency; inference router exists but UIs bypass it; Merlin unused (requires manual selection).
 - Reframed priorities away from CRM/sales workflows toward butler/personal assistant: fast (<3s), accurate, transparent, integrated voice.
 - Designed 6-phase implementation plan:
-  - Phase 1 (Starting): Smart dispatcher core (task classification → Haiku for simple, Sonnet for complex, Merlin for teaching)
+  - Phase 1 (Starting): Smart dispatcher core (task classification â†’ Haiku for simple, Sonnet for complex, Merlin for teaching)
   - Phase 2: Fallback chain fix (no more random 30s timeouts)
   - Phase 3: Merlin smart routing (auto-detect teaching tasks)
   - Phase 4: Voice fast-path tuning (wake-word triggers quick response)
@@ -1506,7 +1542,7 @@ Use this tracker first in each handoff update:
 
 Ordered by impact. First three are ship-blockers for a trustworthy daily butler.
 
-### 1. Semantic task classifier (SHIP BLOCKER — AI quality)
+### 1. Semantic task classifier (SHIP BLOCKER â€” AI quality)
 
 Replace `inference_router._classify_task()` keyword matching with a Haiku-backed structured output call.
 
@@ -1526,7 +1562,7 @@ Replace `inference_router._classify_task()` keyword matching with a Haiku-backed
 
 ---
 
-### 2. Persistent response cache (SHIP BLOCKER — UX)
+### 2. Persistent response cache (SHIP BLOCKER â€” UX)
 
 Back `_RESPONSE_CACHE` with SQLite so it survives restarts.
 
@@ -1538,7 +1574,7 @@ Back `_RESPONSE_CACHE` with SQLite so it survives restarts.
 
 ---
 
-### 3. Cross-session memory injection into system prompt (SHIP BLOCKER — AI quality)
+### 3. Cross-session memory injection into system prompt (SHIP BLOCKER â€” AI quality)
 
 **Why it matters**: The semantic memory backend is fully built. Nothing uses it at inference time. This is the gap between a chatbot and a butler. "Ryan mentioned he prefers concise answers" should influence every reply automatically.
 
@@ -1565,7 +1601,7 @@ Change `guppy_ui.py:102` default from `"8"` to `"6"` to match the validated env 
 
 ### 5. Type annotations on `utils/` public functions
 
-Annotate return types on all public functions in `utils/runtime_profile.py`, `utils/hub_operator.py`, `utils/agent_perf.py`, `utils/operational_telemetry.py`. Prevents the `recommend_runtime_profile() → dict` category of silent caller bugs.
+Annotate return types on all public functions in `utils/runtime_profile.py`, `utils/hub_operator.py`, `utils/agent_perf.py`, `utils/operational_telemetry.py`. Prevents the `recommend_runtime_profile() â†’ dict` category of silent caller bugs.
 
 ---
 
@@ -1583,13 +1619,13 @@ Add `conftest.py` and `pytest.ini` at project root. Target suite: `test_smart_di
 
 ### 8. `guppy_ui.py` retirement decision
 
-It is not imported by council_ui. It is a 2,200-line standalone surface diverging from the launcher. Decision: **freeze it** — add a deprecation header, stop updating it, migrate the ambient banner to the launcher shell. Do not spend time keeping it feature-equal to the new system.
+It is not imported by council_ui. It is a 2,200-line standalone surface diverging from the launcher. Decision: **freeze it** â€” add a deprecation header, stop updating it, migrate the ambient banner to the launcher shell. Do not spend time keeping it feature-equal to the new system.
 
 ---
 
 ### 9. Voice tuning (when classifier is fixed)
 
-Validate wake-word → Haiku fast-path end-to-end latency with real use. Tune `openwakeword` model and cooldown. The infrastructure is right; the real-world calibration hasn't happened.
+Validate wake-word â†’ Haiku fast-path end-to-end latency with real use. Tune `openwakeword` model and cooldown. The infrastructure is right; the real-world calibration hasn't happened.
 
 ---
 
@@ -1636,6 +1672,13 @@ Use this format for the next roadmap update:
 ### 2026-04-15
 
 - Changed: Added the concrete Local LLM planning package: pinned local-model manifest in `config/local_llm/models.json`, starter benchmark prompt pack in `config/local_llm/benchmark_prompts.json`, benchmark/promotion rules in `docs/LOCAL_LLM_BENCHMARK_SPEC.md`, and a first-tranche implementation plan in `docs/LOCAL_LLM_IMPLEMENTATION_PLAN.md`.
+### 2026-04-16
+
+- Changed: Finalized the current local-LLM policy instead of keeping the daily lane open-ended. Pinned `ollama` as the production local runtime baseline, marked `qwen3:8b` as the primary challenger-to-promote in `config/local_llm/models.json`, marked `qwen3:30b` and `qwen2.5:32b` as non-promotion candidates for the daily lane, kept `llama.cpp` and `lemonade` in challenger/runtime sections only, made isolated-memory benchmarking the default in `tools/local_llm_harness.py`, and fixed `semantic-sqlite` so keyed writes now upsert and dedupe instead of accumulating stale duplicate rows.
+- Verified: `python -m py_compile tools\local_llm_harness.py src\guppy\memory\semantic.py`, `.venv\Scripts\python.exe -m pytest tests\unit\test_local_llm_harness.py tests\unit\test_memory_backend_adapter.py -q`, and the fresh isolated challenger evidence already committed under `runtime/runtime_compare/2026-04-16_*`.
+- Observed: the repo no longer needs to re-litigate the same local-lane call. On this machine, `qwen3:8b` remains the healthiest default local candidate, `mistral-small3.1:24b` is the best optional heavier fallback, `gemma3:12b` stays a speed-first but more generic challenger, and neither `qwen3:30b` nor `qwen2.5:32b` justifies promotion into the daily lane. Memory benchmarking is now reproducible by default, but memory itself should not be considered â€œfinalizedâ€ beyond the `semantic-sqlite` baseline until broader retrieval evidence says otherwise.
+- Follow-up: promote the manifest-driven local role assignments only after the human-review packets agree with the current evidence, and keep runtime challengers focused on `llama.cpp` control-path validation and narrow Lemonade integration checks rather than default-lane churn.
+
 - Verified: `python -c "import json, pathlib; json.loads(pathlib.Path('config/local_llm/models.json').read_text(encoding='utf-8')); json.loads(pathlib.Path('config/local_llm/benchmark_prompts.json').read_text(encoding='utf-8'))"`
 - Follow-up: wire `tools/verify_ollama_runtime.py` to the manifest, add `tools/local_llm_harness.py`, then build the memory adapter seam before opening the dedicated Local LLM page.
 
@@ -1656,14 +1699,14 @@ Use this format for the next roadmap update:
 
 - Changed: Finished the next Local LLM evidence tranche. Pulled `qwen3:8b` and `qwen3:30b` into Ollama, added explicit `--think` handling so Qwen challenger runs stop failing on hidden thinking-mode empties, added a controlled `guppy_local` harness mode for Guppy-style local-lane benchmarking, added seeded memory fixtures in `config/local_llm/benchmark_memory_seeds.json`, and finished a stable `mempalace-adapter` path that benchmarks from the new memory seam without changing the chat contract.
 - Verified: `.venv\Scripts\python.exe -m pytest tests\unit\test_local_llm_harness.py tests\unit\test_memory_backend_adapter.py tests\unit\test_mempalace_adapter.py tests\unit\test_verify_ollama_runtime.py tests\unit\test_local_llm_manifest.py -q`, `ollama pull qwen3:8b`, `ollama pull qwen3:30b`, `tools/local_llm_harness.py --all-tracks-model-tag qwen3:8b --prompt-style raw --think false`, `--prompt-style guppy`, `--prompt-style guppy_local`, the same three passes for `qwen3:30b`, and seeded recall runs at `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_semantic_qwen3-8b_guppy-local.json`, `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_mempalace_qwen3-8b_guppy-local.json`, and `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_compare_qwen3-8b_guppy-local.json`.
-- Observed: `qwen3:8b` is currently the healthier challenger for Guppy’s local lane on this machine. In the controlled `guppy_local` pass it averaged about `10.4s` across the five tracks versus about `18.7s` for `qwen3:30b`, and the 30b model still tends to narrate its own reasoning more often than desired. In the seeded memory comparison, `semantic-sqlite` and `mempalace-adapter` both surfaced the intended memories with near-identical retrieval previews, so there is still no evidence to promote MemPalace over the baseline yet.
+- Observed: `qwen3:8b` is currently the healthier challenger for Guppyâ€™s local lane on this machine. In the controlled `guppy_local` pass it averaged about `10.4s` across the five tracks versus about `18.7s` for `qwen3:30b`, and the 30b model still tends to narrate its own reasoning more often than desired. In the seeded memory comparison, `semantic-sqlite` and `mempalace-adapter` both surfaced the intended memories with near-identical retrieval previews, so there is still no evidence to promote MemPalace over the baseline yet.
 - Follow-up: add reviewer scores/notes to the new challenger artifacts, repeat the seeded memory comparison on more real Guppy follow-ups and additional challenger models, and only then spend energy on the dedicated Local LLM page and any backend promotion decision.
 
 ### 2026-04-15
 
 - Changed: Started the first in-product Lemonade lane instead of treating it only as a benchmark target. `src/guppy/api/server.py` now has a narrow local-runtime selector, explicit `local` mode can route through Lemonade when `GUPPY_LOCAL_RUNTIME_BACKEND=lemonade`, Lemonade model aliases can be mapped with `GUPPY_LEMONADE_*_MODEL`, and `/status` plus `/startup/check` now expose the selected local runtime with backend/model/detail evidence.
 - Verified: `python -m py_compile src\guppy\api\server.py tests\unit\test_chat_routing_alignment.py tests\smoke\test_runtime_smoke.py`, `.venv\Scripts\python.exe -m pytest tests\unit\test_chat_routing_alignment.py -q`, and `.venv\Scripts\python.exe -m pytest tests\smoke\test_runtime_smoke.py -q`.
-- Observed: this is the right first product cut for Lemonade. It gives Guppy a real opt-in local-runtime lane without silently changing the meaning of explicit `ollama` mode or claiming tool-calling parity that has not been proven yet. The current Lemonade path is intentionally chat-only and depends on explicit model mapping for Guppy’s local role aliases.
+- Observed: this is the right first product cut for Lemonade. It gives Guppy a real opt-in local-runtime lane without silently changing the meaning of explicit `ollama` mode or claiming tool-calling parity that has not been proven yet. The current Lemonade path is intentionally chat-only and depends on explicit model mapping for Guppyâ€™s local role aliases.
 - Follow-up: add a launcher-facing Local LLM/runtime control surface, decide whether any `auto` local fallbacks should also honor the selected runtime, and only then consider extending the Lemonade lane into richer tool-loop or paired-local paths.
 
 ### 2026-04-15
@@ -1678,7 +1721,7 @@ Use this format for the next roadmap update:
 - Changed: Extended `tools/local_llm_harness.py` with a real `lemonade` runtime path, including runtime override/base-url handling and OpenAI-compatible `chat/completions` execution. Pulled `Qwen3-0.6B-GGUF` and `Llama-3.2-1B-Instruct-GGUF` into Lemonade, pulled the matching small Ollama challengers `qwen3:0.6b` and `llama3.2:1b`, and emitted review packets for the first runtime-backed Llama comparison artifacts.
 - Verified: `.venv\Scripts\python.exe -m pytest tests\unit\test_local_llm_harness.py -q`, `.venv\Scripts\python.exe tools\local_llm_harness.py --all-tracks-model-tag qwen3:0.6b --prompt-style guppy_local --think false`, the matching Lemonade pass for `Qwen3-0.6B-GGUF`, then the cleaner instruct-model pair at `runtime/local_llm_benchmarks/reviews/2026-04-15_llama3.2-1b_ollama_guppy-local.json` and `runtime/local_llm_benchmarks/reviews/2026-04-15_llama3.2-1b_lemonade_guppy-local.json`.
 - Observed: the first tiny-Qwen Lemonade pass proved the runtime path but also exposed a product-fit issue: `Qwen3-0.6B-GGUF` often returned `reasoning_content` with empty final content on Guppy-style prompts, so the runtime is live but that particular small reasoning model is not a trustworthy chat benchmark. The first clean runtime-vs-runtime pair came from the small Llama instruct models instead: Ollama `llama3.2:1b` averaged about `4.8s` across the five-track `guppy_local` slice, while Lemonade `Llama-3.2-1B-Instruct-GGUF` averaged about `0.9s` on the same slice. Lemonade is dramatically faster in this first pass, but some answers are also more brittle and less grounded, so this is a promising runtime result rather than a promotion decision.
-- Follow-up: run one more same-family runtime comparison at a slightly stronger model size, then add reviewer scores to the new Llama runtime artifacts before making any claim that Lemonade should outrank Ollama for Guppy’s default local lane.
+- Follow-up: run one more same-family runtime comparison at a slightly stronger model size, then add reviewer scores to the new Llama runtime artifacts before making any claim that Lemonade should outrank Ollama for Guppyâ€™s default local lane.
 
 ### 2026-04-15
 
@@ -1698,7 +1741,7 @@ Use this format for the next roadmap update:
 
 - Changed: Completed the next challenger-memory tranche by running the broader seeded semantic-vs-MemPalace comparison pack against `gemma3:12b` and `mistral-small3.1:24b`, then emitted human-review packets for `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_compare_gemma3-12b_guppy-local_broad.json` and `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_compare_mistral-small3.1-24b_guppy-local_broad.json`.
 - Verified: `tools/local_llm_harness.py --prompt-file config/local_llm/benchmark_prompts_memory_recall.json --all-tracks-model-tag gemma3:12b --prompt-style guppy_local --think false --compare-memory-backends semantic-sqlite mempalace-adapter --memory-seed-file config/local_llm/benchmark_memory_seeds_broad.json --max-prompts-per-track 8`, the same broad comparison for `mistral-small3.1:24b`, and `tools/local_llm_review_packet.py` for both new comparison artifacts.
-- Observed: both non-Qwen challengers stayed stable across the full 16-case broad memory comparison, but neither displaced the current read on this machine. `gemma3:12b` averaged about `8.9s` across the broad comparison and `mistral-small3.1:24b` averaged about `11.6s`, yet both still answered the seeded “safer default challenger” follow-up by pointing back to `qwen3:8b`. `semantic-sqlite` and `mempalace-adapter` again remained close enough that there is still no promotion case for MemPalace.
+- Observed: both non-Qwen challengers stayed stable across the full 16-case broad memory comparison, but neither displaced the current read on this machine. `gemma3:12b` averaged about `8.9s` across the broad comparison and `mistral-small3.1:24b` averaged about `11.6s`, yet both still answered the seeded â€œsafer default challengerâ€ follow-up by pointing back to `qwen3:8b`. `semantic-sqlite` and `mempalace-adapter` again remained close enough that there is still no promotion case for MemPalace.
 - Follow-up: get human reviewer scores into the new Gemma and Mistral artifact packets, then use those scores plus the existing Qwen evidence to decide whether any non-Qwen role deserves more targeted benchmarking or whether the next investment should move to runtime-serving challengers instead.
 
 ### 2026-04-15
@@ -1714,5 +1757,11 @@ Use this format for the next roadmap update:
 - Verified: `.venv\Scripts\python.exe -m pytest tests\unit\test_local_llm_harness.py tests\unit\test_local_llm_review_packet.py tests\unit\test_memory_backend_adapter.py tests\unit\test_mempalace_adapter.py tests\unit\test_verify_ollama_runtime.py tests\unit\test_local_llm_manifest.py -q`, `tools/local_llm_review_packet.py` against the existing Qwen artifacts, and the broader recall runs at `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_semantic_qwen3-8b_guppy-local_broad.json`, `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_mempalace_qwen3-8b_guppy-local_broad.json`, and `runtime/local_llm_benchmarks/reviews/2026-04-15_memory_compare_qwen3-8b_guppy-local_broad.json`.
 - Observed: the broader eight-prompt recall pass kept both memory backends stable and close in latency at roughly `8.1s` to `8.3s`, with both backends surfacing the intended memory blocks on the same seeded follow-ups. The broadened pass also exposed one missing seed about the machine-specific Qwen challenger call, which is now included in the broad seed pack.
 - Follow-up: have a human reviewer fill the emitted `*.human_review_packet.json` files for the current Qwen and memory artifacts, then promote only if the manual scores agree with the current machine evidence.
+
+### 2026-04-16
+
+- Changed: started a screenshot-driven launcher copy simplification pass for the `MY PC` and `MODEL LIBRARY` surfaces after reviewing live UI captures from the current shell.
+- Observed: the captures confirm that regular users still see too much backend/operator language in Windows/runtime summaries, connector setup copy, provider/account selectors, and model-library controls. The next rewrite pass should translate machine status into plain-English health guidance, hide provider/account inputs unless they are actually required, make connector actions match the real auth flow for each service, and recast model selection around recommendations and outcomes instead of route/runtime terminology.
+- Follow-up: finish the `MY PC` rewrite first, then simplify `MODEL LIBRARY` with clearer section framing, friendlier default-model messaging, and a saved-choice action that matches the actual persistence behavior.
 
 Keep this template at the bottom of the roadmap.

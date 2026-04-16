@@ -21,8 +21,8 @@ This folder is the canonical source for active operational and product-facing re
 
 These files remain useful for context, but they are not the canonical source of truth for current behavior unless they are explicitly linked from an active canonical doc.
 
-- `docs/M2_*.md`
-  - Historical planning, launch, and design work for the M2 launcher push.
+- `docs/archive/planning-history/m2/`
+  - Archived planning, launch, and design work for the M2 launcher push.
 - `docs/MASTER_FIX_LIST.md`
   - Migration and cleanup execution ledger.
 - `docs/LEGACY_QUARANTINE_PROTOCOL.md`
@@ -37,7 +37,7 @@ These files remain useful for context, but they are not the canonical source of 
 1. Start with `docs/PROJECT_BRIEF.md` for current product state.
 2. Use `documentation/README.md` for technical architecture and security truth.
 3. Use `docs/API.md`, `docs/TROUBLESHOOTING.md`, `docs/VOICE.md`, and `docs/PACKAGING.md` for active operational work.
-4. Treat M2, migration, generated, and archived docs as supporting history only.
+4. Treat archived M2, migration, generated, and other archive docs as supporting history only.
 
 ## Canonicality Rule
 

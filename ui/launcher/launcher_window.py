@@ -49,7 +49,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from inference_router import resolve_ui_route
+from src.guppy.inference.router import resolve_ui_route
 from . import tokens as T
 from .stylesheet import SHEET
 from .components import Sidebar, TopBar, StatusPanel
@@ -59,8 +59,10 @@ from .views import (
     ToolsView,
     SettingsView,
     AdvancedView,
+    MyPCView,
     LocalLLMView,
     ModelsView,
+    RuntimeRoutingView,
     VoicesView,
 )
 
@@ -256,7 +258,14 @@ class LauncherWindow(QMainWindow):
         self._active_windows_ops_chain: dict[str, object] | None = None
         self._last_instance_snapshot: dict[str, object] = {}
         self._instance_snapshot_expires_at = 0.0
+        self._last_connector_inventory_snapshot: list[dict[str, object]] = []
+        self._connector_inventory_expires_at = 0.0
+        self._last_instance_view_signature = ""
+        self._last_connector_view_signature = ""
+        self._last_tools_context_signature = ""
+        self._last_windows_snapshot_signature = ""
         self._instance_snapshot_ttl_s = float(os.environ.get("GUPPY_INSTANCE_SNAPSHOT_TTL_S", "6.0"))
+        self._connector_inventory_ttl_s = float(os.environ.get("GUPPY_CONNECTOR_INVENTORY_TTL_S", "15.0"))
         self._scaffold_created: dict[str, Path] = {}
         self._deferred_syslog: SimpleQueue[str] = SimpleQueue()
         self._status_poll_timer: QTimer | None = None
@@ -313,9 +322,11 @@ class LauncherWindow(QMainWindow):
         self._instance_manager_view = InstanceManagerView(self)
         self._tools_view      = ToolsView(self)
         self._advanced_view   = AdvancedView(self)
+        self._my_pc_view      = MyPCView(self)
         self._settings_view   = SettingsView(self)
         self._local_llm_view  = LocalLLMView(self)
         self._models_view     = ModelsView(self)
+        self._runtime_view    = RuntimeRoutingView(self)
         self._voices_view     = VoicesView(self)
         self._advanced_view.attach_settings_panel(self._settings_view)
 
@@ -324,8 +335,10 @@ class LauncherWindow(QMainWindow):
             self._instance_manager_view,
             self._tools_view,
             self._advanced_view,
+            self._my_pc_view,
             self._local_llm_view,
             self._models_view,
+            self._runtime_view,
             self._voices_view,
         ]:
             self._stack.addWidget(view)
@@ -358,9 +371,13 @@ class LauncherWindow(QMainWindow):
         self._advanced_view.recovery_requested.connect(self._on_recovery_requested)
         self._advanced_view.windows_ops_requested.connect(self._on_windows_ops_requested)
         self._advanced_view.connector_action_requested.connect(self._on_connector_action_requested)
+        self._my_pc_view.windows_ops_requested.connect(self._on_windows_ops_requested)
+        self._my_pc_view.connector_action_requested.connect(self._on_connector_action_requested)
+        self._my_pc_view.connector_guided_link_requested.connect(self._on_connector_guided_link_requested)
         self._advanced_view.terminal_recipe_finished.connect(self._on_terminal_recipe_finished)
         self._models_view.model_selected.connect(self._on_model_selected)
-        self._models_view.runtime_settings_saved.connect(self._on_runtime_settings_saved)
+        self._runtime_view.model_selected.connect(self._on_model_selected)
+        self._runtime_view.runtime_settings_saved.connect(self._on_runtime_settings_saved)
         self._voices_view.bindings_changed.connect(self._on_voice_bindings_changed)
         self._topbar.search_submitted.connect(self._on_search)
         self._topbar.quick_action.connect(self._on_quick_action)
@@ -789,6 +806,7 @@ class LauncherWindow(QMainWindow):
             ok=guppy_online,
         )
         self._models_view.set_status_snapshot(api_status)
+        self._runtime_view.set_status_snapshot(api_status)
         self._advanced_view.set_status_snapshot(
             {
                 "status": data.get("status", "healthy"),
@@ -800,6 +818,11 @@ class LauncherWindow(QMainWindow):
                 "resource_envelope": gs.get("resource_envelope", {}),
             }
         )
+        windows_snapshot = self._advanced_view.windows_ops_snapshot()
+        windows_snapshot_signature = self._payload_signature(windows_snapshot)
+        if windows_snapshot_signature != self._last_windows_snapshot_signature:
+            self._my_pc_view.set_windows_snapshot(windows_snapshot)
+            self._last_windows_snapshot_signature = windows_snapshot_signature
         self._refresh_notification_badge()
         self._sync_recovery_outcome()
         # Avoid competing with an active chat turn for the periodic instance refresh.
@@ -1078,7 +1101,10 @@ class LauncherWindow(QMainWindow):
             self._instance_snapshot_expires_at = now + max(2.0, self._instance_snapshot_ttl_s)
         return snapshot
 
-    def _fetch_connector_inventory(self) -> list[dict]:
+    def _fetch_connector_inventory(self, *, force: bool = False) -> list[dict]:
+        now = time.monotonic()
+        if not force and self._last_connector_inventory_snapshot and now < self._connector_inventory_expires_at:
+            return list(self._last_connector_inventory_snapshot)
         try:
             payload = self._http_json(
                 "/connectors",
@@ -1088,9 +1114,12 @@ class LauncherWindow(QMainWindow):
                 auth_retry_reason="connectors_list",
             )
             rows = payload.get("connectors", []) if isinstance(payload, dict) else []
-            return [item for item in rows if isinstance(item, dict)]
+            snapshot = [item for item in rows if isinstance(item, dict)]
         except Exception:
-            return [item for item in connector_inventory() if isinstance(item, dict)]
+            snapshot = [item for item in connector_inventory() if isinstance(item, dict)]
+        self._last_connector_inventory_snapshot = list(snapshot)
+        self._connector_inventory_expires_at = now + max(3.0, self._connector_inventory_ttl_s)
+        return snapshot
 
     def _load_instance_history_from_logs(self, name: str) -> list[dict[str, str]]:
         if not _INSTANCE_LOGGER_AVAILABLE:
@@ -1128,8 +1157,17 @@ class LauncherWindow(QMainWindow):
     def _refresh_instance_views(self, *, load_logs: bool = False, force: bool = False) -> None:
         snapshot = self._fetch_instance_snapshot(force=force)
         self._last_instance_snapshot = snapshot
-        self._instance_manager_view.set_instances(snapshot)
-        self._advanced_view.set_connector_inventory(self._fetch_connector_inventory())
+        connector_inventory_snapshot = self._fetch_connector_inventory(force=force)
+        instance_view_signature = self._payload_signature(snapshot)
+        connector_view_signature = self._payload_signature(connector_inventory_snapshot)
+        if force or instance_view_signature != self._last_instance_view_signature:
+            self._instance_manager_view.set_instances(snapshot)
+            self._advanced_view.set_instance_snapshot(snapshot)
+            self._last_instance_view_signature = instance_view_signature
+        if force or connector_view_signature != self._last_connector_view_signature:
+            self._advanced_view.set_connector_inventory(connector_inventory_snapshot)
+            self._my_pc_view.set_connector_inventory(connector_inventory_snapshot)
+            self._last_connector_view_signature = connector_view_signature
         items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
         enabled_names = [
             str(item.get("name", "")).strip()
@@ -1156,7 +1194,16 @@ class LauncherWindow(QMainWindow):
             {"name": active, "type": "user_instance"},
         )
         if isinstance(active_payload, dict):
-            self._tools_view.set_instance_context(active_payload, snapshot)
+            tools_context_signature = self._payload_signature(
+                {
+                    "active_instance": active,
+                    "active_payload": active_payload,
+                    "limits": snapshot.get("limits", {}) if isinstance(snapshot, dict) else {},
+                }
+            )
+            if force or tools_context_signature != self._last_tools_context_signature:
+                self._tools_view.set_instance_context(active_payload, snapshot)
+                self._last_tools_context_signature = tools_context_signature
             self._sync_right_tray(active_payload)
             self._assistant_view.set_active_instance(
                 active,
@@ -1164,7 +1211,11 @@ class LauncherWindow(QMainWindow):
                 description=str(active_payload.get("description", "") or ""),
             )
             self._topbar.set_session(self._workspace_role_label(str(active_payload.get("type", "user_instance") or "user_instance")))
-        self._advanced_view.set_instance_snapshot(snapshot)
+        windows_snapshot = self._advanced_view.windows_ops_snapshot()
+        windows_snapshot_signature = self._payload_signature(windows_snapshot)
+        if force or windows_snapshot_signature != self._last_windows_snapshot_signature:
+            self._my_pc_view.set_windows_snapshot(windows_snapshot)
+            self._last_windows_snapshot_signature = windows_snapshot_signature
         if load_logs:
             self._on_instance_logs_requested(active, quiet=True)
 
@@ -1224,7 +1275,10 @@ class LauncherWindow(QMainWindow):
         self._set_daily_activity(f"Active workspace: {active}")
         self._instance_manager_view.set_instances(snapshot)
         self._advanced_view.set_instance_snapshot(snapshot)
-        self._advanced_view.set_connector_inventory(self._fetch_connector_inventory())
+        connector_inventory_snapshot = self._fetch_connector_inventory(force=True)
+        self._advanced_view.set_connector_inventory(connector_inventory_snapshot)
+        self._my_pc_view.set_connector_inventory(connector_inventory_snapshot)
+        self._my_pc_view.set_windows_snapshot(self._advanced_view.windows_ops_snapshot())
         items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
         active_payload = next(
             (
@@ -1401,11 +1455,11 @@ class LauncherWindow(QMainWindow):
         self._log_launcher_event("workspace_connector_binding_saved", instance=name, connector=connector_id)
         self._refresh_instance_views(load_logs=False, force=True)
 
-    def _on_connector_action_requested(self, payload: dict) -> None:
+    def _run_connector_action_request(self, payload: dict, *, refresh_after: bool = True) -> dict:
         connector_id = str(payload.get("connector", "")).strip().lower()
         action = str(payload.get("action", "")).strip().lower()
         if not connector_id or not action:
-            return
+            return {}
         body = {
             "provider": str(payload.get("provider", "") or "").strip().lower(),
             "account_id": str(payload.get("account_id", "") or "").strip().lower(),
@@ -1445,6 +1499,10 @@ class LauncherWindow(QMainWindow):
         self._advanced_view.append_log(summary)
         if next_step:
             self._advanced_view.append_log("next step: " + next_step + (f" | fix in: {fix_target}" if fix_target else ""))
+        self._my_pc_view.set_account_result(
+            summary + (f" | Next: {next_step}" if next_step else ""),
+            ok=ok,
+        )
         self._status_panel.append_syslog(summary)
         self._set_daily_activity(summary)
         self._log_launcher_event(
@@ -1462,6 +1520,53 @@ class LauncherWindow(QMainWindow):
             next_step=next_step,
             fix_target=fix_target,
         )
+        if refresh_after:
+            self._refresh_instance_views(load_logs=False, force=True)
+        return result
+
+    def _on_connector_action_requested(self, payload: dict) -> None:
+        self._run_connector_action_request(payload, refresh_after=True)
+
+    def _on_connector_guided_link_requested(self, payload: dict) -> None:
+        connector_id = str(payload.get("connector", "")).strip().lower()
+        if not connector_id:
+            self._my_pc_view.set_account_result("Choose a connector before saving details.", ok=False)
+            return
+        provider = str(payload.get("provider", "") or "").strip().lower()
+        account_id = str(payload.get("account_id", "") or "").strip().lower()
+        secrets = [item for item in payload.get("secrets", []) if isinstance(item, dict)]
+        verify_after = bool(payload.get("verify_after", True))
+        if not secrets:
+            self._my_pc_view.set_account_result("Add an API key or account details before saving.", ok=False)
+            return
+        last_result: dict = {}
+        for idx, item in enumerate(secrets):
+            last_result = self._run_connector_action_request(
+                {
+                    "connector": connector_id,
+                    "action": "connect",
+                    "provider": provider,
+                    "account_id": account_id,
+                    "secret_key": str(item.get("secret_key", "") or "").strip(),
+                    "secret_value": str(item.get("secret_value", "") or "").strip(),
+                },
+                refresh_after=False,
+            )
+            if not bool(last_result.get("ok", False)):
+                self._refresh_instance_views(load_logs=False, force=True)
+                return
+        if verify_after:
+            self._run_connector_action_request(
+                {
+                    "connector": connector_id,
+                    "action": "verify",
+                    "provider": provider,
+                    "account_id": account_id,
+                    "secret_key": "",
+                    "secret_value": "",
+                },
+                refresh_after=False,
+            )
         self._refresh_instance_views(load_logs=False, force=True)
 
     def _on_instance_delete_requested(self, name: str) -> None:
@@ -2058,7 +2163,7 @@ class LauncherWindow(QMainWindow):
                     "entry_point": (
                         "python tools/beta_release_dry_run.py"
                         if normalized == "release_dry_run"
-                        else "build_executable.bat --no-clean --ci"
+                        else "bin\\build_executable.bat --no-clean --ci"
                         if normalized == "package_desktop"
                         else "python src/guppy/cli/launch.py launcher"
                     ),
@@ -2080,24 +2185,24 @@ class LauncherWindow(QMainWindow):
         if ok:
             if normalized == "verify_runtime":
                 return {
-                    "next_step": "Runtime verification passed. If you need a fresh desktop build, run build_executable.bat --no-clean next.",
-                    "fix_target": "build_executable.bat",
+                    "next_step": "Runtime verification passed. If you need a fresh desktop build, run bin\\build_executable.bat --no-clean next.",
+                    "fix_target": "bin\\build_executable.bat",
                     "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "build_executable.bat --no-clean",
+                    "entry_point": "bin\\build_executable.bat --no-clean",
                 }
             if normalized == "update_runtime":
                 return {
-                    "next_step": "Update postflight passed. Re-run VERIFY after major runtime changes, or package with build_executable.bat --no-clean.",
-                    "fix_target": "build_executable.bat",
+                    "next_step": "Update postflight passed. Re-run VERIFY after major runtime changes, or package with bin\\build_executable.bat --no-clean.",
+                    "fix_target": "bin\\build_executable.bat",
                     "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "build_executable.bat --no-clean",
+                    "entry_point": "bin\\build_executable.bat --no-clean",
                 }
             if normalized == "package_desktop":
                 return {
                     "next_step": "Desktop packaging passed. Share the build from dist or rerun VERIFY before broader rollout if runtime changed again.",
                     "fix_target": "dist/Guppy or dist/Guppy.exe",
                     "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "build_executable.bat --no-clean --ci",
+                    "entry_point": "bin\\build_executable.bat --no-clean --ci",
                 }
             if normalized == "release_dry_run":
                 return {
@@ -2123,7 +2228,7 @@ class LauncherWindow(QMainWindow):
             if normalized == "repair_runtime":
                 return {
                     "next_step": "Repair completed. Re-run VERIFY when you want a fresh health read, then package or relaunch as needed.",
-                    "fix_target": "App Mgmt VERIFY + build_executable.bat",
+                    "fix_target": "App Mgmt VERIFY + bin\\build_executable.bat",
                     "docs_hint": "docs/TROUBLESHOOTING.md",
                     "entry_point": "python src/guppy/cli/launch.py launcher",
                 }
@@ -2138,16 +2243,16 @@ class LauncherWindow(QMainWindow):
             if normalized == "update_runtime":
                 return {
                     "next_step": "Open the terminal evidence, fix requirements or packaging entry points, then rerun UPDATE.",
-                    "fix_target": "requirements.txt / requirements-optional.txt / build_executable.bat",
+                    "fix_target": "requirements.txt / requirements-optional.txt / bin\\build_executable.bat",
                     "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "build_executable.bat --no-clean",
+                    "entry_point": "bin\\build_executable.bat --no-clean",
                 }
             if normalized == "package_desktop":
                 return {
                     "next_step": "Open the packaging evidence, fix the build script or missing assets, then rerun PACKAGE.",
-                    "fix_target": "build_executable.bat / Guppy.spec / docs/PACKAGING.md",
+                    "fix_target": "bin\\build_executable.bat / bin\\Guppy.spec / docs/PACKAGING.md",
                     "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "build_executable.bat --no-clean --ci",
+                    "entry_point": "bin\\build_executable.bat --no-clean --ci",
                 }
             if normalized == "release_dry_run":
                 return {
@@ -2354,6 +2459,11 @@ class LauncherWindow(QMainWindow):
                 if isinstance(item, dict) and str(item.get("text", "") or "").strip()
             ],
         )
+        my_pc_view = getattr(self, "_my_pc_view", None)
+        advanced_view = getattr(self, "_advanced_view", None)
+        snapshot_getter = getattr(advanced_view, "windows_ops_snapshot", None)
+        if my_pc_view is not None and hasattr(my_pc_view, "set_windows_snapshot") and callable(snapshot_getter):
+            my_pc_view.set_windows_snapshot(snapshot_getter())
 
     def _start_windows_ops_chain(self, action: str) -> None:
         normalized = str(action or "").strip().lower()
@@ -2628,6 +2738,8 @@ class LauncherWindow(QMainWindow):
     def _humanize_chat_error(self, raw: str) -> str:
         txt = (raw or "").strip()
         low = txt.lower()
+        if "still warming up" in low or "restarted" in low and "retry now" in low:
+            return "The local service restarted, but the first reply is still warming up. Please retry now."
         if "http 401" in low or "unauthorized" in low or "jwt_expired" in low:
             return "Authentication expired. Please retry now."
         if "http 403" in low:
@@ -3122,26 +3234,95 @@ class LauncherWindow(QMainWindow):
         except Exception:
             return ""
 
+    @staticmethod
+    def _payload_signature(payload: object) -> str:
+        try:
+            return json.dumps(
+                payload,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+        except Exception:
+            try:
+                return str(payload)
+            except Exception:
+                return ""
+
     # ── Recovery helpers (direct — no API dependency) ─────────────────────────
+    @staticmethod
+    def _summarize_startup_readiness(snapshot: dict[str, object] | None) -> str:
+        if not isinstance(snapshot, dict):
+            return ""
+        overall = str(snapshot.get("overall", "") or "").strip().upper()
+        checks = snapshot.get("checks", {})
+        local_runtime = checks.get("local_runtime", {}) if isinstance(checks, dict) else {}
+        local_state = str(local_runtime.get("state", "") or "").strip().upper()
+        chat_ready = bool(local_runtime.get("chat_ready", False))
+        chat_state = str(local_runtime.get("chat_state", "") or "").strip().upper()
+        chat_detail = str(local_runtime.get("chat_detail", "") or "").strip()
+        parts: list[str] = []
+        if overall:
+            parts.append(f"startup {overall.lower()}")
+        if local_state:
+            parts.append(f"local runtime {local_state.lower()}")
+        if chat_ready:
+            parts.append("chat ready")
+        elif chat_state:
+            parts.append(f"chat {chat_state.lower()}")
+        if chat_detail:
+            parts.append(chat_detail)
+        deduped: list[str] = []
+        for part in parts:
+            if part and part not in deduped:
+                deduped.append(part)
+        return " | ".join(deduped)
+
+    def _startup_readiness_status(
+        self,
+        timeout: float = 1.5,
+        *,
+        deep: bool = False,
+    ) -> tuple[str, str, dict[str, object]]:
+        path = "/startup/check?deep=true" if deep else "/startup/check"
+        try:
+            payload = self._http_json(
+                path,
+                method="GET",
+                timeout=timeout,
+                retry_auth_on_401=True,
+                auth_retry_reason="startup_check",
+            )
+            snapshot = payload if isinstance(payload, dict) else {}
+            return "reachable", self._summarize_startup_readiness(snapshot), snapshot
+        except Exception as e:
+            detail = str(e)
+            if "404" in detail:
+                try:
+                    fallback = self._http_json(
+                        "/status",
+                        method="GET",
+                        timeout=timeout,
+                        retry_auth_on_401=True,
+                        auth_retry_reason="startup_check_status_fallback",
+                    )
+                    startup = fallback.get("startup_readiness", {}) if isinstance(fallback, dict) else {}
+                    snapshot = startup if isinstance(startup, dict) else {}
+                    return "reachable", self._summarize_startup_readiness(snapshot), snapshot
+                except Exception as fallback_error:
+                    detail = str(fallback_error)
+            if self._is_unauthorized_error(detail):
+                return "auth_failed", detail, {}
+            return "unreachable", detail, {}
+
     def _api_reachable(self, timeout: float = 1.5) -> bool:
         state, _detail = self._api_reachability_status(timeout=timeout)
         return state == "reachable"
 
     def _api_reachability_status(self, timeout: float = 1.5) -> tuple[str, str]:
-        try:
-            self._http_json(
-                "/status",
-                method="GET",
-                timeout=timeout,
-                retry_auth_on_401=True,
-                auth_retry_reason="status_poll",
-            )
-            return "reachable", ""
-        except Exception as e:
-            detail = str(e)
-            if self._is_unauthorized_error(detail):
-                return "auth_failed", detail
-            return "unreachable", detail
+        state, detail, _snapshot = self._startup_readiness_status(timeout=timeout)
+        return state, detail
 
     def _run_auth_self_check(self) -> None:
         try:
@@ -3217,14 +3398,21 @@ class LauncherWindow(QMainWindow):
         flags = {}
         if sys.platform == "win32":
             flags["creationflags"] = subprocess.CREATE_NO_WINDOW
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+            startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+            flags["startupinfo"] = startupinfo
         try:
             subprocess.Popen([python, str(script)], cwd=str(root), **flags)
-            # Give it a moment to bind
+            # Give it a moment to publish backend-owned startup readiness.
             deadline = time.time() + 6.0
             while time.time() < deadline:
                 time.sleep(0.5)
-                if self._api_reachable(timeout=0.8):
-                    return True, "api started and reachable"
+                state, detail = self._api_reachability_status(timeout=0.8)
+                if state == "reachable":
+                    return True, detail or "api started and published startup readiness"
+                if state == "auth_failed":
+                    return False, detail or "api requires refreshed auth"
             return False, "api process started but not yet reachable"
         except Exception as e:
             return False, str(e)
@@ -3239,17 +3427,36 @@ class LauncherWindow(QMainWindow):
             kwargs: dict[str, object] = {"cwd": str(root)}
             if sys.platform == "win32":
                 kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+                startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+                kwargs["startupinfo"] = startupinfo
                 subprocess.Popen(["cmd.exe", "/c", str(script)], **kwargs)
             else:
                 subprocess.Popen([str(script)], **kwargs)
             deadline = time.time() + 8.0
             while time.time() < deadline:
                 time.sleep(0.5)
-                if self._api_reachable(timeout=0.8):
-                    return True, "supervised api started and reachable"
+                state, detail = self._api_reachability_status(timeout=0.8)
+                if state == "reachable":
+                    return True, detail or "supervised api started and published startup readiness"
+                if state == "auth_failed":
+                    return False, detail or "api requires refreshed auth"
             return False, "supervised api launcher started but the API is not yet reachable"
         except Exception as exc:
             return False, str(exc)
+
+    def _ensure_api_reachable_for_command(self) -> tuple[bool, str]:
+        state, detail = self._api_reachability_status(timeout=0.8)
+        if state == "reachable":
+            return True, detail or "api already reachable"
+        started, detail = self._start_supervised_api_subprocess()
+        if started:
+            return True, detail
+        fallback_started, fallback_detail = self._start_api_subprocess()
+        if fallback_started:
+            return True, fallback_detail
+        return False, f"{detail}; fallback: {fallback_detail}"
 
     def _direct_warmup(self) -> dict:
         """Warmup: check freshness of key runtime files."""
@@ -3415,7 +3622,7 @@ class LauncherWindow(QMainWindow):
             self._recovery_events.put({"kind": "syslog", "text": msg})
 
     def _on_model_selected(self, model: str) -> None:
-        self._status_panel.append_syslog(f"active model → {model}")
+        self._status_panel.append_syslog(f"active model -> {model}")
 
         self._refresh_personalization_state()
         self._update_route_preview(self._last_command)
@@ -3464,7 +3671,7 @@ class LauncherWindow(QMainWindow):
             return {
                 "label": "WINDOWS PACKAGE",
                 "commands": [
-                    "cmd /c build_executable.bat --no-clean --ci",
+                    "cmd /c bin\\build_executable.bat --no-clean --ci",
                     f"{python_bin} tools/verify_beta_package_policy.py",
                 ],
                 "changes": "Builds a desktop package through the supported batch entry point, then runs beta package policy verification.",
@@ -3774,33 +3981,81 @@ class LauncherWindow(QMainWindow):
                 "idempotency_key": idempotency_key,
             }
             try:
+                recovered_before_chat = False
+                if not self._api_reachable(timeout=0.8):
+                    recovered, recovery_detail = self._ensure_api_reachable_for_command()
+                    recovered_before_chat = recovered
+                    self._log_launcher_event(
+                        "command_api_recovery",
+                        seq=req_seq,
+                        ok=recovered,
+                        detail=recovery_detail,
+                        idempotency_key=idempotency_key,
+                    )
+                    if not recovered:
+                        raise RuntimeError(recovery_detail or "Could not reach the local API service.")
+                primary_timeout = max(request_timeout, 30.0) if recovered_before_chat else request_timeout
                 try:
                     resp = self._http_json(
                         "/chat",
                         method="POST",
                         payload=payload,
-                        timeout=request_timeout,
+                        timeout=primary_timeout,
                         retry_auth_on_401=True,
                         auth_retry_reason="chat",
                     )
                 except Exception as first_exc:
-                    if "timed out" not in str(first_exc).lower():
+                    first_text = str(first_exc)
+                    lowered = first_text.lower()
+                    if "timed out" in lowered and recovered_before_chat:
+                        self._log_launcher_event(
+                            "command_recovery_warmup_timeout",
+                            seq=req_seq,
+                            timeout_s=primary_timeout,
+                            idempotency_key=idempotency_key,
+                        )
+                        raise RuntimeError(
+                            "The local API restarted, but the first reply is still warming up. Please retry now."
+                        ) from first_exc
+                    if "timed out" in lowered and primary_timeout < retry_timeout:
+                        self._log_launcher_event(
+                            "command_timeout_retry",
+                            seq=req_seq,
+                            timeout_s=primary_timeout,
+                            retry_timeout_s=retry_timeout,
+                            idempotency_key=idempotency_key,
+                        )
+                        resp = self._http_json(
+                            "/chat",
+                            method="POST",
+                            payload=payload,
+                            timeout=retry_timeout,
+                            retry_auth_on_401=True,
+                            auth_retry_reason="chat_timeout_retry",
+                        )
+                    elif any(token in lowered for token in ("10061", "connection refused", "actively refused")):
+                        recovered, recovery_detail = self._ensure_api_reachable_for_command()
+                        self._log_launcher_event(
+                            "command_api_recovery",
+                            seq=req_seq,
+                            ok=recovered,
+                            detail=recovery_detail,
+                            phase="retry_after_refused",
+                            idempotency_key=idempotency_key,
+                        )
+                        if recovered:
+                            resp = self._http_json(
+                                "/chat",
+                                method="POST",
+                                payload=payload,
+                                timeout=retry_timeout,
+                                retry_auth_on_401=True,
+                                auth_retry_reason="chat_connection_retry",
+                            )
+                        else:
+                            raise
+                    else:
                         raise
-                    self._log_launcher_event(
-                        "command_timeout_retry",
-                        seq=req_seq,
-                        timeout_s=request_timeout,
-                        retry_timeout_s=retry_timeout,
-                        idempotency_key=idempotency_key,
-                    )
-                    resp = self._http_json(
-                        "/chat",
-                        method="POST",
-                        payload=payload,
-                        timeout=retry_timeout,
-                        retry_auth_on_401=True,
-                        auth_retry_reason="chat_timeout_retry",
-                    )
                 text = str(resp.get("response") or "").strip()
                 if not text:
                     text = "No response payload received."

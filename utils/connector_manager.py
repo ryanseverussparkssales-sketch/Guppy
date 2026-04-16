@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,8 @@ _RUNTIME_DIR = _ROOT / "runtime"
 _CONNECTOR_STATE_PATH = _RUNTIME_DIR / "connector_state.json"
 _INTEGRATION_EVENTS_PATH = _RUNTIME_DIR / "integration_events.jsonl"
 _KEYRING_PREFIX = "connector_secret:"
+_POLICY_DENIAL_DEDUPE_TTL_S = 10.0
+_RECENT_POLICY_DENIALS: dict[str, float] = {}
 
 _CONNECTOR_IDS = ("gmail", "calendar", "spotify", "youtube", "crm", "voip")
 
@@ -475,6 +478,10 @@ def _secret_field_meta(secret_key: str) -> dict[str, Any]:
         "kind": str(metadata.get("kind", "token") or "token"),
         "masked": bool(metadata.get("masked", True)),
     }
+
+
+def secret_field_meta(secret_key: str) -> dict[str, Any]:
+    return dict(_secret_field_meta(secret_key))
 
 
 def _validate_secret_value(secret_key: str, value: str) -> tuple[bool, str]:
@@ -1704,7 +1711,7 @@ def run_connector_action(
 
     try:
         if normalized_connector == "gmail":
-            from media_tools import gmail_unread_count
+            from src.guppy.tools.media import gmail_unread_count
             target_account = str(account_id or "main").strip().lower() or "main"
             if normalized_action == "disconnect":
                 token_path = _token_path_for_gmail_account(target_account)
@@ -1720,9 +1727,9 @@ def run_connector_action(
                         token_path.unlink()
                 count, err = gmail_unread_count(target_account)
                 summary = err or f"Gmail account {target_account} verified with {count} unread message(s)."
-                ok = not bool(err and "not found" in err.lower())
+                ok = not bool(err)
         elif normalized_connector == "calendar":
-            from media_tools import calendar_events
+            from src.guppy.tools.media import calendar_events
             token_path = Path.home() / ".guppy_calendar_token.json"
             if normalized_action == "disconnect":
                 if token_path.exists():
@@ -1735,9 +1742,10 @@ def run_connector_action(
                     token_path.unlink()
                 result = calendar_events(days=1, max_results=1, calendar_id="primary")
                 summary = result.splitlines()[0] if result else "Calendar connect completed."
-                ok = "Error" not in summary
+                lowered = summary.lower()
+                ok = not any(token in lowered for token in ("error", "failed", "missing", "not found"))
         elif normalized_connector == "spotify":
-            from media_tools import spotify_current
+            from src.guppy.tools.media import spotify_current
             token_path = Path.home() / ".guppy_spotify_token"
             if normalized_action == "disconnect":
                 if token_path.exists():
@@ -1750,7 +1758,8 @@ def run_connector_action(
                     token_path.unlink()
                 result = spotify_current()
                 summary = result.splitlines()[0] if result else "Spotify connect completed."
-                ok = "requires spotify api" not in summary.lower()
+                lowered = summary.lower()
+                ok = not any(token in lowered for token in ("requires spotify api", "error", "failed", "missing", "not found"))
         else:
             ok = False
             summary = f"Action {normalized_action} is not supported for connector {normalized_connector}."
@@ -1804,6 +1813,19 @@ def log_connector_policy_denial(
     reason_code: str,
     reason: str,
 ) -> None:
+    signature = "|".join(
+        [
+            str(connector_id or "").strip().lower(),
+            str(workspace_name or "").strip().lower(),
+            str(reason_code or "").strip().lower(),
+            str(reason or "").strip(),
+        ]
+    )
+    now = time.monotonic()
+    previous = _RECENT_POLICY_DENIALS.get(signature, 0.0)
+    if previous and (now - previous) < _POLICY_DENIAL_DEDUPE_TTL_S:
+        return
+    _RECENT_POLICY_DENIALS[signature] = now
     _log_integration_event(
         "connector.policy_denied",
         {

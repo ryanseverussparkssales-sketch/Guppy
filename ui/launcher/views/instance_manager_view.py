@@ -198,7 +198,7 @@ class InstanceManagerView(QWidget):
         guide.setWordWrap(True)
         layout.addWidget(guide)
 
-        self._status_lbl = _mono("Workspace manager ready", T.DIM, T.FS_TINY)
+        self._status_lbl = _mono("Ready to review and edit saved workspaces.", T.DIM, T.FS_TINY)
         layout.addWidget(self._status_lbl)
 
         form = QFrame()
@@ -206,7 +206,7 @@ class InstanceManagerView(QWidget):
         form_layout = QVBoxLayout(form)
         form_layout.setContentsMargins(14, 12, 14, 12)
         form_layout.setSpacing(8)
-        form_layout.addWidget(_mono("SAVE WORKSPACE DETAILS", T.PRIMARY, T.FS_TINY, True))
+        form_layout.addWidget(_mono("WORKSPACE DETAILS", T.PRIMARY, T.FS_TINY, True))
 
         row1 = QHBoxLayout()
         self._name = QLineEdit()
@@ -267,9 +267,9 @@ class InstanceManagerView(QWidget):
         governance_layout = QVBoxLayout(governance)
         governance_layout.setContentsMargins(14, 12, 14, 12)
         governance_layout.setSpacing(8)
-        governance_layout.addWidget(_mono("WORKSPACE GOVERNANCE", T.PRIMARY, T.FS_TINY, True))
+        governance_layout.addWidget(_mono("ACCESS + SAFETY", T.PRIMARY, T.FS_TINY, True))
         governance_hint = _mono(
-            "Edit workspace auth mode, tool allow/block lists, endpoint filters, and the operator note without touching config files.",
+            "Control what this workspace can do, what it can reach, and what note appears when access is limited.",
             T.DIM,
             T.FS_SMALL,
         )
@@ -292,7 +292,7 @@ class InstanceManagerView(QWidget):
         governance_layout.addLayout(gov_row1)
 
         self._governance_note = QLineEdit()
-        self._governance_note.setPlaceholderText("Operator-visible policy note for this workspace")
+        self._governance_note.setPlaceholderText("Short note shown when something is blocked in this workspace")
         self._governance_note.setStyleSheet(
             f"QLineEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
             f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
@@ -324,13 +324,13 @@ class InstanceManagerView(QWidget):
         governance_layout.addLayout(gov_row2)
         governance_layout.addLayout(gov_row3)
 
-        self._governance_status = _mono("Governance editor ready", T.DIM, T.FS_TINY)
+        self._governance_status = _mono("Access settings ready.", T.DIM, T.FS_TINY)
         self._governance_status.setWordWrap(True)
         governance_layout.addWidget(self._governance_status)
 
         gov_actions = QHBoxLayout()
         gov_actions.addStretch()
-        self._governance_save_btn = QPushButton("SAVE GOVERNANCE")
+        self._governance_save_btn = QPushButton("SAVE ACCESS")
         self._governance_save_btn.setStyleSheet(
             f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER};"
             f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"

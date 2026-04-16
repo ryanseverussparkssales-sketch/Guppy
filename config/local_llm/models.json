@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "last_updated": "2026-04-15",
+  "last_updated": "2026-04-16",
   "owner": "M2 Local LLM Track",
   "runtime": {
     "baseline_backend": "ollama",
@@ -9,13 +9,13 @@
         "id": "llama.cpp",
         "status": "planned",
         "priority": "high",
-        "notes": "Primary direct-GGUF challenger for AMD local control and benchmark fidelity."
+        "notes": "Primary direct-GGUF challenger for AMD local control and benchmark fidelity. Keep as a challenger runtime only until product-fit evidence beats the Ollama baseline."
       },
       {
         "id": "lemonade",
         "status": "planned",
         "priority": "high",
-        "notes": "Platform-scale local runtime candidate; evaluate as future substrate, not a drop-in swap."
+        "notes": "Platform-scale local runtime candidate; evaluate as future substrate, not a drop-in swap. Keep in challenger/runtime testing only until stability and answer quality beat the Ollama baseline."
       },
       {
         "id": "vllm-rocm",
@@ -121,8 +121,9 @@
         "fast_assistant",
         "general_reasoning"
       ],
-      "status": "planned",
-      "priority": "high"
+      "status": "promotion_candidate",
+      "priority": "high",
+      "notes": "Primary challenger-to-promote for the daily local lane on this machine. Best current balance of speed, answer shape, and Guppy fit."
     },
     {
       "id": "qwen3-30b",
@@ -132,8 +133,20 @@
         "teaching_assistant",
         "code_assistant"
       ],
-      "status": "planned",
-      "priority": "high"
+      "status": "daily_lane_rejected",
+      "priority": "low",
+      "notes": "Keep available for targeted comparisons only. Current evidence does not support promotion into the daily local lane because it is slower and reasoning-noisier than qwen3:8b."
+    },
+    {
+      "id": "qwen2.5-32b",
+      "tag": "qwen2.5:32b",
+      "role_candidates": [
+        "general_reasoning",
+        "teaching_assistant"
+      ],
+      "status": "daily_lane_rejected",
+      "priority": "low",
+      "notes": "Keep available for compatibility checks only. On this machine it is far too slow for the daily local lane and does not justify promotion over newer challengers."
     },
     {
       "id": "mistral-small3.1-24b",
@@ -142,8 +155,9 @@
         "general_reasoning",
         "multimodal_future"
       ],
-      "status": "planned",
-      "priority": "medium"
+      "status": "heavy_lane_candidate",
+      "priority": "medium",
+      "notes": "Best current optional heavy local lane candidate if a slower, cleaner fallback is needed without promoting it to the default daily path."
     },
     {
       "id": "gemma3-12b",
@@ -153,7 +167,8 @@
         "multimodal_future"
       ],
       "status": "planned",
-      "priority": "medium"
+      "priority": "medium",
+      "notes": "Fast challenger with useful latency evidence, but keep as a non-default candidate until product-fit and factuality on local/runtime prompts improve."
     },
     {
       "id": "mxbai-embed-large",

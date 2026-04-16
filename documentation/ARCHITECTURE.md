@@ -12,10 +12,10 @@ Last verified: 2026-04-14
 - Canonical inference router: `src/guppy/inference/router.py`
 - Canonical daemon: `src/guppy/daemon/daemon.py`
 
-Thin root compatibility wrappers remain for stable direct imports and scripts:
+Thin root compatibility wrappers now remain only for stable front-door launch paths:
 
-- `guppy_launcher.py`, `guppy_hub.py`, `guppy_api.py`, `guppy_api_auth.py`, `guppy_agent.py`
-- additional migrated shims for memory, voice, inference, tools, and integrations
+- `guppy_launcher.py`, `guppy_hub.py`, `guppy_api.py`
+- secondary migrated shims now live under `compat_shims/`
 
 ## 2) UI Architecture
 
@@ -29,7 +29,7 @@ Thin root compatibility wrappers remain for stable direct imports and scripts:
 
 - Supported daily path: unified launcher plus configured instances from `config/instances.json`
 - Default runtime instances: foreground `guppy-primary` and optional background `builder-collab`
-- Historical specialist material is retained under `legacy_surfaces/` and `src/guppy/merlin/`, but not as active desktop entrypoints
+- Historical specialist material is retained under `compat_shims/legacy_surfaces/` and `src/guppy/merlin/`, but not as active desktop entrypoints
 
 ## 3) Core Runtime Packages
 

@@ -1,6 +1,6 @@
-"""Src app entrypoint for the Guppy legacy standalone surface."""
+"""Compatibility entrypoint for the quarantined Guppy legacy surface."""
 from __future__ import annotations
 
-from legacy_surfaces.guppy_ui_legacy import main
+from compat_shims.legacy_surfaces.guppy_ui_legacy import main
 
 __all__ = ["main"]

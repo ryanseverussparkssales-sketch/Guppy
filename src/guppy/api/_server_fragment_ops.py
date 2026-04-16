@@ -277,6 +277,7 @@ def _build_startup_readiness_payload() -> dict:
     jwt_ready = _secret_ready(os.environ.get("GUPPY_JWT_SECRET", ""))
     turnstile_ready = _secret_ready(os.environ.get("TURNSTILE_SECRET", ""))
     local_runtime = _build_local_runtime_status()
+    local_runtime_ready_for_chat = bool(local_runtime.get("chat_ready", False))
 
     auth_state = "READY" if (DEV_MODE or (jwt_ready and turnstile_ready)) else "MISSING"
     if DEV_MODE:
@@ -317,6 +318,15 @@ def _build_startup_readiness_payload() -> dict:
     memory_detail = "memory module available" if GUPPY_MEMORY_AVAILABLE else "memory module unavailable"
 
     local_runtime_state = str(local_runtime.get("state", "UNKNOWN") or "UNKNOWN")
+    if local_runtime_state == "READY" and not local_runtime_ready_for_chat:
+        local_runtime_state = "PARTIAL"
+        detail = str(local_runtime.get("detail", "") or "local runtime reachable")
+        chat_detail = str(local_runtime.get("chat_detail", "") or "chat lane warming")
+        local_runtime = {
+            **local_runtime,
+            "state": local_runtime_state,
+            "detail": f"{detail} | {chat_detail}",
+        }
     states = [auth_state, ollama_state, voice_state, daemon_state, memory_state, local_runtime_state]
     overall = "READY" if all(s == "READY" for s in states) else ("PARTIAL" if any(s in {"READY", "PARTIAL"} for s in states) else "MISSING")
 
@@ -358,7 +368,15 @@ def _startup_readiness_cached_or_unknown() -> dict:
         "checks": {
             "auth": {"state": "UNKNOWN", "detail": "startup checks not run yet"},
             "ollama": {"state": "UNKNOWN", "detail": "startup checks not run yet", "model": (os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()},
-            "local_runtime": {"state": "UNKNOWN", "detail": "startup checks not run yet", "backend": _selected_local_runtime_backend()},
+            "local_runtime": {
+                "state": "UNKNOWN",
+                "detail": "startup checks not run yet",
+                "backend": _selected_local_runtime_backend(),
+                "chat_ready": False,
+                "chat_state": "UNKNOWN",
+                "chat_detail": "local runtime warmup not checked yet",
+                "chat_model": _current_local_runtime_chat_model(_selected_local_runtime_backend()),
+            },
             "voice": {"state": "UNKNOWN", "detail": "startup checks not run yet", "tts_backend": "unknown", "stt_backend": "unknown", "wake_backend": "unknown"},
             "daemon": {"state": "UNKNOWN", "detail": "startup checks not run yet"},
             "memory": {"state": "UNKNOWN", "detail": "startup checks not run yet"},
@@ -462,6 +480,11 @@ async def lifespan(_app: FastAPI):
         await asyncio.to_thread(_startup_readiness_snapshot)
     except Exception as e:
         logger.warning("Startup readiness warmup failed: %s", e)
+
+    try:
+        _trigger_local_runtime_warm_refresh(force=True)
+    except Exception as e:
+        logger.warning("Local runtime warmup trigger failed: %s", e)
 
     _emit_integration_heartbeat("api_startup")
 

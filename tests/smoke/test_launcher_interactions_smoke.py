@@ -16,7 +16,9 @@ try:
     from ui.launcher.views.advanced_view import AdvancedView
     from ui.launcher.views.instance_manager_view import InstanceManagerView
     from ui.launcher.views.local_llm_view import LocalLLMView
+    from ui.launcher.views.my_pc_view import MyPCView
     from ui.launcher.views.models_view import ModelsView
+    from ui.launcher.views.runtime_routing_view import RuntimeRoutingView
     from ui.launcher.views import models_view as models_view_module
     from ui.launcher.views import settings_view as settings_view_module
     from ui.launcher.views.tools_view import ToolsView
@@ -47,7 +49,10 @@ class _DummyLauncher:
         self._assistant_events = SimpleQueue()
         self._active_request_seq = 0
         self._chat_session_id = "test-session"
+        self._request_in_flight = False
         self._assistant_view = self._AssistantViewStub()
+        self._api_reachable_result = True
+        self._api_recovery_result = (True, "api already reachable")
 
     class _AssistantViewStub:
         def add_user_message(self, _text: str) -> None:
@@ -61,6 +66,20 @@ class _DummyLauncher:
 
         def selected_mode(self) -> str:
             return "auto"
+
+        def recent_history(self, limit: int = 12) -> list[dict[str, str]]:
+            del limit
+            return []
+
+        def set_request_in_flight(self, _in_flight: bool) -> None:
+            return
+
+    def _api_reachable(self, timeout: float = 0.8) -> bool:
+        del timeout
+        return bool(self._api_reachable_result)
+
+    def _ensure_api_reachable_for_command(self) -> tuple[bool, str]:
+        return self._api_recovery_result
 
     def _http_json(
         self,
@@ -82,6 +101,18 @@ class _DummyLauncher:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(__import__("json").dumps(payload) + "\n")
+
+
+class _ImmediateThread:
+    def __init__(self, *, target=None, args=(), kwargs=None, daemon=None) -> None:
+        self._target = target
+        self._args = args
+        self._kwargs = kwargs or {}
+        self.daemon = daemon
+
+    def start(self) -> None:
+        if callable(self._target):
+            self._target(*self._args, **self._kwargs)
 
 
 class LauncherInteractionsSmokeTests(unittest.TestCase):
@@ -140,12 +171,70 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         sidebar = Sidebar()
         labels = [item._label.text() for item in sidebar._items]
         self.assertIn("LOCAL LLM", labels)
+        self.assertIn("MY PC", labels)
+        self.assertIn("RUNTIME", labels)
+
+    def test_models_view_is_library_only(self):
+        view = ModelsView()
+
+        self.assertTrue(view._runtime_bar.isHidden())
+        self.assertTrue(view._route_bar.isHidden())
+        self.assertFalse(view._library_scroll.isHidden())
+        self.assertEqual(view._local_header.text(), "ON THIS PC")
+        self.assertEqual(view._cloud_header.text(), "CLOUD OPTIONS")
+        labels = [child.text() for child in view.findChildren(type(view._local_header))]
+        self.assertIn("RECOMMENDED", labels)
+        self.assertIn("INSTALLED ON THIS PC", labels)
+        self.assertIn("ADVANCED / EXPERIMENTAL", labels)
+        self.assertIn("Pick what Guppy should use for this session", view._library_hint_lbl.text())
+
+    def test_my_pc_view_surfaces_human_friendly_api_key_field(self):
+        view = MyPCView()
+        view.set_windows_snapshot(
+            {
+                "install": "Installed on this PC: Ollama CLI found",
+                "runtime": "Local AI runtime: OLLAMA | Live backend: OLLAMA | Status: READY",
+                "next": "Recommended next step: verify runtime",
+                "diagnostics": "Diagnostics: ready",
+            }
+        )
+        view.set_connector_inventory(
+            [
+                {
+                    "id": "youtube",
+                    "label": "YouTube",
+                    "auth_kind": "api_key",
+                    "auth_state": "optional",
+                    "auth_detail": "API key improves quota stability.",
+                    "next_step": "Paste an API key, save it, then verify.",
+                    "actions_supported": ["verify", "connect", "disconnect"],
+                    "secret_fields": ["YOUTUBE_API_KEY"],
+                    "providers": [],
+                    "accounts": [],
+                }
+            ]
+        )
+
+        self.assertIn("Ollama", view._summary_lbl.text())
+        self.assertIn("YouTube", view._account_status_lbl.text())
+        self.assertIn("video tools", view._account_status_lbl.text().lower())
+        self.assertEqual(len(view._connector_card_buttons), 1)
+        self.assertIn("YouTube", view._connector_card_buttons[0][1].text())
+        self.assertTrue(view._connector_card_buttons[0][1].text().startswith(">"))
+        self.assertFalse(view._provider_cb.isVisible())
+        self.assertFalse(view._account_cb.isVisible())
+        self.assertEqual(view._save_btn.text(), "SAVE API KEY")
+        visible_fields = [row for row in view._field_rows if not row[0].isHidden()]
+        self.assertTrue(visible_fields)
+        self.assertEqual(visible_fields[0][1].text(), "API Key")
+        self.assertIn("Paste the YouTube Data API key", visible_fields[0][3].text())
 
     def test_local_llm_view_loads_repo_artifacts_without_touching_home(self):
         view = LocalLLMView()
         view.refresh()
-        self.assertIn("Latest run", view._summary_lbl.text())
-        self.assertIn("guppy-fast", view._manifest_lbl.text())
+        self.assertIn("Using qwen3:8b", view._summary_lbl.text())
+        self.assertIn("Default chat model:", view._manifest_lbl.text())
+        self.assertTrue(view._benchmark_lbl.parentWidget().isHidden())
 
     def test_topbar_quick_actions_emit_for_live_buttons(self):
         topbar = TopBar()
@@ -464,16 +553,15 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertEqual(states["read_file"], "restricted")
         self.assertEqual(states["query_instance"], "ready")
         self.assertEqual(states["write_file"], "restricted")
-        self.assertIn("ACTIVE WORKSPACE:", view._context_lbl.text())
-        self.assertIn("APP MGMT", view._boundary_lbl.text())
-        self.assertIn("right tray", view._tray_notice_lbl.text().lower())
+        self.assertIn("WORKSPACE:", view._context_lbl.text())
+        self.assertIn("App Management", view._boundary_lbl.text())
+        self.assertIn("tray", view._tray_notice_lbl.text().lower())
         self.assertIn("CONFIG CAP REACHED", view._limits_lbl.text())
         self.assertIn("COLLABORATOR CAP REACHED", view._limits_lbl.text())
         self.assertEqual(view._tool_cards["read_file"]._hint_btn.text(), "PRIME HOME")
-        self.assertIn("cannot use write file right now", view._tool_cards["write_file"]._scope_lbl.text().lower())
-        self.assertIn("governance policy", view._tool_cards["write_file"]._guard_lbl.text().lower())
-        self.assertIn("auth mode:", view._tool_cards["query_instance"]._policy_lbl.text().lower())
-        self.assertIn("local only", view._tool_cards["query_instance"]._policy_lbl.text().lower())
+        self.assertIn("not available in builder-collab", view._tool_cards["write_file"]._scope_lbl.text().lower())
+        self.assertTrue(view._tool_cards["write_file"]._guard_lbl.isHidden())
+        self.assertTrue(view._tool_cards["query_instance"]._policy_lbl.isHidden())
         self.assertFalse(view._builder_panel._queue_btn.isEnabled())
 
         view.set_instance_context(
@@ -481,12 +569,18 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             {"limits": {"configured": 2, "max_configured": 5, "active_runtime": 1, "max_active_runtime": 2}},
         )
         self.assertTrue(view._builder_panel._queue_btn.isEnabled())
+        view._details_btn.click()
+        self.assertIn("sign-in mode:", view._tool_cards["write_file"]._guard_lbl.text().lower())
+        self.assertIn("sign-in:", view._tool_cards["query_instance"]._policy_lbl.text().lower())
+        self.assertIn("local only", view._tool_cards["query_instance"]._policy_lbl.text().lower())
 
     def test_agent_tools_surface_explains_tray_move(self):
         view = ToolsView()
         self.assertFalse(view._cards_host.isHidden())
         self.assertTrue(view._empty_state_lbl.isHidden())
-        self.assertIn("right tray", view._tray_notice_lbl.text().lower())
+        self.assertTrue(view._banner.isHidden())
+        view._details_btn.click()
+        self.assertIn("tray", view._tray_notice_lbl.text().lower())
 
     def test_app_management_view_updates_diagnostics_and_recovery_status(self):
         view = AdvancedView()
@@ -507,16 +601,20 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         )
         view.set_recovery_status("warmup: startup readiness refreshed")
 
-        self.assertIn("API: HEALTHY", view._health_lbl.text())
+        self.assertIn("API health: HEALTHY", view._health_lbl.text())
         self.assertIn("configured 2/5", view._instances_lbl.text())
         self.assertIn("tts=edge", view._voice_lbl.text())
-        self.assertIn("Route evidence:", view._route_health_lbl.text())
+        self.assertIn("Why the next route was chosen:", view._route_health_lbl.text())
         self.assertIn("headroom stable", view._resource_lbl.text())
         self.assertIn("warmup", view._last_recovery_lbl.text().lower())
-        self.assertIn("Latest activity:", view._daily_activity_lbl.text())
-        self.assertIn("installed surface:", view._windows_install_lbl.text().lower())
-        self.assertIn("configured local runtime:", view._windows_runtime_lbl.text().lower())
-        self.assertIn("data paths:", view._windows_paths_lbl.text().lower())
+        self.assertIn("Recent activity:", view._daily_activity_lbl.text())
+        self.assertIn("installed on this pc:", view._windows_install_lbl.text().lower())
+        self.assertIn("local ai runtime:", view._windows_runtime_lbl.text().lower())
+        self.assertIn("data locations:", view._windows_paths_lbl.text().lower())
+        self.assertTrue(view._connectors_frame.isHidden())
+        self.assertTrue(view._workflow_frame.isHidden())
+        self.assertTrue(view._operator_logs_frame.isHidden())
+        self.assertTrue(view._terminal_frame.isHidden())
 
     def test_app_management_connector_inventory_emits_normalized_actions(self):
         view = AdvancedView()
@@ -580,17 +678,16 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(view._connector_cb.currentText(), "crm")
-        self.assertIn("Auth kind: api_key", view._connector_state_lbl.text())
-        self.assertIn("PARTIAL", view._connector_auth_lbl.text())
-        self.assertIn("KEYRING", view._connector_auth_lbl.text())
+        self.assertEqual(view._connector_cb.currentData(), "crm")
+        self.assertIn("customer records", view._connector_state_lbl.text().lower())
+        self.assertIn("Almost ready", view._connector_auth_lbl.text())
         self.assertIn("API Key", view._connector_secret_lbl.text())
         self.assertIn("HubSpot still needs verify confirmation", view._connector_validation_lbl.text())
-        self.assertIn("connector://crm/hubspot", view._connector_scope_lbl.text())
+        self.assertIn("contacts + opportunities", view._connector_scope_lbl.text())
         self.assertIn("last verify", view._connector_history_lbl.text().lower())
         self.assertIn("Recent attempts:", view._connector_recent_lbl.text())
         self.assertIn("Ref:", view._connector_history_lbl.text())
-        self.assertIn("Guided setup:", view._connector_setup_lbl.text())
+        self.assertIn("Saved details:", view._connector_setup_lbl.text())
 
         view._connector_provider.setCurrentIndex(1)
         view._connector_secret_key.setCurrentIndex(1)
@@ -676,13 +773,14 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
 
         self.assertEqual(view._filter_cb.currentText(), "WARN")
         self.assertIn("opened from quick action", view._syslog.toPlainText())
+        self.assertFalse(view._operator_logs_frame.isHidden())
 
-    def test_models_view_default_route_preview_teaches_next_step(self):
-        view = ModelsView()
+    def test_runtime_view_default_route_preview_teaches_next_step(self):
+        view = RuntimeRoutingView()
 
         self.assertIn("Try the kind of question", view._route_preview_lbl.text())
 
-    def test_models_view_persists_local_runtime_preferences(self):
+    def test_runtime_view_persists_local_runtime_preferences(self):
         old_settings_path = runtime_profile.SETTINGS_PATH
         old_runtime_dir = runtime_profile.RUNTIME_DIR
         old_backend_flag = models_view_module._RUNTIME_SETTINGS_BACKEND
@@ -696,14 +794,14 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             models_view_module.ModelsView._refresh = lambda self: None
 
             try:
-                first = models_view_module.ModelsView()
+                first = RuntimeRoutingView()
                 first._runtime_backend_cb.setCurrentText("LEMONADE")
                 first._lemonade_base_url_input.setText("http://localhost:13305/api/v1")
                 first._lemonade_role_inputs["lemonade_fast_model"].setCurrentText("Llama-3.2-1B-Instruct-GGUF")
                 first._lemonade_role_inputs["lemonade_complex_model"].setCurrentText("Llama-3.2-3B-Instruct-GGUF")
                 first._save_runtime_settings()
 
-                second = models_view_module.ModelsView()
+                second = RuntimeRoutingView()
                 self.assertEqual(second._runtime_backend_cb.currentText(), "LEMONADE")
                 self.assertEqual(second._lemonade_role_inputs["lemonade_fast_model"].currentText(), "Llama-3.2-1B-Instruct-GGUF")
                 self.assertEqual(second._lemonade_role_inputs["lemonade_complex_model"].currentText(), "Llama-3.2-3B-Instruct-GGUF")
@@ -714,11 +812,42 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                 runtime_profile.SETTINGS_PATH = old_settings_path
                 runtime_profile.RUNTIME_DIR = old_runtime_dir
 
-    def test_models_view_surfaces_live_runtime_evidence_from_status(self):
+    def test_runtime_view_lemonade_picker_assigns_downloaded_model_to_selected_role(self):
         old_refresh = models_view_module.ModelsView._refresh
         models_view_module.ModelsView._refresh = lambda self: None
         try:
-            view = models_view_module.ModelsView()
+            view = RuntimeRoutingView()
+            view._runtime_backend_cb.setCurrentText("LEMONADE")
+            view._on_local_result(
+                {
+                    "backend": "lemonade",
+                    "models": [
+                        {"name": "DeepSeek-Qwen3-8B-GGUF", "display": "DeepSeek Qwen3 8B GGUF", "context": "GGUF / OpenAI API", "note": "Downloaded in Lemonade"},
+                        {"name": "kokoro-v1", "display": "kokoro-v1", "context": "GGUF / OpenAI API", "note": "Downloaded in Lemonade"},
+                    ],
+                    "error": "",
+                }
+            )
+            self.assertFalse(view._runtime_library_frame.isHidden())
+            self.assertIn("Downloaded models: 2", view._runtime_library_summary_lbl.text())
+            view._set_selected_runtime_role("lemonade_complex_model")
+            matching = [btn for btn in view._runtime_library_buttons if btn.text() == "DeepSeek-Qwen3-8B-GGUF"]
+            self.assertTrue(matching)
+            matching[0].click()
+
+            self.assertEqual(
+                view._lemonade_role_inputs["lemonade_complex_model"].currentText(),
+                "DeepSeek-Qwen3-8B-GGUF",
+            )
+            self.assertIn("Assigning to COMPLEX", view._runtime_library_target_lbl.text())
+        finally:
+            models_view_module.ModelsView._refresh = old_refresh
+
+    def test_runtime_view_surfaces_live_runtime_evidence_from_status(self):
+        old_refresh = models_view_module.ModelsView._refresh
+        models_view_module.ModelsView._refresh = lambda self: None
+        try:
+            view = RuntimeRoutingView()
             view.set_status_snapshot(
                 {
                     "status": "healthy",
@@ -732,6 +861,14 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                         "tool_loop": "limited",
                         "available_roles": ["fast", "code"],
                         "missing_roles": ["complex", "teaching", "vault"],
+                        "policy": {
+                            "runtime_baseline": "ollama",
+                            "memory_baseline": "semantic-sqlite",
+                            "daily_model_promotion_candidate": "qwen3:8b",
+                            "heavy_model_candidate": "mistral-small3.1:24b",
+                            "daily_lane_rejected_models": ["qwen3:30b", "qwen2.5:32b"],
+                            "runtime_challenger_ids": ["llama.cpp", "lemonade"],
+                        },
                     },
                 }
             )
@@ -740,6 +877,9 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             self.assertIn("server runtime LEMONADE", view._runtime_live_lbl.text())
             self.assertIn("Missing mapped roles: COMPLEX, TEACHING, VAULT", view._runtime_live_lbl.text())
             self.assertIn("Available mapped roles: FAST, CODE", view._runtime_live_lbl.text())
+            self.assertIn("runtime baseline OLLAMA", view._runtime_policy_lbl.text())
+            self.assertIn("daily lane candidate qwen3:8b", view._runtime_policy_lbl.text())
+            self.assertIn("qwen3:30b, qwen2.5:32b", view._runtime_policy_lbl.text())
         finally:
             models_view_module.ModelsView._refresh = old_refresh
 
@@ -751,9 +891,9 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             "Refreshes runtime dependencies.",
             ok=True,
             next_step="Package a new desktop build after update verification.",
-            fix_target="build_executable.bat",
+            fix_target="bin\\build_executable.bat",
             docs_hint="docs/PACKAGING.md",
-            entry_point="build_executable.bat --no-clean",
+            entry_point="bin\\build_executable.bat --no-clean",
             artifacts=[
                 {"id": "diagnostics", "label": "diagnostics bundle", "path": "runtime/diagnostics_bundle_20260415_120000.json"},
                 {"id": "challenger", "label": "challenger snapshot", "path": "runtime/runtime_challenger_snapshot.json"},
@@ -773,7 +913,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             ],
         )
 
-        self.assertIn("build_executable.bat", view._windows_next_lbl.text())
+        self.assertIn("bin\\build_executable.bat", view._windows_next_lbl.text())
         self.assertIn("docs/PACKAGING.md", view._windows_next_lbl.text())
         self.assertIn("Ref: recipe-1", view._windows_service_lbl.text())
         self.assertIn("PASS | checks 2/2", view._windows_gate_lbl.text())
@@ -818,7 +958,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertTrue(any("validate_build_checks.py" in cmd for cmd in update_commands))
         self.assertTrue(any("verify_runtime_challengers.py" in cmd for cmd in update_commands))
         self.assertEqual(package_label, "WINDOWS PACKAGE")
-        self.assertTrue(any("build_executable.bat --no-clean --ci" in cmd for cmd in package_commands))
+        self.assertTrue(any("bin\\build_executable.bat --no-clean --ci" in cmd for cmd in package_commands))
         self.assertTrue(any("verify_beta_package_policy.py" in cmd for cmd in package_commands))
         self.assertEqual(dry_run_label, "WINDOWS RELEASE DRY RUN")
         self.assertTrue(any("tools/beta_release_dry_run.py" in cmd for cmd in dry_run_commands))
@@ -889,7 +1029,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
 
         self.assertIn("requirements.txt", guidance["fix_target"])
         self.assertEqual(guidance["docs_hint"], "docs/PACKAGING.md")
-        self.assertIn("build_executable.bat", guidance["entry_point"])
+        self.assertIn("bin\\build_executable.bat", guidance["entry_point"])
 
     def test_launcher_windows_ops_guidance_points_release_dry_run_at_gate_fix_path(self):
         guidance = launcher_window.LauncherWindow._windows_ops_guidance("release_dry_run", ok=False, phase="completed")
@@ -1417,6 +1557,120 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             60.0,
         )
 
+    def test_recovered_command_uses_warm_start_chat_timeout(self):
+        with tempfile.TemporaryDirectory() as td:
+            runtime_dir = Path(td)
+            old_runtime = launcher_window._RUNTIME
+            old_thread = launcher_window.threading.Thread
+            launcher_window._RUNTIME = runtime_dir
+            launcher_window.threading.Thread = _ImmediateThread
+            try:
+                dummy = _DummyLauncher()
+                dummy._api_reachable_result = False
+                dummy._api_recovery_result = (True, "supervised api started and reachable")
+                seen_timeouts: list[float] = []
+
+                def _http_json(path: str, method: str = "GET", payload=None, timeout: float = 8.0, **kwargs):
+                    del method, payload, kwargs
+                    if path == "/chat":
+                        seen_timeouts.append(timeout)
+                        return {"response": "ok"}
+                    return {}
+
+                dummy._http_json = _http_json  # type: ignore[method-assign]
+
+                launcher_window.LauncherWindow._on_assistant_command(dummy, "status please")
+
+                self.assertTrue(seen_timeouts)
+                self.assertGreater(seen_timeouts[0], launcher_window.LauncherWindow._chat_timeout_for_request("auto", "status please"))
+                self.assertLessEqual(seen_timeouts[0], 35.0)
+            finally:
+                launcher_window._RUNTIME = old_runtime
+                launcher_window.threading.Thread = old_thread
+
+    def test_refresh_instance_views_skips_heavy_reapply_when_snapshot_is_unchanged(self):
+        class _Recorder:
+            def __init__(self, windows_snapshot=None):
+                self.calls = 0
+                self._windows_snapshot = windows_snapshot or {}
+
+            def set_instances(self, _payload):
+                self.calls += 1
+
+            def set_instance_snapshot(self, _payload):
+                self.calls += 1
+
+            def set_connector_inventory(self, _payload):
+                self.calls += 1
+
+            def set_windows_snapshot(self, _payload):
+                self.calls += 1
+
+            def windows_ops_snapshot(self):
+                return dict(self._windows_snapshot)
+
+        class _ToolsRecorder:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def set_instance_context(self, _instance, _snapshot):
+                self.calls += 1
+
+        class _AssistantRecorder:
+            def set_active_instance(self, *_args, **_kwargs):
+                return
+
+        class _TopbarRecorder:
+            def set_instances(self, *_args, **_kwargs):
+                return
+
+            def set_session(self, *_args, **_kwargs):
+                return
+
+        snapshot = {
+            "active_instance": "guppy-primary",
+            "limits": {"configured": 1, "max_configured": 5, "active_runtime": 1, "max_active_runtime": 2},
+            "instances": [
+                {
+                    "name": "guppy-primary",
+                    "type": "user_instance",
+                    "description": "Primary workspace",
+                    "enabled": True,
+                }
+            ],
+        }
+        connectors = [{"id": "youtube", "label": "YouTube", "auth_state": "optional"}]
+        dummy = type("RefreshDummy", (), {})()
+        dummy._fetch_instance_snapshot = lambda force=False: snapshot
+        dummy._fetch_connector_inventory = lambda force=False: connectors
+        dummy._last_instance_snapshot = {}
+        dummy._last_instance_view_signature = ""
+        dummy._last_connector_view_signature = ""
+        dummy._last_tools_context_signature = ""
+        dummy._last_windows_snapshot_signature = ""
+        dummy._instance_manager_view = _Recorder()
+        dummy._advanced_view = _Recorder(windows_snapshot={"runtime": "ready"})
+        dummy._my_pc_view = _Recorder()
+        dummy._tools_view = _ToolsRecorder()
+        dummy._assistant_view = _AssistantRecorder()
+        dummy._topbar = _TopbarRecorder()
+        dummy._instance_histories = {}
+        dummy._active_instance_name = "guppy-primary"
+        dummy._request_in_flight = False
+        dummy._apply_instance_switch = lambda *_args, **_kwargs: None
+        dummy._sync_right_tray = lambda *_args, **_kwargs: None
+        dummy._workspace_role_label = lambda *_args, **_kwargs: "daily"
+        dummy._on_instance_logs_requested = lambda *_args, **_kwargs: None
+        dummy._payload_signature = launcher_window.LauncherWindow._payload_signature
+
+        launcher_window.LauncherWindow._refresh_instance_views(dummy)
+        launcher_window.LauncherWindow._refresh_instance_views(dummy)
+
+        self.assertEqual(dummy._instance_manager_view.calls, 1)
+        self.assertEqual(dummy._advanced_view.calls, 2)
+        self.assertEqual(dummy._my_pc_view.calls, 2)
+        self.assertEqual(dummy._tools_view.calls, 1)
+
     def test_settings_mode_roundtrip_persists_selection(self):
         import ui.launcher.views.settings_view as settings_view_module
 
@@ -1467,7 +1721,11 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             runtime_dir = Path(td)
             old_runtime = launcher_window._RUNTIME
+            old_secret_store_available = launcher_window._SECRET_STORE_AVAILABLE
+            old_secret_store = launcher_window._secret_store
             launcher_window._RUNTIME = runtime_dir
+            launcher_window._SECRET_STORE_AVAILABLE = False
+            launcher_window._secret_store = None
             try:
                 dummy = _DummyLauncher()
                 invalid = runtime_dir / "repair_token.txt"
@@ -1480,6 +1738,8 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                 self.assertEqual(token, "a" * 64)
             finally:
                 launcher_window._RUNTIME = old_runtime
+                launcher_window._SECRET_STORE_AVAILABLE = old_secret_store_available
+                launcher_window._secret_store = old_secret_store
 
 
 if __name__ == "__main__":

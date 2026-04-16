@@ -1,0 +1,771 @@
+﻿"""Explicit FastAPI server module.
+
+Readiness and status routes now live in first-class imported modules backed by
+`ServerContext`, while the remaining legacy helpers are still being peeled away
+from the former fragment-stitched implementation.
+"""
+
+# === BEGIN _server_fragment_bootstrap.py ===
+"""
+guppy_api.py - FastAPI server for remote Guppy access
+======================================================
+
+Provides REST API and WebSocket endpoints for browser and mobile access to Guppy.
+Includes Turnstile authentication and JWT session management.
+
+Endpoints:
+- POST /chat - Send text message, get response
+- POST /chat/voice - Upload audio, get transcription + response
+- GET /status - Health check + current context
+- WebSocket /ws - Streaming responses
+
+Security:
+- Turnstile validation on write endpoints
+- JWT session tokens (24h expiry)
+- Rate limiting and request validation
+"""
+
+import json
+import hashlib
+import importlib.util
+import inspect
+import logging
+import os
+import re
+import secrets
+import sqlite3
+import sys
+import tempfile
+import time
+import asyncio
+import threading
+from datetime import datetime, timezone
+from contextlib import asynccontextmanager
+from functools import partial, wraps
+from typing import Optional, AsyncGenerator, Any, Dict, List
+from pathlib import Path
+from collections import Counter
+
+from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Depends, Request
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+from jose import JWTError, jwt
+import urllib.request
+
+from src.guppy.paths import CONFIG_DIR, RUNTIME_DIR
+from utils.env_bootstrap import load_env_file
+try:
+    from utils import secret_store as _secret_store
+    _SECRET_STORE_AVAILABLE = True
+except ImportError:
+    _secret_store = None  # type: ignore[assignment]
+    _SECRET_STORE_AVAILABLE = False
+
+load_env_file(override=True)
+
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+
+# Import Guppy core functionality
+try:
+    import guppy_core as core
+    GUPPY_CORE_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Guppy core not available: {e}")
+    GUPPY_CORE_AVAILABLE = False
+    core = None
+
+try:
+    from src.guppy.voice import voice
+    GUPPY_VOICE_AVAILABLE = True
+except Exception as e:
+    print(f"Warning: Guppy voice not available: {e}")
+    GUPPY_VOICE_AVAILABLE = False
+    voice = None
+
+try:
+    from src.guppy.memory import memory
+    GUPPY_MEMORY_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Guppy memory not available: {e}")
+    GUPPY_MEMORY_AVAILABLE = False
+    memory = None
+
+try:
+    from src.guppy.daemon.daemon import get_daemon_manager
+    GUPPY_DAEMON_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Guppy daemon not available: {e}")
+    GUPPY_DAEMON_AVAILABLE = False
+    def get_daemon_manager():
+        return None
+
+GUPPY_AVAILABLE = GUPPY_CORE_AVAILABLE and GUPPY_MEMORY_AVAILABLE
+
+# Import authentication
+try:
+    from src.guppy.api.auth import (
+        create_access_token, verify_token, require_turnstile,
+        require_rate_limit, require_auth_rate_limit,
+        verify_turnstile_token as verify_turnstile_token_auth, validate_environment
+    )
+except ImportError as e:
+    print(f"Warning: Auth module not available: {e}")
+    # Fallback functions for development
+    def create_access_token(data): return "dev-token"
+    def verify_token(): return "dev-user"
+    def require_turnstile(): return "dev-token"
+    def require_rate_limit(user_id="dev"): return user_id
+    def require_auth_rate_limit(): return "dev-auth"
+    async def verify_turnstile_token_auth(token): return True
+    def validate_environment(): return False
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+try:
+    from src.guppy.inference.router import get_router
+    INFERENCE_ROUTER_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Inference router not available: {e}")
+    INFERENCE_ROUTER_AVAILABLE = False
+
+try:
+    from src.guppy.api.response_cache import (
+        build_response_cache_key,
+        get_cached_response,
+        response_cache_enabled,
+        set_cached_response,
+    )
+except Exception:
+    def build_response_cache_key(*, message: str, system_prompt: str, mode: str = "auto", instance_name: str | None = None, instance_type: str | None = None) -> str:
+        return ""
+
+    def get_cached_response(cache_key: str) -> str | None:
+        return None
+
+    def response_cache_enabled() -> bool:
+        return False
+
+    def set_cached_response(cache_key: str, response_text: str) -> None:
+        return None
+
+
+logger = logging.getLogger(__name__)
+
+try:
+    from utils.session_logger import log_session_event, tail_session_events, rotate_jsonl_file
+except Exception:
+    def log_session_event(*_args, **_kwargs):
+        return
+    def tail_session_events(limit: int = 50):
+        return []
+    def rotate_jsonl_file(*_args, **_kwargs):
+        return
+
+try:
+    from utils.safe_io import write_json_atomic
+    _ATOMIC_JSON_IO = True
+except Exception:
+    _ATOMIC_JSON_IO = False
+
+    def write_json_atomic(_path, _data):
+        return False
+
+try:
+    from utils.instance_logger import append_instance_log, delete_instance_log, read_instance_log_summary, read_instance_log_tail
+    _INSTANCE_LOGGER_AVAILABLE = True
+except Exception:
+    _INSTANCE_LOGGER_AVAILABLE = False
+
+    def append_instance_log(*_args, **_kwargs):
+        return None
+
+    def delete_instance_log(*_args, **_kwargs):
+        return None
+
+    def read_instance_log_tail(*_args, **_kwargs):
+        return []
+
+    def read_instance_log_summary(*_args, **_kwargs):
+        return {"entry_count": 0, "roles": {}, "statuses": {}, "window_days": 30}
+
+try:
+    from utils.instance_capabilities import (
+        auth_mode_label,
+        check_instance_tool_permission,
+        resolve_instance_permissions,
+        set_instance_tool_permission_policy,
+    )
+    _INSTANCE_CAPABILITIES_AVAILABLE = True
+except Exception:
+    _INSTANCE_CAPABILITIES_AVAILABLE = False
+
+    def auth_mode_label(mode: str) -> str:
+        return str(mode or "runtime default").strip() or "runtime default"
+
+    def resolve_instance_permissions(
+        instance_name: str | None = None,
+        instance_type: str | None = None,
+        config_path=None,
+    ):
+        del instance_name, instance_type, config_path
+        return {}
+
+    def set_instance_tool_permission_policy(instance_name: str, policy_entry: dict[str, Any], *, config_path=None):
+        del instance_name, policy_entry, config_path
+        return None
+
+    def check_instance_tool_permission(
+        tool_name: str,
+        *,
+        instance_name: str | None = None,
+        instance_type: str | None = None,
+        config_path=None,
+        endpoint: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ):
+        del tool_name, instance_name, instance_type, config_path, endpoint, metadata
+        return True, "", {}
+
+try:
+    from utils.connector_manager import (
+        connector_inventory,
+        run_connector_action,
+        save_workspace_connector_binding,
+        workspace_connector_inventory,
+    )
+    _CONNECTOR_MANAGER_AVAILABLE = True
+except Exception:
+    _CONNECTOR_MANAGER_AVAILABLE = False
+
+    def connector_inventory():
+        return []
+
+    def run_connector_action(
+        connector_id: str,
+        action: str,
+        *,
+        provider: str = "",
+        account_id: str = "",
+        secret_key: str = "",
+        secret_value: str = "",
+    ):
+        del connector_id, action, provider, account_id, secret_key, secret_value
+        return {"ok": False, "summary": "connector manager unavailable", "status": {}}
+
+    def save_workspace_connector_binding(
+        workspace_name: str,
+        connector_id: str,
+        payload: dict[str, Any],
+        *,
+        config_path=None,
+    ):
+        del workspace_name, connector_id, payload, config_path
+        return None
+
+    def workspace_connector_inventory(workspace_name: str, *, config_path=None):
+        del workspace_name, config_path
+        return []
+
+try:
+    from utils.personalization_config import (
+        build_persona_prompt_overlay,
+        ensure_personalization_scaffold,
+        load_persona_config_with_diagnostics,
+        load_provider_registry_with_diagnostics,
+        load_voice_bindings_with_diagnostics,
+    )
+    _PERSONALIZATION_BOOTSTRAP_AVAILABLE = True
+except Exception:
+    _PERSONALIZATION_BOOTSTRAP_AVAILABLE = False
+
+    def build_persona_prompt_overlay(*, requested_persona: str = "", model_id: str = "", persona_config: dict[str, Any] | None = None):
+        del requested_persona, model_id, persona_config
+        return {}, ""
+
+from src.guppy.api._server_fragment_models import (
+    ChatRequest,
+    ConnectorActionRequest,
+    InstanceConfigRequest,
+    InstanceConnectorBindingRequest,
+    InstanceGovernanceRequest,
+    InstanceQueryRequest,
+    RepairRequest,
+    TokenResponse,
+    TurnstileToken,
+    VoiceChatRequest,
+)
+from src.guppy.api.routes_core import build_core_router
+from src.guppy.api.routes_instances import build_instances_router
+from src.guppy.api.routes_ops import build_ops_router
+from src.guppy.api.routes_realtime import build_realtime_router
+from src.guppy.api.runtime_state import ServerRuntimeState
+from src.guppy.api.server_context import ServerContext
+from src.guppy.api.server_paths import ServerPathConfig
+from src.guppy.api import services_host, services_instances, services_ops, services_realtime, services_runtime
+
+# Configuration
+
+# JWT settings (now imported from auth module)
+from src.guppy.api.auth import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, DEV_MODE
+
+# Server settings
+HOST = "127.0.0.1"
+PORT = int(os.environ.get("GUPPY_API_PORT", "8081"))
+CHAT_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_CHAT_TIMEOUT_SECONDS", "120"))
+VOICE_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_VOICE_TIMEOUT_SECONDS", "180"))
+VOICE_UPLOAD_MAX_BYTES = int(os.environ.get("GUPPY_VOICE_UPLOAD_MAX_BYTES", str(10 * 1024 * 1024)))
+VOICE_UPLOAD_CHUNK_BYTES = int(os.environ.get("GUPPY_VOICE_UPLOAD_CHUNK_BYTES", str(1024 * 1024)))
+SLOW_REQUEST_MS = int(os.environ.get("GUPPY_SLOW_REQUEST_MS", "1500"))
+STATUS_CACHE_TTL_SECONDS = float(os.environ.get("GUPPY_STATUS_CACHE_TTL_SECONDS", "120.0"))
+STARTUP_CHECK_TTL_SECONDS = float(os.environ.get("GUPPY_STARTUP_CHECK_TTL_SECONDS", "60.0"))
+API_OWNS_DAEMON = os.environ.get("GUPPY_API_OWNS_DAEMON", "0").strip().lower() in {"1", "true", "yes", "on"}
+STATUS_INCLUDE_WINDOW_CONTEXT = os.environ.get("GUPPY_STATUS_INCLUDE_WINDOW_CONTEXT", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+_default_origins = [
+    "http://localhost:8081",
+    "http://127.0.0.1:8081",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+_configured_origins = os.environ.get("GUPPY_ALLOWED_ORIGINS", "").strip()
+ALLOWED_ORIGINS = [
+    origin.strip() for origin in _configured_origins.split(",") if origin.strip()
+] if _configured_origins else _default_origins
+
+_path_config = ServerPathConfig.from_roots(CONFIG_DIR, RUNTIME_DIR)
+_runtime_dir = _path_config.runtime_dir
+_config_dir = _path_config.config_dir
+_instances_path = _path_config.instances_path
+_connector_bindings_path = _path_config.connector_bindings_path
+_instance_state_path = _path_config.instance_state_path
+_REPAIR_TOKEN_FILE = _path_config.repair_token_file
+_REPAIR_TOKEN: str = ""  # set once in lifespan; read by _require_repair_token
+_ops_telemetry_db = _path_config.ops_telemetry_db
+_SQLITE_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_SQLITE_TIMEOUT_SECONDS", "10.0"))
+_SQLITE_BUSY_TIMEOUT_MS = int(os.environ.get("GUPPY_SQLITE_BUSY_TIMEOUT_MS", "5000"))
+_stream_jsonl_map = dict(_path_config.stream_jsonl_map)
+_INTEGRATION_HEARTBEAT_SECONDS = float(os.environ.get("GUPPY_INTEGRATION_HEARTBEAT_SECONDS", "900"))
+_instance_query_lock = threading.Lock()
+_runtime_state = ServerRuntimeState(started_at=datetime.now(timezone.utc).isoformat())
+_status_cache = _runtime_state.status_cache
+_startup_check_cache = _runtime_state.startup_check_cache
+_startup_check_cache_lock = _runtime_state.startup_check_cache_lock
+
+# Detect voice backends once at module load so /status never pays import probe cost
+def _detect_voice_backends() -> tuple[str, str, list[str]]:
+    tts, stt, details = "sapi", "none", []
+    try:
+        if importlib.util.find_spec("kokoro") is not None:
+            tts = "kokoro"
+            details.append("kokoro module found")
+        else:
+            details.append("kokoro unavailable -> sapi fallback")
+    except Exception:
+        details.append("kokoro unavailable -> sapi fallback")
+
+    probe_whisper = os.environ.get("GUPPY_API_PROBE_WHISPER", "0").strip().lower() in {"1", "true", "yes", "on"}
+    try:
+        # Avoid importing native torch/ctranslate stacks at module import-time by default.
+        if importlib.util.find_spec("faster_whisper") is not None:
+            if probe_whisper:
+                from faster_whisper import WhisperModel as _WM  # noqa: F401
+                stt = "whisper"
+                details.append("faster-whisper import ok")
+            else:
+                stt = "whisper"
+                details.append("faster-whisper module found (lazy import)")
+        else:
+            raise ImportError("faster_whisper module not found")
+    except Exception:
+        try:
+            if importlib.util.find_spec("speech_recognition") is not None:
+                stt = "google"
+                details.append("speech_recognition module found")
+            else:
+                details.append("no transcription backend available")
+        except Exception:
+            details.append("no transcription backend available")
+    return tts, stt, details
+
+_VOICE_TTS_BACKEND, _VOICE_STT_BACKEND, _VOICE_BACKEND_DETAILS = _detect_voice_backends()
+
+_api_metrics_lock = _runtime_state.api_metrics_lock
+_api_metrics = _runtime_state.api_metrics
+
+_CHAT_IDEMPOTENCY_TTL_SECONDS = max(
+    60.0,
+    float(os.environ.get("GUPPY_CHAT_IDEMPOTENCY_TTL_SECONDS", "300") or "300"),
+)
+_chat_idempotency_lock = threading.Lock()
+_chat_idempotency_records: Dict[str, Dict[str, Any]] = {}
+
+
+def _apply_path_config(path_config: ServerPathConfig) -> ServerPathConfig:
+    global _path_config
+    global _runtime_dir, _config_dir, _instances_path, _connector_bindings_path
+    global _instance_state_path, _REPAIR_TOKEN_FILE, _ops_telemetry_db, _stream_jsonl_map
+    _path_config = path_config
+    _runtime_dir = path_config.runtime_dir
+    _config_dir = path_config.config_dir
+    _instances_path = path_config.instances_path
+    _connector_bindings_path = path_config.connector_bindings_path
+    _instance_state_path = path_config.instance_state_path
+    _REPAIR_TOKEN_FILE = path_config.repair_token_file
+    _ops_telemetry_db = path_config.ops_telemetry_db
+    _stream_jsonl_map = dict(path_config.stream_jsonl_map)
+    if "_server_context" in globals():
+        _server_context.paths = path_config
+    return path_config
+
+
+def _set_path_config_for_tests(
+    *,
+    config_dir: Path | None = None,
+    runtime_dir: Path | None = None,
+    instances_path: Path | None = None,
+    connector_bindings_path: Path | None = None,
+    instance_state_path: Path | None = None,
+    repair_token_file: Path | None = None,
+    ops_telemetry_db: Path | None = None,
+) -> ServerPathConfig:
+    current = _path_config
+    next_root_config = ServerPathConfig.from_roots(
+        Path(config_dir) if config_dir is not None else current.config_dir,
+        Path(runtime_dir) if runtime_dir is not None else current.runtime_dir,
+    )
+    next_config = next_root_config.clone_with(
+        instances_path=instances_path if instances_path is not None else next_root_config.instances_path,
+        connector_bindings_path=connector_bindings_path
+        if connector_bindings_path is not None
+        else next_root_config.connector_bindings_path,
+        instance_state_path=instance_state_path
+        if instance_state_path is not None
+        else next_root_config.instance_state_path,
+        repair_token_file=repair_token_file
+        if repair_token_file is not None
+        else next_root_config.repair_token_file,
+        ops_telemetry_db=ops_telemetry_db
+        if ops_telemetry_db is not None
+        else next_root_config.ops_telemetry_db,
+    )
+    return _apply_path_config(next_config)
+
+
+def _module_owner() -> Any:
+    return sys.modules[__name__]
+
+
+def _call_module_attr(name: str, *args, **kwargs):
+    return getattr(_module_owner(), name)(*args, **kwargs)
+
+
+def _bind_owner(func):
+    signature = None
+    try:
+        original = inspect.signature(func)
+        signature = original.replace(parameters=list(original.parameters.values())[1:])
+    except Exception:
+        signature = None
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(_module_owner(), *args, **kwargs)
+
+    if signature is not None:
+        wrapper.__signature__ = signature
+    return wrapper
+
+
+def _bind_owner_async(func):
+    signature = None
+    try:
+        original = inspect.signature(func)
+        signature = original.replace(parameters=list(original.parameters.values())[1:])
+    except Exception:
+        signature = None
+
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        return await func(_module_owner(), *args, **kwargs)
+
+    if signature is not None:
+        wrapper.__signature__ = signature
+    return wrapper
+
+
+_prune_chat_idempotency_records = services_realtime.prune_chat_idempotency_records
+_build_chat_request_fingerprint = services_realtime.build_chat_request_fingerprint
+_register_chat_idempotency_key = services_realtime.register_chat_idempotency_key
+_resolve_chat_idempotency_key = services_realtime.resolve_chat_idempotency_key
+_takeover_chat_idempotency_key = services_realtime.takeover_chat_idempotency_key
+_complete_chat_idempotency_key = services_realtime.complete_chat_idempotency_key
+_clear_chat_idempotency_key = services_realtime.clear_chat_idempotency_key
+_should_use_rich_chat_prompt_context = services_realtime.should_use_rich_chat_prompt_context
+_should_use_rich_prompt_context = services_realtime.should_use_rich_prompt_context
+_build_chat_system_prompt = _bind_owner(services_realtime.build_chat_system_prompt)
+_save_voice_upload_tempfile = _bind_owner_async(services_realtime.save_voice_upload_tempfile)
+_read_jsonl_tail = services_ops.read_jsonl_tail
+_ensure_m2_instance_scaffold = _bind_owner(services_instances.ensure_m2_instance_scaffold)
+_load_instances_config = _bind_owner(services_instances.load_instances_config)
+_load_instance_state = _bind_owner(services_instances.load_instance_state)
+_save_instance_state = _bind_owner(services_instances.save_instance_state)
+_save_instances_config = _bind_owner(services_instances.save_instances_config)
+_load_normalized_instance_bundle = _bind_owner(services_instances.load_normalized_instance_bundle)
+_instance_config_entry = services_instances.instance_config_entry
+_default_instance_state = services_instances.default_instance_state
+_instance_names = services_instances.instance_names
+_get_instance_entry = services_instances.get_instance_entry
+_get_active_instance_context = _bind_owner(services_instances.get_active_instance_context)
+_coerce_int = services_instances.coerce_int
+_normalize_instances_config = services_instances.normalize_instances_config
+_normalize_instance_state = services_instances.normalize_instance_state
+_upsert_instance_config = services_instances.upsert_instance_config
+_activate_instance_state = services_instances.activate_instance_state
+_instance_limits_payload = services_instances.instance_limits_payload
+_emit_integration_heartbeat = _bind_owner(services_host.emit_integration_heartbeat)
+_read_daemon_runtime_status = _bind_owner(services_host.read_daemon_runtime_status)
+_read_window_context = _bind_owner(services_host.read_window_context)
+_read_repair_token = _bind_owner(services_host.read_repair_token)
+_restart_managed_daemon = _bind_owner(services_host.restart_managed_daemon)
+_set_repair_token = _bind_owner(services_host.set_repair_token)
+_read_resource_envelope_status = _bind_owner(services_ops.read_resource_envelope_status)
+_parse_iso_ts = services_ops.parse_iso_ts
+_p95 = services_ops.p95
+_query_sqlite_telemetry = _bind_owner(services_ops.query_sqlite_telemetry)
+_query_jsonl_telemetry = _bind_owner(services_ops.query_jsonl_telemetry)
+_build_telemetry_report = services_ops.build_telemetry_report
+_latest_stress_report_path = _bind_owner(services_ops.latest_stress_report_path)
+_normalize_brief_text = services_realtime.normalize_brief_text
+_looks_like_brief_affirmation = services_realtime.looks_like_brief_affirmation
+_history_offered_morning_brief = services_realtime.history_offered_morning_brief
+_request_is_morning_brief = services_realtime.request_is_morning_brief
+_latest_daily_report_path = _bind_owner(services_realtime.latest_daily_report_path)
+_strip_markdown_prefix = services_realtime.strip_markdown_prefix
+_parse_markdown_sections = services_realtime.parse_markdown_sections
+_preview_markdown_section = services_realtime.preview_markdown_section
+_preview_plain_block = services_realtime.preview_plain_block
+_build_morning_brief_response = _bind_owner(services_realtime.build_morning_brief_response)
+_collect_runtime_bundle = _bind_owner(services_ops.collect_runtime_bundle)
+_do_repair_action = _bind_owner(services_ops.do_repair_action)
+_secret_ready = services_runtime.secret_ready
+_build_startup_readiness_payload = _bind_owner(services_runtime.build_startup_readiness_payload)
+_startup_readiness_snapshot = _bind_owner(services_runtime.startup_readiness_snapshot)
+_startup_readiness_cached_or_unknown = _bind_owner(services_runtime.startup_readiness_cached_or_unknown)
+_startup_readiness_cached_or_snapshot = _bind_owner(services_runtime.startup_readiness_cached_or_snapshot)
+_startup_readiness_cache_expired = _bind_owner(services_runtime.startup_readiness_cache_expired)
+_trigger_startup_readiness_refresh = _bind_owner(services_runtime.trigger_startup_readiness_refresh)
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Validate env and optionally manage daemon lifecycle when explicitly enabled."""
+    validate_environment()
+    _ensure_m2_instance_scaffold()
+    await services_host.startup_host(sys.modules[__name__])
+
+    try:
+        yield
+    finally:
+        await services_host.shutdown_host(sys.modules[__name__])
+
+
+app = FastAPI(
+    title="Guppy API",
+    description="Remote access API for Guppy AI assistant",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+# CORS middleware for web access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def request_timing_middleware(request: Request, call_next):
+    started = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+    except Exception:
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        services_host.record_request_failure(
+            sys.modules[__name__],
+            request,
+            status_code,
+            elapsed_ms,
+        )
+        raise
+
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    services_host.record_request_completion(
+        sys.modules[__name__],
+        request,
+        response,
+        elapsed_ms,
+    )
+    return response
+
+# === END _server_fragment_ops.py ===
+
+# === BEGIN _server_fragment_local_runtime.py ===
+_DEFAULT_LEMONADE_BASE_URL = "http://localhost:13305/api/v1"
+_LEMONADE_ROLE_ENV = {
+    "fast": "GUPPY_LEMONADE_FAST_MODEL",
+    "complex": "GUPPY_LEMONADE_COMPLEX_MODEL",
+    "teach": "GUPPY_LEMONADE_TEACH_MODEL",
+    "code": "GUPPY_LEMONADE_CODE_MODEL",
+    "vault": "GUPPY_LEMONADE_VAULT_MODEL",
+}
+_LOCAL_RUNTIME_WARM_TTL_SECONDS = float(os.environ.get("GUPPY_LOCAL_RUNTIME_WARM_TTL_SECONDS", "300.0"))
+_LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS", "20.0"))
+_local_runtime_warm_cache = _runtime_state.local_runtime_warm_cache
+_local_runtime_warm_lock = _runtime_state.local_runtime_warm_lock
+
+
+_selected_local_runtime_backend = _bind_owner(services_runtime.selected_local_runtime_backend)
+_local_runtime_base_url = _bind_owner(services_runtime.local_runtime_base_url)
+_resolve_local_runtime_model = _bind_owner(services_runtime.resolve_local_runtime_model)
+_local_runtime_role_models = _bind_owner(services_runtime.local_runtime_role_models)
+_warm_ollama_chat_lane = _bind_owner(services_runtime.warm_ollama_chat_lane)
+_current_local_runtime_chat_model = _bind_owner(services_runtime.current_local_runtime_chat_model)
+_refresh_local_runtime_warm_status = _bind_owner(services_runtime.refresh_local_runtime_warm_status)
+_local_runtime_warm_cached_or_unknown = _bind_owner(services_runtime.local_runtime_warm_cached_or_unknown)
+_trigger_local_runtime_warm_refresh = _bind_owner(services_runtime.trigger_local_runtime_warm_refresh)
+_fetch_lemonade_model_ids = _bind_owner(services_runtime.fetch_lemonade_model_ids)
+_build_local_runtime_status = _bind_owner(services_runtime.build_local_runtime_status)
+_call_lemonade_chat = _bind_owner(services_runtime.call_lemonade_chat)
+_call_selected_local_runtime = _bind_owner(services_runtime.call_selected_local_runtime)
+_run_blocking = services_realtime.run_blocking
+_extract_text_from_anthropic_blocks = services_realtime.extract_text_from_anthropic_blocks
+_sanitize_chat_history = services_realtime.sanitize_chat_history
+_build_router_messages = services_realtime.build_router_messages
+_request_is_cacheable = _bind_owner(services_realtime.request_is_cacheable)
+_augment_system_with_history = services_realtime.augment_system_with_history
+_is_rate_limited_error = services_realtime.is_rate_limited_error
+_call_unified_inference = _bind_owner(services_realtime.call_unified_inference)
+_call_claude_with_tools = _bind_owner(services_realtime.call_claude_with_tools)
+_call_ollama_with_tools = _bind_owner(services_realtime.call_ollama_with_tools)
+_stream_chunks = services_realtime.stream_chunks
+_governance_summary_payload = _bind_owner(services_instances.governance_summary_payload)
+_workspace_connector_payload = _bind_owner(services_instances.workspace_connector_payload)
+_connector_inventory_payload = _bind_owner(services_instances.connector_inventory_payload)
+_require_repair_token = _bind_owner(services_ops.require_repair_token)
+
+_server_context = ServerContext(
+    app=app,
+    owner=sys.modules[__name__],
+    require_rate_limit=require_rate_limit,
+    require_auth_rate_limit=require_auth_rate_limit,
+    require_repair_token=None,
+    verify_turnstile_token_auth=verify_turnstile_token_auth,
+    create_access_token=create_access_token,
+    access_token_expire_minutes=ACCESS_TOKEN_EXPIRE_MINUTES,
+    dev_mode=bool(DEV_MODE),
+    guppy_core_available=GUPPY_CORE_AVAILABLE,
+    core=core,
+    guppy_daemon_available=GUPPY_DAEMON_AVAILABLE,
+    get_daemon_manager=get_daemon_manager,
+    status_include_window_context=STATUS_INCLUDE_WINDOW_CONTEXT,
+    guppy_voice_available=GUPPY_VOICE_AVAILABLE,
+    voice_tts_backend=_VOICE_TTS_BACKEND,
+    voice_stt_backend=_VOICE_STT_BACKEND,
+    voice_backend_details=_VOICE_BACKEND_DETAILS,
+    guppy_memory_available=GUPPY_MEMORY_AVAILABLE,
+    status_cache=_status_cache,
+    status_cache_ttl_seconds=STATUS_CACHE_TTL_SECONDS,
+    startup_readiness_cached_or_unknown=_startup_readiness_cached_or_unknown,
+    startup_readiness_snapshot=_startup_readiness_snapshot,
+    startup_readiness_cache_expired=_startup_readiness_cache_expired,
+    trigger_startup_readiness_refresh=_trigger_startup_readiness_refresh,
+    build_local_runtime_status=_build_local_runtime_status,
+    read_resource_envelope_status=_read_resource_envelope_status,
+    api_metrics_lock=_api_metrics_lock,
+    api_metrics=_api_metrics,
+    log_session_event=log_session_event,
+    logger=logger,
+    paths=_path_config,
+    read_window_context=_read_window_context,
+    read_daemon_runtime_status=_read_daemon_runtime_status,
+    tail_session_events=tail_session_events,
+    read_jsonl_tail=_read_jsonl_tail,
+    query_sqlite_telemetry=_query_sqlite_telemetry,
+    query_jsonl_telemetry=_query_jsonl_telemetry,
+    build_telemetry_report=_build_telemetry_report,
+    read_repair_token=_read_repair_token,
+    do_repair_action=_do_repair_action,
+    load_normalized_instance_bundle=_load_normalized_instance_bundle,
+    load_instances_config=_load_instances_config,
+    normalize_instances_config=_normalize_instances_config,
+    upsert_instance_config=_upsert_instance_config,
+    save_instances_config=_save_instances_config,
+    instance_names=_instance_names,
+    load_instance_state=_load_instance_state,
+    normalize_instance_state=_normalize_instance_state,
+    default_instance_state=_default_instance_state,
+    activate_instance_state=_activate_instance_state,
+    save_instance_state=_save_instance_state,
+    get_instance_entry=_get_instance_entry,
+    governance_summary_payload=_governance_summary_payload,
+    workspace_connector_payload=_workspace_connector_payload,
+    connector_inventory_payload=_connector_inventory_payload,
+    instance_limits_payload=_instance_limits_payload,
+    run_connector_action=run_connector_action,
+    save_workspace_connector_binding=save_workspace_connector_binding,
+    resolve_instance_permissions=resolve_instance_permissions,
+    set_instance_tool_permission_policy=set_instance_tool_permission_policy,
+    check_instance_tool_permission=partial(_call_module_attr, "check_instance_tool_permission"),
+    instance_logger_available=_INSTANCE_LOGGER_AVAILABLE,
+    append_instance_log=append_instance_log,
+    delete_instance_log=delete_instance_log,
+    read_instance_log_tail=read_instance_log_tail,
+    read_instance_log_summary=read_instance_log_summary,
+    instance_query_lock=_instance_query_lock,
+    build_chat_request_fingerprint=_build_chat_request_fingerprint,
+    register_chat_idempotency_key=_register_chat_idempotency_key,
+    resolve_chat_idempotency_key=_resolve_chat_idempotency_key,
+    takeover_chat_idempotency_key=_takeover_chat_idempotency_key,
+    complete_chat_idempotency_key=_complete_chat_idempotency_key,
+    get_active_instance_context=_get_active_instance_context,
+    request_is_morning_brief=_request_is_morning_brief,
+    build_morning_brief_response=_build_morning_brief_response,
+    latest_daily_report_path=_latest_daily_report_path,
+    build_chat_system_prompt=_build_chat_system_prompt,
+    request_is_cacheable=_request_is_cacheable,
+    run_blocking=_run_blocking,
+    call_unified_inference=partial(_call_module_attr, "_call_unified_inference"),
+    save_voice_upload_tempfile=_save_voice_upload_tempfile,
+    stream_chunks=_stream_chunks,
+)
+
+app.include_router(build_core_router(_server_context))
+
+_server_context.require_repair_token = _require_repair_token
+app.include_router(build_instances_router(_server_context))
+app.include_router(build_ops_router(_server_context))
+app.include_router(build_realtime_router(_server_context))
+if __name__ == "__main__":
+    api_reload = os.environ.get("GUPPY_API_RELOAD", "").strip().lower() in {"1", "true", "yes", "on"}
+    if not api_reload:
+        api_reload = DEV_MODE
+
+    uvicorn.run(
+        "src.guppy.api.server:app",
+        host=HOST,
+        port=PORT,
+        reload=api_reload,
+        log_level="info"
+    )
+
+# === END _server_fragment_routes_ops.py ===
+

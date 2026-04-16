@@ -55,6 +55,9 @@ runtime/*.cmd
 runtime/*.pid
 runtime/repair_token.txt
 runtime/instance_state.json
+runtime/connector_state.json
+runtime/windows_ops_state.json
+runtime/windows_release_receipt.json
 runtime/logging_health_snapshot.json
 runtime/model_runtime_snapshot.json
 runtime/provider_runtime_snapshot.json

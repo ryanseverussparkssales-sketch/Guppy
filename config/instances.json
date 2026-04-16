@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "active_instance": "builder-collab",
+  "active_instance": "guppy-primary",
   "instances": [
     {
       "name": "guppy-primary",

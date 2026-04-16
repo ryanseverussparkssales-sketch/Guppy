@@ -36,7 +36,8 @@ outdated or ambiguous.
 
 5. Root-module references are widely stale outside canonical docs.
    - Core implementations now live under `src/guppy/*`.
-   - Root files like `guppy_api.py`, `guppy_api_auth.py`, `guppy_daemon.py`, and `inference_router.py` are compatibility shims.
+   - Root launch shims are now limited to `guppy_launcher.py`, `guppy_hub.py`, and `guppy_api.py`.
+   - Secondary compatibility shims now live under `compat_shims/`.
 
 6. Test-path references drifted after suite reorganization.
    - Default pytest targets are now `tests/unit/` and `tests/integration/`.

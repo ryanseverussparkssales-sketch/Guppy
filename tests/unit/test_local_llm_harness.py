@@ -98,6 +98,7 @@ class LocalLlmHarnessTests(unittest.TestCase):
             self.assertEqual(payload["successful_cases"], 2)
             self.assertEqual(len(payload["records"]), 2)
             self.assertEqual(payload["records"][0]["prompt_style"], "raw")
+            self.assertTrue(payload["memory_run_root"])
             self.assertEqual(len(history_lines), 1)
 
     def test_harness_supports_override_tag_and_guppy_local_style(self) -> None:
@@ -158,6 +159,7 @@ class LocalLlmHarnessTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(payload["prompt_style"], "guppy_local")
             self.assertEqual(payload["records"][0]["requested_tag"], "qwen3:8b")
+            self.assertTrue(payload["memory_run_root"])
 
     def test_harness_supports_lemonade_runtime_override(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -221,6 +223,62 @@ class LocalLlmHarnessTests(unittest.TestCase):
             self.assertEqual(payload["runtime_base_url"], local_llm_harness.DEFAULT_LEMONADE_BASE_URL)
             self.assertEqual(payload["records"][0]["requested_tag"], "Qwen3-0.6B-GGUF")
             self.assertEqual(payload["records"][0]["resolved_tag"], "Qwen3-0.6B-GGUF")
+            self.assertTrue(payload["memory_run_root"])
+
+    def test_harness_can_opt_out_of_default_isolated_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            manifest = root / "models.json"
+            prompts = root / "prompts.json"
+            latest = root / "runtime" / "latest.json"
+            history = root / "runtime" / "history.jsonl"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runtime": {
+                            "baseline_backend": "ollama",
+                            "artifact_paths": {
+                                "benchmark_latest": str(latest),
+                                "benchmark_history": str(history),
+                            }
+                        },
+                        "memory": {"baseline_backend": "semantic-sqlite"},
+                        "baseline_models": [{"id": "guppy-fast", "tag": "guppy-fast:latest", "role": "fast_assistant"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            prompts.write_text(json.dumps({"tracks": [{"id": "daily_chat", "prompts": ["hi"]}]}), encoding="utf-8")
+
+            with patch(
+                "tools.local_llm_harness.run_cmd",
+                return_value=CmdResult(0, "NAME ID SIZE MODIFIED\nguppy-fast:latest a 1 GB now", ""),
+            ), patch(
+                "tools.local_llm_harness.run_prompt_once",
+                return_value={
+                    "success": True,
+                    "failure_mode": "none",
+                    "response_preview": "ok",
+                    "duration_ms": 10.0,
+                    "first_token_ms": None,
+                },
+            ), patch(
+                "sys.argv",
+                [
+                    "local_llm_harness.py",
+                    "--manifest-file",
+                    str(manifest),
+                    "--prompt-file",
+                    str(prompts),
+                    "--no-isolate-memory",
+                ],
+            ):
+                code = local_llm_harness.main()
+
+            payload = json.loads(latest.read_text(encoding="utf-8"))
+            self.assertEqual(code, 0)
+            self.assertEqual(payload["memory_run_root"], "")
 
     def test_harness_supports_memory_backend_compare_mode(self) -> None:
         @contextmanager

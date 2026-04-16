@@ -1,6 +1,6 @@
 # Guppy Project Brief
 
-Last updated: 2026-04-15
+Last updated: 2026-04-16
 
 ## Purpose
 
@@ -10,6 +10,14 @@ Guppy is a Windows-first, local-first personal assistant focused on:
 2. Reliable voice interruption behavior.
 3. Safe action handling.
 4. Clear persona/model/voice customization.
+
+## Current State Snapshot
+
+1. `M1` closed on April 13, 2026; `M2` is active as of April 15, 2026.
+2. Current verified baseline on April 16, 2026: runtime smoke plus launcher/security regression suites are green.
+3. Next checkpoint: April 24, 2026 - close release-lane hardening and align handoff/doc status.
+4. Next checkpoint: May 8, 2026 - promote Workspace Framing into the active lane if servicing evidence remains stable.
+5. Next checkpoint: May 22, 2026 - land Home/chat-first polish, first-run guidance, and calmer starter flows.
 
 ## Primary Product Surface
 
@@ -21,9 +29,15 @@ Guppy is a Windows-first, local-first personal assistant focused on:
 
 ## Runtime Services
 
-1. API: src/guppy/api/server.py plus `_server_fragment_*.py` (wrapper: guppy_api.py)
-2. Hub/tray: guppy_hub.py (wrapper), src/guppy/apps/hub_app.py (implementation)
-3. Daemon: src/guppy/daemon/daemon.py (wrapper: guppy_daemon.py)
+1. API: `src/guppy/api/server.py` as the public module, composed by `src/guppy/api/server_runtime.py` plus imported routers/services, launched from the root shim `guppy_api.py`
+2. Hub/tray: `src/guppy/apps/hub_app.py`, launched from the root shim `guppy_hub.py`
+3. Daemon: `src/guppy/daemon/daemon.py`
+
+Status contract for active docs:
+
+1. `docs/PROJECT_BRIEF.md` is the canonical product-status snapshot.
+2. `ROADMAP.md` is the canonical execution board and dated handoff log.
+3. `docs/archive/planning-history/m2/` remains historical context only and does not define the active schedule.
 
 ## What Is Live
 
@@ -105,7 +119,7 @@ What is live in the M2 launcher shell right now:
 
 1. Roadmap and handoff: ROADMAP.md
 2. Setup and architecture details: README.md
-3. Measurable targets: GOALS.md
-4. Daily operator runbook: DAILY_WORKFLOW.md
+3. Measurable targets: docs/GOALS.md
+4. Daily operator runbook: docs/DAILY_WORKFLOW.md
 5. Local LLM plan: docs/LOCAL_LLM_IMPLEMENTATION_PLAN.md
 6. Local LLM benchmark spec: docs/LOCAL_LLM_BENCHMARK_SPEC.md

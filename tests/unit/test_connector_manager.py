@@ -202,3 +202,44 @@ class ConnectorManagerTests(unittest.TestCase):
                 connector_manager._RUNTIME_DIR = old_runtime_dir
                 connector_manager._CONNECTOR_STATE_PATH = old_state_path
                 connector_manager._INTEGRATION_EVENTS_PATH = old_events_path
+
+    def test_gmail_connect_reports_failure_when_auth_helper_errors(self):
+        old_runtime_dir = connector_manager._RUNTIME_DIR
+        old_state_path = connector_manager._CONNECTOR_STATE_PATH
+        old_events_path = connector_manager._INTEGRATION_EVENTS_PATH
+        with tempfile.TemporaryDirectory() as td:
+            runtime_dir = Path(td)
+            connector_manager._RUNTIME_DIR = runtime_dir
+            connector_manager._CONNECTOR_STATE_PATH = runtime_dir / "connector_state.json"
+            connector_manager._INTEGRATION_EVENTS_PATH = runtime_dir / "integration_events.jsonl"
+            try:
+                with patch("media_tools.gmail_unread_count", return_value=(-1, "[Errno 2] No such file or directory: ''")):
+                    result = connector_manager.run_connector_action("gmail", "connect")
+                self.assertFalse(result["ok"])
+                self.assertIn("No such file or directory", result["summary"])
+            finally:
+                connector_manager._RUNTIME_DIR = old_runtime_dir
+                connector_manager._CONNECTOR_STATE_PATH = old_state_path
+                connector_manager._INTEGRATION_EVENTS_PATH = old_events_path
+
+    def test_duplicate_policy_denials_are_deduped_briefly(self):
+        old_recent = dict(connector_manager._RECENT_POLICY_DENIALS)
+        connector_manager._RECENT_POLICY_DENIALS.clear()
+        try:
+            with patch("utils.connector_manager._log_integration_event") as log_event:
+                connector_manager.log_connector_policy_denial(
+                    "calendar",
+                    "guppy-primary",
+                    "connector_host_auth_missing",
+                    "Calendar credentials file is missing for this host.",
+                )
+                connector_manager.log_connector_policy_denial(
+                    "calendar",
+                    "guppy-primary",
+                    "connector_host_auth_missing",
+                    "Calendar credentials file is missing for this host.",
+                )
+                self.assertEqual(log_event.call_count, 1)
+        finally:
+            connector_manager._RECENT_POLICY_DENIALS.clear()
+            connector_manager._RECENT_POLICY_DENIALS.update(old_recent)

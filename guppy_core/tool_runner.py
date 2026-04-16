@@ -43,24 +43,28 @@ except ImportError:
     PYA = False
 
 try:
-    import guppy_memory as _mem
+    from src.guppy.memory import memory as _mem
     _MEM = True
 except ImportError:
+    _mem = None
     _MEM = False
 
 try:
-    import guppy_semantic_memory as _smem
+    from src.guppy.memory import semantic as _smem
     _SMEM = True
 except ImportError:
+    _smem = None
     _SMEM = False
 
 try:
-    from guppy_daemon import get_daemon_manager, get_window_context
+    from src.guppy.daemon.daemon import get_daemon_manager, get_window_context
     DAEMON = True
 except ImportError:
     DAEMON = False
+
     def get_daemon_manager():
         return None
+
     def get_window_context():
         return {"app": "unknown", "title": "unknown"}
 
@@ -93,7 +97,7 @@ def _apply_workspace_connector_runtime_context(
         inp["account"] = account_id
     if connector_id == "gmail" and account_id and str(tool_name or "").strip().lower() != "gmail_switch_account":
         try:
-            from media_tools import gmail_switch_account
+            from src.guppy.tools.media import gmail_switch_account
             gmail_switch_account(account_id)
         except Exception:
             return inp
@@ -372,7 +376,7 @@ def _morning_brief(include_gmail: bool = True, notify: bool = False) -> str:
 
     # ── Calendar ──────────────────────────────────────────────────────────────
     try:
-        from media_tools import calendar_events as _cal_events
+        from src.guppy.tools.media import calendar_events as _cal_events
         cal_result = _cal_events(days=1, max_results=15)
         lines.append("CALENDAR  TODAY")
         if cal_result.startswith("No events") or cal_result.startswith("Google Calendar credentials"):
@@ -387,7 +391,7 @@ def _morning_brief(include_gmail: bool = True, notify: bool = False) -> str:
     # ── Gmail unread counts ────────────────────────────────────────────────────
     if include_gmail:
         try:
-            from media_tools import gmail_unread_count, _GMAIL_ACCOUNTS
+            from src.guppy.tools.media import gmail_unread_count, _GMAIL_ACCOUNTS
             gmail_lines: list[str] = []
             for alias in _GMAIL_ACCOUNTS:
                 count, err = gmail_unread_count(alias)
@@ -405,7 +409,7 @@ def _morning_brief(include_gmail: bool = True, notify: bool = False) -> str:
     # ── Inbox action items (bills, interviews, client requests) ───────────────
     if include_gmail:
         try:
-            from media_tools import gmail_scan_inbox
+            from src.guppy.tools.media import gmail_scan_inbox
             scan = gmail_scan_inbox(max_emails=20, auto_task=True, dry_run=False)
             # Only show actionable lines — skip FYI and empty lines
             action_lines = [
@@ -454,7 +458,7 @@ def _morning_brief(include_gmail: bool = True, notify: bool = False) -> str:
                 task_count = len([t for t in raw.splitlines() if t.strip() and "No pending" not in t])
             cal_count = 0
             try:
-                from media_tools import calendar_events as _c
+                from src.guppy.tools.media import calendar_events as _c
                 cal_lines = _c(days=1, max_results=20).splitlines()
                 cal_count = max(0, len(cal_lines) - 1)
             except Exception:
@@ -907,11 +911,11 @@ def _exec_tool(name: str, inp: dict):
             return _mem.get_revenue_dashboard()
 
         elif name == "list_external_integrations":
-            from crm_voip_integrations import list_external_integrations
+            from src.guppy.integrations.crm_voip import list_external_integrations
             return list_external_integrations()
 
         elif name == "crm_upsert_contact":
-            from crm_voip_integrations import crm_upsert_contact
+            from src.guppy.integrations.crm_voip import crm_upsert_contact
             return crm_upsert_contact(
                 inp["provider"],
                 inp["name"],
@@ -923,7 +927,7 @@ def _exec_tool(name: str, inp: dict):
             )
 
         elif name == "crm_create_opportunity":
-            from crm_voip_integrations import crm_create_opportunity
+            from src.guppy.integrations.crm_voip import crm_create_opportunity
             return crm_create_opportunity(
                 inp["provider"],
                 inp["title"],
@@ -936,7 +940,7 @@ def _exec_tool(name: str, inp: dict):
             )
 
         elif name == "voip_place_call":
-            from crm_voip_integrations import voip_place_call
+            from src.guppy.integrations.crm_voip import voip_place_call
             return voip_place_call(
                 inp.get("provider", "twilio"),
                 inp["to_number"],
@@ -947,78 +951,78 @@ def _exec_tool(name: str, inp: dict):
             )
 
         elif name == "get_foundation_readiness":
-            from crm_voip_integrations import get_foundation_readiness_text
+            from src.guppy.integrations.crm_voip import get_foundation_readiness_text
             return get_foundation_readiness_text()
 
         # ── Spotify ───────────────────────────────────────────────────────────
         elif name == "spotify_play":
-            from media_tools import spotify_play
+            from src.guppy.tools.media import spotify_play
             return spotify_play(inp["query"])
 
         elif name == "spotify_pause":
-            from media_tools import spotify_pause
+            from src.guppy.tools.media import spotify_pause
             return spotify_pause()
 
         elif name == "spotify_resume":
-            from media_tools import spotify_resume
+            from src.guppy.tools.media import spotify_resume
             return spotify_resume()
 
         elif name == "spotify_next":
-            from media_tools import spotify_next
+            from src.guppy.tools.media import spotify_next
             return spotify_next()
 
         elif name == "spotify_prev":
-            from media_tools import spotify_prev
+            from src.guppy.tools.media import spotify_prev
             return spotify_prev()
 
         elif name == "spotify_current":
-            from media_tools import spotify_current
+            from src.guppy.tools.media import spotify_current
             return spotify_current()
 
         elif name == "spotify_volume":
-            from media_tools import spotify_volume
+            from src.guppy.tools.media import spotify_volume
             return spotify_volume(int(inp["level"]))
 
         # ── YouTube ───────────────────────────────────────────────────────────
         elif name == "youtube_play":
-            from media_tools import youtube_play
+            from src.guppy.tools.media import youtube_play
             return youtube_play(inp["query"])
 
         elif name == "youtube_search":
-            from media_tools import youtube_search
+            from src.guppy.tools.media import youtube_search
             return youtube_search(inp["query"])
 
         # ── Gmail purge ───────────────────────────────────────────────────────
         elif name == "gmail_purge":
-            from media_tools import gmail_purge
+            from src.guppy.tools.media import gmail_purge
             return gmail_purge(inp["query"], int(inp.get("max_results", 500)))
 
         elif name == "gmail_purge_label":
-            from media_tools import gmail_purge_label
+            from src.guppy.tools.media import gmail_purge_label
             return gmail_purge_label(inp["label"])
 
         elif name == "gmail_purge_sender":
-            from media_tools import gmail_purge_sender
+            from src.guppy.tools.media import gmail_purge_sender
             return gmail_purge_sender(inp["email"])
 
         elif name == "gmail_purge_older_than":
-            from media_tools import gmail_purge_older_than
+            from src.guppy.tools.media import gmail_purge_older_than
             return gmail_purge_older_than(int(inp["days"]))
 
         elif name == "gmail_empty_trash":
-            from media_tools import gmail_empty_trash
+            from src.guppy.tools.media import gmail_empty_trash
             return gmail_empty_trash()
 
         elif name == "gmail_switch_account":
-            from media_tools import gmail_switch_account
+            from src.guppy.tools.media import gmail_switch_account
             return gmail_switch_account(inp["alias"])
 
         elif name == "gmail_list_accounts":
-            from media_tools import gmail_list_accounts
+            from src.guppy.tools.media import gmail_list_accounts
             return gmail_list_accounts()
 
         elif name == "gmail_smart_cleanup":
-            from media_tools import gmail_smart_cleanup
+            from src.guppy.tools.media import gmail_smart_cleanup
             return gmail_smart_cleanup(int(inp.get("max_per_step", 500)))
 
         # ── Reminders & Tasks ──────────────────────────────────────────────────
@@ -1026,7 +1030,7 @@ def _exec_tool(name: str, inp: dict):
             if not DAEMON:
                 return "Error: Daemon not available. Reminders require background service."
             try:
-                from guppy_daemon import get_daemon_manager
+                from src.guppy.daemon.daemon import get_daemon_manager
                 manager = get_daemon_manager()
                 result = manager.task_scheduler.schedule_reminder(inp["message"], inp["time"])
                 return result
@@ -1037,7 +1041,7 @@ def _exec_tool(name: str, inp: dict):
             if not DAEMON:
                 return "Error: Daemon not available. Reminders require background service."
             try:
-                from guppy_daemon import get_daemon_manager
+                from src.guppy.daemon.daemon import get_daemon_manager
                 manager = get_daemon_manager()
                 reminders = manager.task_scheduler.get_scheduled_reminders()
                 if not reminders:
@@ -1053,7 +1057,7 @@ def _exec_tool(name: str, inp: dict):
             if not DAEMON:
                 return "Error: Daemon not available. Reminders require background service."
             try:
-                from guppy_daemon import get_daemon_manager
+                from src.guppy.daemon.daemon import get_daemon_manager
                 manager = get_daemon_manager()
                 result = manager.task_scheduler.cancel_reminder(inp["reminder_id"])
                 return result
@@ -1127,7 +1131,7 @@ def _exec_tool(name: str, inp: dict):
 
         # ── Inbox scan ────────────────────────────────────────────────────────
         elif name == "gmail_scan_inbox":
-            from media_tools import gmail_scan_inbox
+            from src.guppy.tools.media import gmail_scan_inbox
             return gmail_scan_inbox(
                 max_emails=int(inp.get("max_emails", 30)),
                 account=inp.get("account", ""),
@@ -1137,7 +1141,7 @@ def _exec_tool(name: str, inp: dict):
 
         # ── Calendar ──────────────────────────────────────────────────────────
         elif name == "calendar_events":
-            from media_tools import calendar_events as _cal_events
+            from src.guppy.tools.media import calendar_events as _cal_events
             return _cal_events(
                 days=int(inp.get("days", 1)),
                 max_results=int(inp.get("max_results", 20)),
@@ -1146,7 +1150,7 @@ def _exec_tool(name: str, inp: dict):
 
         # ── Send Email ────────────────────────────────────────────────────────
         elif name == "send_email":
-            from media_tools import gmail_send
+            from src.guppy.tools.media import gmail_send
             return gmail_send(
                 to=inp["to"],
                 subject=inp["subject"],
@@ -1252,7 +1256,7 @@ def _exec_tool(name: str, inp: dict):
 
         # ── GitHub ───────────────────────────────────────────────────────────
         elif name == "github":
-            from github_tools import github_action
+            from src.guppy.tools.github import github_action
             return github_action(
                 action=inp.get("action", ""),
                 repo=inp.get("repo", ""),

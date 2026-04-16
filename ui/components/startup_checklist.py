@@ -1,6 +1,6 @@
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QLabel
-from guppy_theme import SHARED
+from src.guppy.ui.theme import SHARED
 
 
 class StartupChecklist(QFrame):

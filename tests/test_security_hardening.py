@@ -32,7 +32,7 @@ except ImportError:
 
 import guppy_api
 from fastapi.testclient import TestClient
-import guppy_api_auth
+from src.guppy.api import auth as guppy_api_auth
 from utils import secret_store
 from utils.db_utils import open_db
 from ui.launcher import launcher_window

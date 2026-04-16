@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from inference_router import LAUNCHER_MODES_DISPLAY
+from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
 
 try:
     from utils.runtime_profile import (

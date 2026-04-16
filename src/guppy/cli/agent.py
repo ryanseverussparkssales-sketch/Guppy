@@ -22,7 +22,7 @@ CLAUDE_MODEL = (os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6").strip() o
 CLAUDE_BACKUP_MODEL = os.environ.get("ANTHROPIC_BACKUP_MODEL", "claude-haiku-4-5-20251001").strip()
 
 try:
-    from guppy_memory import save_message as _save_msg
+    from src.guppy.memory.memory import save_message as _save_msg
     from datetime import datetime as _dt
     SESSION_ID = _dt.now().strftime("%Y%m%d_%H%M%S")
     _SAVE = True
@@ -301,7 +301,7 @@ def terminal_mode():
 def voice_mode():
     """Launch an interactive voice REPL using GuppyVoice (Kokoro TTS + Whisper STT)."""
     try:
-        from guppy_voice import GuppyVoice
+        from src.guppy.voice.voice import GuppyVoice
     except ImportError as e:
         print(f"❌ Could not import GuppyVoice: {e}")
         print("   Ensure faster-whisper and kokoro are installed.")

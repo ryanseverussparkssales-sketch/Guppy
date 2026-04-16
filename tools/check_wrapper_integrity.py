@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+COMPAT = ROOT / "compat_shims"
 MAX_WRAPPER_LINES = 30
 
 WRAPPERS = {
@@ -13,7 +14,6 @@ WRAPPERS = {
 
 # sys.modules-redirect shims: maps root filename → canonical dotted module path
 SHIMS = {
-    "guppy_api.py":             "src.guppy.api.server",
     "guppy_api_auth.py":        "src.guppy.api.auth",
     "inference_router.py":      "src.guppy.inference.router",
     "merlin_core.py":           "src.guppy.merlin.core",
@@ -83,8 +83,9 @@ def main() -> int:
     failures: list[str] = []
     for rel, required_import in WRAPPERS.items():
         failures.extend(_validate_wrapper(ROOT / rel, required_import))
+    failures.extend(_validate_shim(ROOT / "guppy_api.py", "src.guppy.api.server"))
     for rel, canonical in SHIMS.items():
-        failures.extend(_validate_shim(ROOT / rel, canonical))
+        failures.extend(_validate_shim(COMPAT / rel, canonical))
 
     if failures:
         print("wrapper integrity check failed:")

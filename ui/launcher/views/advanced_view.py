@@ -107,6 +107,48 @@ def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = Fa
     return lbl
 
 
+def _service_purpose(connector_id: str) -> str:
+    return {
+        "gmail": "Email",
+        "calendar": "Calendar",
+        "spotify": "Music",
+        "youtube": "Video tools",
+        "crm": "Customer records",
+        "voip": "Calling",
+    }.get(str(connector_id or "").strip().lower(), "Connected service")
+
+
+def _friendly_auth_state(auth_state: str) -> str:
+    normalized = str(auth_state or "").strip().lower()
+    return {
+        "ready": "Connected",
+        "optional": "Optional",
+        "partial": "Almost ready",
+        "missing": "Needs setup",
+    }.get(normalized, "Needs setup")
+
+
+def _clean_guidance_text(text: str) -> str:
+    cleaned = str(text or "").strip()
+    replacements = (
+        ("App Mgmt:", ""),
+        ("Workspaces >", ""),
+        ("App Mgmt >", ""),
+    )
+    for old, new in replacements:
+        cleaned = cleaned.replace(old, new)
+    return " ".join(cleaned.split())
+
+
+def _pipe_fields(text: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for segment in [part.strip() for part in str(text or "").split("|") if part.strip()]:
+        if ":" in segment:
+            label, value = segment.split(":", 1)
+            fields[label.strip().lower()] = value.strip()
+    return fields
+
+
 class AdvancedView(QWidget):
     recovery_requested = Signal(str)
     windows_ops_requested = Signal(str)
@@ -117,12 +159,15 @@ class AdvancedView(QWidget):
         super().__init__(parent)
         self._diagnostics: dict[str, str] = {}
         self._log_filter = "ALL"
+        self._details_visible = False
         self._terminal_queue: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
         self._terminal_process: subprocess.Popen[str] | None = None
         self._terminal_focus_pending = False
         self._terminal_recipes: dict[str, dict[str, object]] = {}
         self._windows_ops: dict[str, str] = self._build_windows_ops_snapshot()
         self._connector_inventory: list[dict[str, object]] = []
+        self._detail_frames: list[QFrame] = []
+        self._detail_widgets: list[QWidget] = []
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -141,13 +186,21 @@ class AdvancedView(QWidget):
 
         # Page title
         title_row = QHBoxLayout()
-        title = QLabel("App Management")
+        title = QLabel("Setup & Health")
         title.setStyleSheet(
             f"color: {T.TEXT}; font-family: '{T.FF_HEAD}';"
             f"font-size: 30pt; font-weight: 900; letter-spacing: -1px;"
         )
         title_row.addWidget(title)
         title_row.addStretch()
+        self._details_btn = QPushButton("SHOW DETAILS")
+        self._details_btn.setStyleSheet(
+            f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER};"
+            f" padding: 5px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; }}"
+        )
+        self._details_btn.clicked.connect(self._toggle_details)
+        title_row.addWidget(self._details_btn)
         layout.addLayout(title_row)
 
         # sub-info
@@ -156,23 +209,24 @@ class AdvancedView(QWidget):
         dot = QLabel("*")
         dot.setStyleSheet(f"color: {T.PRIMARY}; font-size: {T.FS_TINY}pt;")
         info_row.addWidget(dot)
-        info_row.addWidget(_mono("APP-LEVEL OPERATIONS + SETTINGS", T.PRIMARY, T.FS_TINY))
+        info_row.addWidget(_mono("SETUP + RECOVERY", T.PRIMARY, T.FS_TINY))
         info_row.addSpacing(12)
-        info_row.addWidget(_mono("RECOVERY / DIAGNOSTICS / SETTINGS / OPERATOR LOGS / WORKFLOW LOOPS", T.DIM, T.FS_TINY))
+        info_row.addWidget(_mono("HEALTH / RECOVERY / SETTINGS / DESKTOP RUNTIME", T.DIM, T.FS_TINY))
         info_row.addStretch()
         layout.addLayout(info_row)
         layout.addSpacing(12)
 
-        boundary = QFrame()
-        boundary.setStyleSheet(
+        self._boundary_frame = QFrame()
+        self._boundary_frame.setStyleSheet(
             f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
         )
-        boundary_layout = QVBoxLayout(boundary)
+        boundary_layout = QVBoxLayout(self._boundary_frame)
         boundary_layout.setContentsMargins(12, 10, 12, 10)
         boundary_layout.setSpacing(4)
         boundary_layout.addWidget(_mono("BOUNDARY", T.PRIMARY, T.FS_TINY, True))
         boundary_layout.addWidget(_mono("Open this tab for app-wide recovery, diagnostics, settings, workflow loops, operator logs, and the Home context that no longer lives above the chat. Workspace task tools now live in the right tray.", T.DIM, T.FS_SMALL))
-        layout.addWidget(boundary)
+        layout.addWidget(self._boundary_frame)
+        self._detail_frames.append(self._boundary_frame)
 
         context_frame = QFrame()
         context_frame.setStyleSheet(
@@ -184,16 +238,16 @@ class AdvancedView(QWidget):
         context_layout.addWidget(_mono("DAILY SESSION CONTEXT", T.PRIMARY, T.FS_TINY, True))
         context_layout.addWidget(
             _mono(
-                "Home now stays chat-first. Runtime, routing, recovery, settings, and latest launcher activity are summarized here.",
+                "Home stays focused on conversation. This page keeps setup, health, and recovery in one place.",
                 T.DIM,
                 T.FS_SMALL,
             )
         )
-        self._daily_activity_lbl = _mono("Latest activity: launcher ready", T.DIM, T.FS_SMALL)
-        self._daily_workspace_lbl = _mono("Workspace: Daily assistant workspace", T.TEXT, T.FS_SMALL)
-        self._daily_runtime_lbl = _mono("Runtime: waiting for first status poll", T.DIM, T.FS_SMALL)
+        self._daily_activity_lbl = _mono("Recent activity: launcher ready", T.DIM, T.FS_SMALL)
+        self._daily_workspace_lbl = _mono("Current workspace: Daily assistant workspace", T.TEXT, T.FS_SMALL)
+        self._daily_runtime_lbl = _mono("Ready now: waiting for first status poll", T.DIM, T.FS_SMALL)
         self._daily_route_lbl = _mono("Route preview: waiting for your next message", T.DIM, T.FS_SMALL)
-        self._daily_recovery_lbl = _mono("Recovery: stable", T.GREEN, T.FS_SMALL)
+        self._daily_recovery_lbl = _mono("Recovery: all clear", T.GREEN, T.FS_SMALL)
         for widget in (
             self._daily_activity_lbl,
             self._daily_workspace_lbl,
@@ -212,9 +266,9 @@ class AdvancedView(QWidget):
         actions_layout = QVBoxLayout(actions_frame)
         actions_layout.setContentsMargins(16, 14, 16, 14)
         actions_layout.setSpacing(10)
-        actions_layout.addWidget(_mono("RECOVERY ACTIONS", T.PRIMARY, T.FS_TINY, True))
+        actions_layout.addWidget(_mono("QUICK FIXES", T.PRIMARY, T.FS_TINY, True))
 
-        self._recovery_status = _mono("Recovery idle", T.DIM, T.FS_TINY)
+        self._recovery_status = _mono("Nothing needs attention right now.", T.DIM, T.FS_TINY)
         actions_layout.addWidget(self._recovery_status)
 
         action_row = QHBoxLayout()
@@ -243,13 +297,13 @@ class AdvancedView(QWidget):
         diag_layout = QVBoxLayout(diag_frame)
         diag_layout.setContentsMargins(16, 14, 16, 14)
         diag_layout.setSpacing(8)
-        diag_layout.addWidget(_mono("SYSTEM HEALTH", T.PRIMARY, T.FS_TINY, True))
-        self._health_lbl = _mono("API: unknown", T.DIM, T.FS_SMALL)
-        self._instances_lbl = _mono("Instances: unknown", T.DIM, T.FS_SMALL)
-        self._voice_lbl = _mono("Voice: unknown", T.DIM, T.FS_SMALL)
+        diag_layout.addWidget(_mono("SYSTEM STATUS", T.PRIMARY, T.FS_TINY, True))
+        self._health_lbl = _mono("API health: unknown", T.DIM, T.FS_SMALL)
+        self._instances_lbl = _mono("Workspaces: unknown", T.DIM, T.FS_SMALL)
+        self._voice_lbl = _mono("Voice services: unknown", T.DIM, T.FS_SMALL)
         self._route_health_lbl = _mono("Route evidence: unknown", T.DIM, T.FS_SMALL)
         self._resource_lbl = _mono("Resource envelope: unknown", T.DIM, T.FS_SMALL)
-        self._last_recovery_lbl = _mono("Last recovery: idle", T.DIM, T.FS_SMALL)
+        self._last_recovery_lbl = _mono("Last recovery action: idle", T.DIM, T.FS_SMALL)
         for widget in [
             self._health_lbl,
             self._instances_lbl,
@@ -269,10 +323,10 @@ class AdvancedView(QWidget):
         windows_ops_layout = QVBoxLayout(windows_ops)
         windows_ops_layout.setContentsMargins(16, 14, 16, 14)
         windows_ops_layout.setSpacing(8)
-        windows_ops_layout.addWidget(_mono("WINDOWS INSTALL / UPDATE / DIAGNOSTICS", T.PRIMARY, T.FS_TINY, True))
+        windows_ops_layout.addWidget(_mono("DESKTOP RUNTIME", T.PRIMARY, T.FS_TINY, True))
         windows_ops_layout.addWidget(
             _mono(
-                "Keep the desktop runtime legible here: what is installed, which local runtime is active, where data lives, and which repair path to run next.",
+                "See what is installed, which local AI runtime is active, and what to try next if something needs repair.",
                 T.DIM,
                 T.FS_SMALL,
             )
@@ -329,17 +383,17 @@ class AdvancedView(QWidget):
             windows_ops_layout.addWidget(widget)
         layout.addWidget(windows_ops)
 
-        connectors_frame = QFrame()
-        connectors_frame.setStyleSheet(
+        self._connectors_frame = QFrame()
+        self._connectors_frame.setStyleSheet(
             f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
         )
-        connectors_layout = QVBoxLayout(connectors_frame)
+        connectors_layout = QVBoxLayout(self._connectors_frame)
         connectors_layout.setContentsMargins(16, 14, 16, 14)
         connectors_layout.setSpacing(8)
-        connectors_layout.addWidget(_mono("CONNECTOR INVENTORY + AUTH", T.PRIMARY, T.FS_TINY, True))
+        connectors_layout.addWidget(_mono("CONNECTED SERVICES", T.PRIMARY, T.FS_TINY, True))
         connectors_layout.addWidget(
             _mono(
-                "Machine-level connector auth lives here. Verify readiness, reconnect OAuth-backed tools, and manage stored secrets without changing workspace policy.",
+                "Connect email, calendar, music, and business tools for this PC. Choose a service, then sign in or save the details it needs.",
                 T.DIM,
                 T.FS_SMALL,
             )
@@ -368,7 +422,7 @@ class AdvancedView(QWidget):
         connectors_layout.addLayout(connector_row1)
 
         self._connector_secret_value = QLineEdit()
-        self._connector_secret_value.setPlaceholderText("secret value for API-key or provider-backed connectors")
+        self._connector_secret_value.setPlaceholderText("Paste an API key or account detail here")
         self._connector_secret_value.setStyleSheet(
             f"QLineEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
             f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
@@ -397,13 +451,13 @@ class AdvancedView(QWidget):
         connector_actions.addStretch()
         connectors_layout.addLayout(connector_actions)
 
-        self._connector_state_lbl = _mono("Connector inventory waiting for first refresh", T.DIM, T.FS_SMALL)
-        self._connector_auth_lbl = _mono("Auth: unavailable", T.DIM, T.FS_SMALL)
-        self._connector_detail_lbl = _mono("Detail: unavailable", T.DIM, T.FS_SMALL)
-        self._connector_validation_lbl = _mono("Validation: waiting for connector data", T.DIM, T.FS_SMALL)
-        self._connector_scope_lbl = _mono("Scope: unavailable", T.DIM, T.FS_SMALL)
-        self._connector_setup_lbl = _mono("Guided setup: waiting for connector data", T.DIM, T.FS_SMALL)
-        self._connector_next_step_lbl = _mono("Next step: waiting for connector data", T.DIM, T.FS_SMALL)
+        self._connector_state_lbl = _mono("Choose a service to get started.", T.DIM, T.FS_SMALL)
+        self._connector_auth_lbl = _mono("Connection status will appear here.", T.DIM, T.FS_SMALL)
+        self._connector_detail_lbl = _mono("Helpful setup notes will appear here.", T.DIM, T.FS_SMALL)
+        self._connector_validation_lbl = _mono("What to do next will appear here.", T.DIM, T.FS_SMALL)
+        self._connector_scope_lbl = _mono("What this service can help with will appear here.", T.DIM, T.FS_SMALL)
+        self._connector_setup_lbl = _mono("Any required keys or sign-in steps will appear here.", T.DIM, T.FS_SMALL)
+        self._connector_next_step_lbl = _mono("Next step: choose a service.", T.DIM, T.FS_SMALL)
         self._connector_history_lbl = _mono("History: unavailable", T.DIM, T.FS_TINY)
         self._connector_recent_lbl = _mono("Recent attempts: unavailable", T.DIM, T.FS_TINY)
         self._connector_secret_lbl = _mono("Secret fields: unavailable", T.DIM, T.FS_TINY)
@@ -421,13 +475,14 @@ class AdvancedView(QWidget):
         ):
             widget.setWordWrap(True)
             connectors_layout.addWidget(widget)
-        layout.addWidget(connectors_frame)
+        layout.addWidget(self._connectors_frame)
+        self._detail_frames.append(self._connectors_frame)
 
-        workflow_frame = QFrame()
-        workflow_frame.setStyleSheet(
+        self._workflow_frame = QFrame()
+        self._workflow_frame.setStyleSheet(
             f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
         )
-        workflow_layout = QVBoxLayout(workflow_frame)
+        workflow_layout = QVBoxLayout(self._workflow_frame)
         workflow_layout.setContentsMargins(16, 14, 16, 14)
         workflow_layout.setSpacing(8)
         workflow_layout.addWidget(_mono("WORKFLOW LOOPS", T.PRIMARY, T.FS_TINY, True))
@@ -484,14 +539,15 @@ class AdvancedView(QWidget):
         )
         self._workflow_evidence_lbl.setWordWrap(True)
         workflow_layout.addWidget(self._workflow_evidence_lbl)
-        layout.addWidget(workflow_frame)
+        layout.addWidget(self._workflow_frame)
+        self._detail_frames.append(self._workflow_frame)
 
-        term = QFrame()
-        term.setObjectName("syslog_term")
-        term.setStyleSheet(
+        self._operator_logs_frame = QFrame()
+        self._operator_logs_frame.setObjectName("syslog_term")
+        self._operator_logs_frame.setStyleSheet(
             f"QFrame#syslog_term {{ background-color: {T.BG0}; border: 1px solid {T.BORDER}; }}"
         )
-        term_layout = QVBoxLayout(term)
+        term_layout = QVBoxLayout(self._operator_logs_frame)
         term_layout.setContentsMargins(16, 12, 16, 12)
         term_layout.setSpacing(6)
 
@@ -516,14 +572,15 @@ class AdvancedView(QWidget):
             f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
         )
         term_layout.addWidget(self._syslog)
-        layout.addWidget(term)
+        layout.addWidget(self._operator_logs_frame)
+        self._detail_frames.append(self._operator_logs_frame)
 
-        terminal_frame = QFrame()
-        terminal_frame.setObjectName("embedded_terminal")
-        terminal_frame.setStyleSheet(
+        self._terminal_frame = QFrame()
+        self._terminal_frame.setObjectName("embedded_terminal")
+        self._terminal_frame.setStyleSheet(
             f"QFrame#embedded_terminal {{ background-color: {T.BG0}; border: 1px solid {T.BORDER}; }}"
         )
-        terminal_layout = QVBoxLayout(terminal_frame)
+        terminal_layout = QVBoxLayout(self._terminal_frame)
         terminal_layout.setContentsMargins(16, 12, 16, 12)
         terminal_layout.setSpacing(8)
 
@@ -567,7 +624,8 @@ class AdvancedView(QWidget):
             )
             terminal_input_row.addWidget(button)
         terminal_layout.addLayout(terminal_input_row)
-        layout.addWidget(terminal_frame)
+        layout.addWidget(self._terminal_frame)
+        self._detail_frames.append(self._terminal_frame)
 
         settings_frame = QFrame()
         settings_frame.setObjectName("embedded_settings")
@@ -605,6 +663,22 @@ class AdvancedView(QWidget):
         self._terminal_timer.start(150)
         self._sync_workflow_recipe()
         self._refresh_windows_ops_labels()
+        self._detail_widgets.extend(
+            [
+                self._daily_route_lbl,
+                self._route_health_lbl,
+                self._resource_lbl,
+                self._windows_paths_lbl,
+                self._windows_update_lbl,
+                self._windows_diagnostics_lbl,
+                self._windows_entry_lbl,
+                self._windows_change_lbl,
+                self._windows_gate_lbl,
+                self._windows_gate_fix_lbl,
+                self._windows_handoff_lbl,
+            ]
+        )
+        self._sync_detail_visibility()
 
     def attach_settings_panel(self, widget: QWidget) -> None:
         while self._settings_host.count():
@@ -616,15 +690,26 @@ class AdvancedView(QWidget):
                 child.setParent(None)
         self._settings_host.addWidget(widget)
 
+    def _toggle_details(self) -> None:
+        self._details_visible = not self._details_visible
+        self._sync_detail_visibility()
+
+    def _sync_detail_visibility(self) -> None:
+        for frame in self._detail_frames:
+            frame.setVisible(self._details_visible)
+        for widget in self._detail_widgets:
+            widget.setVisible(self._details_visible)
+        self._details_btn.setText("HIDE DETAILS" if self._details_visible else "SHOW DETAILS")
+
     def append_log(self, line: str) -> None:
         current = self._syslog.toPlainText().splitlines()
         current.append(f"> {line}")
         self._syslog.setPlainText("\n".join(current[-40:]))
 
     def set_recovery_status(self, text: str) -> None:
-        msg = (text or "Recovery idle").strip() or "Recovery idle"
+        msg = (text or "Nothing needs attention right now.").strip() or "Nothing needs attention right now."
         self._recovery_status.setText(msg)
-        self._last_recovery_lbl.setText(f"Last recovery: {msg}")
+        self._last_recovery_lbl.setText(f"Last recovery action: {msg}")
         runtime_line = self._windows_ops.get("runtime", "")
         self._windows_ops = self._build_windows_ops_snapshot()
         if runtime_line:
@@ -633,7 +718,7 @@ class AdvancedView(QWidget):
 
     def set_daily_context_activity(self, text: str) -> None:
         msg = (text or "launcher ready").strip() or "launcher ready"
-        self._daily_activity_lbl.setText(f"Latest activity: {msg}")
+        self._daily_activity_lbl.setText(f"Recent activity: {msg}")
 
     def set_daily_context_workspace(self, text: str) -> None:
         msg = (text or "workspace context unavailable").strip() or "workspace context unavailable"
@@ -641,14 +726,14 @@ class AdvancedView(QWidget):
 
     def set_daily_context_runtime(self, text: str) -> None:
         msg = (text or "runtime details unavailable").strip() or "runtime details unavailable"
-        self._daily_runtime_lbl.setText(msg)
+        self._daily_runtime_lbl.setText(msg if ":" in msg else f"Ready now: {msg}")
 
     def set_daily_context_route(self, text: str) -> None:
         msg = (text or "route preview unavailable").strip() or "route preview unavailable"
         self._daily_route_lbl.setText(msg)
 
     def set_daily_context_recovery(self, text: str, ok: bool = True) -> None:
-        msg = (text or "Recovery: stable").strip() or "Recovery: stable"
+        msg = (text or "Recovery: all clear").strip() or "Recovery: all clear"
         self._daily_recovery_lbl.setText(msg)
         self._daily_recovery_lbl.setStyleSheet(
             f"color: {T.GREEN if ok else T.ERROR}; font-family: '{T.FF_MONO}';"
@@ -665,25 +750,25 @@ class AdvancedView(QWidget):
         startup_overall = "unknown"
         if isinstance(startup, dict):
             startup_overall = str(startup.get("overall", startup.get("status", "unknown")) or "unknown").upper()
-        self._health_lbl.setText(f"API: {api_state} | Startup readiness: {startup_overall}")
+        self._health_lbl.setText(f"API health: {api_state} | Startup readiness: {startup_overall}")
 
         voice_tts = str(payload.get("voice_tts_backend", "unknown") or "unknown")
         voice_stt = str(payload.get("voice_stt_backend", "unknown") or "unknown")
         binding = str(payload.get("voice_binding", "") or "").strip()
         self._voice_lbl.setText(
-            f"Voice: tts={voice_tts} | stt={voice_stt}" + (f" | {binding}" if binding else "")
+            f"Voice services: tts={voice_tts} | stt={voice_stt}" + (f" | {binding}" if binding else "")
         )
 
         route_evidence = str(payload.get("route_evidence", "") or "").strip()
         self._route_health_lbl.setText(
-            f"Route evidence: {route_evidence or 'waiting for the next route preview'}"
+            f"Why the next route was chosen: {route_evidence or 'waiting for the next route preview'}"
         )
 
         envelope = payload.get("resource_envelope", {})
         if isinstance(envelope, dict):
             state = str(envelope.get("state", "unknown") or "unknown")
             detail = str(envelope.get("message", envelope.get("detail", "")) or "").strip()
-            self._resource_lbl.setText(f"Resource envelope: {state}" + (f" | {detail}" if detail else ""))
+            self._resource_lbl.setText(f"System headroom: {state}" + (f" | {detail}" if detail else ""))
         self._refresh_windows_ops_labels()
 
         local_runtime = payload.get("local_runtime", {})
@@ -693,7 +778,7 @@ class AdvancedView(QWidget):
             live_state = str(local_runtime.get("state", "unknown") or "unknown").strip().upper()
             live_detail = str(local_runtime.get("detail", "") or "").strip()
             self._windows_ops["runtime"] = (
-                f"Configured local runtime: {configured_backend} | Live backend: {live_backend} | State: {live_state}"
+                f"Local AI runtime: {configured_backend} | Live backend: {live_backend} | Status: {live_state}"
                 + (f" | {live_detail}" if live_detail else "")
             )
             self._refresh_windows_ops_labels()
@@ -706,7 +791,7 @@ class AdvancedView(QWidget):
         max_active_runtime = int(limits.get("max_active_runtime", 2) or 2) if isinstance(limits, dict) else 2
         active_instance = str(payload.get("active_instance", "-") or "-") if isinstance(payload, dict) else "-"
         self._instances_lbl.setText(
-            f"Instances: active={active_instance} | configured {configured}/{max_configured} | runtime-active {active_runtime}/{max_active_runtime}"
+            f"Workspaces: active={active_instance} | configured {configured}/{max_configured} | live {active_runtime}/{max_active_runtime}"
         )
 
     @staticmethod
@@ -790,23 +875,31 @@ class AdvancedView(QWidget):
 
     def set_connector_inventory(self, items: list[dict[str, object]]) -> None:
         self._connector_inventory = [item for item in items if isinstance(item, dict)]
-        current = self._connector_cb.currentText().strip().lower()
+        current = str(self._connector_cb.currentData() or self._connector_cb.currentText() or "").strip().lower()
         self._connector_cb.blockSignals(True)
         self._connector_cb.clear()
         for item in self._connector_inventory:
             connector_id = str(item.get("id", "")).strip().lower()
+            label = str(item.get("label", connector_id.title()) or connector_id.title())
             if connector_id:
-                self._connector_cb.addItem(connector_id)
+                self._connector_cb.addItem(label, connector_id)
         if self._connector_cb.count() == 0:
-            for connector_id in ("gmail", "calendar", "spotify", "youtube", "crm", "voip"):
-                self._connector_cb.addItem(connector_id)
-        idx = self._connector_cb.findText(current)
+            for connector_id, label in (
+                ("gmail", "Gmail"),
+                ("calendar", "Calendar"),
+                ("spotify", "Spotify"),
+                ("youtube", "YouTube"),
+                ("crm", "CRM"),
+                ("voip", "VoIP"),
+            ):
+                self._connector_cb.addItem(label, connector_id)
+        idx = self._connector_cb.findData(current)
         self._connector_cb.setCurrentIndex(max(0, idx))
         self._connector_cb.blockSignals(False)
         self._sync_connector_controls()
 
     def _current_connector_payload(self) -> dict[str, object]:
-        connector_id = self._connector_cb.currentText().strip().lower()
+        connector_id = str(self._connector_cb.currentData() or self._connector_cb.currentText() or "").strip().lower()
         return next(
             (
                 item
@@ -933,11 +1026,13 @@ class AdvancedView(QWidget):
             ),
             {},
         )
-        self._connector_state_lbl.setText(
-            f"Connector: {connector_id or '-'} | Auth kind: {auth_kind} | Actions: {', '.join(actions) or 'none'}"
+        connector_label = str(item.get("label", connector_id or "Service") or connector_id or "Service")
+        purpose = _service_purpose(connector_id)
+        self._connector_state_lbl.setText(f"{connector_label} helps with {purpose.lower()} on this PC.")
+        self._connector_auth_lbl.setText(f"Connection status: {_friendly_auth_state(auth_state)}")
+        self._connector_detail_lbl.setText(
+            _clean_guidance_text(detail or f"Choose {connector_label} to see how to connect it.")
         )
-        self._connector_auth_lbl.setText(f"Auth: {auth_state} | Source: {source}")
-        self._connector_detail_lbl.setText(f"Detail: {detail or 'No connector detail available.'}")
         validation_bits: list[str] = []
         if providers:
             if selected_provider_payload:
@@ -957,10 +1052,12 @@ class AdvancedView(QWidget):
             if selected_account_payload:
                 validation_bits.append(str(selected_account_payload.get("auth_detail", "") or "").strip())
             else:
-                validation_bits.append("Choose an account before you save this workspace binding.")
+                validation_bits.append("Choose which account you want to use on this PC.")
         if not validation_bits:
-            validation_bits.append(detail or "Connector inventory is loaded.")
-        self._connector_validation_lbl.setText("Validation: " + " | ".join(bit for bit in validation_bits if bit))
+            validation_bits.append(detail or "This service is ready to review.")
+        self._connector_validation_lbl.setText(
+            "What to do next: " + " | ".join(_clean_guidance_text(bit) for bit in validation_bits if bit)
+        )
         endpoint_prefixes = [str(item) for item in scope.get("endpoint_prefixes", []) if str(item).strip()]
         scope_summary = str(scope.get("summary", "") or "").strip()
         selected_scope = str(selected_provider_payload.get("scope_label", "") or selected_account_payload.get("label", "") or "").strip()
@@ -969,36 +1066,36 @@ class AdvancedView(QWidget):
         if provider_scope_detail:
             rendered_scope += f" | {provider_scope_detail}"
         if endpoint_prefixes:
-            rendered_scope += f" | Endpoint hints: {', '.join(endpoint_prefixes[:3])}"
-        self._connector_scope_lbl.setText(f"Scope: {rendered_scope}")
+            rendered_scope += f" | {len(endpoint_prefixes[:3])} machine actions available"
+        self._connector_scope_lbl.setText(f"What it can help with: {_clean_guidance_text(rendered_scope)}")
         if provider_field_details:
             present_count = len([row for row in provider_field_details if bool(row.get("present", False))])
             total_count = len(provider_field_details)
             next_field = selected_provider_payload.get("next_field", {}) if isinstance(selected_provider_payload, dict) else {}
             next_label = str(next_field.get("label", next_field.get("key", "")) or next_field.get("key", "")).strip()
             next_hint = str(next_field.get("validation_hint", "") or next_field.get("input_hint", "") or "").strip()
-            setup_text = f"Guided setup: {present_count}/{total_count} field(s) ready"
+            setup_text = f"Saved details: {present_count}/{total_count} ready"
             if next_label and present_count < total_count:
-                setup_text += f" | Next: {next_label}"
+                setup_text += f" | Next: add {next_label}"
             if next_hint:
                 setup_text += f" | {next_hint}"
             self._connector_setup_lbl.setText(setup_text)
         elif secret_fields:
             self._connector_setup_lbl.setText(
-                "Guided setup: choose a secret field, save it, then run verify to confirm readiness."
+                "Saved details: choose the detail you want to save, then test the connection."
             )
         else:
             self._connector_setup_lbl.setText(
-                "Guided setup: this connector primarily uses account selection or browser auth rather than stored secrets."
+                "Saved details: this service mostly uses account selection or browser sign-in."
             )
         next_step = str(selected_provider_payload.get("next_step", "") or item.get("next_step", "") or "").strip()
         fix_target = str(selected_provider_payload.get("fix_target", "") or item.get("fix_target", "") or "").strip()
         if next_step:
             self._connector_next_step_lbl.setText(
-                "Next step: " + next_step + (f" | Fix in: {fix_target}" if fix_target else "")
+                "Next step: " + _clean_guidance_text(next_step) + (f" | Change it in {fix_target}" if fix_target else "")
             )
         else:
-            self._connector_next_step_lbl.setText("Next step: inventory loaded; no explicit follow-up is available yet.")
+            self._connector_next_step_lbl.setText("Next step: choose a service or test the current connection.")
         self._connector_history_lbl.setText(self._history_line(history))
         self._connector_recent_lbl.setText(self._recent_history_line(history))
         if provider_field_details:
@@ -1006,10 +1103,10 @@ class AdvancedView(QWidget):
                 f"{str(row.get('label', row.get('key', 'field')))}={'READY' if bool(row.get('present', False)) else 'MISSING'}"
                 for row in provider_field_details
             )
-            self._connector_secret_lbl.setText("Secret fields: " + (field_summary or "none"))
+            self._connector_secret_lbl.setText("Saved details: " + (field_summary or "none"))
         else:
             self._connector_secret_lbl.setText(
-                "Secret fields: " + (", ".join(str(field) for field in secret_fields) if secret_fields else "none")
+                "Saved details: " + (", ".join(str(field) for field in secret_fields) if secret_fields else "none")
             )
         placeholder = "secret value for API-key or provider-backed connectors"
         masked = True
@@ -1027,12 +1124,38 @@ class AdvancedView(QWidget):
         supported = set(actions)
         provider_required = bool(providers)
         provider_selected = bool(selected_provider_payload) or not provider_required
+        if auth_kind == "api_key":
+            self._connector_action_buttons["verify"].setText("TEST KEY")
+            self._connector_action_buttons["connect"].setText("SAVE KEY")
+            self._connector_action_buttons["reconnect"].setText("RECONNECT")
+            self._connector_action_buttons["disconnect"].setText("REMOVE KEY")
+        elif auth_kind == "oauth_file_token":
+            self._connector_action_buttons["verify"].setText("CHECK SIGN-IN")
+            self._connector_action_buttons["connect"].setText("SIGN IN")
+            self._connector_action_buttons["reconnect"].setText("SIGN IN AGAIN")
+            self._connector_action_buttons["disconnect"].setText("REMOVE SIGN-IN")
+        elif auth_kind in {"provider_secret", "oauth_secret"}:
+            self._connector_action_buttons["verify"].setText("CHECK SETUP")
+            self._connector_action_buttons["connect"].setText("SAVE DETAILS")
+            self._connector_action_buttons["reconnect"].setText("RECONNECT")
+            self._connector_action_buttons["disconnect"].setText("CLEAR DETAILS")
+        else:
+            self._connector_action_buttons["verify"].setText("VERIFY")
+            self._connector_action_buttons["connect"].setText("CONNECT")
+            self._connector_action_buttons["reconnect"].setText("RECONNECT")
+            self._connector_action_buttons["disconnect"].setText("DISCONNECT")
         for action_name, button in self._connector_action_buttons.items():
             resolved_action = "connect" if action_name == "save_secret" else "disconnect" if action_name == "clear_secret" else action_name
             enabled = resolved_action in supported
             if action_name in {"save_secret", "clear_secret"}:
                 enabled = enabled and self._connector_secret_key.count() > 1
             enabled = enabled and provider_selected
+            if auth_kind == "api_key" and action_name in {"connect", "reconnect"}:
+                button.setVisible(False)
+            elif auth_kind == "provider_secret" and action_name == "reconnect":
+                button.setVisible(False)
+            else:
+                button.setVisible(True)
             button.setEnabled(enabled)
             if enabled:
                 button.setToolTip("")
@@ -1042,7 +1165,7 @@ class AdvancedView(QWidget):
                 button.setToolTip(f"{connector_id or 'connector'} does not support {resolved_action}.")
 
     def _emit_connector_action(self, action: str) -> None:
-        connector_id = self._connector_cb.currentText().strip().lower()
+        connector_id = str(self._connector_cb.currentData() or self._connector_cb.currentText() or "").strip().lower()
         if not connector_id:
             self.append_log("connector action ignored: choose a connector first")
             return
@@ -1134,8 +1257,8 @@ class AdvancedView(QWidget):
                 continue
             rendered.append(f"{label}={path}")
         if not rendered:
-            return "Evidence handoff: run VERIFY, UPDATE, PACKAGE, or RELEASE DRY RUN to capture release-facing artifacts and reports."
-        return "Evidence handoff: " + " | ".join(rendered[:4])
+            return "Files to share: run VERIFY, UPDATE, PACKAGE, or RELEASE DRY RUN to create reports and handoff files."
+        return "Files to share: " + " | ".join(rendered[:4])
 
     def _build_windows_ops_snapshot(self) -> dict[str, str]:
         runtime_dir = _ROOT / "runtime"
@@ -1145,7 +1268,7 @@ class AdvancedView(QWidget):
         state_path = runtime_dir / "windows_ops_state.json"
         venv_python = _ROOT / ".venv" / "Scripts" / "python.exe"
         supervisor_script = _ROOT / "bin" / "launch_api_supervised.bat"
-        build_script = _ROOT / "build_executable.bat"
+        build_script = _ROOT / "bin" / "build_executable.bat"
         repair_file = runtime_dir / "repair_token.txt"
         latest_bundle = self._latest_runtime_artifact("diagnostics_bundle_*.json", "diagnostics_*.json")
         latest_bundle_text = str(latest_bundle) if latest_bundle is not None else "none yet"
@@ -1194,12 +1317,12 @@ class AdvancedView(QWidget):
         phase_text = f" | Phase: {last_phase}" if last_phase else ""
         ref_text = f" | Ref: {last_event_id}" if last_event_id else ""
         return {
-            "install": "Installed surface: " + " | ".join(install_bits),
-            "runtime": f"Configured local runtime: {self._configured_local_runtime_backend()} | Live backend: waiting for first status poll",
-            "paths": f"Data paths: runtime={runtime_dir} | config={config_dir} | settings={settings_path}",
-            "repair": f"Repair path: {repair_hint} | API relaunch: {supervisor_script}",
+            "install": "Installed on this PC: " + " | ".join(install_bits),
+            "runtime": f"Local AI runtime: {self._configured_local_runtime_backend()} | Live backend: waiting for first status poll",
+            "paths": f"Data locations: runtime={runtime_dir} | config={config_dir} | settings={settings_path}",
+            "repair": f"Repair help: {repair_hint} | API relaunch: {supervisor_script}",
             "update": (
-                "Update path: python -m pip install -r requirements.txt | "
+                "Update steps: python -m pip install -r requirements.txt | "
                 "optional extras: python -m pip install -r requirements-optional.txt | "
                 "postflight: python tools/validate_build_checks.py + python tools/verify_ollama_runtime.py --prompt ok | "
                 "daily launcher: python src/guppy/cli/launch.py launcher"
@@ -1209,12 +1332,12 @@ class AdvancedView(QWidget):
                 "runtime check: python tools/verify_ollama_runtime.py --prompt ok"
             ),
             "entry": (
-                "Entry points: launcher=python src/guppy/cli/launch.py launcher | "
-                "package=build_executable.bat --no-clean | "
+                "Useful entry points: launcher=python src/guppy/cli/launch.py launcher | "
+                "package=bin/build_executable.bat --no-clean | "
                 f"supervisor={supervisor_script}"
             ),
             "next": (
-                "Next servicing step: "
+                "Recommended next step: "
                 + (
                     next_step
                     + (f" | Fix in: {fix_target}" if fix_target else "")
@@ -1222,20 +1345,20 @@ class AdvancedView(QWidget):
                     + (f" | Command: {entry_point}" if entry_point else "")
                 )
                 if next_step
-                else "Next servicing step: choose VERIFY, UPDATE, PACKAGE, RELEASE DRY RUN, SUPERVISED API, RESTART, or REPAIR from App Mgmt."
+                else "Recommended next step: choose VERIFY, UPDATE, PACKAGE, RELEASE DRY RUN, SUPERVISED API, RESTART, or REPAIR."
             ),
             "service": (
-                f"Last servicing action: {last_action} @ {last_timestamp} | {'OK' if ok else 'CHECK'} | {last_summary}{phase_text}{step_text}{ref_text}"
+                f"Recent service action: {last_action} @ {last_timestamp} | {'OK' if ok else 'CHECK'} | {last_summary}{phase_text}{step_text}{ref_text}"
                 if last_action
-                else "Last servicing action: none recorded yet"
+                else "Recent service action: none recorded yet"
             ),
-            "changes": f"What changed: {last_changes or 'No servicing change summary recorded yet.'}",
-            "gate": "Release gate: " + (
+            "changes": f"Recent changes: {last_changes or 'No service summary recorded yet.'}",
+            "gate": "Release check: " + (
                 gate_summary + (f" | {gate_detail}" if gate_detail else "")
                 if gate_summary
-                else "no dry-run verdict recorded yet."
+                else "no dry-run result recorded yet."
             ),
-            "gate_fix": "Release fix-first: " + (
+            "gate_fix": "Fix first: " + (
                 (
                     str(primary_gate_fix.get("text", "") or "").strip()
                     + (f" | Fix in: {str(primary_gate_fix.get('fix_target', '') or '').strip()}" if str(primary_gate_fix.get("fix_target", "") or "").strip() else "")
@@ -1245,25 +1368,54 @@ class AdvancedView(QWidget):
                 if primary_gate_fix
                 else " | ".join(gate_recommendations[:2])
                 if gate_recommendations
-                else "no release-gate recommendations recorded yet."
+                else "no release-check recommendations recorded yet."
             ),
             "handoff": self._windows_handoff_line(artifacts, receipt_path=receipt_path, summary_path=summary_path),
         }
 
     def _refresh_windows_ops_labels(self) -> None:
-        self._windows_install_lbl.setText(self._windows_ops.get("install", "Installed surface: unavailable"))
-        self._windows_runtime_lbl.setText(self._windows_ops.get("runtime", "Configured local runtime: unavailable"))
-        self._windows_paths_lbl.setText(self._windows_ops.get("paths", "Data paths: unavailable"))
-        self._windows_repair_lbl.setText(self._windows_ops.get("repair", "Repair path: unavailable"))
-        self._windows_update_lbl.setText(self._windows_ops.get("update", "Update path: unavailable"))
-        self._windows_diagnostics_lbl.setText(self._windows_ops.get("diagnostics", "Diagnostics: unavailable"))
-        self._windows_entry_lbl.setText(self._windows_ops.get("entry", "Entry points: unavailable"))
-        self._windows_next_lbl.setText(self._windows_ops.get("next", "Next servicing step: unavailable"))
-        self._windows_service_lbl.setText(self._windows_ops.get("service", "Last servicing action: unavailable"))
-        self._windows_change_lbl.setText(self._windows_ops.get("changes", "What changed: unavailable"))
-        self._windows_gate_lbl.setText(self._windows_ops.get("gate", "Release gate: unavailable"))
-        self._windows_gate_fix_lbl.setText(self._windows_ops.get("gate_fix", "Release fix-first: unavailable"))
-        self._windows_handoff_lbl.setText(self._windows_ops.get("handoff", "Evidence handoff: unavailable"))
+        install_raw = str(self._windows_ops.get("install", "") or "")
+        runtime_raw = str(self._windows_ops.get("runtime", "") or "")
+        next_raw = str(self._windows_ops.get("next", "") or "")
+        service_raw = str(self._windows_ops.get("service", "") or "")
+        change_raw = str(self._windows_ops.get("changes", "") or "")
+        gate_raw = str(self._windows_ops.get("gate", "") or "")
+        gate_fix_raw = str(self._windows_ops.get("gate_fix", "") or "")
+        handoff_raw = str(self._windows_ops.get("handoff", "") or "")
+        install_bits = []
+        if "Ollama CLI: found" in install_raw:
+            install_bits.append("Ollama")
+        if "Lemonade CLI: found" in install_raw:
+            install_bits.append("Lemonade")
+        if "Supervisor script: ready" in install_raw:
+            install_bits.append("supervised launch")
+        if "Packager: ready" in install_raw:
+            install_bits.append("desktop packaging")
+        runtime_fields = _pipe_fields(runtime_raw)
+        configured = runtime_fields.get("local ai runtime", "local ai")
+        live_backend = runtime_fields.get("live backend", configured)
+        state = runtime_fields.get("status", "unknown").lower()
+
+        self._windows_install_lbl.setText(
+            "Installed on this PC: " + (", ".join(install_bits) if install_bits else "Core launcher tools found.")
+        )
+        if state == "ready":
+            self._windows_runtime_lbl.setText(f"Local AI runtime: {live_backend.title()} is connected and ready.")
+        elif state == "unknown":
+            self._windows_runtime_lbl.setText(f"Local AI runtime: {configured.title()} is selected, but it has not been confirmed yet.")
+        else:
+            self._windows_runtime_lbl.setText(f"Local AI runtime: {configured.title()} needs attention.")
+        self._windows_paths_lbl.setText("Data locations: runtime, config, and settings are available on this PC.")
+        self._windows_repair_lbl.setText("Repair help: Use Repair if sign-in, startup, or local runtime checks fail.")
+        self._windows_update_lbl.setText("Update path: Update refreshes dependencies, then runs the built-in post-update checks.")
+        self._windows_diagnostics_lbl.setText("Diagnostics: launcher logs and the latest diagnostic bundle are available for troubleshooting.")
+        self._windows_entry_lbl.setText("Useful actions: Package makes a shareable desktop build, and Supervised API restarts the background service safely.")
+        self._windows_next_lbl.setText(next_raw or "Recommended next step: unavailable")
+        self._windows_service_lbl.setText(service_raw or "Recent service action: unavailable")
+        self._windows_change_lbl.setText(change_raw or "Recent changes: unavailable")
+        self._windows_gate_lbl.setText(gate_raw or "Release check: unavailable")
+        self._windows_gate_fix_lbl.setText(gate_fix_raw or "Fix first: unavailable")
+        self._windows_handoff_lbl.setText(handoff_raw or "Files to share: unavailable")
 
     def refresh_windows_ops_snapshot(self) -> None:
         runtime_line = self._windows_ops.get("runtime", "")
@@ -1271,6 +1423,9 @@ class AdvancedView(QWidget):
         if runtime_line:
             self._windows_ops["runtime"] = runtime_line
         self._refresh_windows_ops_labels()
+
+    def windows_ops_snapshot(self) -> dict[str, str]:
+        return dict(self._windows_ops)
 
     def set_windows_ops_feedback(
         self,
@@ -1292,18 +1447,18 @@ class AdvancedView(QWidget):
         gate_recommendation_details: list[dict[str, object]] | None = None,
     ) -> None:
         self._windows_ops["service"] = (
-            f"Last servicing action: {action} | {'OK' if ok else 'CHECK'} | {summary}"
+            f"Recent service action: {action} | {'OK' if ok else 'CHECK'} | {summary}"
         )
-        self._windows_ops["changes"] = f"What changed: {changes}"
-        self._windows_ops["gate"] = "Release gate: " + (
+        self._windows_ops["changes"] = f"Recent changes: {changes}"
+        self._windows_ops["gate"] = "Release check: " + (
             str(gate_summary or "").strip() + (f" | {str(gate_detail or '').strip()}" if str(gate_detail or "").strip() else "")
             if str(gate_summary or "").strip()
-            else "no dry-run verdict recorded yet."
+            else "no dry-run result recorded yet."
         )
         rendered_recommendations = [str(item).strip() for item in (gate_recommendations or []) if str(item).strip()]
         rendered_recommendation_details = [item for item in (gate_recommendation_details or []) if isinstance(item, dict)] 
         primary_gate_fix = rendered_recommendation_details[0] if rendered_recommendation_details else {}
-        self._windows_ops["gate_fix"] = "Release fix-first: " + (
+        self._windows_ops["gate_fix"] = "Fix first: " + (
             (
                 str(primary_gate_fix.get("text", "") or "").strip()
                 + (f" | Fix in: {str(primary_gate_fix.get('fix_target', '') or '').strip()}" if str(primary_gate_fix.get("fix_target", "") or "").strip() else "")
@@ -1313,12 +1468,12 @@ class AdvancedView(QWidget):
             if primary_gate_fix
             else " | ".join(rendered_recommendations[:2])
             if rendered_recommendations
-            else "no release-gate recommendations recorded yet."
+            else "no release-check recommendations recorded yet."
         )
         self._windows_ops["handoff"] = self._windows_handoff_line(artifacts, receipt_path=receipt_path, summary_path=summary_path)
         if next_step:
             self._windows_ops["next"] = (
-                "Next servicing step: "
+                "Recommended next step: "
                 + next_step
                 + (f" | Fix in: {fix_target}" if fix_target else "")
                 + (f" | Doc: {docs_hint}" if docs_hint else "")
@@ -1327,6 +1482,9 @@ class AdvancedView(QWidget):
         self._refresh_windows_ops_labels()
 
     def focus_operator_logs(self, log_filter: str = "ALL", note: str = "") -> None:
+        if not self._details_visible:
+            self._details_visible = True
+            self._sync_detail_visibility()
         target = (log_filter or "ALL").strip().upper() or "ALL"
         idx = self._filter_cb.findText(target)
         if idx >= 0:
@@ -1337,6 +1495,9 @@ class AdvancedView(QWidget):
             self.append_log(note)
 
     def focus_terminal(self, note: str = "") -> None:
+        if not self._details_visible:
+            self._details_visible = True
+            self._sync_detail_visibility()
         self._terminal_focus_pending = True
         if note:
             self._append_terminal_output(note)

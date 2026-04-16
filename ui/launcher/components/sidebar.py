@@ -22,8 +22,10 @@ _NAV: list[tuple[str, str]] = [
     ("\U0001F310", "WORKSPACES"),
     ("\u2692", "TOOLS"),
     ("\u2699", "APP MGMT"),
+    ("\U0001F5A5", "MY PC"),
     ("\u269b", "LOCAL LLM"),
     ("\u265E", "MODELS"),
+    ("\u21BB", "RUNTIME"),
     ("\u266B", "VOICES"),
 ]
 

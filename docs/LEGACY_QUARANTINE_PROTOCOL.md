@@ -10,12 +10,14 @@ what is compatibility-only, and what is ready for removal.
 
 ## Current Legacy Surface Inventory
 
-- `legacy_surfaces/guppy_ui_legacy.py`
-- `legacy_surfaces/merlin_ui_legacy.py`
-- `legacy_surfaces/council_ui_legacy.py`
-- Root compatibility wrappers:
-  `guppy_ui.py`, `merlin_ui.py`, `council_ui.py`, `guppy_launcher.py`,
-  `guppy_hub.py`, `guppy_api.py`, `guppy_api_auth.py`, `guppy_agent.py`
+- `compat_shims/legacy_surfaces/guppy_ui_legacy.py`
+- `compat_shims/legacy_surfaces/merlin_ui_legacy.py`
+- `compat_shims/legacy_surfaces/council_ui_legacy.py`
+- Compatibility shims:
+  `compat_shims/guppy_ui.py`, `compat_shims/merlin_ui.py`, `compat_shims/council_ui.py`,
+  `compat_shims/guppy_api_auth.py`, `compat_shims/guppy_agent.py`
+- Active root launch shims:
+  `guppy_launcher.py`, `guppy_hub.py`, `guppy_api.py`
 
 ## Active Compatibility Entry Points
 
@@ -30,14 +32,14 @@ what is compatibility-only, and what is ready for removal.
   `src/guppy/hub/window.py`,
   `src/guppy/hub/agent_card.py`
 - Thin wrappers that should stay thin until removal:
-  `guppy_ui.py`, `merlin_ui.py`, `council_ui.py`
+  `compat_shims/guppy_ui.py`, `compat_shims/merlin_ui.py`, `compat_shims/council_ui.py`
 
 ## Initial Classification
 
-- `guppy_ui.py`: likely removable first once wrapper/reference sweep is complete.
-- `merlin_ui.py`: compatibility-only, but still reachable through legacy launch paths.
-- `council_ui.py`: compatibility-only, but still reachable through legacy launch paths.
-- `legacy_surfaces/*`: not directly imported across the wider runtime; they are currently reached through the three canonical shim apps above.
+- `compat_shims/guppy_ui.py`: likely removable first once wrapper/reference sweep is complete.
+- `compat_shims/merlin_ui.py`: compatibility-only, but still reachable through legacy launch paths.
+- `compat_shims/council_ui.py`: compatibility-only, but still reachable through legacy launch paths.
+- `compat_shims/legacy_surfaces/*`: not directly imported across the wider runtime; they are currently reached through the canonical legacy shim path.
 
 ## Quarantine Rules
 

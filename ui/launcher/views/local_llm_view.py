@@ -90,11 +90,16 @@ class LocalLLMView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._cards: dict[str, _MetricCard] = {}
+        self._details_visible = False
         self._summary_lbl: QLabel | None = None
+        self._decision_lbl: QLabel | None = None
+        self._details_btn: QPushButton | None = None
         self._manifest_lbl: QLabel | None = None
         self._benchmark_lbl: QLabel | None = None
         self._review_lbl: QLabel | None = None
         self._challenger_lbl: QLabel | None = None
+        self._detail_frames: list[QFrame] = []
+        self._footer_lbl: QLabel | None = None
         self._build_ui()
         if QApplication.instance() is not None:
             self.refresh()
@@ -112,10 +117,13 @@ class LocalLLMView(QWidget):
         title.setStyleSheet(
             f"color: {T.PRIMARY}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_TITLE}pt; font-weight: bold; letter-spacing: 2px;"
         )
-        self._summary_lbl = QLabel("Fleet evidence, benchmark posture, and challenger readiness in one place.")
+        self._summary_lbl = QLabel("Your current local AI setup at a glance.")
         self._summary_lbl.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
+        self._details_btn = QPushButton("SHOW DETAILS")
+        self._details_btn.setFixedHeight(28)
+        self._details_btn.clicked.connect(self._toggle_details)
         refresh_btn = QPushButton("REFRESH")
         refresh_btn.setFixedHeight(28)
         refresh_btn.clicked.connect(self.refresh)
@@ -123,6 +131,8 @@ class LocalLLMView(QWidget):
         top_layout.addStretch()
         top_layout.addWidget(self._summary_lbl)
         top_layout.addSpacing(16)
+        top_layout.addWidget(self._details_btn)
+        top_layout.addSpacing(8)
         top_layout.addWidget(refresh_btn)
         outer.addWidget(topbar)
 
@@ -138,51 +148,62 @@ class LocalLLMView(QWidget):
         cards_row.setSpacing(12)
         for key, title_text in (
             ("runtime", "RUNTIME"),
-            ("benchmarks", "BENCHMARKS"),
+            ("benchmarks", "CHECKS"),
             ("memory", "MEMORY"),
-            ("reviews", "REVIEW QUEUE"),
-            ("challengers", "CHALLENGERS"),
+            ("reviews", "REVIEWS"),
+            ("challengers", "TESTING"),
         ):
             card = _MetricCard(title_text)
             self._cards[key] = card
             cards_row.addWidget(card, stretch=1)
         layout.addLayout(cards_row)
 
+        self._decision_lbl = QLabel("")
+        self._decision_lbl.setWordWrap(True)
+        self._decision_lbl.setStyleSheet(
+            f"color: {T.TEXT}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; background-color: {T.BG0}; border: 1px solid {T.BORDER}; padding: 12px;"
+        )
+        layout.addWidget(self._decision_lbl)
+
         self._manifest_lbl = self._make_section(
             layout,
-            "BASELINE FLEET",
-            "Manifest-backed baseline models and why each role is still in rotation.",
+            "CURRENT SETUP",
+            "What Guppy uses by default, what it uses for heavier work, and what stays off the everyday path.",
         )
         self._benchmark_lbl = self._make_section(
             layout,
-            "LATEST BENCHMARK SIGNAL",
-            "Latest run health, duration bands, and runtime/memory evidence.",
+            "RECENT TEST RESULTS",
+            "Raw benchmark notes for comparison and review.",
+            detail_only=True,
         )
         self._review_lbl = self._make_section(
             layout,
-            "HUMAN REVIEW PACKETS",
-            "How much evaluator work is queued and which packets are ready for scoring.",
+            "REVIEW BACKLOG",
+            "Pending evaluation packets and scoring status.",
+            detail_only=True,
         )
         self._challenger_lbl = self._make_section(
             layout,
-            "RUNTIME + MEMORY CHALLENGERS",
-            "Runtime substrate options and memory-backend comparison posture.",
+            "EXPERIMENTS",
+            "Runtime and memory options that are still in testing.",
+            detail_only=True,
         )
 
-        footer = QLabel(
-            "Use MODELS to edit runtime wiring. Keep HOME focused on conversation; use this page for local-fleet evidence and decisions."
+        self._footer_lbl = QLabel(
+            "Open MODELS to browse available models, or open RUNTIME to change backend settings. Show details for benchmarks, review backlog, and experimental notes."
         )
-        footer.setWordWrap(True)
-        footer.setStyleSheet(
+        self._footer_lbl.setWordWrap(True)
+        self._footer_lbl.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG0}; border: 1px solid {T.BORDER}; padding: 10px;"
         )
-        layout.addWidget(footer)
+        layout.addWidget(self._footer_lbl)
         layout.addStretch(1)
 
         scroll.setWidget(host)
         outer.addWidget(scroll, stretch=1)
+        self._sync_detail_visibility()
 
-    def _make_section(self, root: QVBoxLayout, title: str, subtitle: str) -> QLabel:
+    def _make_section(self, root: QVBoxLayout, title: str, subtitle: str, *, detail_only: bool = False) -> QLabel:
         frame = QFrame()
         frame.setStyleSheet(f"background-color: {T.BG0}; border: 1px solid {T.BORDER};")
         layout = QVBoxLayout(frame)
@@ -206,7 +227,25 @@ class LocalLLMView(QWidget):
         layout.addWidget(desc)
         layout.addWidget(body)
         root.addWidget(frame)
+        if detail_only:
+            self._detail_frames.append(frame)
         return body
+
+    def _toggle_details(self) -> None:
+        self._details_visible = not self._details_visible
+        self._sync_detail_visibility()
+
+    def _sync_detail_visibility(self) -> None:
+        for frame in self._detail_frames:
+            frame.setVisible(self._details_visible)
+        if self._details_btn is not None:
+            self._details_btn.setText("HIDE DETAILS" if self._details_visible else "SHOW DETAILS")
+        if self._footer_lbl is not None:
+            self._footer_lbl.setText(
+                "Open MODELS to browse models, and open RUNTIME for backend settings. Details are open, so you are also seeing benchmarks and experimental notes."
+                if self._details_visible
+                else "Open MODELS to browse available models, or open RUNTIME to change backend settings. Show details for benchmarks, review backlog, and experimental notes."
+            )
 
     def refresh(self) -> None:
         manifest = _read_json(_CONFIG)
@@ -259,16 +298,56 @@ class LocalLLMView(QWidget):
 
         if self._summary_lbl is not None:
             self._summary_lbl.setText(
-                f"Latest run {success}/{total} successful | memory {_slug_label(latest_memory)} | {review_ready} review packets queued"
+                f"Using qwen3:8b on Ollama | memory {_slug_label(latest_memory)} | latest check {success}/{total}"
             )
 
-        manifest_lines = []
+        daily_candidate = "-"
+        daily_note = ""
+        heavy_candidate = "-"
+        rejected_models: list[str] = []
+        for item in manifest.get("challenger_models", []) if isinstance(manifest.get("challenger_models"), list) else []:
+            if not isinstance(item, dict):
+                continue
+            status = str(item.get("status", "") or "").strip().lower()
+            model_id = str(item.get("id", "-") or "-").strip()
+            notes = str(item.get("notes", "") or "").strip()
+            if status == "promotion_candidate" and daily_candidate == "-":
+                daily_candidate = model_id
+                daily_note = notes
+            elif status == "heavy_lane_candidate" and heavy_candidate == "-":
+                heavy_candidate = model_id
+            elif status == "daily_lane_rejected":
+                rejected_models.append(model_id)
+
+        if self._decision_lbl is not None:
+            decision_parts = [
+                f"{daily_candidate} is the everyday local model on {latest_runtime.upper()}."
+                if daily_candidate != "-"
+                else f"{latest_runtime.upper()} is still the main local runtime.",
+                f"{heavy_candidate} stays available for slower, heavier requests." if heavy_candidate != "-" else "",
+                f"Not recommended for everyday use: {', '.join(rejected_models)}." if rejected_models else "",
+                daily_note if daily_note else "",
+            ]
+            self._decision_lbl.setText(" ".join(part for part in decision_parts if part))
+
+        manifest_lines = [
+            f"Default chat model: {daily_candidate} on {str(runtime_cfg.get('baseline_backend', 'ollama')).upper()}",
+            f"Memory system: {_slug_label(str(memory_cfg.get('baseline_backend', 'semantic-sqlite')))}",
+            f"Heavier fallback: {heavy_candidate}" if heavy_candidate != "-" else "Heavier fallback: none selected yet",
+            f"Everyday-use rejects: {', '.join(rejected_models)}" if rejected_models else "Everyday-use rejects: none listed",
+        ]
+        if daily_note:
+            manifest_lines.append(f"Why: {daily_note}")
+        if self._details_visible:
+            manifest_lines.append("")
+            manifest_lines.append("Other baseline roles still wired:")
         for item in baseline_models:
             if not isinstance(item, dict):
                 continue
-            manifest_lines.append(
-                f"- {str(item.get('id', '-'))}: {str(item.get('role', '-'))} | {str(item.get('latency_class', '-'))} | {str(item.get('selection_reason', '')).strip()}"
-            )
+            if self._details_visible:
+                manifest_lines.append(
+                    f"- {str(item.get('id', '-'))}: {str(item.get('role', '-'))} | {str(item.get('latency_class', '-'))} | {str(item.get('selection_reason', '')).strip()}"
+                )
         if self._manifest_lbl is not None:
             self._manifest_lbl.setText("\n".join(manifest_lines) if manifest_lines else "No baseline fleet manifest found.")
 

@@ -376,7 +376,7 @@ class EmergencyTab(QWidget):
             pass
 
         try:
-            import guppy_voice
+            from src.guppy.voice import voice as guppy_voice
             tts = guppy_voice.TTS_ENABLED
             self._tts_btn.setChecked(not tts)
             self._tts_btn.setText(f"TTS: {'ON' if tts else 'MUTED'}")
@@ -403,7 +403,7 @@ class EmergencyTab(QWidget):
 
     def _toggle_tts(self):
         try:
-            import guppy_voice
+            from src.guppy.voice import voice as guppy_voice
             guppy_voice.TTS_ENABLED = not guppy_voice.TTS_ENABLED
             # Mirror into voice objects if parent has them
             for attr in ("_voice", "_g_voice", "_m_voice"):

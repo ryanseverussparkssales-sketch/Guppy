@@ -44,14 +44,14 @@ def check_imports() -> bool:
     print(f"    using {VALIDATION_PYTHON}")
     mods = [
         "guppy_core",
-        "guppy_memory",
-        "guppy_semantic_memory",
-        "guppy_voice",
-        "guppy_daemon",
-        "merlin_core",
-        "inference_router",
+        "src.guppy.memory.memory",
+        "src.guppy.memory.semantic",
+        "src.guppy.voice.voice",
+        "src.guppy.daemon.daemon",
+        "src.guppy.merlin.core",
+        "src.guppy.inference.router",
         "guppy_api",
-        "guppy_api_auth",
+        "src.guppy.api.auth",
         "utils.hub_operator",
         "utils.agent_perf",
         "utils.env_bootstrap",
@@ -94,10 +94,10 @@ def check_syntax() -> bool:
         "ui/launcher/launcher_window.py",
         "guppy_core/__init__.py",
         "guppy_hub.py",
-        "guppy_voice.py",
-        "guppy_daemon.py",
-        "inference_router.py",
         "guppy_api.py",
+        "src/guppy/voice/voice.py",
+        "src/guppy/daemon/daemon.py",
+        "src/guppy/inference/router.py",
     ]
     ok = True
     for file_name in files:

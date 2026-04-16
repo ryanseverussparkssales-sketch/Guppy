@@ -7,7 +7,7 @@ For the common Windows packaging flow, start in App Mgmt before you drop to a te
 - App Mgmt `WINDOWS INSTALL / UPDATE / DIAGNOSTICS` now exposes:
   - `VERIFY` for runtime/posture checks
   - `UPDATE` for dependency refresh plus postflight validation
-  - `PACKAGE` for `build_executable.bat --no-clean --ci` plus beta package-policy verification
+  - `PACKAGE` for `bin/build_executable.bat --no-clean --ci` plus beta package-policy verification
 - The launcher now persists a servicing record with:
   - action summary
   - stable operator-facing reference
@@ -26,7 +26,7 @@ Use this document for deeper packaging details, alternate build variants, and re
 
 ### One-Command Build (default: one-folder)
 ```bash
-build_executable.bat
+bin/build_executable.bat
 ```
 
 Launcher equivalent:
@@ -38,10 +38,10 @@ Launcher equivalent:
 Fast/automation variants:
 
 ```bash
-build_executable.bat --no-clean
-build_executable.bat --no-clean --ci
-build_executable.bat --lean --no-clean --ci
-build_executable.bat --onefile
+bin/build_executable.bat --no-clean
+bin/build_executable.bat --no-clean --ci
+bin/build_executable.bat --lean --no-clean --ci
+bin/build_executable.bat --onefile
 ```
 
 This will:
@@ -54,7 +54,7 @@ This will:
 
 Use `--onefile` only when extraction/startup behavior is acceptable for support and pilot rollout.
 
-`--lean` uses `Guppy.spec` with a reduced optional dependency set for faster iteration builds.
+`--lean` uses `bin/Guppy.spec` with a reduced optional dependency set for faster iteration builds.
 
 ---
 
@@ -100,7 +100,7 @@ pip install pyinstaller
 pyi-makespec --onefile --windowed --icon=assets/guppy.ico guppy_launcher.py
 ```
 
-Edit `Guppy.spec` to add hidden imports and data files.
+Edit `bin/Guppy.spec` to add hidden imports and data files.
 
 ### 3. Build Executable
 ```bash
@@ -379,7 +379,7 @@ dist\Guppy.exe  # Run in terminal to see errors
 Choose your packaging strategy:
 
 **Quick & Dirty (Today):**
-Run `build_executable.bat` → Share dist/Guppy.exe
+Run `bin/build_executable.bat` -> Share dist/Guppy.exe
 
 **Professional (This Week):**
 Create Inno Setup installer → Distribute GuppySetup.exe

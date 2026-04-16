@@ -88,7 +88,7 @@ def _get_gmail():
         )
 
     email, default_creds = _GMAIL_ACCOUNTS.get(_current_gmail_account, ("unknown", _GMAIL_CREDS_DEFAULT))
-    creds_path = os.environ.get("GMAIL_CREDENTIALS_PATH", default_creds)
+    creds_path = str(os.environ.get("GMAIL_CREDENTIALS_PATH") or default_creds or "").strip()
     token = _token_path(_current_gmail_account)
     creds = None
 
@@ -397,7 +397,7 @@ Return ONLY the JSON array. No markdown, no explanation."""
 
         if auto_task and not dry_run and not skip and action:
             try:
-                import guppy_memory as _gmem
+                from src.guppy.memory import memory as _gmem
 
                 due = due_hint if due_hint else ""
                 _gmem.add_task(action, due)
@@ -406,7 +406,7 @@ Return ONLY the JSON array. No markdown, no explanation."""
 
                 if cat in ("bill_due", "interview") and due_hint and DAEMON:
                     try:
-                        from guppy_daemon import get_daemon_manager
+                        from src.guppy.daemon.daemon import get_daemon_manager
 
                         mgr = get_daemon_manager()
                         mgr.task_scheduler.schedule_reminder(action, due_hint)
@@ -429,7 +429,7 @@ Return ONLY the JSON array. No markdown, no explanation."""
 
 DAEMON = False
 try:
-    from guppy_daemon import get_daemon_manager as _get_dm  # noqa: F401
+    from src.guppy.daemon.daemon import get_daemon_manager as _get_dm  # noqa: F401
 
     DAEMON = True
 except ImportError:

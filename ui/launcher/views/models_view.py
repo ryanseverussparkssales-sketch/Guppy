@@ -10,7 +10,7 @@ from typing import Any
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import QApplication, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
-from inference_router import LAUNCHER_MODES_DISPLAY, resolve_ui_route
+from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY, resolve_ui_route
 from .. import tokens as T
 
 try:
@@ -33,6 +33,18 @@ try:
     _PROVIDER_BACKEND = True
 except Exception:
     _PROVIDER_BACKEND = False
+
+try:
+    from src.guppy.local_llm.manifest import get_local_llm_policy_summary, load_local_llm_manifest
+    _LOCAL_LLM_MANIFEST_BACKEND = True
+except Exception:
+    _LOCAL_LLM_MANIFEST_BACKEND = False
+
+    def load_local_llm_manifest():
+        return {}
+
+    def get_local_llm_policy_summary(_manifest):
+        return {}
 
 
 CLOUD_MODELS = [
@@ -59,6 +71,35 @@ def _fmt_size(num_bytes: int) -> str:
     return f"{gb:.1f} GB" if gb >= 1 else f"{num_bytes / (1024 ** 2):.0f} MB"
 
 
+def _model_use_hint(name: str, display: str, tier: str, context: str = "", note: str = "") -> str:
+    joined = " ".join(str(part or "").lower() for part in (name, display, context, note))
+    if "haiku" in joined or "fast" in joined:
+        return "Best for quick everyday help and lighter tasks."
+    if "sonnet" in joined:
+        return "Best default for balanced quality and speed."
+    if "opus" in joined:
+        return "Best for the hardest writing and reasoning work."
+    if "vault" in joined:
+        return "Best for extraction and document-heavy lookup work."
+    if "code" in joined or "coder" in joined or "merlin" in joined:
+        return "Best for coding, repo work, and technical tasks."
+    if "teach" in joined:
+        return "Best for guided explanations and teaching-style help."
+    if "guppy-fast" in joined:
+        return "Best for fast local replies when you want low wait time."
+    if "guppy" in joined and tier == "LOCAL":
+        return "Best for local everyday chat on this PC."
+    if "small" in joined or "1b" in joined or "3b" in joined:
+        return "Best for lighter local tasks and quick experiments."
+    if "30b" in joined or "32b" in joined or "24b" in joined:
+        return "Best for heavier work when you can trade speed for depth."
+    return "Use this when it best matches the kind of work you are doing."
+
+
+def _normalized_model_name(value: str) -> str:
+    return str(value or "").strip().lower()
+
+
 class _LocalRuntimeFetch(QThread):
     finished = Signal(dict)
 
@@ -79,7 +120,7 @@ class _LocalRuntimeFetch(QThread):
                 req = urllib.request.Request("http://127.0.0.1:11434/api/tags", headers={"Accept": "application/json"})
                 with urllib.request.urlopen(req, timeout=4) as resp:
                     data = json.loads(resp.read())
-                models = [{"name": str(item.get("name", "")).strip(), "display": str(item.get("name", "")).strip().split(":")[0].replace("-", " ").title(), "size": int(item.get("size", 0) or 0), "context": "Direct local tag", "note": ""} for item in data.get("models", []) if isinstance(item, dict) and str(item.get("name", "")).strip()]
+                models = [{"name": str(item.get("name", "")).strip(), "display": str(item.get("name", "")).strip().split(":")[0].replace("-", " ").title(), "size": int(item.get("size", 0) or 0), "context": "Installed on this PC", "note": ""} for item in data.get("models", []) if isinstance(item, dict) and str(item.get("name", "")).strip()]
             self.finished.emit({"backend": self._backend, "models": models, "error": ""})
         except Exception as exc:
             self.finished.emit({"backend": self._backend, "models": [], "error": str(exc)})
@@ -91,37 +132,89 @@ class _ModelCard(QFrame):
     def __init__(self, name: str, display: str, tier: str, context: str = "-", note: str = "", size_bytes: int = 0, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._model_name = name
+        self._tier = tier
+        self._is_active = False
+        self._is_recommended = False
+        self._search_text = " ".join(
+            part.strip().lower()
+            for part in [name, display, tier, context, note]
+            if isinstance(part, str) and part.strip()
+        )
         self.setObjectName("model_card")
-        self.setStyleSheet(f"QFrame#model_card {{ background-color: {T.BG1}; border: 1px solid {T.BORDER}; }}")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(4)
         top = QHBoxLayout()
-        name_lbl = QLabel(display)
-        name_lbl.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_LABEL}pt; font-weight: bold;")
-        badge = QLabel(tier)
-        badge_color = T.PRIMARY if tier == "LOCAL" else T.SECONDARY
-        badge.setStyleSheet(f"color: {badge_color}; background: transparent; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; padding: 1px 4px; border: 1px solid {badge_color};")
-        top.addWidget(name_lbl); top.addStretch(); top.addWidget(badge); layout.addLayout(top)
-        id_lbl = QLabel(name)
-        id_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
-        layout.addWidget(id_lbl)
+        self._name_lbl = QLabel(display)
+        self._name_lbl.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_LABEL}pt; font-weight: bold;")
+        self._badge_lbl = QLabel(tier)
+        top.addWidget(self._name_lbl); top.addStretch(); top.addWidget(self._badge_lbl); layout.addLayout(top)
+        self._id_lbl = QLabel(name)
+        self._id_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+        layout.addWidget(self._id_lbl)
+        self._use_lbl = QLabel(_model_use_hint(name, display, tier, context, note))
+        self._use_lbl.setWordWrap(True)
+        self._use_lbl.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;")
+        layout.addWidget(self._use_lbl)
         meta = QHBoxLayout(); meta.setSpacing(12)
-        for text in ([context] + ([_fmt_size(size_bytes)] if size_bytes else []) + ([note] if note else [])):
+        for text in (([_fmt_size(size_bytes)] if size_bytes else []) + ([context] if context else [])):
             chip = QLabel(text); chip.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"); meta.addWidget(chip)
         meta.addStretch(); layout.addLayout(meta); layout.addSpacing(10)
         act = QHBoxLayout()
         self._status_lbl = QLabel("AVAILABLE")
-        self._status_lbl.setStyleSheet(f"color: {T.GREEN}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
-        self._set_btn = QPushButton("SET ACTIVE")
+        self._set_btn = QPushButton("USE THIS SESSION")
         self._set_btn.setFixedHeight(26)
         self._set_btn.clicked.connect(lambda: self.set_active.emit(self._model_name))
         act.addWidget(self._status_lbl); act.addStretch(); act.addWidget(self._set_btn); layout.addLayout(act)
+        self._apply_card_style()
+
+    def _apply_card_style(self) -> None:
+        border = T.PRIMARY if self._is_recommended else T.BORDER
+        background = T.BG0 if self._is_recommended else T.BG1
+        self.setStyleSheet(f"QFrame#model_card {{ background-color: {background}; border: 1px solid {border}; }}")
+        badge_text = f"{self._tier} PICK" if self._is_recommended else self._tier
+        badge_color = T.PRIMARY if self._tier == "LOCAL" else T.SECONDARY
+        badge_border = T.PRIMARY if self._is_recommended else badge_color
+        badge_fill = T.BG0 if self._is_recommended else "transparent"
+        self._badge_lbl.setText(badge_text)
+        self._badge_lbl.setStyleSheet(
+            f"color: {badge_border}; background: {badge_fill}; font-family: '{T.FF_MONO}'; "
+            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px; padding: 1px 4px; border: 1px solid {badge_border};"
+        )
+        self._name_lbl.setStyleSheet(
+            f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_LABEL}pt; "
+            f"font-weight: {'800' if self._is_recommended else 'bold'};"
+        )
+        self._use_lbl.setStyleSheet(
+            f"color: {T.TEXT}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; "
+            f"font-weight: {'bold' if self._is_recommended else 'normal'};"
+        )
+        status_color = T.PRIMARY if self._is_active else T.GREEN
+        self._status_lbl.setStyleSheet(
+            f"color: {status_color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        button_border = T.PRIMARY if self._is_recommended else T.BORDER
+        button_bg = T.BG0 if self._is_recommended else T.BG1
+        button_color = T.PRIMARY if self._is_recommended else T.TEXT
+        self._set_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {button_bg}; color: {button_color}; border: 1px solid {button_border}; "
+            f"padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton:disabled {{ color: {T.DIM}; border-color: {T.BORDER}; }}"
+        )
+
+    def set_recommended(self, recommended: bool) -> None:
+        self._is_recommended = recommended
+        self._apply_card_style()
 
     def mark_active(self, active: bool) -> None:
-        self._status_lbl.setText("LOADED" if active else "AVAILABLE")
-        self._status_lbl.setStyleSheet(f"color: {T.PRIMARY if active else T.GREEN}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
+        self._is_active = active
+        self._status_lbl.setText("IN USE" if active else "AVAILABLE")
         self._set_btn.setEnabled(not active)
+        self._apply_card_style()
+
+    def matches_query(self, query: str) -> bool:
+        needle = (query or "").strip().lower()
+        return not needle or needle in self._search_text
 
 
 class _ColumnHeader(QLabel):
@@ -137,18 +230,23 @@ class ModelsView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._local_cards: list[_ModelCard] = []
+        self._cloud_cards: list[_ModelCard] = []
         self._active_model = os.environ.get("GUPPY_LOCAL_MODEL", "guppy")
         self._provider_registry: dict[str, Any] = {}
         self._route_options: list[str] = []
         self._local_runtime_backend = "ollama"
         self._saved_runtime_backend = "ollama"
         self._status_snapshot: dict[str, Any] = {}
+        self._policy_snapshot: dict[str, Any] = self._load_local_llm_policy()
         self._lemonade_role_inputs: dict[str, QComboBox] = {}
+        self._selected_runtime_role_field = "lemonade_fast_model"
+        self._runtime_library_buttons: list[QPushButton] = []
         self._build_ui()
         self._load_runtime_settings()
         self._load_route_config()
         if QApplication.instance() is not None:
             self._refresh()
+        self._set_page_mode("library")
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -161,21 +259,45 @@ class ModelsView(QWidget):
         topbar.setStyleSheet(f"QFrame#models_topbar {{ background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER}; }}")
         tb = QHBoxLayout(topbar)
         tb.setContentsMargins(28, 0, 28, 0)
-        title = QLabel("MODEL LIBRARY")
-        title.setStyleSheet(f"color: {T.PRIMARY}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_TITLE}pt; font-weight: bold; letter-spacing: 2px;")
-        self._active_lbl = QLabel(f"ACTIVE: {self._active_model.upper()}")
+        self._title_lbl = QLabel("MODEL LIBRARY")
+        self._title_lbl.setStyleSheet(f"color: {T.PRIMARY}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_TITLE}pt; font-weight: bold; letter-spacing: 2px;")
+        self._active_lbl = QLabel(f"USING NOW: {self._active_model.upper()}")
         self._active_lbl.setStyleSheet(f"color: {T.PRIMARY_DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
-        self._active_runtime_lbl = QLabel("LOCAL RUNTIME: OLLAMA")
+        self._active_runtime_lbl = QLabel("RUNS THROUGH: OLLAMA")
         self._active_runtime_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
         self._refresh_btn = QPushButton("REFRESH")
         self._refresh_btn.setFixedHeight(28)
         self._refresh_btn.clicked.connect(self._refresh)
-        tb.addWidget(title); tb.addStretch(); tb.addWidget(self._active_lbl); tb.addSpacing(16); tb.addWidget(self._active_runtime_lbl); tb.addSpacing(16); tb.addWidget(self._refresh_btn)
+        tb.addWidget(self._title_lbl); tb.addStretch(); tb.addWidget(self._active_lbl); tb.addSpacing(16); tb.addWidget(self._active_runtime_lbl); tb.addSpacing(16); tb.addWidget(self._refresh_btn)
         root.addWidget(topbar)
 
-        runtime_bar = QFrame()
-        runtime_bar.setStyleSheet(f"background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER};")
-        rtl = QVBoxLayout(runtime_bar)
+        self._library_summary_frame = QFrame()
+        self._library_summary_frame.setStyleSheet(f"background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER};")
+        library_shell = QVBoxLayout(self._library_summary_frame)
+        library_shell.setContentsMargins(28, 14, 28, 14)
+        library_shell.setSpacing(8)
+        self._library_summary_lbl = QLabel("")
+        self._library_summary_lbl.setWordWrap(True)
+        self._library_summary_lbl.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 10px;")
+        search_row = QHBoxLayout()
+        search_row.setSpacing(10)
+        self._library_search = QLineEdit()
+        self._library_search.setPlaceholderText("Search local and cloud models")
+        self._library_search.setMinimumWidth(320)
+        self._library_search.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 6px 8px;")
+        self._library_search.textChanged.connect(lambda _=None: self._apply_library_filter())
+        self._library_hint_lbl = QLabel("Pick what Guppy should use for this session. Open RUNTIME only for backend or advanced routing changes.")
+        self._library_hint_lbl.setWordWrap(True)
+        self._library_hint_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+        search_row.addWidget(self._library_search)
+        search_row.addWidget(self._library_hint_lbl, stretch=1)
+        library_shell.addWidget(self._library_summary_lbl)
+        library_shell.addLayout(search_row)
+        root.addWidget(self._library_summary_frame)
+
+        self._runtime_bar = QFrame()
+        self._runtime_bar.setStyleSheet(f"background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER};")
+        rtl = QVBoxLayout(self._runtime_bar)
         rtl.setContentsMargins(28, 12, 28, 12)
         rtl.setSpacing(8)
         row = QHBoxLayout(); row.setSpacing(10)
@@ -205,26 +327,61 @@ class ModelsView(QWidget):
             combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
             combo.setMinimumWidth(220)
             combo.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 4px 6px;")
+            combo.currentTextChanged.connect(lambda _=None, target_field=field_name: self._set_selected_runtime_role(target_field))
             grid.addWidget(label, index // 3, (index % 3) * 2)
             grid.addWidget(combo, index // 3, (index % 3) * 2 + 1)
             self._lemonade_role_inputs[field_name] = combo
         rtl.addLayout(grid)
 
+        self._runtime_library_frame = QFrame()
+        self._runtime_library_frame.setStyleSheet(f"background-color: {T.BG1}; border: 1px solid {T.BORDER};")
+        library_layout = QVBoxLayout(self._runtime_library_frame)
+        library_layout.setContentsMargins(10, 10, 10, 10)
+        library_layout.setSpacing(8)
+        library_hdr = QHBoxLayout()
+        self._runtime_library_title = QLabel("LEMONADE MODEL PICKER")
+        self._runtime_library_title.setStyleSheet(f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
+        self._runtime_library_target_lbl = QLabel("Assigning to FAST")
+        self._runtime_library_target_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+        library_hdr.addWidget(self._runtime_library_title)
+        library_hdr.addStretch()
+        library_hdr.addWidget(self._runtime_library_target_lbl)
+        library_layout.addLayout(library_hdr)
+        self._runtime_library_search = QLineEdit()
+        self._runtime_library_search.setPlaceholderText("Search downloaded models...")
+        self._runtime_library_search.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG0}; border: 1px solid {T.BORDER}; padding: 6px 8px;")
+        self._runtime_library_search.textChanged.connect(lambda _=None: self._refresh_runtime_library())
+        library_layout.addWidget(self._runtime_library_search)
+        self._runtime_library_summary_lbl = QLabel("")
+        self._runtime_library_summary_lbl.setWordWrap(True)
+        self._runtime_library_summary_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+        library_layout.addWidget(self._runtime_library_summary_lbl)
+        self._runtime_library_host = QWidget()
+        self._runtime_library_grid = QGridLayout(self._runtime_library_host)
+        self._runtime_library_grid.setContentsMargins(0, 0, 0, 0)
+        self._runtime_library_grid.setHorizontalSpacing(8)
+        self._runtime_library_grid.setVerticalSpacing(8)
+        library_layout.addWidget(self._runtime_library_host)
+        rtl.addWidget(self._runtime_library_frame)
+
         self._runtime_summary_lbl = QLabel("")
         self._runtime_summary_lbl.setWordWrap(True)
         self._runtime_summary_lbl.setStyleSheet(f"color: {T.PRIMARY_DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;")
+        self._runtime_policy_lbl = QLabel("")
+        self._runtime_policy_lbl.setWordWrap(True)
+        self._runtime_policy_lbl.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;")
         self._runtime_live_lbl = QLabel("Live lane evidence will appear here after the next /status poll.")
         self._runtime_live_lbl.setWordWrap(True)
         self._runtime_live_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;")
         self._runtime_status_lbl = QLabel("Local runtime controls ready")
         self._runtime_status_lbl.setWordWrap(True)
         self._runtime_status_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
-        rtl.addWidget(self._runtime_summary_lbl); rtl.addWidget(self._runtime_live_lbl); rtl.addWidget(self._runtime_status_lbl)
-        root.addWidget(runtime_bar)
+        rtl.addWidget(self._runtime_summary_lbl); rtl.addWidget(self._runtime_policy_lbl); rtl.addWidget(self._runtime_live_lbl); rtl.addWidget(self._runtime_status_lbl)
+        root.addWidget(self._runtime_bar)
 
-        route_bar = QFrame()
-        route_bar.setStyleSheet(f"background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER};")
-        rbl = QVBoxLayout(route_bar)
+        self._route_bar = QFrame()
+        self._route_bar.setStyleSheet(f"background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER};")
+        rbl = QVBoxLayout(self._route_bar)
         rbl.setContentsMargins(28, 10, 28, 10)
         rbl.setSpacing(8)
         row1 = QHBoxLayout(); row1.setSpacing(10)
@@ -282,31 +439,93 @@ class ModelsView(QWidget):
         self._route_preview_lbl.setWordWrap(True)
         self._route_preview_lbl.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;")
         rbl.addWidget(self._route_preview_lbl)
-        root.addWidget(route_bar)
+        root.addWidget(self._route_bar)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self._library_scroll = QScrollArea()
+        self._library_scroll.setWidgetResizable(True)
+        self._library_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._library_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
         self._content = QWidget()
         self._content.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._grid = QGridLayout(self._content)
         self._grid.setContentsMargins(28, 24, 28, 24)
         self._grid.setSpacing(16)
         self._grid.setColumnStretch(0, 1); self._grid.setColumnStretch(1, 1)
-        self._local_header = _ColumnHeader("LOCAL  -  OLLAMA")
+        self._local_header = _ColumnHeader("ON THIS PC")
         self._grid.addWidget(self._local_header, 0, 0)
-        self._grid.addWidget(_ColumnHeader("CLOUD  -  ANTHROPIC"), 0, 1)
+        self._cloud_header = _ColumnHeader("CLOUD OPTIONS")
+        self._grid.addWidget(self._cloud_header, 0, 1)
+        self._local_host = QWidget()
+        self._local_layout = QVBoxLayout(self._local_host)
+        self._local_layout.setContentsMargins(0, 0, 0, 0)
+        self._local_layout.setSpacing(16)
+        self._local_sections: dict[str, QWidget] = {}
+        self._local_section_layouts: dict[str, QVBoxLayout] = {}
+        self._local_section_cards: dict[str, list[_ModelCard]] = {
+            "recommended": [],
+            "installed": [],
+            "advanced": [],
+        }
+        for key, title, subtitle in [
+            ("recommended", "RECOMMENDED", "Start here for the best everyday fit on this PC."),
+            ("installed", "INSTALLED ON THIS PC", "Other local models you can still use this session."),
+            ("advanced", "ADVANCED / EXPERIMENTAL", "More specialized or heavier picks when you want to explore."),
+        ]:
+            section = QFrame()
+            if key == "recommended":
+                section.setStyleSheet(
+                    f"background-color: {T.BG1}; border: 1px solid {T.PRIMARY};"
+                )
+            else:
+                section.setStyleSheet(
+                    f"background-color: {T.BG1}; border: 1px solid {T.BORDER};"
+                )
+            section_layout = QVBoxLayout(section)
+            section_layout.setContentsMargins(14, 12, 14, 14)
+            section_layout.setSpacing(10)
+            header = _ColumnHeader(title)
+            if key == "recommended":
+                header.setStyleSheet(
+                    f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; "
+                    f"font-weight: bold; letter-spacing: 2px; border-bottom: 1px solid {T.PRIMARY}; padding-bottom: 4px;"
+                )
+            section_layout.addWidget(header)
+            subtitle_lbl = QLabel(subtitle)
+            subtitle_lbl.setWordWrap(True)
+            subtitle_lbl.setStyleSheet(
+                f"color: {T.TEXT if key == 'recommended' else T.DIM}; font-family: '{T.FF_BODY}'; "
+                f"font-size: {T.FS_SMALL}pt;"
+            )
+            section_layout.addWidget(subtitle_lbl)
+            cards_host = QWidget()
+            cards_layout = QVBoxLayout(cards_host)
+            cards_layout.setContentsMargins(0, 0, 0, 0)
+            cards_layout.setSpacing(16)
+            section_layout.addWidget(cards_host)
+            self._local_sections[key] = section
+            self._local_section_layouts[key] = cards_layout
+            self._local_layout.addWidget(section)
+            section.setVisible(False)
         for i, model in enumerate(CLOUD_MODELS):
             card = _ModelCard(model["name"], model["display"], model["tier"], model["context"], model["note"])
             card.set_active.connect(self._on_model_selected)
-            self._grid.addWidget(card, i + 1, 1)
+            self._cloud_cards.append(card)
+        self._cloud_host = QWidget()
+        self._cloud_layout = QVBoxLayout(self._cloud_host)
+        self._cloud_layout.setContentsMargins(0, 0, 0, 0)
+        self._cloud_layout.setSpacing(16)
+        for card in self._cloud_cards:
+            self._cloud_layout.addWidget(card)
+        self._cloud_layout.addStretch(1)
         self._local_placeholder = QLabel("Fetching local models...")
         self._local_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._local_placeholder.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; letter-spacing: 1px; padding: 24px;")
-        self._grid.addWidget(self._local_placeholder, 1, 0)
-        scroll.setWidget(self._content)
-        root.addWidget(scroll)
+        self._local_layout.addWidget(self._local_placeholder)
+        self._local_layout.addStretch(1)
+        self._grid.addWidget(self._local_host, 1, 0)
+        self._grid.addWidget(self._cloud_host, 1, 1)
+        self._library_scroll.setWidget(self._content)
+        root.addWidget(self._library_scroll)
 
     @staticmethod
     def _normalize_runtime_backend(value: str) -> str:
@@ -341,15 +560,61 @@ class ModelsView(QWidget):
 
     def _update_runtime_controls(self) -> None:
         is_lemonade = self._local_runtime_backend == "lemonade"
-        self._active_runtime_lbl.setText(f"LOCAL RUNTIME: {self._local_runtime_backend.upper()}")
-        self._local_header.setText(f"LOCAL  -  {self._local_runtime_backend.upper()}")
+        self._active_runtime_lbl.setText(f"RUNS THROUGH: {self._local_runtime_backend.upper()}")
         self._lemonade_base_url_input.setEnabled(is_lemonade)
         for combo in self._lemonade_role_inputs.values():
             combo.setEnabled(is_lemonade)
+        self._runtime_library_frame.setVisible(is_lemonade)
         self._refresh_runtime_summary()
+        self._refresh_runtime_library()
+
+    def _set_page_mode(self, mode: str) -> None:
+        runtime_mode = str(mode or "").strip().lower() == "runtime"
+        self._runtime_bar.setVisible(runtime_mode)
+        self._route_bar.setVisible(runtime_mode)
+        self._library_summary_frame.setVisible(not runtime_mode)
+        self._library_scroll.setVisible(not runtime_mode)
+        self._refresh_library_summary()
 
     def _available_local_model_names(self) -> list[str]:
         return [card._model_name for card in self._local_cards]
+
+    @staticmethod
+    def _normalize_policy_snapshot(payload: dict[str, Any] | None) -> dict[str, Any]:
+        return payload if isinstance(payload, dict) else {}
+
+    def _load_local_llm_policy(self) -> dict[str, Any]:
+        if not _LOCAL_LLM_MANIFEST_BACKEND:
+            return {}
+        try:
+            return self._normalize_policy_snapshot(get_local_llm_policy_summary(load_local_llm_manifest()))
+        except Exception:
+            return {}
+
+    def _render_runtime_policy(self) -> None:
+        policy = self._normalize_policy_snapshot(self._policy_snapshot)
+        if not policy:
+            self._runtime_policy_lbl.setText("Policy view unavailable. Launcher will fall back to live runtime evidence only.")
+            self._runtime_policy_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;")
+            return
+        runtime_baseline = str(policy.get("runtime_baseline", "ollama") or "ollama").strip().upper()
+        memory_baseline = str(policy.get("memory_baseline", "semantic-sqlite") or "semantic-sqlite").strip()
+        daily = str(policy.get("daily_model_promotion_candidate", "") or "").strip()
+        heavy = str(policy.get("heavy_model_candidate", "") or "").strip()
+        rejected = [str(item).strip() for item in policy.get("daily_lane_rejected_models", []) if str(item).strip()]
+        challengers = [str(item).strip().upper() for item in policy.get("runtime_challenger_ids", []) if str(item).strip()]
+        lines = [
+            f"FINALIZED POLICY: runtime baseline {runtime_baseline} | daily lane candidate {daily or 'unset'} | heavy fallback {heavy or 'unset'}",
+            f"Memory baseline: {memory_baseline}",
+        ]
+        if rejected:
+            lines.append("Daily-lane rejects on this machine: " + ", ".join(rejected))
+        if challengers:
+            lines.append("Runtime challengers only: " + ", ".join(challengers))
+        if self._local_runtime_backend != "ollama":
+            lines.append("Current editor selection is a challenger runtime. Save it only if you are intentionally testing the opt-in lane.")
+        self._runtime_policy_lbl.setText("\n".join(lines))
+        self._runtime_policy_lbl.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;")
 
     def _refresh_runtime_summary(self) -> None:
         names = self._available_local_model_names()
@@ -368,7 +633,89 @@ class ModelsView(QWidget):
         if pending_save:
             text += f" | editor selection pending save: {self._local_runtime_backend.upper()}"
         self._runtime_summary_lbl.setText(text)
+        self._render_runtime_policy()
         self._render_runtime_evidence()
+        self._refresh_library_summary()
+
+    def _refresh_library_summary(self) -> None:
+        if not hasattr(self, "_library_summary_lbl"):
+            return
+        policy = self._normalize_policy_snapshot(self._policy_snapshot)
+        daily = str(policy.get("daily_model_promotion_candidate", "") or "").strip() or self._active_model
+        heavy = str(policy.get("heavy_model_candidate", "") or "").strip() or "none set"
+        local_count = len(self._local_cards)
+        advanced_count = len(self._local_section_cards.get("advanced", []))
+        runtime_name = self._saved_runtime_backend.upper()
+        selected_name = self._active_model or "unset"
+        self._library_summary_lbl.setText(
+            f"Start with {daily} for everyday use. Reach for {heavy} when you want a heavier local pass. "
+            f"You are currently using {selected_name} through {runtime_name}. "
+            f"{local_count} local models are installed on this PC"
+            + (f", with {advanced_count} advanced picks kept in their own section." if advanced_count else ".")
+        )
+
+    def _apply_library_filter(self) -> None:
+        if not hasattr(self, "_library_search"):
+            return
+        query = self._library_search.text().strip().lower()
+        local_matches = 0
+        cloud_matches = 0
+        section_matches = {key: 0 for key in self._local_sections}
+        for card in self._local_cards:
+            match = card.matches_query(query)
+            card.setVisible(match)
+            local_matches += int(match)
+            section_matches[getattr(card, "_library_section", "installed")] += int(match)
+        for card in self._cloud_cards:
+            match = card.matches_query(query)
+            card.setVisible(match)
+            cloud_matches += int(match)
+        for key, section in self._local_sections.items():
+            section.setVisible(section_matches.get(key, 0) > 0)
+        if self._local_placeholder is not None:
+            self._local_placeholder.setVisible(not self._local_cards)
+        if query:
+            self._library_hint_lbl.setText(
+                f"Showing {local_matches} local and {cloud_matches} cloud matches. Open RUNTIME only if you want to change the engine or advanced routing."
+            )
+        else:
+            self._library_hint_lbl.setText(
+                "Pick what Guppy should use for this session. Open RUNTIME only for backend or advanced routing changes."
+            )
+
+    def _local_model_section(self, model_name: str) -> str:
+        normalized = _normalized_model_name(model_name)
+        policy = self._normalize_policy_snapshot(self._policy_snapshot)
+        daily = _normalized_model_name(policy.get("daily_model_promotion_candidate", ""))
+        heavy = _normalized_model_name(policy.get("heavy_model_candidate", ""))
+        rejected = {
+            _normalized_model_name(item)
+            for item in policy.get("daily_lane_rejected_models", [])
+            if _normalized_model_name(item)
+        }
+        advanced_tokens = ("experimental", "preview", "alpha", "beta", "test", "canary")
+        if normalized in rejected or any(token in normalized for token in advanced_tokens):
+            return "advanced"
+        if normalized in {daily, heavy}:
+            return "recommended"
+        if normalized == _normalized_model_name(self._active_model) and normalized not in rejected:
+            return "recommended"
+        return "installed"
+
+    def _rebuild_local_sections(self) -> None:
+        for key, cards in self._local_section_cards.items():
+            layout = self._local_section_layouts.get(key)
+            if layout is None:
+                continue
+            for card in cards:
+                layout.removeWidget(card)
+            self._local_section_cards[key] = []
+        for card in self._local_cards:
+            section = self._local_model_section(card._model_name)
+            card._library_section = section
+            card.set_recommended(section == "recommended")
+            self._local_section_layouts[section].addWidget(card)
+            self._local_section_cards[section].append(card)
 
     def _render_runtime_evidence(self) -> None:
         snapshot = self._status_snapshot if isinstance(self._status_snapshot, dict) else {}
@@ -438,6 +785,71 @@ class ModelsView(QWidget):
         for _field_name, combo in self._lemonade_role_inputs.items():
             self._set_combo_items_preserve_text(combo, names, combo.currentText().strip())
         self._refresh_runtime_summary()
+        self._refresh_runtime_library()
+
+    def _set_selected_runtime_role(self, field_name: str) -> None:
+        self._selected_runtime_role_field = field_name if field_name in self._lemonade_role_inputs else "lemonade_fast_model"
+        label = next((label for key, label in _LEMONADE_ROLE_FIELDS if key == self._selected_runtime_role_field), "FAST")
+        self._runtime_library_target_lbl.setText(f"Assigning to {label}")
+        self._refresh_runtime_library()
+
+    def _assign_runtime_model(self, model_name: str) -> None:
+        combo = self._lemonade_role_inputs.get(self._selected_runtime_role_field)
+        if combo is None:
+            return
+        if combo.findText(model_name) < 0:
+            combo.addItem(model_name)
+        combo.setCurrentText(model_name)
+        self._set_runtime_status(f"Selected {model_name} for {self._runtime_library_target_lbl.text().replace('Assigning to ', '').lower()} role", ok=True)
+        self._refresh_runtime_summary()
+        self._refresh_runtime_library()
+
+    def _refresh_runtime_library(self) -> None:
+        if not hasattr(self, "_runtime_library_grid"):
+            return
+        while self._runtime_library_grid.count():
+            item = self._runtime_library_grid.takeAt(0)
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._runtime_library_buttons = []
+        if self._local_runtime_backend != "lemonade":
+            self._runtime_library_summary_lbl.setText("Switch to Lemonade to browse downloaded GGUF models here.")
+            return
+        query = self._runtime_library_search.text().strip().lower()
+        assigned = []
+        for _field_name, combo in self._lemonade_role_inputs.items():
+            value = combo.currentText().strip()
+            if value and value not in assigned:
+                assigned.append(value)
+        available = [name for name in self._available_local_model_names() if not query or query in name.lower()]
+        self._runtime_library_summary_lbl.setText(
+            ("Assigned now: " + ", ".join(assigned[:4]) if assigned else "Assigned now: none")
+            + f" | Downloaded models: {len(self._available_local_model_names())}"
+            + (f" | Filtered: {len(available)}" if query else "")
+            + " | Click a model to drop it into the selected role."
+        )
+        if not available:
+            empty = QLabel("No downloaded models match this search yet.")
+            empty.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; padding: 4px 0;")
+            self._runtime_library_grid.addWidget(empty, 0, 0)
+            return
+        for index, model_name in enumerate(available):
+            button = QPushButton(model_name)
+            is_assigned = model_name in assigned
+            accent = T.PRIMARY if is_assigned else T.DIM
+            button.setStyleSheet(
+                f"QPushButton {{ background: {T.BG0}; color: {accent}; border: 1px solid {accent if is_assigned else T.BORDER};"
+                f" padding: 5px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; text-align: left; }}"
+                f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; }}"
+            )
+            button.clicked.connect(lambda _=False, selected_model=model_name: self._assign_runtime_model(selected_model))
+            row = index // 3
+            col = index % 3
+            self._runtime_library_grid.addWidget(button, row, col)
+            self._runtime_library_buttons.append(button)
 
     def _on_runtime_backend_changed(self, text: str) -> None:
         self._local_runtime_backend = self._normalize_runtime_backend(text)
@@ -474,21 +886,25 @@ class ModelsView(QWidget):
         models = payload.get("models", [])
         error = str(payload.get("error", "") or "").strip()
         for card in self._local_cards:
-            self._grid.removeWidget(card)
+            section = getattr(card, "_library_section", "installed")
+            section_layout = self._local_section_layouts.get(section)
+            if section_layout is not None:
+                section_layout.removeWidget(card)
             card.deleteLater()
         self._local_cards.clear()
+        for key in self._local_section_cards:
+            self._local_section_cards[key] = []
         if self._local_placeholder:
-            self._local_placeholder.setParent(None)
-            self._local_placeholder = None
+            self._local_placeholder.setVisible(False)
         if not isinstance(models, list) or not models:
             text = "No local models found.\n" + ("Pull a Lemonade GGUF model and click REFRESH." if backend == "lemonade" else "Start Ollama and click REFRESH.")
-            placeholder = QLabel(text)
-            placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            placeholder.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 24px;")
-            self._grid.addWidget(placeholder, 1, 0)
-            self._local_placeholder = placeholder
+            self._local_placeholder.setText(text)
+            self._local_placeholder.setVisible(True)
+            for section in self._local_sections.values():
+                section.setVisible(False)
             self._set_runtime_status(f"{backend.upper()} library unavailable: {error}" if error else f"{backend.upper()} library is empty", ok=not bool(error))
             self._sync_runtime_mapping_options()
+            self._apply_library_filter()
             return
         for i, item in enumerate(models):
             if not isinstance(item, dict):
@@ -496,22 +912,35 @@ class ModelsView(QWidget):
             card = _ModelCard(str(item.get("name", "unknown")), str(item.get("display", item.get("name", "unknown"))), "LOCAL", str(item.get("context", "-") or "-"), str(item.get("note", "") or ""), int(item.get("size", 0) or 0))
             card.mark_active(card._model_name == self._active_model)
             card.set_active.connect(self._on_model_selected)
-            self._grid.addWidget(card, i + 1, 0)
             self._local_cards.append(card)
+        self._local_placeholder.setVisible(False)
+        self._rebuild_local_sections()
         self._sync_runtime_mapping_options()
         self._set_runtime_status(f"{backend.upper()} library refreshed", ok=True)
+        self._apply_library_filter()
 
     def _on_model_selected(self, name: str) -> None:
         self._active_model = name
-        self._active_lbl.setText(f"ACTIVE: {name.upper()}")
+        self._active_lbl.setText(f"USING NOW: {name.upper()}")
         os.environ["GUPPY_LOCAL_MODEL"] = name
         for card in self._local_cards:
             card.mark_active(card._model_name == name)
+        self._rebuild_local_sections()
+        self._apply_library_filter()
         self.model_selected.emit(name)
+        self._refresh_library_summary()
 
     def set_status_snapshot(self, payload: dict[str, Any]) -> None:
         self._status_snapshot = payload if isinstance(payload, dict) else {}
+        runtime = self._status_snapshot.get("local_runtime", {}) if isinstance(self._status_snapshot, dict) else {}
+        live_policy = runtime.get("policy", {}) if isinstance(runtime, dict) else {}
+        if isinstance(live_policy, dict) and live_policy:
+            self._policy_snapshot = live_policy
+        else:
+            self._policy_snapshot = self._load_local_llm_policy()
+        self._render_runtime_policy()
         self._render_runtime_evidence()
+        self._refresh_library_summary()
 
     def _set_route_status(self, text: str, ok: bool = True) -> None:
         color = T.GREEN if ok else T.ERROR

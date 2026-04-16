@@ -6,6 +6,19 @@ _LEMONADE_ROLE_ENV = {
     "code": "GUPPY_LEMONADE_CODE_MODEL",
     "vault": "GUPPY_LEMONADE_VAULT_MODEL",
 }
+_LOCAL_RUNTIME_WARM_TTL_SECONDS = float(os.environ.get("GUPPY_LOCAL_RUNTIME_WARM_TTL_SECONDS", "300.0"))
+_LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS", "20.0"))
+_local_runtime_warm_cache = {
+    "backend": "",
+    "model": "",
+    "checked_at": 0.0,
+    "expires_at": 0.0,
+    "chat_ready": False,
+    "chat_state": "UNKNOWN",
+    "chat_detail": "local runtime warmup not checked yet",
+}
+_local_runtime_warm_lock = threading.Lock()
+_local_runtime_warm_refresh_inflight = False
 
 
 def _selected_local_runtime_backend() -> str:
@@ -62,6 +75,127 @@ def _local_runtime_role_models(backend: str) -> dict[str, str]:
     }
 
 
+def _warm_ollama_chat_lane(model: str, keep_alive: str = "20m") -> tuple[bool, str]:
+    normalized_model = str(model or "").strip()
+    if not normalized_model:
+        return False, "no Ollama model configured for warmup"
+    payload = {
+        "model": normalized_model,
+        "prompt": "warmup",
+        "stream": False,
+        "keep_alive": keep_alive,
+        "options": {"num_predict": 1},
+    }
+    req = urllib.request.Request(
+        "http://127.0.0.1:11434/api/generate",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=_LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS) as resp:
+        data = json.loads(resp.read())
+    if isinstance(data, dict) and data.get("error"):
+        return False, str(data.get("error"))
+    return True, f"{normalized_model} warm"
+
+
+def _current_local_runtime_chat_model(backend: str) -> str:
+    role_models = _local_runtime_role_models(backend)
+    return str(
+        role_models.get("complex")
+        or role_models.get("fast")
+        or ""
+    ).strip()
+
+
+def _refresh_local_runtime_warm_status(force: bool = False) -> dict[str, Any]:
+    backend = _selected_local_runtime_backend()
+    model = _current_local_runtime_chat_model(backend)
+    now = time.time()
+    with _local_runtime_warm_lock:
+        cached = dict(_local_runtime_warm_cache)
+        if (
+            not force
+            and cached.get("backend") == backend
+            and cached.get("model") == model
+            and float(cached.get("expires_at", 0.0) or 0.0) > now
+        ):
+            return cached
+
+    if backend == "lemonade":
+        payload = {
+            "backend": backend,
+            "model": model,
+            "checked_at": now,
+            "expires_at": now + max(30.0, _LOCAL_RUNTIME_WARM_TTL_SECONDS),
+            "chat_ready": True,
+            "chat_state": "READY",
+            "chat_detail": "Lemonade backend selected; chat lane treated as ready when registry is reachable",
+        }
+    else:
+        ok, detail = _warm_ollama_chat_lane(model)
+        payload = {
+            "backend": backend,
+            "model": model,
+            "checked_at": now,
+            "expires_at": now + max(30.0, _LOCAL_RUNTIME_WARM_TTL_SECONDS),
+            "chat_ready": bool(ok),
+            "chat_state": "READY" if ok else "WARMING",
+            "chat_detail": str(detail or ("local runtime warmed" if ok else "local runtime warmup failed")),
+        }
+    with _local_runtime_warm_lock:
+        _local_runtime_warm_cache.update(payload)
+        return dict(_local_runtime_warm_cache)
+
+
+def _local_runtime_warm_cached_or_unknown() -> dict[str, Any]:
+    backend = _selected_local_runtime_backend()
+    model = _current_local_runtime_chat_model(backend)
+    now = time.time()
+    with _local_runtime_warm_lock:
+        cached = dict(_local_runtime_warm_cache)
+        if (
+            cached.get("backend") == backend
+            and cached.get("model") == model
+            and float(cached.get("expires_at", 0.0) or 0.0) > now
+        ):
+            return cached
+    return {
+        "backend": backend,
+        "model": model,
+        "checked_at": 0.0,
+        "expires_at": 0.0,
+        "chat_ready": False,
+        "chat_state": "UNKNOWN",
+        "chat_detail": "local runtime warmup not checked yet",
+    }
+
+
+def _trigger_local_runtime_warm_refresh(force: bool = False) -> None:
+    global _local_runtime_warm_refresh_inflight
+    with _local_runtime_warm_lock:
+        if _local_runtime_warm_refresh_inflight:
+            return
+        if not force:
+            cached = dict(_local_runtime_warm_cache)
+            now = time.time()
+            if float(cached.get("expires_at", 0.0) or 0.0) > now:
+                return
+        _local_runtime_warm_refresh_inflight = True
+
+    def _worker() -> None:
+        global _local_runtime_warm_refresh_inflight
+        try:
+            _refresh_local_runtime_warm_status(force=True)
+        except Exception:
+            pass
+        finally:
+            with _local_runtime_warm_lock:
+                _local_runtime_warm_refresh_inflight = False
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
 def _fetch_lemonade_model_ids(timeout: float = 4.0) -> set[str]:
     req = urllib.request.Request(
         f"{_local_runtime_base_url('lemonade').rstrip('/')}/models",
@@ -81,8 +215,18 @@ def _fetch_lemonade_model_ids(timeout: float = 4.0) -> set[str]:
 def _build_local_runtime_status() -> dict[str, Any]:
     backend = _selected_local_runtime_backend()
     role_models = _local_runtime_role_models(backend)
+    active_chat_model = _current_local_runtime_chat_model(backend)
     model_ids: set[str] = set()
     detail = ""
+    policy: dict[str, Any] = {}
+    warm_status = _local_runtime_warm_cached_or_unknown()
+
+    try:
+        from src.guppy.local_llm.manifest import get_local_llm_policy_summary, load_local_llm_manifest
+
+        policy = get_local_llm_policy_summary(load_local_llm_manifest())
+    except Exception:
+        policy = {}
 
     try:
         if backend == "lemonade":
@@ -104,6 +248,7 @@ def _build_local_runtime_status() -> dict[str, Any]:
             }
             detail = "Ollama model registry reachable"
     except Exception as exc:
+        _trigger_local_runtime_warm_refresh(force=False)
         return {
             "backend": backend,
             "base_url": _local_runtime_base_url(backend),
@@ -113,6 +258,11 @@ def _build_local_runtime_status() -> dict[str, Any]:
             "available_roles": [],
             "missing_roles": [role for role, model in role_models.items() if model],
             "models": [],
+            "policy": policy,
+            "chat_ready": bool(warm_status.get("chat_ready", False)),
+            "chat_state": str(warm_status.get("chat_state", "UNKNOWN") or "UNKNOWN"),
+            "chat_detail": str(warm_status.get("chat_detail", "") or ""),
+            "chat_model": str(warm_status.get("model", "") or active_chat_model),
         }
 
     available_roles = sorted([role for role, model in role_models.items() if model and model in model_ids])
@@ -124,6 +274,12 @@ def _build_local_runtime_status() -> dict[str, Any]:
     else:
         state = "MISSING"
 
+    if backend == "ollama" and available_roles and str(warm_status.get("chat_state", "UNKNOWN") or "UNKNOWN") == "UNKNOWN":
+        _trigger_local_runtime_warm_refresh(force=False)
+    if backend == "ollama" and available_roles and not bool(warm_status.get("chat_ready", False)) and state == "READY":
+        state = "PARTIAL"
+        detail = f"{detail} | chat lane warming"
+
     return {
         "backend": backend,
         "base_url": _local_runtime_base_url(backend),
@@ -133,6 +289,11 @@ def _build_local_runtime_status() -> dict[str, Any]:
         "available_roles": available_roles,
         "missing_roles": missing_roles,
         "models": sorted(model_ids),
+        "policy": policy,
+        "chat_ready": bool(warm_status.get("chat_ready", False)),
+        "chat_state": str(warm_status.get("chat_state", "UNKNOWN") or "UNKNOWN"),
+        "chat_detail": str(warm_status.get("chat_detail", "") or ""),
+        "chat_model": str(warm_status.get("model", "") or active_chat_model),
     }
 
 
@@ -183,7 +344,16 @@ def _call_selected_local_runtime(
     instance_type: Optional[str] = None,
     model_override: Optional[str] = None,
 ) -> str:
-    if _selected_local_runtime_backend() == "lemonade":
+    backend = _selected_local_runtime_backend()
+    warm_status = _local_runtime_warm_cached_or_unknown()
+    if backend == "ollama" and not bool(warm_status.get("chat_ready", False)):
+        _trigger_local_runtime_warm_refresh(force=True)
+        warm_model = str(warm_status.get("model", "") or _current_local_runtime_chat_model(backend))
+        warm_detail = str(warm_status.get("chat_detail", "") or "local runtime is still warming up")
+        raise RuntimeError(
+            f"Local runtime is still warming up for {warm_model or 'the configured model'}. {warm_detail}"
+        )
+    if backend == "lemonade":
         return _call_lemonade_chat(
             user_text,
             system_prompt,

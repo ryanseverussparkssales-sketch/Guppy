@@ -71,7 +71,7 @@ except ImportError:
 
 
 try:
-    from guppy_daemon import get_window_context
+    from src.guppy.daemon.daemon import get_window_context
 
     _DAEMON_AVAILABLE = True
 except Exception:

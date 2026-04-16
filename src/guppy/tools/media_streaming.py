@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import urllib.parse
 import webbrowser
 from pathlib import Path
 
 from utils.connector_manager import read_machine_secret
+
+
+def _win_hidden_run_flags() -> dict[str, object]:
+    if os.name != "nt":
+        return {}
+    flags: dict[str, object] = {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    }
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+    flags["startupinfo"] = startupinfo
+    return flags
 
 
 def _get_spotify():
@@ -61,7 +75,12 @@ def _media_key(action: str) -> str:
         "}'; "
         f"[MK]::keybd_event({vk},0,0,0); Start-Sleep -Milliseconds 50; [MK]::keybd_event({vk},0,2,0)"
     )
-    subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, timeout=5)
+    subprocess.run(
+        ["powershell", "-NoProfile", "-Command", ps],
+        capture_output=True,
+        timeout=5,
+        **_win_hidden_run_flags(),
+    )
     return f"Media key sent: {action}"
 
 

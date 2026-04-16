@@ -216,6 +216,7 @@ class _ToolCard(QFrame):
         self._tool = dict(tool)
         self._state = "ready"
         self._reason = ""
+        self._details_visible = False
         self.setObjectName("agent_tool_card")
         self.setStyleSheet(
             f"QFrame#agent_tool_card {{ background-color: {T.BG1}; border: 1px solid {T.BORDER}; }}"
@@ -244,10 +245,10 @@ class _ToolCard(QFrame):
         root.addWidget(self._desc_lbl)
 
         meta = QHBoxLayout()
-        meta.addWidget(_mono(f"CATEGORY: {str(tool.get('category', 'READ')).upper()}", T.PRIMARY_DIM, T.FS_TINY, True))
+        meta.addWidget(_mono(f"TYPE: {str(tool.get('category', 'READ')).upper()}", T.PRIMARY_DIM, T.FS_TINY, True))
         if bool(tool.get("dry_run", False)):
             meta.addSpacing(10)
-            meta.addWidget(_mono("PRIME FIRST", T.DIM, T.FS_TINY, True))
+            meta.addWidget(_mono("SET UP FIRST", T.DIM, T.FS_TINY, True))
         meta.addStretch()
         root.addLayout(meta)
 
@@ -273,6 +274,12 @@ class _ToolCard(QFrame):
         actions.addWidget(self._hint_btn)
         actions.addStretch()
         root.addLayout(actions)
+        self.set_details_visible(False)
+
+    def set_details_visible(self, visible: bool) -> None:
+        self._details_visible = bool(visible)
+        self._policy_lbl.setVisible(self._details_visible)
+        self._guard_lbl.setVisible(self._details_visible)
 
     def apply_context(self, instance_name: str, instance_type: str) -> None:
         allowed_by_type = _tool_allowed(self._tool, instance_type)
@@ -309,23 +316,23 @@ class _ToolCard(QFrame):
         policy_reason_code = str(permissions.get("_policy_reason_code", "") or "").strip().lower()
         workspace_gate = "Workspace/role check allows" if allowed_by_type else "Workspace/role check blocks"
         runtime_gate = "governance policy allows" if policy_allowed else "governance policy blocks"
-        policy_text = f"Requires {capability} capability. {workspace_gate}; {runtime_gate}. Auth mode: {auth_mode}."
+        policy_text = f"Needs {capability} access. {workspace_gate}; {runtime_gate}. Sign-in mode: {auth_mode}."
         if resolved_endpoint:
-            policy_text += f" Endpoint scope resolves to {resolved_endpoint}."
+            policy_text += f" Endpoint scope: {resolved_endpoint}."
         if bool(self._tool.get("dry_run", False)):
-            policy_text += " Home priming only appears when the real runtime step is allowed."
+            policy_text += " Home prompting only appears when the real action is allowed."
         self._guard_lbl.setText(policy_text)
         governance_text = " | ".join(
             [
-                f"AUTH MODE: {auth_mode}",
-                f"CONNECTOR: {connector}",
-                f"CONNECTOR AUTH: {connector_auth_state}",
-                f"AUTH SOURCE: {connector_auth_source}",
+                f"SIGN-IN: {auth_mode}",
+                f"CONNECTION: {connector}",
+                f"CONNECTION STATUS: {connector_auth_state}",
+                f"SOURCE: {connector_auth_source}",
                 f"BINDING: {'enabled' if connector_binding_enabled else 'not bound'}"
                 + (" (inherited)" if connector_binding_inherited else ""),
-                f"CONNECTOR ACTION: {connector_action or 'DEFAULT'}",
-                _render_scope_list(tool_allow, "Allow list"),
-                _render_scope_list(tool_block, "Block list"),
+                f"ACTION MODE: {connector_action or 'DEFAULT'}",
+                _render_scope_list(tool_allow, "Allowed"),
+                _render_scope_list(tool_block, "Blocked"),
                 _render_endpoint_scope(endpoint_allow, endpoint_block),
             ]
         )
@@ -335,7 +342,7 @@ class _ToolCard(QFrame):
             governance_text += f" | Provider: {connector_binding_provider}"
         if connector_binding_action_allow or connector_binding_action_block:
             governance_text += (
-                f" | Connector actions: {_render_scope_list(connector_binding_action_allow, 'allow')}"
+                f" | Connection actions: {_render_scope_list(connector_binding_action_allow, 'allow')}"
                 f" | {_render_scope_list(connector_binding_action_block, 'block')}"
             )
         if connector_binding_endpoint_allow or connector_binding_endpoint_block:
@@ -344,7 +351,7 @@ class _ToolCard(QFrame):
                 + _render_endpoint_scope(connector_binding_endpoint_allow, connector_binding_endpoint_block).replace("Endpoint filters: ", "")
             )
         if connector_auth_detail:
-            governance_text += f" | Auth detail: {connector_auth_detail}"
+            governance_text += f" | Sign-in detail: {connector_auth_detail}"
         if connector_binding_note:
             governance_text += f" | Binding note: {connector_binding_note}"
         if policy_note:
@@ -356,7 +363,7 @@ class _ToolCard(QFrame):
                 f"color: {T.GREEN}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
             )
             self._scope_lbl.setText(
-                f"Ready in workspace {instance_name} ({_workspace_type_label(instance_type)}). {self._reason}"
+                f"Available in {instance_name} ({_workspace_type_label(instance_type)}). {self._reason}"
             )
             self._hint_btn.setEnabled(True)
         else:
@@ -375,8 +382,7 @@ class _ToolCard(QFrame):
                 "endpoint_allow": "Fix in Workspaces: expand the connector endpoint allow filter if this is intentional.",
             }.get(policy_reason_code, "")
             self._scope_lbl.setText(
-                f"This workspace cannot use {self.tool_key.replace('_', ' ')} right now. "
-                f"Blocked in {instance_name} ({_workspace_type_label(instance_type)}). {restriction}"
+                f"{self._name_lbl.text().title()} is not available in {instance_name} ({_workspace_type_label(instance_type)}) right now. {restriction}"
                 + (f" {fix_hint}" if fix_hint else "")
             )
             self._hint_btn.setEnabled(False)
@@ -416,6 +422,7 @@ class ToolsView(QWidget):
         self._tool_states: dict[str, bool] = {}
         self._instance_name = "guppy-primary"
         self._instance_type = "user_instance"
+        self._details_visible = False
         self._limits: dict[str, int] = {
             "configured": 1,
             "max_configured": 5,
@@ -438,32 +445,43 @@ class ToolsView(QWidget):
         layout.setContentsMargins(28, 20, 28, 20)
         layout.setSpacing(18)
 
-        title = QLabel("Agent Tools")
+        title = QLabel("Workspace Tools")
         title.setStyleSheet(
             f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: 26pt; font-weight: 900;"
         )
-        layout.addWidget(title)
+        title_row = QHBoxLayout()
+        title_row.addWidget(title)
+        title_row.addStretch()
+        self._details_btn = QPushButton("SHOW DETAILS")
+        self._details_btn.setStyleSheet(
+            f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER};"
+            f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; }}"
+        )
+        self._details_btn.clicked.connect(self._toggle_details)
+        title_row.addWidget(self._details_btn)
+        layout.addLayout(title_row)
         layout.addWidget(
             _mono(
-                "Quick workspace tools now live in the right tray. Recovery, diagnostics, and operator logs stay in APP MGMT.",
+                "See which tools this workspace can use. For the quickest path, launch from the tray and continue in Home.",
                 T.DIM,
                 T.FS_SMALL,
             )
         )
 
-        self._context_lbl = _mono("ACTIVE WORKSPACE: GUPPY-PRIMARY | DAILY WORKSPACE", T.PRIMARY, T.FS_TINY, True)
-        self._limits_lbl = _mono("Configured slots: 1 / 5 | Runtime-active slots: 1 / 2", T.DIM, T.FS_TINY)
+        self._context_lbl = _mono("WORKSPACE: GUPPY-PRIMARY | DAILY", T.PRIMARY, T.FS_TINY, True)
+        self._limits_lbl = _mono("Slots in use: 1 / 5 | Live now: 1 / 2", T.DIM, T.FS_TINY)
         layout.addWidget(self._context_lbl)
         layout.addWidget(self._limits_lbl)
         self._boundary_lbl = _mono(
-            "Use this tab to prime task work in Home. Restarts, warmup, audits, and operator logs belong to APP MGMT.",
+            "Use the tray for quick tools. Open App Management for setup, recovery, diagnostics, and logs.",
             T.DIM,
             T.FS_SMALL,
         )
         self._boundary_lbl.setWordWrap(True)
         layout.addWidget(self._boundary_lbl)
         self._execution_lbl = _mono(
-            "Execution stays gated by workspace permissions, auth mode, allow/block lists, and endpoint policy, even when a tool is visible in the tray.",
+            "Want to know why something is unavailable? Show details to see permission and sign-in checks.",
             T.DIM,
             T.FS_SMALL,
         )
@@ -490,27 +508,27 @@ class ToolsView(QWidget):
         filters.addWidget(self._filter_cb)
         layout.addLayout(filters)
 
-        banner = QFrame()
-        banner.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
-        banner_layout = QVBoxLayout(banner)
+        self._banner = QFrame()
+        self._banner.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
+        banner_layout = QVBoxLayout(self._banner)
         banner_layout.setContentsMargins(12, 10, 12, 10)
         banner_layout.setSpacing(4)
         banner_layout.addWidget(_mono("BOUNDARY", T.PRIMARY, T.FS_TINY, True))
         banner_layout.addWidget(
             _mono(
-                "The right tray is now the fast path for workspace tools. This page stays available for builder queue context and permission framing.",
+                "The tray is the fast path. This page stays useful when you want builder context or deeper access notes.",
                 T.DIM,
                 T.FS_SMALL,
             )
         )
         self._tray_notice_lbl = _mono(
-            "Use the tray icons for read, screenshot, query, debug, Python, write-file, and command prompts. Load a tool there, then continue in Home.",
+            "Use tray icons for common actions. Show details when you want the longer access explanation.",
             T.DIM,
             T.FS_SMALL,
         )
         self._tray_notice_lbl.setWordWrap(True)
         banner_layout.addWidget(self._tray_notice_lbl)
-        layout.addWidget(banner)
+        layout.addWidget(self._banner)
 
         self._builder_panel = BuilderTaskPanel()
         self._builder_panel.queue_requested.connect(self.builder_task_requested.emit)
@@ -542,6 +560,7 @@ class ToolsView(QWidget):
         scroll.setWidget(content)
         outer.addWidget(scroll)
         self.set_instance_context({}, {})
+        self._sync_detail_visibility()
 
     def set_instance_context(self, instance: dict[str, object], snapshot: dict[str, object] | None = None) -> None:
         name = str(instance.get("name", self._instance_name) or self._instance_name).strip() or "guppy-primary"
@@ -556,10 +575,10 @@ class ToolsView(QWidget):
                 "active_runtime": int(limits.get("active_runtime", self._limits["active_runtime"]) or self._limits["active_runtime"]),
                 "max_active_runtime": int(limits.get("max_active_runtime", self._limits["max_active_runtime"]) or self._limits["max_active_runtime"]),
             }
-        self._context_lbl.setText(f"ACTIVE WORKSPACE: {name.upper()} | {_workspace_type_label(instance_type).upper()}")
+        self._context_lbl.setText(f"WORKSPACE: {name.upper()} | {_workspace_type_label(instance_type).upper()}")
         limits_text = (
-            f"Configured slots: {self._limits['configured']} / {self._limits['max_configured']} | "
-            f"Runtime-active slots: {self._limits['active_runtime']} / {self._limits['max_active_runtime']}"
+            f"Slots in use: {self._limits['configured']} / {self._limits['max_configured']} | "
+            f"Live now: {self._limits['active_runtime']} / {self._limits['max_active_runtime']}"
         )
         if self._limits["configured"] >= self._limits["max_configured"]:
             limits_text += " | CONFIG CAP REACHED"
@@ -567,17 +586,18 @@ class ToolsView(QWidget):
             limits_text += " | COLLABORATOR CAP REACHED"
         self._limits_lbl.setText(limits_text)
         self._boundary_lbl.setText(
-            f"Use the right tray for task tools in {name}. Open APP MGMT for restarts, recovery, diagnostics, and operator logs."
+            f"Use the tray for quick tools in {name}. Open App Management for setup, recovery, diagnostics, and logs."
         )
         self._tray_notice_lbl.setText(
-            f"{name} can launch quick workspace tools from the right tray. This page keeps builder queue context and permission framing."
+            f"{name} can launch quick tools from the tray. This page keeps builder context and optional access detail."
         )
         self._execution_lbl.setText(
-            f"{name} can only run tools that match its workspace role, auth mode, and governance policy. Restricted tools stay blocked even if the prompt is primed from the tray."
+            f"{name} can only use tools that match its workspace role and sign-in state. Show details for the exact rules."
         )
         self._builder_panel.set_instance_context(name, instance_type)
         for card in self._tool_cards.values():
             card.apply_context(name, instance_type)
+            card.set_details_visible(self._details_visible)
         self._apply_filters()
 
     def set_builder_status(self, text: str, ok: bool = True) -> None:
@@ -600,6 +620,17 @@ class ToolsView(QWidget):
                 visible_cards += 1
         self._empty_state_lbl.setVisible(visible_cards == 0)
         self._cards_host.setVisible(visible_cards > 0)
+
+    def _toggle_details(self) -> None:
+        self._details_visible = not self._details_visible
+        self._sync_detail_visibility()
+
+    def _sync_detail_visibility(self) -> None:
+        self._banner.setVisible(self._details_visible)
+        self._execution_lbl.setVisible(self._details_visible)
+        self._details_btn.setText("HIDE DETAILS" if self._details_visible else "SHOW DETAILS")
+        for card in self._tool_cards.values():
+            card.set_details_visible(self._details_visible)
 
     def get_states(self) -> dict[str, bool]:
         return dict(self._tool_states)

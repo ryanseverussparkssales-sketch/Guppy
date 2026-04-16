@@ -33,6 +33,7 @@ DEFAULT_PROMPT_PACK = Path("config/local_llm/benchmark_prompts.json")
 DEFAULT_MEMORY_SEED_PACK = Path("config/local_llm/benchmark_memory_seeds.json")
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_LEMONADE_BASE_URL = "http://localhost:13305/api/v1"
+DEFAULT_LLAMA_CPP_BASE_URL = "http://127.0.0.1:18080/v1"
 
 LOCAL_GUPPY_SYSTEM = """You are Guppy, Ryan's local assistant.
 Keep answers concise, grounded, and calm.
@@ -292,6 +293,67 @@ def chat_once_lemonade(
         }
 
 
+def chat_once_llama_cpp(
+    model_tag: str,
+    system_prompt: str,
+    prompt: str,
+    timeout_s: int,
+    base_url: str = DEFAULT_LLAMA_CPP_BASE_URL,
+) -> dict[str, Any]:
+    messages: list[dict[str, Any]] = []
+    if system_prompt.strip():
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    payload = {
+        "model": model_tag,
+        "messages": messages,
+        "stream": False,
+        "max_tokens": 192,
+        "temperature": 0.2,
+    }
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    try:
+        data, duration_ms = http_json_request(url, timeout_s=timeout_s, payload=payload)
+        choices = data.get("choices") or []
+        first_choice = choices[0] if choices else {}
+        message = first_choice.get("message") or {}
+        text = str(message.get("content") or "").strip()
+        reasoning_text = str(message.get("reasoning_content") or "").strip()
+        success = bool(text)
+        preview_source = text or (f"[reasoning_only] {reasoning_text}" if reasoning_text else "")
+        return {
+            "success": success,
+            "failure_mode": "none" if success else "empty",
+            "response_preview": preview_source.replace("\n", " ")[:240],
+            "duration_ms": duration_ms,
+            "first_token_ms": None,
+        }
+    except TimeoutError:
+        return {
+            "success": False,
+            "failure_mode": "timeout",
+            "response_preview": "",
+            "duration_ms": timeout_s * 1000,
+            "first_token_ms": None,
+        }
+    except urllib.error.URLError as exc:
+        return {
+            "success": False,
+            "failure_mode": "runtime_error",
+            "response_preview": str(exc.reason),
+            "duration_ms": None,
+            "first_token_ms": None,
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "failure_mode": "runtime_error",
+            "response_preview": str(exc),
+            "duration_ms": None,
+            "first_token_ms": None,
+        }
+
+
 def fetch_lemonade_downloaded_models(
     timeout_s: int,
     base_url: str = DEFAULT_LEMONADE_BASE_URL,
@@ -333,6 +395,8 @@ def run_prompt_once(
             )
             if runtime_backend == "lemonade":
                 return chat_once_lemonade(model_tag, system_prompt, prompt, timeout_s, base_url=runtime_base_url)
+            if runtime_backend == "llama.cpp":
+                return chat_once_llama_cpp(model_tag, system_prompt, prompt, timeout_s, base_url=runtime_base_url)
             return chat_once_ollama(model_tag, system_prompt, prompt, timeout_s, base_url=runtime_base_url, think=think)
         if prompt_style == "guppy_local":
             system_prompt = LOCAL_GUPPY_SYSTEM
@@ -340,9 +404,13 @@ def run_prompt_once(
                 system_prompt += "\n\n" + memory_context
             if runtime_backend == "lemonade":
                 return chat_once_lemonade(model_tag, system_prompt, prompt, timeout_s, base_url=runtime_base_url)
+            if runtime_backend == "llama.cpp":
+                return chat_once_llama_cpp(model_tag, system_prompt, prompt, timeout_s, base_url=runtime_base_url)
             return chat_once_ollama(model_tag, system_prompt, prompt, timeout_s, base_url=runtime_base_url, think=think)
         if runtime_backend == "lemonade":
             return chat_once_lemonade(model_tag, "", prompt, timeout_s, base_url=runtime_base_url)
+        if runtime_backend == "llama.cpp":
+            return chat_once_llama_cpp(model_tag, "", prompt, timeout_s, base_url=runtime_base_url)
         return generate_once_ollama(model_tag, prompt, timeout_s, base_url=runtime_base_url, think=think)
     finally:
         if previous_backend is None:
@@ -505,6 +573,12 @@ def main() -> int:
         help="Optional seed pack for isolated memory-backend comparisons.",
     )
     parser.add_argument(
+        "--isolate-memory",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use an isolated memory root for this run. Enabled by default so benchmark runs stay reproducible; pass --no-isolate-memory to opt into shared live memory.",
+    )
+    parser.add_argument(
         "--latest-file",
         default="",
         help="Override latest aggregate output path.",
@@ -517,7 +591,7 @@ def main() -> int:
     parser.add_argument(
         "--runtime-backend-override",
         default="",
-        choices=("", "ollama", "lemonade"),
+        choices=("", "ollama", "lemonade", "llama.cpp"),
         help="Override the runtime backend recorded and used for the run.",
     )
     parser.add_argument(
@@ -554,7 +628,13 @@ def main() -> int:
     runtime_backend = (args.runtime_backend_override or "").strip() or get_runtime_backend_baseline(manifest)
     runtime_base_url = (
         (args.runtime_base_url or "").strip()
-        or (DEFAULT_LEMONADE_BASE_URL if runtime_backend == "lemonade" else DEFAULT_OLLAMA_BASE_URL)
+        or (
+            DEFAULT_LEMONADE_BASE_URL
+            if runtime_backend == "lemonade"
+            else DEFAULT_LLAMA_CPP_BASE_URL
+            if runtime_backend == "llama.cpp"
+            else DEFAULT_OLLAMA_BASE_URL
+        )
     )
     prompt_style = str(args.prompt_style or "raw").strip().lower()
     override_entry = build_override_model_entry(args.all_tracks_model_tag) if args.all_tracks_model_tag else None
@@ -565,7 +645,7 @@ def main() -> int:
         if (args.memory_seed_file or "").strip()
         else []
     )
-    use_isolated_memory_root = bool(memory_seed_entries or len(memory_backends) > 1)
+    use_isolated_memory_root = bool(args.isolate_memory or memory_seed_entries or len(memory_backends) > 1)
     memory_run_root = (
         RUNTIME_DIR
         / "local_memory"
@@ -580,6 +660,12 @@ def main() -> int:
             installed = fetch_lemonade_downloaded_models(args.timeout, base_url=runtime_base_url)
         except Exception as exc:
             print(str(exc) or "lemonade models query failed")
+            return 2
+    elif runtime_backend == "llama.cpp":
+        try:
+            installed = fetch_lemonade_downloaded_models(args.timeout, base_url=runtime_base_url)
+        except Exception as exc:
+            print(str(exc) or "llama.cpp models query failed")
             return 2
     else:
         installed_result = run_cmd(["ollama", "list"])
@@ -607,7 +693,7 @@ def main() -> int:
                 requested_tag = str(model_entry.get("tag") or "").strip()
                 resolved_tag = (
                     requested_tag
-                    if runtime_backend == "lemonade"
+                    if runtime_backend in {"lemonade", "llama.cpp"}
                     else resolve_model_tag(requested_tag, installed)
                 )
                 for idx, prompt in enumerate(prompts, start=1):

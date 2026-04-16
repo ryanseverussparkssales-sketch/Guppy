@@ -44,6 +44,14 @@ _TEST_SECRET = "test-security-hardening-secret-key-32x"
 _ALG = "HS256"
 
 
+def _set_api_repair_token(token: str) -> None:
+    guppy_api._set_repair_token(token)
+
+
+def _repair_dependency():
+    return guppy_api._server_context.require_repair_token
+
+
 # ── JWT tests ──────────────────────────────────────────────────────────────────
 
 class JWTSecurityTests(unittest.TestCase):
@@ -150,9 +158,10 @@ class RepairEndpointAuthTests(unittest.TestCase):
     def setUpClass(cls):
         app = guppy_api.app
         app.dependency_overrides[guppy_api.require_rate_limit] = lambda: "smoke-user"
+        _set_api_repair_token("")
         # Ensure any override of _require_repair_token from earlier test modules
         # is removed so the real guard runs (with _REPAIR_TOKEN == "").
-        app.dependency_overrides.pop(guppy_api._require_repair_token, None)
+        app.dependency_overrides.pop(_repair_dependency(), None)
         cls._client = TestClient(app, raise_server_exceptions=False)
 
     def test_repair_without_token_returns_403(self):
@@ -398,7 +407,7 @@ class AuthAndRepairLifecycleTests(unittest.TestCase):
         secret_store._KEYRING_AVAILABLE = self._orig_keyring_available_secret_store
         launcher_window._SECRET_STORE_AVAILABLE = self._orig_keyring_available_launcher
         launcher_window._secret_store = self._orig_launcher_secret_store_obj
-        guppy_api._REPAIR_TOKEN = self._orig_api_repair_token
+        _set_api_repair_token(self._orig_api_repair_token)
         guppy_api.app.dependency_overrides.pop(guppy_api.require_rate_limit, None)
         if self._orig_jwt_env is None:
             os.environ.pop("GUPPY_JWT_SECRET", None)
@@ -539,7 +548,7 @@ class AuthAndRepairLifecycleTests(unittest.TestCase):
         app.dependency_overrides[guppy_api.require_rate_limit] = lambda: "smoke-user"
 
         token = "b" * 64
-        guppy_api._REPAIR_TOKEN = token
+        _set_api_repair_token(token)
 
         # Keyring-backed launcher token source
         class _SecretStoreStub:
@@ -586,7 +595,7 @@ class AuthAndRepairLifecycleTests(unittest.TestCase):
         old_token = "c" * 64
         new_token = "d" * 64
 
-        guppy_api._REPAIR_TOKEN = old_token
+        _set_api_repair_token(old_token)
         resp_old_ok = client.post(
             "/repair",
             json={"action": "warmup", "dry_run": True},
@@ -594,7 +603,7 @@ class AuthAndRepairLifecycleTests(unittest.TestCase):
         )
         self.assertNotEqual(resp_old_ok.status_code, 403)
 
-        guppy_api._REPAIR_TOKEN = new_token
+        _set_api_repair_token(new_token)
         resp_old_rejected = client.post(
             "/repair",
             json={"action": "warmup", "dry_run": True},
@@ -658,7 +667,7 @@ class RepairTokenRefreshEndpointTests(unittest.TestCase):
         This is the primary re-sync path after an API restart.
         """
         token = "ee" * 32  # valid 64-char hex
-        guppy_api._REPAIR_TOKEN = token
+        _set_api_repair_token(token)
         resp = self._client.get("/repair-token/refresh")
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -670,19 +679,29 @@ class RepairTokenRefreshEndpointTests(unittest.TestCase):
         When keyring and file are both unavailable the in-memory token is returned.
         """
         token = "ff" * 32
-        guppy_api._REPAIR_TOKEN = token
+        _set_api_repair_token(token)
         # Simulate keyring unavailable and no file
         old_available = guppy_api._SECRET_STORE_AVAILABLE
-        old_file = guppy_api._REPAIR_TOKEN_FILE
+        old_paths = guppy_api._path_config
         try:
             guppy_api._SECRET_STORE_AVAILABLE = False
-            guppy_api._REPAIR_TOKEN_FILE = Path("/nonexistent/path/repair_token.txt")
+            guppy_api._set_path_config_for_tests(
+                repair_token_file=Path("/nonexistent/path/repair_token.txt")
+            )
             resp = self._client.get("/repair-token/refresh")
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp.json().get("repair_token"), token)
         finally:
             guppy_api._SECRET_STORE_AVAILABLE = old_available
-            guppy_api._REPAIR_TOKEN_FILE = old_file
+            guppy_api._set_path_config_for_tests(
+                config_dir=old_paths.config_dir,
+                runtime_dir=old_paths.runtime_dir,
+                instances_path=old_paths.instances_path,
+                connector_bindings_path=old_paths.connector_bindings_path,
+                instance_state_path=old_paths.instance_state_path,
+                repair_token_file=old_paths.repair_token_file,
+                ops_telemetry_db=old_paths.ops_telemetry_db,
+            )
 
     def test_refresh_rejects_non_localhost_client(self):
         """
@@ -690,7 +709,7 @@ class RepairTokenRefreshEndpointTests(unittest.TestCase):
         Simulates an external caller attempting to harvest the repair token.
         """
         token = "ab" * 32
-        guppy_api._REPAIR_TOKEN = token
+        _set_api_repair_token(token)
         resp = self._external_client.get("/repair-token/refresh")
         self.assertEqual(resp.status_code, 403)
 

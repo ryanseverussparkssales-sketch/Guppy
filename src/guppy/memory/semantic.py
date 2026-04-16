@@ -51,6 +51,7 @@ def _conn() -> sqlite3.Connection:
         )
         """
     )
+    c.execute("CREATE INDEX IF NOT EXISTS idx_semantic_key ON semantic_memory(memory_key)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_semantic_category ON semantic_memory(category)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_semantic_created ON semantic_memory(created)")
     return c
@@ -163,10 +164,27 @@ def _remember_sqlite(k: str, v: str, c: str) -> str:
     emb = _embed_text(v)
     conn = _conn()
     try:
-        conn.execute(
-            "INSERT INTO semantic_memory (memory_key, category, value, embedding_json, created) VALUES (?,?,?,?,?)",
-            (k, c, v, json.dumps(emb), datetime.now().isoformat()),
-        )
+        created = datetime.now().isoformat()
+        latest = conn.execute(
+            "SELECT id FROM semantic_memory WHERE memory_key=? ORDER BY id DESC LIMIT 1",
+            (k,),
+        ).fetchone()
+        if latest:
+            keep_id = int(latest[0])
+            conn.execute(
+                """
+                UPDATE semantic_memory
+                SET category=?, value=?, embedding_json=?, created=?
+                WHERE id=?
+                """,
+                (c, v, json.dumps(emb), created, keep_id),
+            )
+            conn.execute("DELETE FROM semantic_memory WHERE memory_key=? AND id<>?", (k, keep_id))
+        else:
+            conn.execute(
+                "INSERT INTO semantic_memory (memory_key, category, value, embedding_json, created) VALUES (?,?,?,?,?)",
+                (k, c, v, json.dumps(emb), created),
+            )
         conn.commit()
     finally:
         conn.close()
@@ -177,14 +195,24 @@ def _recall_sqlite(q: str, limit: int, cat: str) -> str:
     q_emb = _embed_text(q)
     conn = _conn()
     try:
+        latest_rows_sql = """
+            SELECT s.memory_key, s.category, s.value, s.embedding_json
+            FROM semantic_memory s
+            JOIN (
+                SELECT memory_key, MAX(id) AS max_id
+                FROM semantic_memory
+                GROUP BY memory_key
+            ) latest
+              ON latest.max_id = s.id
+        """
         if cat:
             rows = conn.execute(
-                "SELECT memory_key, category, value, embedding_json FROM semantic_memory WHERE category=? ORDER BY id DESC LIMIT 1000",
+                latest_rows_sql + " WHERE s.category=? ORDER BY s.id DESC LIMIT 1000",
                 (cat,),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT memory_key, category, value, embedding_json FROM semantic_memory ORDER BY id DESC LIMIT 1000"
+                latest_rows_sql + " ORDER BY s.id DESC LIMIT 1000"
             ).fetchall()
     finally:
         conn.close()
@@ -302,7 +330,17 @@ def migrate_sqlite_to_chroma() -> str:
     conn = _conn()
     try:
         rows = conn.execute(
-            "SELECT memory_key, category, value FROM semantic_memory ORDER BY id"
+            """
+            SELECT s.memory_key, s.category, s.value
+            FROM semantic_memory s
+            JOIN (
+                SELECT memory_key, MAX(id) AS max_id
+                FROM semantic_memory
+                GROUP BY memory_key
+            ) latest
+              ON latest.max_id = s.id
+            ORDER BY s.id
+            """
         ).fetchall()
     finally:
         conn.close()

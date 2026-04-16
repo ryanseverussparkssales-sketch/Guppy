@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from inference_router import LAUNCHER_MODES_DISPLAY
+from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
 from .. import tokens as T
 
 
@@ -77,6 +77,27 @@ class AssistantView(QWidget):
         self._route_facts.setVisible(False)
         self._recovery_summary = QLabel("System health: stable", self)
         self._recovery_summary.setVisible(False)
+        self._context_bar = QFrame()
+        self._context_bar.setObjectName("home_context_bar")
+        self._context_bar.setStyleSheet(
+            f"QFrame#home_context_bar {{ background-color: rgba(255,250,243,0.52); border: 1px solid rgba(205,181,154,0.28); border-radius: 16px; }}"
+        )
+        context_bar_layout = QVBoxLayout(self._context_bar)
+        context_bar_layout.setContentsMargins(12, 9, 12, 9)
+        context_bar_layout.setSpacing(4)
+        for widget in (
+            self._background_event,
+            self._workspace_summary,
+            self._runtime_facts,
+            self._route_facts,
+            self._recovery_summary,
+        ):
+            widget.setWordWrap(True)
+            widget.setStyleSheet(
+                f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+            )
+            context_bar_layout.addWidget(widget)
+        self._context_bar.setVisible(False)
 
         self._starter_summary = QLabel(
             "Load a first draft into the composer."
@@ -140,6 +161,7 @@ class AssistantView(QWidget):
         self._chat_layout.addWidget(self._empty_state)
         self._chat_layout.addStretch()
         self._chat_scroll.setWidget(self._chat_content)
+        root.addWidget(self._context_bar)
         tcol.addWidget(self._chat_scroll, stretch=1)
         root.addWidget(transcript, stretch=1)
 
@@ -258,6 +280,20 @@ class AssistantView(QWidget):
         self.set_persona_options([("GUPPY", "guppy")], selected="guppy")
         self._sync_launcher_summary()
         self._refresh_empty_state()
+        self._sync_context_bar_visibility()
+
+    def _sync_context_bar_visibility(self) -> None:
+        visible = any(
+            widget.isVisible()
+            for widget in (
+                self._background_event,
+                self._workspace_summary,
+                self._runtime_facts,
+                self._route_facts,
+                self._recovery_summary,
+            )
+        )
+        self._context_bar.setVisible(visible)
 
     def _build_empty_state(self) -> QFrame:
         frame = QFrame()
@@ -582,6 +618,7 @@ class AssistantView(QWidget):
         self._workspace_summary.setText(f"Active workspace: {role}. {purpose}")
         self._workspace_summary.setVisible(True)
         self._entry_hint.setText(f"Start here in {name}: ask, continue, or use a starter.")
+        self._sync_context_bar_visibility()
 
     def set_background_status(self, text: str, healthy: bool = True) -> None:
         msg = (text or "ready").strip() or "ready"
@@ -599,6 +636,7 @@ class AssistantView(QWidget):
         self._background_event.setText(f"Latest activity: {msg}")
         self._background_event.setVisible(True)
         self._hero_subtitle.setText(msg)
+        self._sync_context_bar_visibility()
 
     def set_runtime_facts(
         self,
@@ -622,6 +660,7 @@ class AssistantView(QWidget):
             details.append(f"last request: {query}")
         self._runtime_facts.setText("Ready now: " + ", ".join(details) + ".")
         self._runtime_facts.setVisible(True)
+        self._sync_context_bar_visibility()
 
     def set_recovery_summary(self, text: str, healthy: bool = True) -> None:
         summary = (text or "stable").strip() or "stable"
@@ -637,6 +676,7 @@ class AssistantView(QWidget):
             f"color: {color}; font-family: '{T.FF_MONO}';"
             f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
+        self._sync_context_bar_visibility()
 
     def set_request_in_flight(self, in_flight: bool) -> None:
         self._request_in_flight_ui = in_flight

@@ -790,7 +790,7 @@ class ProactiveLoop:
         memory_context = []
         tasks_block = "No pending tasks."
         try:
-            import guppy_memory
+            from src.guppy.memory import memory as guppy_memory
             tasks_block = guppy_memory.get_tasks("pending")
             facts = guppy_memory.recall(limit=10)
             if tasks_block:

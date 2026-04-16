@@ -17,7 +17,7 @@ This is the primary operator runbook for the current codebase.
 
 - Primary UI: launcher (`ui/launcher/`)
 - Background collaboration: configured instances from `config/instances.json` (`guppy-primary`, optional `builder-collab`)
-- Historical specialist material: `legacy_surfaces/` and `src/guppy/merlin/` (not active desktop entrypoints)
+- Historical specialist material: `compat_shims/legacy_surfaces/` and `src/guppy/merlin/` (not active desktop entrypoints)
 - API: `src/guppy/api/server.py` (wrapper: `guppy_api.py`)
 - Hub app: `src/guppy/apps/hub_app.py` (wrapper: `guppy_hub.py`)
 

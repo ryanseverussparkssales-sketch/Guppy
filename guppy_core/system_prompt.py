@@ -41,19 +41,19 @@ _window_context_cache: tuple[float, str] = (0.0, "")
 REPORTS_DIR = Path.home() / "Documents" / "Guppy Reports"
 
 try:
-    import guppy_memory as _mem
+    from src.guppy.memory import memory as _mem
     _MEM = True
 except ImportError:
     _mem = None  # type: ignore[assignment]
     _MEM = False
 
 try:
-    from guppy_semantic_memory import build_semantic_prompt_context as _build_semantic_prompt_context
+    from src.guppy.memory.semantic import build_semantic_prompt_context as _build_semantic_prompt_context
 except Exception:
     _build_semantic_prompt_context = None
 
 try:
-    from guppy_daemon import get_daemon_manager, get_window_context  # noqa: F401
+    from src.guppy.daemon.daemon import get_daemon_manager, get_window_context  # noqa: F401
     DAEMON = True
 except ImportError:
     DAEMON = False
@@ -195,7 +195,7 @@ def _get_window_context_suffix() -> str:
     suffix = ""
     if DAEMON:
         try:
-            from guppy_daemon import get_daemon_manager as _gdm
+            from src.guppy.daemon.daemon import get_daemon_manager as _gdm
 
             daemon = _gdm()
             if daemon.is_running:
