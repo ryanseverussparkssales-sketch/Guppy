@@ -1534,6 +1534,16 @@ class LauncherWindow(QMainWindow):
     def _windows_ops_state_path(self) -> Path:
         return _RUNTIME / "windows_ops_state.json"
 
+    def _windows_release_receipt_path(self) -> Path:
+        return _RUNTIME / "windows_release_receipt.json"
+
+    def _windows_release_summary_path(self) -> Path:
+        return _RUNTIME / "windows_release_summary.md"
+
+    @staticmethod
+    def _beta_release_dry_run_report_path() -> Path:
+        return _RUNTIME / "beta_release_dry_run_report.json"
+
     @staticmethod
     def _windows_ops_chain_steps(action: str) -> list[str]:
         normalized = str(action or "").strip().lower()
@@ -1606,6 +1616,18 @@ class LauncherWindow(QMainWindow):
         return max(candidates, key=lambda path: path.stat().st_mtime)
 
     @staticmethod
+    def _preferred_package_output() -> Path:
+        repo_root = _RUNTIME.parent
+        for candidate in (
+            repo_root / "dist" / "Guppy" / "Guppy.exe",
+            repo_root / "dist" / "Guppy.exe",
+            repo_root / "dist" / "Guppy",
+        ):
+            if candidate.exists():
+                return candidate
+        return repo_root / "dist" / "Guppy.exe"
+
+    @staticmethod
     def _collect_windows_service_snapshot() -> dict[str, object]:
         return {
             "python_path": str(LauncherWindow._repo_python_path()),
@@ -1616,6 +1638,9 @@ class LauncherWindow(QMainWindow):
                 LauncherWindow._latest_runtime_artifact("diagnostics_bundle_*.json", "diagnostics_*.json")
             ),
             "pilot_exit_report": LauncherWindow._snapshot_file_signature(_RUNTIME / "pilot_exit_report.json"),
+            "beta_policy_report": LauncherWindow._snapshot_file_signature(_RUNTIME / "beta_policy_report.json"),
+            "beta_release_dry_run_report": LauncherWindow._snapshot_file_signature(_RUNTIME / "beta_release_dry_run_report.json"),
+            "package_output": LauncherWindow._snapshot_file_signature(LauncherWindow._preferred_package_output()),
         }
 
     @staticmethod
@@ -1635,6 +1660,9 @@ class LauncherWindow(QMainWindow):
             ("challenger_snapshot", "challenger snapshot refreshed"),
             ("diagnostics_bundle", "diagnostics bundle refreshed"),
             ("pilot_exit_report", "pilot exit report refreshed"),
+            ("beta_policy_report", "beta policy report refreshed"),
+            ("beta_release_dry_run_report", "beta release dry-run report refreshed"),
+            ("package_output", "desktop package refreshed"),
         ):
             previous = before.get(key, {})
             current = after.get(key, {})
@@ -1651,16 +1679,396 @@ class LauncherWindow(QMainWindow):
         return " | ".join(bits)
 
     @staticmethod
+    def _windows_ops_artifact_refs(action: str, snapshot: dict[str, object]) -> list[dict[str, object]]:
+        if not isinstance(snapshot, dict):
+            return []
+        normalized = str(action or "").strip().lower()
+        requested: list[tuple[str, str, str]] = []
+        if normalized in {"verify_runtime", "update_runtime", "repair_runtime", "restart_runtime"}:
+            requested.extend(
+                [
+                    ("diagnostics_bundle", "diagnostics", "diagnostics bundle"),
+                    ("challenger_snapshot", "challenger", "challenger snapshot"),
+                    ("pilot_exit_report", "pilot_exit", "pilot exit report"),
+                ]
+            )
+        if normalized == "package_desktop":
+            requested.extend(
+                [
+                    ("package_output", "package", "desktop package"),
+                    ("beta_policy_report", "beta_policy", "beta policy report"),
+                    ("diagnostics_bundle", "diagnostics", "diagnostics bundle"),
+                ]
+            )
+        if normalized == "release_dry_run":
+            requested.extend(
+                [
+                    ("beta_release_dry_run_report", "release_dry_run", "release dry-run report"),
+                    ("pilot_exit_report", "pilot_exit", "pilot exit report"),
+                    ("beta_policy_report", "beta_policy", "beta policy report"),
+                ]
+            )
+        if normalized == "start_supervised_api":
+            requested.append(("diagnostics_bundle", "diagnostics", "diagnostics bundle"))
+        seen: set[str] = set()
+        artifacts: list[dict[str, object]] = []
+        for key, artifact_id, label in requested:
+            if key in seen:
+                continue
+            seen.add(key)
+            item = snapshot.get(key, {})
+            if not isinstance(item, dict) or not bool(item.get("exists")):
+                continue
+            path = str(item.get("path", "") or "").strip()
+            if not path:
+                continue
+            artifacts.append(
+                {
+                    "id": artifact_id,
+                    "label": label,
+                    "path": path,
+                    "mtime": str(item.get("mtime", "") or "").strip(),
+                    "size": int(item.get("size", 0) or 0),
+                }
+            )
+        return artifacts
+
+    @staticmethod
+    def _summarize_release_dry_run_report(report: dict[str, object]) -> dict[str, object]:
+        if not isinstance(report, dict):
+            return {}
+        checks = [item for item in report.get("checks", []) if isinstance(item, dict)] if isinstance(report.get("checks"), list) else []
+        required_files = [item for item in report.get("required_files", []) if isinstance(item, dict)] if isinstance(report.get("required_files"), list) else []
+        passed_checks = sum(1 for item in checks if bool(item.get("ok", False)))
+        total_checks = len(checks)
+        failed_checks = [
+            str(item.get("name", "") or "check").strip()
+            for item in checks
+            if not bool(item.get("ok", False))
+        ]
+        missing_files = [
+            str(item.get("path", "") or "").strip()
+            for item in required_files
+            if not bool(item.get("exists", False))
+        ]
+        ok = bool(report.get("ok", False))
+        status = "PASS" if ok else "FAIL"
+        summary_bits = [status]
+        if total_checks:
+            summary_bits.append(f"checks {passed_checks}/{total_checks}")
+        if required_files:
+            summary_bits.append("required files OK" if not missing_files else f"missing files {len(missing_files)}")
+        detail_bits: list[str] = []
+        if failed_checks:
+            detail_bits.append("failed checks: " + ", ".join(failed_checks[:3]))
+        if missing_files:
+            rendered_missing = ", ".join(Path(path).name or path for path in missing_files[:3])
+            detail_bits.append("missing: " + rendered_missing)
+        if not detail_bits and ok:
+            detail_bits.append("all dry-run checks passed and required handoff files are present")
+        recommendations: list[str] = []
+        recommendation_details: list[dict[str, str]] = []
+        if "beta_policy" in failed_checks:
+            text = "Fix the beta policy gate first by rerunning verify_beta_package_policy and reviewing the allowlist/policy docs."
+            recommendations.append(text)
+            recommendation_details.append(
+                {
+                    "text": text,
+                    "fix_target": "config/beta_tool_allowlist.txt / docs/REMOTE_BETA_EXE_POLICY.md",
+                    "docs_hint": "docs/PACKAGING.md",
+                    "entry_point": "python tools/verify_beta_package_policy.py",
+                }
+            )
+        if "pilot_gate" in failed_checks:
+            text = "Fix the pilot gate next by reviewing pilot_exit_check failures and rerunning the release dry-run."
+            recommendations.append(text)
+            recommendation_details.append(
+                {
+                    "text": text,
+                    "fix_target": "tools/pilot_exit_check.py / runtime/pilot_exit_report.json",
+                    "docs_hint": "docs/PACKAGING.md",
+                    "entry_point": "python tools/pilot_exit_check.py --allow-limited-go",
+                }
+            )
+        for path in missing_files:
+            target = Path(path).name or path
+            text = f"Restore the required handoff file {target} before the next release dry-run."
+            recommendations.append(text)
+            recommendation_details.append(
+                {
+                    "text": text,
+                    "fix_target": str(path),
+                    "docs_hint": "docs/PACKAGING.md",
+                    "entry_point": str(path),
+                }
+            )
+        if not recommendations and ok:
+            text = "Release gate is green; package or hand off the receipt and dry-run report."
+            recommendations.append(text)
+            recommendation_details.append(
+                {
+                    "text": text,
+                    "fix_target": "runtime/windows_release_receipt.json",
+                    "docs_hint": "docs/PACKAGING.md",
+                    "entry_point": "python tools/beta_release_dry_run.py",
+                }
+            )
+        check_results = [
+            {
+                "name": str(item.get("name", "") or "check").strip(),
+                "ok": bool(item.get("ok", False)),
+                "returncode": int(item.get("returncode", 0) or 0),
+            }
+            for item in checks
+        ]
+        required_file_results = [
+            {
+                "path": str(item.get("path", "") or "").strip(),
+                "exists": bool(item.get("exists", False)),
+            }
+            for item in required_files
+        ]
+        return {
+            "ok": ok,
+            "summary": " | ".join(summary_bits),
+            "detail": " | ".join(detail_bits),
+            "passed_checks": passed_checks,
+            "total_checks": total_checks,
+            "failed_checks": failed_checks,
+            "missing_files": missing_files,
+            "checks": check_results,
+            "required_files": required_file_results,
+            "recommendations": recommendations[:4],
+            "recommendation_details": recommendation_details[:4],
+        }
+
+    def _release_dry_run_gate_details(self) -> dict[str, object]:
+        path = self._beta_release_dry_run_report_path()
+        if not path.exists():
+            return {}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        details = self._summarize_release_dry_run_report(payload if isinstance(payload, dict) else {})
+        if not details:
+            return {}
+        return {
+            **details,
+            "path": str(path),
+        }
+
+    @staticmethod
+    def _write_windows_release_summary(summary_path: Path, payload: dict[str, object]) -> str:
+        release_gate = payload.get("release_gate", {}) if isinstance(payload.get("release_gate"), dict) else {}
+        operator_guidance = payload.get("operator_guidance", {}) if isinstance(payload.get("operator_guidance"), dict) else {}
+        artifacts = [item for item in payload.get("artifacts", []) if isinstance(item, dict)] if isinstance(payload.get("artifacts"), list) else []
+        recommendations = [str(item).strip() for item in release_gate.get("recommendations", []) if str(item).strip()] if isinstance(release_gate.get("recommendations"), list) else []
+        recommendation_details = [item for item in release_gate.get("recommendation_details", []) if isinstance(item, dict)] if isinstance(release_gate.get("recommendation_details"), list) else []
+        lines = [
+            "# Windows Release Summary",
+            "",
+            f"- Timestamp: {str(payload.get('timestamp', '') or '').strip()}",
+            f"- Stage: {str(payload.get('release_stage', '') or '').strip()}",
+            f"- Action: {str(payload.get('action', '') or '').strip()}",
+            f"- Result: {'PASS' if bool(payload.get('ok', False)) else 'FAIL'}",
+            f"- Summary: {str(payload.get('summary', '') or '').strip()}",
+        ]
+        changes = str(payload.get("changes", "") or "").strip()
+        if changes:
+            lines.append(f"- What changed: {changes}")
+        gate_summary = str(release_gate.get("summary", "") or "").strip()
+        gate_detail = str(release_gate.get("detail", "") or "").strip()
+        if gate_summary:
+            lines.extend(["", "## Release Gate", "", f"- Verdict: {gate_summary}"])
+            if gate_detail:
+                lines.append(f"- Detail: {gate_detail}")
+            passed = release_gate.get("passed_checks")
+            total = release_gate.get("total_checks")
+            if passed is not None and total is not None:
+                lines.append(f"- Checks: {int(passed or 0)}/{int(total or 0)} passed")
+        if recommendation_details or recommendations:
+            lines.extend(["", "## Fix-First", ""])
+            if recommendation_details:
+                for item in recommendation_details[:3]:
+                    text = str(item.get("text", "") or "").strip()
+                    if not text:
+                        continue
+                    lines.append(f"- {text}")
+                    fix_target = str(item.get("fix_target", "") or "").strip()
+                    docs_hint = str(item.get("docs_hint", "") or "").strip()
+                    entry_point = str(item.get("entry_point", "") or "").strip()
+                    if fix_target:
+                        lines.append(f"  Fix in: {fix_target}")
+                    if docs_hint:
+                        lines.append(f"  Doc: {docs_hint}")
+                    if entry_point:
+                        lines.append(f"  Cmd: {entry_point}")
+            else:
+                for text in recommendations[:3]:
+                    lines.append(f"- {text}")
+        if artifacts:
+            lines.extend(["", "## Artifacts", ""])
+            for item in artifacts[:6]:
+                label = str(item.get("label", "") or item.get("id", "") or "artifact").strip()
+                path = str(item.get("path", "") or "").strip()
+                if label and path:
+                    lines.append(f"- {label}: {path}")
+        next_step = str(operator_guidance.get("next_step", "") or "").strip()
+        if next_step:
+            lines.extend(["", "## Operator Guidance", "", f"- Next: {next_step}"])
+            fix_target = str(operator_guidance.get("fix_target", "") or "").strip()
+            docs_hint = str(operator_guidance.get("docs_hint", "") or "").strip()
+            entry_point = str(operator_guidance.get("entry_point", "") or "").strip()
+            if fix_target:
+                lines.append(f"- Fix target: {fix_target}")
+            if docs_hint:
+                lines.append(f"- Doc: {docs_hint}")
+            if entry_point:
+                lines.append(f"- Command: {entry_point}")
+        summary_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        return str(summary_path)
+
+    def _write_windows_release_receipt(
+        self,
+        action: str,
+        summary: str,
+        changes: str,
+        *,
+        ok: bool,
+        commands: list[str] | None = None,
+        event_id: str = "",
+        steps_completed: int | None = None,
+        steps_total: int | None = None,
+        phase: str = "completed",
+        next_step: str = "",
+        fix_target: str = "",
+        docs_hint: str = "",
+        entry_point: str = "",
+        artifacts: list[dict[str, object]] | None = None,
+        gate_summary: str = "",
+        gate_detail: str = "",
+        gate_checks: list[dict[str, object]] | None = None,
+        gate_required_files: list[dict[str, object]] | None = None,
+        gate_failed_checks: list[str] | None = None,
+        gate_missing_files: list[str] | None = None,
+        gate_passed_checks: int | None = None,
+        gate_total_checks: int | None = None,
+        gate_recommendations: list[str] | None = None,
+        gate_recommendation_details: list[dict[str, object]] | None = None,
+    ) -> str:
+        receipt_path = self._windows_release_receipt_path()
+        summary_path = self._windows_release_summary_path()
+        artifact_payload = [
+            {
+                "id": str(item.get("id", "") or "").strip(),
+                "label": str(item.get("label", "") or "").strip(),
+                "path": str(item.get("path", "") or "").strip(),
+                "mtime": str(item.get("mtime", "") or "").strip(),
+                "size": int(item.get("size", 0) or 0),
+            }
+            for item in (artifacts or [])
+            if isinstance(item, dict) and str(item.get("path", "") or "").strip()
+        ]
+        release_stage = "servicing"
+        normalized = str(action or "").strip().lower()
+        if normalized == "package_desktop":
+            release_stage = "package"
+        elif normalized == "release_dry_run":
+            release_stage = "release_gate"
+        elif normalized in {"verify_runtime", "update_runtime"}:
+            release_stage = "verification"
+        elif normalized == "start_supervised_api":
+            release_stage = "supervision"
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "release_stage": release_stage,
+            "action": normalized,
+            "ok": bool(ok),
+            "phase": str(phase or "completed").strip().lower() or "completed",
+            "summary": str(summary or "").strip(),
+            "changes": str(changes or "").strip(),
+            "event_id": str(event_id or "").strip(),
+            "steps_completed": int(steps_completed or 0) if steps_completed is not None else None,
+            "steps_total": int(steps_total or 0) if steps_total is not None else None,
+            "commands": [str(item).strip() for item in (commands or []) if str(item).strip()],
+            "artifacts": artifact_payload,
+            "operator_guidance": {
+                "next_step": str(next_step or "").strip(),
+                "fix_target": str(fix_target or "").strip(),
+                "docs_hint": str(docs_hint or "").strip(),
+                "entry_point": str(entry_point or "").strip(),
+            },
+            "release_gate": {
+                "summary": str(gate_summary or "").strip(),
+                "detail": str(gate_detail or "").strip(),
+                "passed_checks": int(gate_passed_checks or 0) if gate_passed_checks is not None else None,
+                "total_checks": int(gate_total_checks or 0) if gate_total_checks is not None else None,
+                "failed_checks": [str(item).strip() for item in (gate_failed_checks or []) if str(item).strip()],
+                "missing_files": [str(item).strip() for item in (gate_missing_files or []) if str(item).strip()],
+                "checks": [
+                    {
+                        "name": str(item.get("name", "") or "").strip(),
+                        "ok": bool(item.get("ok", False)),
+                        "returncode": int(item.get("returncode", 0) or 0),
+                    }
+                    for item in (gate_checks or [])
+                    if isinstance(item, dict) and str(item.get("name", "") or "").strip()
+                ],
+                "required_files": [
+                    {
+                        "path": str(item.get("path", "") or "").strip(),
+                        "exists": bool(item.get("exists", False)),
+                    }
+                    for item in (gate_required_files or [])
+                    if isinstance(item, dict) and str(item.get("path", "") or "").strip()
+                ],
+                "recommendations": [str(item).strip() for item in (gate_recommendations or []) if str(item).strip()],
+                "recommendation_details": [
+                    {
+                        "text": str(item.get("text", "") or "").strip(),
+                        "fix_target": str(item.get("fix_target", "") or "").strip(),
+                        "docs_hint": str(item.get("docs_hint", "") or "").strip(),
+                        "entry_point": str(item.get("entry_point", "") or "").strip(),
+                    }
+                    for item in (gate_recommendation_details or [])
+                    if isinstance(item, dict) and str(item.get("text", "") or "").strip()
+                ],
+            },
+            "paths": {
+                "state_path": str(self._windows_ops_state_path()),
+                "receipt_path": str(receipt_path),
+                "summary_path": str(summary_path),
+            },
+        }
+        _write_json(receipt_path, payload)
+        self._write_windows_release_summary(summary_path, payload)
+        return str(receipt_path)
+
+    @staticmethod
     def _windows_ops_guidance(action: str, *, ok: bool, phase: str = "completed") -> dict[str, str]:
         normalized = str(action or "").strip().lower()
         lifecycle_phase = str(phase or "completed").strip().lower() or "completed"
         if lifecycle_phase == "queued":
-            if normalized in {"verify_runtime", "update_runtime"}:
+            if normalized in {"verify_runtime", "update_runtime", "package_desktop", "release_dry_run"}:
                 return {
                     "next_step": "Watch the App Mgmt terminal for completion evidence and wait for the servicing ref to appear.",
                     "fix_target": "App Mgmt > Windows Ops",
-                    "docs_hint": "docs/TROUBLESHOOTING.md",
-                    "entry_point": "python src/guppy/cli/launch.py launcher",
+                    "docs_hint": "docs/PACKAGING.md" if normalized in {"package_desktop", "release_dry_run"} else "docs/TROUBLESHOOTING.md",
+                    "entry_point": (
+                        "python tools/beta_release_dry_run.py"
+                        if normalized == "release_dry_run"
+                        else "build_executable.bat --no-clean --ci"
+                        if normalized == "package_desktop"
+                        else "python src/guppy/cli/launch.py launcher"
+                    ),
+                }
+            if normalized == "start_supervised_api":
+                return {
+                    "next_step": "Wait for the supervised API reachability check to finish, then verify the runtime if you need full post-start evidence.",
+                    "fix_target": "bin/launch_api_supervised.bat",
+                    "docs_hint": "docs/SUPERVISION_WINDOWS.md",
+                    "entry_point": "bin/launch_api_supervised.bat",
                 }
             if normalized in {"restart_runtime", "repair_runtime"}:
                 return {
@@ -1683,6 +2091,27 @@ class LauncherWindow(QMainWindow):
                     "fix_target": "build_executable.bat",
                     "docs_hint": "docs/PACKAGING.md",
                     "entry_point": "build_executable.bat --no-clean",
+                }
+            if normalized == "package_desktop":
+                return {
+                    "next_step": "Desktop packaging passed. Share the build from dist or rerun VERIFY before broader rollout if runtime changed again.",
+                    "fix_target": "dist/Guppy or dist/Guppy.exe",
+                    "docs_hint": "docs/PACKAGING.md",
+                    "entry_point": "build_executable.bat --no-clean --ci",
+                }
+            if normalized == "release_dry_run":
+                return {
+                    "next_step": "Release dry-run passed. Review the receipt and dry-run report, then package or hand off the pilot gate evidence.",
+                    "fix_target": "runtime/beta_release_dry_run_report.json",
+                    "docs_hint": "docs/PACKAGING.md",
+                    "entry_point": "python tools/beta_release_dry_run.py",
+                }
+            if normalized == "start_supervised_api":
+                return {
+                    "next_step": "Supervised API launch passed. Run VERIFY next if you want fresh runtime evidence from inside App Mgmt.",
+                    "fix_target": "bin/launch_api_supervised.bat",
+                    "docs_hint": "docs/SUPERVISION_WINDOWS.md",
+                    "entry_point": "bin/launch_api_supervised.bat",
                 }
             if normalized == "restart_runtime":
                 return {
@@ -1712,6 +2141,27 @@ class LauncherWindow(QMainWindow):
                     "fix_target": "requirements.txt / requirements-optional.txt / build_executable.bat",
                     "docs_hint": "docs/PACKAGING.md",
                     "entry_point": "build_executable.bat --no-clean",
+                }
+            if normalized == "package_desktop":
+                return {
+                    "next_step": "Open the packaging evidence, fix the build script or missing assets, then rerun PACKAGE.",
+                    "fix_target": "build_executable.bat / Guppy.spec / docs/PACKAGING.md",
+                    "docs_hint": "docs/PACKAGING.md",
+                    "entry_point": "build_executable.bat --no-clean --ci",
+                }
+            if normalized == "release_dry_run":
+                return {
+                    "next_step": "Open the dry-run evidence, fix the failing gate or missing handoff file, then rerun RELEASE DRY RUN.",
+                    "fix_target": "tools/beta_release_dry_run.py / tools/pilot_exit_check.py / docs/REMOTE_BETA_EXE_POLICY.md",
+                    "docs_hint": "docs/PACKAGING.md",
+                    "entry_point": "python tools/beta_release_dry_run.py",
+                }
+            if normalized == "start_supervised_api":
+                return {
+                    "next_step": "Check the supervised launch script and API startup prerequisites, then rerun SUPERVISED API or fall back to REPAIR.",
+                    "fix_target": "bin/launch_api_supervised.bat / guppy_api.py",
+                    "docs_hint": "docs/SUPERVISION_WINDOWS.md",
+                    "entry_point": "bin/launch_api_supervised.bat",
                 }
             if normalized == "restart_runtime":
                 return {
@@ -1778,7 +2228,60 @@ class LauncherWindow(QMainWindow):
         fix_target: str = "",
         docs_hint: str = "",
         entry_point: str = "",
+        artifacts: list[dict[str, object]] | None = None,
+        gate_summary: str = "",
+        gate_detail: str = "",
+        gate_checks: list[dict[str, object]] | None = None,
+        gate_required_files: list[dict[str, object]] | None = None,
+        gate_failed_checks: list[str] | None = None,
+        gate_missing_files: list[str] | None = None,
+        gate_passed_checks: int | None = None,
+        gate_total_checks: int | None = None,
+        gate_recommendations: list[str] | None = None,
+        gate_recommendation_details: list[dict[str, object]] | None = None,
     ) -> None:
+        artifact_payload = [
+            {
+                "id": str(item.get("id", "") or "").strip(),
+                "label": str(item.get("label", "") or "").strip(),
+                "path": str(item.get("path", "") or "").strip(),
+                "mtime": str(item.get("mtime", "") or "").strip(),
+                "size": int(item.get("size", 0) or 0),
+            }
+            for item in (artifacts or [])
+            if isinstance(item, dict) and str(item.get("path", "") or "").strip()
+        ]
+        release_receipt = ""
+        release_summary = ""
+        normalized_phase = str(phase or "completed").strip().lower() or "completed"
+        if normalized_phase != "queued":
+            release_receipt = self._write_windows_release_receipt(
+                action,
+                summary,
+                changes,
+                ok=ok,
+                commands=commands,
+                event_id=event_id,
+                steps_completed=steps_completed,
+                steps_total=steps_total,
+                phase=normalized_phase,
+                next_step=next_step,
+                fix_target=fix_target,
+                docs_hint=docs_hint,
+                entry_point=entry_point,
+                artifacts=artifact_payload,
+                gate_summary=gate_summary,
+                gate_detail=gate_detail,
+                gate_checks=gate_checks,
+                gate_required_files=gate_required_files,
+                gate_failed_checks=gate_failed_checks,
+                gate_missing_files=gate_missing_files,
+                gate_passed_checks=gate_passed_checks,
+                gate_total_checks=gate_total_checks,
+                gate_recommendations=gate_recommendations,
+                gate_recommendation_details=gate_recommendation_details,
+            )
+            release_summary = str(self._windows_release_summary_path())
         payload = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "action": str(action or "").strip().lower(),
@@ -1794,6 +2297,26 @@ class LauncherWindow(QMainWindow):
             "fix_target": str(fix_target or "").strip(),
             "docs_hint": str(docs_hint or "").strip(),
             "entry_point": str(entry_point or "").strip(),
+            "artifacts": artifact_payload,
+            "release_receipt": release_receipt,
+            "release_summary": release_summary,
+            "gate_summary": str(gate_summary or "").strip(),
+            "gate_detail": str(gate_detail or "").strip(),
+            "gate_failed_checks": [str(item).strip() for item in (gate_failed_checks or []) if str(item).strip()],
+            "gate_missing_files": [str(item).strip() for item in (gate_missing_files or []) if str(item).strip()],
+            "gate_passed_checks": int(gate_passed_checks or 0) if gate_passed_checks is not None else None,
+            "gate_total_checks": int(gate_total_checks or 0) if gate_total_checks is not None else None,
+            "gate_recommendations": [str(item).strip() for item in (gate_recommendations or []) if str(item).strip()],
+            "gate_recommendation_details": [
+                {
+                    "text": str(item.get("text", "") or "").strip(),
+                    "fix_target": str(item.get("fix_target", "") or "").strip(),
+                    "docs_hint": str(item.get("docs_hint", "") or "").strip(),
+                    "entry_point": str(item.get("entry_point", "") or "").strip(),
+                }
+                for item in (gate_recommendation_details or [])
+                if isinstance(item, dict) and str(item.get("text", "") or "").strip()
+            ],
         }
         _write_json(self._windows_ops_state_path(), payload)
         self._advanced_view.set_windows_ops_feedback(
@@ -1814,6 +2337,22 @@ class LauncherWindow(QMainWindow):
             fix_target=str(fix_target or "").strip(),
             docs_hint=str(docs_hint or "").strip(),
             entry_point=str(entry_point or "").strip(),
+            artifacts=artifact_payload,
+            receipt_path=release_receipt,
+            summary_path=release_summary,
+            gate_summary=str(gate_summary or "").strip(),
+            gate_detail=str(gate_detail or "").strip(),
+            gate_recommendations=[str(item).strip() for item in (gate_recommendations or []) if str(item).strip()],
+            gate_recommendation_details=[
+                {
+                    "text": str(item.get("text", "") or "").strip(),
+                    "fix_target": str(item.get("fix_target", "") or "").strip(),
+                    "docs_hint": str(item.get("docs_hint", "") or "").strip(),
+                    "entry_point": str(item.get("entry_point", "") or "").strip(),
+                }
+                for item in (gate_recommendation_details or [])
+                if isinstance(item, dict) and str(item.get("text", "") or "").strip()
+            ],
         )
 
     def _start_windows_ops_chain(self, action: str) -> None:
@@ -1863,6 +2402,8 @@ class LauncherWindow(QMainWindow):
         )
         if final_detail:
             change_text = f"{change_text} Last result: {final_detail}" if change_text else f"Last result: {final_detail}"
+        post_snapshot = self._collect_windows_service_snapshot()
+        artifacts = self._windows_ops_artifact_refs(parent_action, post_snapshot)
         self._record_windows_ops_state(
             parent_action,
             summary_text,
@@ -1875,6 +2416,7 @@ class LauncherWindow(QMainWindow):
             fix_target=str(guidance.get("fix_target", "") or ""),
             docs_hint=str(guidance.get("docs_hint", "") or ""),
             entry_point=str(guidance.get("entry_point", "") or ""),
+            artifacts=artifacts,
         )
         self._log_launcher_event(
             "windows_ops_completed",
@@ -1885,6 +2427,9 @@ class LauncherWindow(QMainWindow):
             summary=summary_text,
             next_step=str(guidance.get("next_step", "") or ""),
             fix_target=str(guidance.get("fix_target", "") or ""),
+            artifacts=artifacts,
+            release_receipt=str(self._windows_release_receipt_path()),
+            release_summary=str(self._windows_release_summary_path()),
         )
         self._active_windows_ops_chain = None
         return True
@@ -1899,8 +2444,22 @@ class LauncherWindow(QMainWindow):
         pre_snapshot = payload.get("pre_snapshot", {}) if isinstance(payload.get("pre_snapshot"), dict) else {}
         post_snapshot = self._collect_windows_service_snapshot()
         dynamic_changes = self._windows_service_snapshot_changes(pre_snapshot, post_snapshot)
+        artifacts = self._windows_ops_artifact_refs(action, post_snapshot)
+        gate_details = self._release_dry_run_gate_details() if action == "release_dry_run" else {}
         if dynamic_changes:
             changes = f"{changes} | {dynamic_changes}" if changes else dynamic_changes
+        gate_summary = str(gate_details.get("summary", "") or "").strip()
+        gate_detail = str(gate_details.get("detail", "") or "").strip()
+        gate_checks = [item for item in gate_details.get("checks", []) if isinstance(item, dict)] if isinstance(gate_details.get("checks"), list) else []
+        gate_required_files = [item for item in gate_details.get("required_files", []) if isinstance(item, dict)] if isinstance(gate_details.get("required_files"), list) else []
+        gate_failed_checks = [str(item).strip() for item in gate_details.get("failed_checks", []) if str(item).strip()] if isinstance(gate_details.get("failed_checks"), list) else []
+        gate_missing_files = [str(item).strip() for item in gate_details.get("missing_files", []) if str(item).strip()] if isinstance(gate_details.get("missing_files"), list) else []
+        gate_passed_checks = int(gate_details.get("passed_checks", 0) or 0) if gate_details.get("passed_checks") is not None else None
+        gate_total_checks = int(gate_details.get("total_checks", 0) or 0) if gate_details.get("total_checks") is not None else None
+        gate_recommendations = [str(item).strip() for item in gate_details.get("recommendations", []) if str(item).strip()] if isinstance(gate_details.get("recommendations"), list) else []
+        gate_recommendation_details = [item for item in gate_details.get("recommendation_details", []) if isinstance(item, dict)] if isinstance(gate_details.get("recommendation_details"), list) else []
+        if gate_detail:
+            changes = f"{changes} | {gate_detail}" if changes else gate_detail
         ok = bool(payload.get("ok", False))
         guidance = self._windows_ops_guidance(action, ok=ok, phase="completed")
         event_id = str(payload.get("id", "") or "").strip()
@@ -1924,6 +2483,17 @@ class LauncherWindow(QMainWindow):
             fix_target=str(guidance.get("fix_target", "") or ""),
             docs_hint=str(guidance.get("docs_hint", "") or ""),
             entry_point=str(guidance.get("entry_point", "") or ""),
+            artifacts=artifacts,
+            gate_summary=gate_summary,
+            gate_detail=gate_detail,
+            gate_checks=gate_checks,
+            gate_required_files=gate_required_files,
+            gate_failed_checks=gate_failed_checks,
+            gate_missing_files=gate_missing_files,
+            gate_passed_checks=gate_passed_checks,
+            gate_total_checks=gate_total_checks,
+            gate_recommendations=gate_recommendations,
+            gate_recommendation_details=gate_recommendation_details,
         )
         self._log_launcher_event(
             "windows_ops_completed",
@@ -1935,6 +2505,19 @@ class LauncherWindow(QMainWindow):
             event_id=event_id,
             next_step=str(guidance.get("next_step", "") or ""),
             fix_target=str(guidance.get("fix_target", "") or ""),
+            artifacts=artifacts,
+            release_receipt=str(self._windows_release_receipt_path()),
+            release_summary=str(self._windows_release_summary_path()),
+            gate_summary=gate_summary,
+            gate_detail=gate_detail,
+            gate_failed_checks=gate_failed_checks,
+            gate_missing_files=gate_missing_files,
+            gate_passed_checks=gate_passed_checks,
+            gate_total_checks=gate_total_checks,
+            gate_recommendations=gate_recommendations,
+            gate_fix_target=str(gate_recommendation_details[0].get("fix_target", "") or "").strip() if gate_recommendation_details else "",
+            gate_fix_docs=str(gate_recommendation_details[0].get("docs_hint", "") or "").strip() if gate_recommendation_details else "",
+            gate_fix_command=str(gate_recommendation_details[0].get("entry_point", "") or "").strip() if gate_recommendation_details else "",
         )
 
     def _load_tool_states(self) -> None:
@@ -2646,6 +3229,28 @@ class LauncherWindow(QMainWindow):
         except Exception as e:
             return False, str(e)
 
+    def _start_supervised_api_subprocess(self) -> tuple[bool, str]:
+        """Launch the supervised API batch entry point. Returns (started, msg)."""
+        root = Path(__file__).resolve().parent.parent.parent
+        script = root / "bin" / "launch_api_supervised.bat"
+        if not script.exists():
+            return False, "launch_api_supervised.bat not found"
+        try:
+            kwargs: dict[str, object] = {"cwd": str(root)}
+            if sys.platform == "win32":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                subprocess.Popen(["cmd.exe", "/c", str(script)], **kwargs)
+            else:
+                subprocess.Popen([str(script)], **kwargs)
+            deadline = time.time() + 8.0
+            while time.time() < deadline:
+                time.sleep(0.5)
+                if self._api_reachable(timeout=0.8):
+                    return True, "supervised api started and reachable"
+            return False, "supervised api launcher started but the API is not yet reachable"
+        except Exception as exc:
+            return False, str(exc)
+
     def _direct_warmup(self) -> dict:
         """Warmup: check freshness of key runtime files."""
         stale, fresh = [], []
@@ -2855,6 +3460,29 @@ class LauncherWindow(QMainWindow):
                 ],
                 "changes": "Refreshes the launcher Python toolchain plus base and optional runtime dependencies, then runs post-update validation.",
             }
+        if target == "package_desktop":
+            return {
+                "label": "WINDOWS PACKAGE",
+                "commands": [
+                    "cmd /c build_executable.bat --no-clean --ci",
+                    f"{python_bin} tools/verify_beta_package_policy.py",
+                ],
+                "changes": "Builds a desktop package through the supported batch entry point, then runs beta package policy verification.",
+            }
+        if target == "release_dry_run":
+            return {
+                "label": "WINDOWS RELEASE DRY RUN",
+                "commands": [
+                    f"{python_bin} tools/beta_release_dry_run.py",
+                ],
+                "changes": "Runs the beta release dry-run gate and writes a release-facing report that can travel with the servicing receipt.",
+            }
+        if target == "start_supervised_api":
+            return {
+                "label": "SUPERVISED API",
+                "commands": [],
+                "changes": "Launches the supervised API batch entry point and checks API reachability from the launcher.",
+            }
         if target == "restart_runtime":
             return {
                 "label": "WINDOWS RESTART",
@@ -2879,7 +3507,7 @@ class LauncherWindow(QMainWindow):
         plan = self._windows_ops_plan(target)
         label = str(plan.get("label", "") or "").strip()
         changes = str(plan.get("changes", "") or "").strip()
-        if target in {"verify_runtime", "update_runtime"}:
+        if target in {"verify_runtime", "update_runtime", "package_desktop", "release_dry_run"}:
             label, commands = self._windows_ops_recipe(target)
             if not commands:
                 self._status_panel.append_syslog(f"windows ops unavailable: {action}")
@@ -2943,6 +3571,62 @@ class LauncherWindow(QMainWindow):
                     next_step=str(failed_guidance.get("next_step", "") or ""),
                     fix_target=str(failed_guidance.get("fix_target", "") or ""),
                 )
+            return
+        if target == "start_supervised_api":
+            guidance = self._windows_ops_guidance(target, ok=True, phase="queued")
+            summary = "Supervised API launch requested from App Mgmt"
+            self._status_panel.append_syslog("supervised api requested")
+            self._set_daily_activity(summary)
+            self._record_windows_ops_state(
+                target,
+                summary,
+                changes,
+                ok=True,
+                phase="queued",
+                next_step=str(guidance.get("next_step", "") or ""),
+                fix_target=str(guidance.get("fix_target", "") or ""),
+                docs_hint=str(guidance.get("docs_hint", "") or ""),
+                entry_point=str(guidance.get("entry_point", "") or ""),
+            )
+            self._log_launcher_event(
+                "windows_ops_action",
+                action=target,
+                queued=True,
+                next_step=str(guidance.get("next_step", "") or ""),
+                fix_target=str(guidance.get("fix_target", "") or ""),
+            )
+            started, detail = self._start_supervised_api_subprocess()
+            if started:
+                self._refresh_api_auth_state("start_supervised_api")
+            final_guidance = self._windows_ops_guidance(target, ok=started, phase="completed")
+            final_summary = detail or ("supervised api started and reachable" if started else "supervised api did not become reachable")
+            artifacts = self._windows_ops_artifact_refs(target, self._collect_windows_service_snapshot())
+            self._record_windows_ops_state(
+                target,
+                final_summary,
+                changes,
+                ok=started,
+                phase="completed",
+                next_step=str(final_guidance.get("next_step", "") or ""),
+                fix_target=str(final_guidance.get("fix_target", "") or ""),
+                docs_hint=str(final_guidance.get("docs_hint", "") or ""),
+                entry_point=str(final_guidance.get("entry_point", "") or ""),
+                artifacts=artifacts,
+            )
+            self._log_launcher_event(
+                "windows_ops_completed",
+                action=target,
+                ok=started,
+                summary=final_summary,
+                next_step=str(final_guidance.get("next_step", "") or ""),
+                fix_target=str(final_guidance.get("fix_target", "") or ""),
+                artifacts=artifacts,
+                release_receipt=str(self._windows_release_receipt_path()),
+                release_summary=str(self._windows_release_summary_path()),
+            )
+            self._status_panel.append_syslog(final_summary)
+            self._advanced_view.append_log(final_summary)
+            self._set_daily_activity(final_summary)
             return
         if target == "restart_runtime":
             summary = "Windows restart queued: restart daemon -> warmup -> audit"

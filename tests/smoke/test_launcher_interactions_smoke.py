@@ -754,11 +754,35 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             fix_target="build_executable.bat",
             docs_hint="docs/PACKAGING.md",
             entry_point="build_executable.bat --no-clean",
+            artifacts=[
+                {"id": "diagnostics", "label": "diagnostics bundle", "path": "runtime/diagnostics_bundle_20260415_120000.json"},
+                {"id": "challenger", "label": "challenger snapshot", "path": "runtime/runtime_challenger_snapshot.json"},
+            ],
+            receipt_path="runtime/windows_release_receipt.json",
+            summary_path="runtime/windows_release_summary.md",
+            gate_summary="PASS | checks 2/2 | required files OK",
+            gate_detail="all dry-run checks passed and required handoff files are present",
+            gate_recommendations=["Release gate is green; package or hand off the receipt and dry-run report."],
+            gate_recommendation_details=[
+                {
+                    "text": "Release gate is green; package or hand off the receipt and dry-run report.",
+                    "fix_target": "runtime/windows_release_receipt.json",
+                    "docs_hint": "docs/PACKAGING.md",
+                    "entry_point": "python tools/beta_release_dry_run.py",
+                }
+            ],
         )
 
         self.assertIn("build_executable.bat", view._windows_next_lbl.text())
         self.assertIn("docs/PACKAGING.md", view._windows_next_lbl.text())
         self.assertIn("Ref: recipe-1", view._windows_service_lbl.text())
+        self.assertIn("PASS | checks 2/2", view._windows_gate_lbl.text())
+        self.assertIn("Release gate is green", view._windows_gate_fix_lbl.text())
+        self.assertIn("Fix in: runtime/windows_release_receipt.json", view._windows_gate_fix_lbl.text())
+        self.assertIn("Doc: docs/PACKAGING.md", view._windows_gate_fix_lbl.text())
+        self.assertIn("receipt=runtime/windows_release_receipt.json", view._windows_handoff_lbl.text())
+        self.assertIn("summary=runtime/windows_release_summary.md", view._windows_handoff_lbl.text())
+        self.assertIn("diagnostics bundle=runtime/diagnostics_bundle_20260415_120000.json", view._windows_handoff_lbl.text())
 
     def test_app_management_terminal_accepts_focus_and_output_append(self):
         view = AdvancedView()
@@ -784,6 +808,8 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
     def test_launcher_windows_ops_recipe_exposes_verify_and_update_commands(self):
         verify_label, verify_commands = launcher_window.LauncherWindow._windows_ops_recipe("verify_runtime")
         update_label, update_commands = launcher_window.LauncherWindow._windows_ops_recipe("update_runtime")
+        package_label, package_commands = launcher_window.LauncherWindow._windows_ops_recipe("package_desktop")
+        dry_run_label, dry_run_commands = launcher_window.LauncherWindow._windows_ops_recipe("release_dry_run")
 
         self.assertEqual(verify_label, "WINDOWS VERIFY")
         self.assertTrue(any("verify_ollama_runtime.py --prompt ok" in cmd for cmd in verify_commands))
@@ -791,6 +817,11 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertTrue(any("pip install -r requirements.txt" in cmd for cmd in update_commands))
         self.assertTrue(any("validate_build_checks.py" in cmd for cmd in update_commands))
         self.assertTrue(any("verify_runtime_challengers.py" in cmd for cmd in update_commands))
+        self.assertEqual(package_label, "WINDOWS PACKAGE")
+        self.assertTrue(any("build_executable.bat --no-clean --ci" in cmd for cmd in package_commands))
+        self.assertTrue(any("verify_beta_package_policy.py" in cmd for cmd in package_commands))
+        self.assertEqual(dry_run_label, "WINDOWS RELEASE DRY RUN")
+        self.assertTrue(any("tools/beta_release_dry_run.py" in cmd for cmd in dry_run_commands))
 
     def test_launcher_windows_service_snapshot_changes_report_artifact_refresh(self):
         before = {
@@ -814,12 +845,134 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("challenger snapshot refreshed", summary)
         self.assertIn("diagnostics bundle refreshed", summary)
 
+    def test_launcher_windows_ops_artifact_refs_include_release_dry_run_report(self):
+        snapshot = {
+            "beta_release_dry_run_report": {"path": "runtime/beta_release_dry_run_report.json", "exists": True, "mtime": "2026-04-15T12:00:00+00:00", "size": 100},
+            "pilot_exit_report": {"path": "runtime/pilot_exit_report.json", "exists": True, "mtime": "2026-04-15T12:01:00+00:00", "size": 200},
+            "beta_policy_report": {"path": "runtime/beta_policy_report.json", "exists": True, "mtime": "2026-04-15T12:02:00+00:00", "size": 300},
+        }
+
+        artifacts = launcher_window.LauncherWindow._windows_ops_artifact_refs("release_dry_run", snapshot)
+
+        self.assertEqual([item["id"] for item in artifacts], ["release_dry_run", "pilot_exit", "beta_policy"])
+
+    def test_launcher_summarize_release_dry_run_report_surfaces_failed_checks_and_missing_files(self):
+        report = {
+            "ok": False,
+            "checks": [
+                {"name": "beta_policy", "ok": True},
+                {"name": "pilot_gate", "ok": False},
+            ],
+            "required_files": [
+                {"path": "docs/REMOTE_BETA_EXE_POLICY.md", "exists": True},
+                {"path": "docs/archive/planning-history/FINAL_HANDOFF_PREP.md", "exists": False},
+            ],
+        }
+
+        summary = launcher_window.LauncherWindow._summarize_release_dry_run_report(report)
+
+        self.assertFalse(summary["ok"])
+        self.assertIn("FAIL", summary["summary"])
+        self.assertIn("pilot_gate", summary["detail"])
+        self.assertIn("FINAL_HANDOFF_PREP.md", summary["detail"])
+        self.assertEqual(summary["passed_checks"], 1)
+        self.assertEqual(summary["total_checks"], 2)
+        self.assertEqual(summary["checks"][1]["name"], "pilot_gate")
+        self.assertFalse(summary["required_files"][1]["exists"])
+        self.assertTrue(summary["recommendations"])
+        self.assertIn("pilot gate", summary["recommendations"][0].lower())
+        self.assertEqual(summary["recommendation_details"][0]["fix_target"], "tools/pilot_exit_check.py / runtime/pilot_exit_report.json")
+        self.assertEqual(summary["recommendation_details"][0]["docs_hint"], "docs/PACKAGING.md")
+
     def test_launcher_windows_ops_guidance_points_update_failures_at_packaging_fix_path(self):
         guidance = launcher_window.LauncherWindow._windows_ops_guidance("update_runtime", ok=False, phase="completed")
 
         self.assertIn("requirements.txt", guidance["fix_target"])
         self.assertEqual(guidance["docs_hint"], "docs/PACKAGING.md")
         self.assertIn("build_executable.bat", guidance["entry_point"])
+
+    def test_launcher_windows_ops_guidance_points_release_dry_run_at_gate_fix_path(self):
+        guidance = launcher_window.LauncherWindow._windows_ops_guidance("release_dry_run", ok=False, phase="completed")
+
+        self.assertIn("beta_release_dry_run.py", guidance["fix_target"])
+        self.assertEqual(guidance["docs_hint"], "docs/PACKAGING.md")
+        self.assertIn("beta_release_dry_run.py", guidance["entry_point"])
+
+    def test_launcher_windows_ops_guidance_points_supervised_api_to_supervision_doc(self):
+        guidance = launcher_window.LauncherWindow._windows_ops_guidance("start_supervised_api", ok=False, phase="completed")
+
+        self.assertIn("launch_api_supervised.bat", guidance["fix_target"])
+        self.assertEqual(guidance["docs_hint"], "docs/SUPERVISION_WINDOWS.md")
+        self.assertIn("launch_api_supervised.bat", guidance["entry_point"])
+
+    def test_launcher_start_supervised_api_action_records_completion(self):
+        class _AdvancedStub:
+            def __init__(self) -> None:
+                self.logs: list[str] = []
+                self.feedback: list[dict[str, object]] = []
+
+            def append_log(self, text: str) -> None:
+                self.logs.append(text)
+
+            def set_windows_ops_feedback(self, action: str, summary: str, changes: str, ok: bool = True, **kwargs) -> None:
+                self.feedback.append({"action": action, "summary": summary, "changes": changes, "ok": ok, **kwargs})
+
+        class _LauncherStub:
+            def __init__(self, runtime_dir: Path) -> None:
+                self._status_panel = _DummyStatusPanel()
+                self._advanced_view = _AdvancedStub()
+                self._daily: list[str] = []
+                self.logged: list[tuple[str, dict[str, object]]] = []
+                self._runtime_dir = runtime_dir
+
+            def _windows_ops_state_path(self) -> Path:
+                return self._runtime_dir / "windows_ops_state.json"
+
+            def _windows_release_receipt_path(self) -> Path:
+                return self._runtime_dir / "windows_release_receipt.json"
+
+            def _windows_release_summary_path(self) -> Path:
+                return self._runtime_dir / "windows_release_summary.md"
+
+            def _set_daily_activity(self, text: str) -> None:
+                self._daily.append(text)
+
+            def _log_launcher_event(self, event: str, **fields: object) -> None:
+                self.logged.append((event, fields))
+
+            def _refresh_api_auth_state(self, _reason: str) -> str:
+                return "ready"
+
+        with tempfile.TemporaryDirectory() as td:
+            runtime_dir = Path(td)
+            stub = _LauncherStub(runtime_dir)
+            stub._windows_ops_plan = launcher_window.LauncherWindow._windows_ops_plan
+            stub._windows_ops_guidance = launcher_window.LauncherWindow._windows_ops_guidance
+            stub._windows_ops_artifact_refs = staticmethod(lambda action, snapshot: [{"id": "diagnostics", "label": "diagnostics bundle", "path": "runtime/diagnostics_bundle_20260415_120000.json"}])
+            stub._collect_windows_service_snapshot = staticmethod(lambda: {"diagnostics_bundle": {"exists": True, "path": "runtime/diagnostics_bundle_20260415_120000.json", "mtime": "2026-04-15T12:00:00+00:00", "size": 10}})
+            stub._write_windows_release_summary = launcher_window.LauncherWindow._write_windows_release_summary
+            stub._write_windows_release_receipt = launcher_window.LauncherWindow._write_windows_release_receipt.__get__(stub, _LauncherStub)
+            stub._record_windows_ops_state = launcher_window.LauncherWindow._record_windows_ops_state.__get__(stub, _LauncherStub)
+            stub._start_supervised_api_subprocess = lambda: (True, "supervised api started and reachable")
+            stub._on_windows_ops_requested = launcher_window.LauncherWindow._on_windows_ops_requested.__get__(stub, _LauncherStub)
+
+            stub._on_windows_ops_requested("start_supervised_api")
+
+            payload = __import__("json").loads((runtime_dir / "windows_ops_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["action"], "start_supervised_api")
+            self.assertEqual(payload["phase"], "completed")
+            self.assertTrue(payload["ok"])
+            self.assertIn("launch_api_supervised.bat", payload["entry_point"])
+            self.assertEqual(payload["artifacts"][0]["id"], "diagnostics")
+            self.assertTrue(payload["release_receipt"].endswith("windows_release_receipt.json"))
+            self.assertTrue(payload["release_summary"].endswith("windows_release_summary.md"))
+            receipt = __import__("json").loads((runtime_dir / "windows_release_receipt.json").read_text(encoding="utf-8"))
+            self.assertEqual(receipt["action"], "start_supervised_api")
+            self.assertEqual(receipt["artifacts"][0]["id"], "diagnostics")
+            summary_text = (runtime_dir / "windows_release_summary.md").read_text(encoding="utf-8")
+            self.assertIn("# Windows Release Summary", summary_text)
+            self.assertIn("start_supervised_api", summary_text)
+            self.assertTrue(any(event == "windows_ops_completed" for event, _fields in stub.logged))
 
     def test_app_management_terminal_recipe_markers_emit_servicing_payload(self):
         view = AdvancedView()
@@ -875,6 +1028,12 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             def _windows_ops_state_path(self) -> Path:
                 return self._runtime_dir / "windows_ops_state.json"
 
+            def _windows_release_receipt_path(self) -> Path:
+                return self._runtime_dir / "windows_release_receipt.json"
+
+            def _windows_release_summary_path(self) -> Path:
+                return self._runtime_dir / "windows_release_summary.md"
+
             def _set_daily_activity(self, text: str) -> None:
                 self._daily.append(text)
 
@@ -887,6 +1046,12 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             stub._summarize_windows_recipe_result = launcher_window.LauncherWindow._summarize_windows_recipe_result
             stub._collect_windows_service_snapshot = staticmethod(lambda: {"pip_version": "after"})
             stub._windows_service_snapshot_changes = staticmethod(lambda before, after: "pip changed during servicing")
+            stub._windows_ops_artifact_refs = staticmethod(
+                lambda action, snapshot: [
+                    {"id": "diagnostics", "label": "diagnostics bundle", "path": "runtime/diagnostics_bundle_20260415_120000.json"},
+                    {"id": "challenger", "label": "challenger snapshot", "path": "runtime/runtime_challenger_snapshot.json"},
+                ]
+            )
             stub._windows_ops_guidance = staticmethod(
                 lambda action, ok, phase="completed": {
                     "next_step": f"{action} guidance {phase} {'ok' if ok else 'fail'}",
@@ -895,6 +1060,8 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                     "entry_point": "python src/guppy/cli/launch.py launcher",
                 }
             )
+            stub._write_windows_release_summary = launcher_window.LauncherWindow._write_windows_release_summary
+            stub._write_windows_release_receipt = launcher_window.LauncherWindow._write_windows_release_receipt.__get__(stub, _LauncherStub)
             stub._record_windows_ops_state = launcher_window.LauncherWindow._record_windows_ops_state.__get__(stub, _LauncherStub)
             stub._on_terminal_recipe_finished = launcher_window.LauncherWindow._on_terminal_recipe_finished.__get__(stub, _LauncherStub)
 
@@ -921,9 +1088,161 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             self.assertEqual(payload["steps_total"], 1)
             self.assertEqual(payload["phase"], "completed")
             self.assertIn("pip changed during servicing", payload["changes"])
+            self.assertEqual([item["id"] for item in payload["artifacts"]], ["diagnostics", "challenger"])
+            self.assertTrue(payload["release_receipt"].endswith("windows_release_receipt.json"))
+            self.assertTrue(payload["release_summary"].endswith("windows_release_summary.md"))
+            receipt = __import__("json").loads((runtime_dir / "windows_release_receipt.json").read_text(encoding="utf-8"))
+            self.assertEqual(receipt["action"], "verify_runtime")
+            self.assertEqual(receipt["operator_guidance"]["docs_hint"], "docs/TROUBLESHOOTING.md")
+            summary_text = (runtime_dir / "windows_release_summary.md").read_text(encoding="utf-8")
+            self.assertIn("WINDOWS VERIFY completed", summary_text)
             self.assertTrue(payload["next_step"])
             self.assertTrue(payload["fix_target"])
             self.assertTrue(any(event == "windows_ops_completed" for event, _fields in stub.logged))
+
+    def test_launcher_release_dry_run_completion_persists_gate_summary(self):
+        class _AdvancedStub:
+            def __init__(self) -> None:
+                self.feedback: list[dict[str, object]] = []
+                self.logs: list[str] = []
+
+            def set_windows_ops_feedback(self, action: str, summary: str, changes: str, ok: bool = True, **kwargs) -> None:
+                self.feedback.append({"action": action, "summary": summary, "changes": changes, "ok": ok, **kwargs})
+
+            def append_log(self, text: str) -> None:
+                self.logs.append(text)
+
+        class _LauncherStub:
+            def __init__(self, runtime_dir: Path) -> None:
+                self._status_panel = _DummyStatusPanel()
+                self._advanced_view = _AdvancedStub()
+                self._daily: list[str] = []
+                self.logged: list[tuple[str, dict[str, object]]] = []
+                self._runtime_dir = runtime_dir
+
+            def _windows_ops_state_path(self) -> Path:
+                return self._runtime_dir / "windows_ops_state.json"
+
+            def _windows_release_receipt_path(self) -> Path:
+                return self._runtime_dir / "windows_release_receipt.json"
+
+            def _windows_release_summary_path(self) -> Path:
+                return self._runtime_dir / "windows_release_summary.md"
+
+            def _set_daily_activity(self, text: str) -> None:
+                self._daily.append(text)
+
+            def _log_launcher_event(self, event: str, **fields: object) -> None:
+                self.logged.append((event, fields))
+
+        with tempfile.TemporaryDirectory() as td:
+            runtime_dir = Path(td)
+            stub = _LauncherStub(runtime_dir)
+            stub._summarize_windows_recipe_result = launcher_window.LauncherWindow._summarize_windows_recipe_result
+            stub._collect_windows_service_snapshot = staticmethod(lambda: {"beta_release_dry_run_report": {"exists": True, "path": "runtime/beta_release_dry_run_report.json", "mtime": "2026-04-15T12:00:00+00:00", "size": 321}})
+            stub._windows_service_snapshot_changes = staticmethod(lambda before, after: "beta release dry-run report refreshed")
+            stub._windows_ops_artifact_refs = staticmethod(
+                lambda action, snapshot: [
+                    {"id": "release_dry_run", "label": "release dry-run report", "path": "runtime/beta_release_dry_run_report.json"},
+                    {"id": "pilot_exit", "label": "pilot exit report", "path": "runtime/pilot_exit_report.json"},
+                ]
+            )
+            stub._release_dry_run_gate_details = staticmethod(
+                lambda: {
+                    "summary": "FAIL | checks 1/2 | missing files 1",
+                    "detail": "failed checks: pilot_gate | missing: FINAL_HANDOFF_PREP.md",
+                    "passed_checks": 1,
+                    "total_checks": 2,
+                    "failed_checks": ["pilot_gate"],
+                    "missing_files": ["docs/archive/planning-history/FINAL_HANDOFF_PREP.md"],
+                    "recommendations": [
+                        "Fix the pilot gate next by reviewing pilot_exit_check failures and rerunning the release dry-run.",
+                        "Restore the required handoff file FINAL_HANDOFF_PREP.md before the next release dry-run.",
+                    ],
+                    "recommendation_details": [
+                        {
+                            "text": "Fix the pilot gate next by reviewing pilot_exit_check failures and rerunning the release dry-run.",
+                            "fix_target": "tools/pilot_exit_check.py / runtime/pilot_exit_report.json",
+                            "docs_hint": "docs/PACKAGING.md",
+                            "entry_point": "python tools/pilot_exit_check.py --allow-limited-go",
+                        },
+                        {
+                            "text": "Restore the required handoff file FINAL_HANDOFF_PREP.md before the next release dry-run.",
+                            "fix_target": "docs/archive/planning-history/FINAL_HANDOFF_PREP.md",
+                            "docs_hint": "docs/PACKAGING.md",
+                            "entry_point": "docs/archive/planning-history/FINAL_HANDOFF_PREP.md",
+                        },
+                    ],
+                    "checks": [
+                        {"name": "beta_policy", "ok": True, "returncode": 0},
+                        {"name": "pilot_gate", "ok": False, "returncode": 1},
+                    ],
+                    "required_files": [
+                        {"path": "docs/REMOTE_BETA_EXE_POLICY.md", "exists": True},
+                        {"path": "docs/archive/planning-history/FINAL_HANDOFF_PREP.md", "exists": False},
+                    ],
+                }
+            )
+            stub._windows_ops_guidance = staticmethod(
+                lambda action, ok, phase="completed": {
+                    "next_step": f"{action} guidance {phase} {'ok' if ok else 'fail'}",
+                    "fix_target": "tools/beta_release_dry_run.py",
+                    "docs_hint": "docs/PACKAGING.md",
+                    "entry_point": "python tools/beta_release_dry_run.py",
+                }
+            )
+            stub._write_windows_release_summary = launcher_window.LauncherWindow._write_windows_release_summary
+            stub._write_windows_release_receipt = launcher_window.LauncherWindow._write_windows_release_receipt.__get__(stub, _LauncherStub)
+            stub._record_windows_ops_state = launcher_window.LauncherWindow._record_windows_ops_state.__get__(stub, _LauncherStub)
+            stub._on_terminal_recipe_finished = launcher_window.LauncherWindow._on_terminal_recipe_finished.__get__(stub, _LauncherStub)
+
+            stub._on_terminal_recipe_finished(
+                {
+                    "kind": "windows_ops",
+                    "action": "release_dry_run",
+                    "label": "WINDOWS RELEASE DRY RUN",
+                    "ok": False,
+                    "id": "recipe-release-1",
+                    "commands": ["python tools/beta_release_dry_run.py"],
+                    "steps_completed": 1,
+                    "steps_total": 1,
+                    "failed_steps": [{"index": 1, "command": "python tools/beta_release_dry_run.py"}],
+                    "changes": "Runs the beta release dry-run gate.",
+                    "pre_snapshot": {},
+                }
+            )
+
+            payload = __import__("json").loads((runtime_dir / "windows_ops_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["action"], "release_dry_run")
+            self.assertIn("FAIL | checks 1/2", payload["gate_summary"])
+            self.assertIn("pilot_gate", payload["gate_detail"])
+            self.assertEqual(payload["gate_failed_checks"], ["pilot_gate"])
+            self.assertTrue(any("FINAL_HANDOFF_PREP.md" in item for item in payload["gate_missing_files"]))
+            self.assertTrue(any("pilot gate" in item.lower() for item in payload["gate_recommendations"]))
+            self.assertEqual(payload["gate_recommendation_details"][0]["fix_target"], "tools/pilot_exit_check.py / runtime/pilot_exit_report.json")
+            self.assertTrue(payload["release_summary"].endswith("windows_release_summary.md"))
+            receipt = __import__("json").loads((runtime_dir / "windows_release_receipt.json").read_text(encoding="utf-8"))
+            self.assertEqual(receipt["release_gate"]["summary"], "FAIL | checks 1/2 | missing files 1")
+            self.assertEqual(receipt["release_gate"]["failed_checks"], ["pilot_gate"])
+            self.assertEqual(receipt["release_gate"]["passed_checks"], 1)
+            self.assertEqual(receipt["release_gate"]["total_checks"], 2)
+            self.assertEqual(receipt["release_gate"]["checks"][0]["name"], "beta_policy")
+            self.assertTrue(any("release dry-run" in item.lower() for item in receipt["release_gate"]["recommendations"]))
+            self.assertEqual(receipt["release_gate"]["recommendation_details"][0]["entry_point"], "python tools/pilot_exit_check.py --allow-limited-go")
+            summary_text = (runtime_dir / "windows_release_summary.md").read_text(encoding="utf-8")
+            self.assertIn("## Release Gate", summary_text)
+            self.assertIn("## Fix-First", summary_text)
+            self.assertIn("python tools/pilot_exit_check.py --allow-limited-go", summary_text)
+            self.assertTrue(any(fields.get("gate_summary") for event, fields in stub.logged if event == "windows_ops_completed"))
+            completed_fields = next(fields for event, fields in stub.logged if event == "windows_ops_completed")
+            self.assertEqual(completed_fields["gate_failed_checks"], ["pilot_gate"])
+            self.assertEqual(completed_fields["gate_passed_checks"], 1)
+            self.assertEqual(completed_fields["gate_total_checks"], 2)
+            self.assertTrue(any("pilot gate" in item.lower() for item in completed_fields["gate_recommendations"]))
+            self.assertEqual(completed_fields["gate_fix_target"], "tools/pilot_exit_check.py / runtime/pilot_exit_report.json")
+            self.assertEqual(completed_fields["gate_fix_docs"], "docs/PACKAGING.md")
+            self.assertEqual(completed_fields["gate_fix_command"], "python tools/pilot_exit_check.py --allow-limited-go")
+            self.assertTrue(str(completed_fields["release_summary"]).endswith("windows_release_summary.md"))
 
     def test_settings_view_persists_persona_builder_config(self):
         old_settings_path = runtime_profile.SETTINGS_PATH

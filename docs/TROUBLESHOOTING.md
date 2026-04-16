@@ -96,11 +96,17 @@
   - runtime/config/settings data paths
   - repair-token posture and the supervisor relaunch path
   - latest diagnostics artifact and launcher log path
-- It also gives one-click actions for `VERIFY`, `UPDATE`, `RESTART`, and `REPAIR`:
+- It also gives one-click actions for `VERIFY`, `UPDATE`, `PACKAGE`, `SUPERVISED API`, `RESTART`, and `REPAIR`:
   - `VERIFY` queues the runtime verification commands in the embedded terminal
-  - `UPDATE` queues the dependency refresh commands in the embedded terminal
+  - `UPDATE` queues dependency refresh plus postflight validation
+  - `PACKAGE` queues the supported packaging entry point plus beta package-policy verification
+  - `SUPERVISED API` launches `bin/launch_api_supervised.bat` from the launcher and checks reachability
   - `RESTART` uses the guarded daemon restart path
   - `REPAIR` runs the warmup plus audit flow
+- The panel now also shows:
+  - the last servicing action and stable ref when available
+  - what changed after the action completed
+  - the next recommended fix path, docs hint, and command entry point
 
 ## Ollama connection issues
 
@@ -125,8 +131,24 @@
 ## Recovery tools failing (WinError 10061 / connection refused)
 
 - This means the API server is not running on port 8081.
-- The launcher should auto-start it, but if it failed: `python src/guppy/cli/launch.py api` in a terminal.
+- The launcher should auto-start it. App Mgmt `SUPERVISED API` is now the first productized retry path.
+- If you still want the manual fallback: `python src/guppy/cli/launch.py api` in a terminal.
 - Alternatively, use the launcher's direct recovery path — warmup/audit/snapshot now work without the API.
+
+## Packaging or install follow-up is unclear
+
+- Open App Mgmt `WINDOWS INSTALL / UPDATE / DIAGNOSTICS`.
+- Use the launcher-first order:
+  - `VERIFY`
+  - `UPDATE` if dependencies/runtime posture changed
+  - `PACKAGE` when you need a desktop build
+- Read the final servicing summary:
+  - `Ref:` gives the stable operator-facing package/update reference
+  - `What changed:` calls out the detected environment or artifact delta
+  - `Next servicing step:` points at the right fix target, doc, and command
+- Use the deeper docs when you need non-default flows:
+  - `docs/PACKAGING.md` for build variants and release checklist work
+  - `docs/SUPERVISION_WINDOWS.md` for Task Scheduler or NSSM ownership
 
 ## /repair returns 403 Forbidden
 

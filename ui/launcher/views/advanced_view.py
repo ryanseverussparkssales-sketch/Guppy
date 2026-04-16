@@ -287,10 +287,16 @@ class AdvancedView(QWidget):
         self._windows_next_lbl = _mono("", T.TEXT, T.FS_SMALL)
         self._windows_service_lbl = _mono("", T.TEXT, T.FS_SMALL)
         self._windows_change_lbl = _mono("", T.DIM, T.FS_SMALL)
+        self._windows_gate_lbl = _mono("", T.TEXT, T.FS_SMALL)
+        self._windows_gate_fix_lbl = _mono("", T.PRIMARY_DIM, T.FS_SMALL)
+        self._windows_handoff_lbl = _mono("", T.PRIMARY_DIM, T.FS_SMALL)
         windows_actions = QHBoxLayout()
         for label, action, accent in [
             ("VERIFY", "verify_runtime", T.PRIMARY),
             ("UPDATE", "update_runtime", T.PRIMARY_DIM),
+            ("PACKAGE", "package_desktop", T.SECONDARY),
+            ("RELEASE DRY RUN", "release_dry_run", T.PRIMARY),
+            ("SUPERVISED API", "start_supervised_api", T.PRIMARY_DIM),
             ("RESTART", "restart_runtime", T.ERROR),
             ("REPAIR", "repair_runtime", T.SECONDARY),
         ]:
@@ -315,6 +321,9 @@ class AdvancedView(QWidget):
             self._windows_next_lbl,
             self._windows_service_lbl,
             self._windows_change_lbl,
+            self._windows_gate_lbl,
+            self._windows_gate_fix_lbl,
+            self._windows_handoff_lbl,
         ):
             widget.setWordWrap(True)
             windows_ops_layout.addWidget(widget)
@@ -1090,6 +1099,44 @@ class AdvancedView(QWidget):
             return None
         return max(candidates, key=lambda path: path.stat().st_mtime)
 
+    @staticmethod
+    def _artifact_display_path(path: str) -> str:
+        raw = str(path or "").strip()
+        if not raw:
+            return ""
+        target = Path(raw)
+        try:
+            return str(target.resolve().relative_to(_ROOT)).replace("\\", "/")
+        except Exception:
+            return raw.replace("\\", "/")
+
+    @classmethod
+    def _windows_handoff_line(
+        cls,
+        artifacts: list[dict[str, object]] | None,
+        *,
+        receipt_path: str = "",
+        summary_path: str = "",
+    ) -> str:
+        rendered: list[str] = []
+        receipt = cls._artifact_display_path(receipt_path)
+        if receipt:
+            rendered.append(f"receipt={receipt}")
+        summary = cls._artifact_display_path(summary_path)
+        if summary:
+            rendered.append(f"summary={summary}")
+        for item in artifacts or []:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label", "") or item.get("id", "") or "artifact").strip()
+            path = cls._artifact_display_path(str(item.get("path", "") or ""))
+            if not path:
+                continue
+            rendered.append(f"{label}={path}")
+        if not rendered:
+            return "Evidence handoff: run VERIFY, UPDATE, PACKAGE, or RELEASE DRY RUN to capture release-facing artifacts and reports."
+        return "Evidence handoff: " + " | ".join(rendered[:4])
+
     def _build_windows_ops_snapshot(self) -> dict[str, str]:
         runtime_dir = _ROOT / "runtime"
         config_dir = _ROOT / "config"
@@ -1131,6 +1178,14 @@ class AdvancedView(QWidget):
         steps_completed = state_payload.get("steps_completed")
         steps_total = state_payload.get("steps_total")
         ok = bool(state_payload.get("ok", False))
+        artifacts = [item for item in state_payload.get("artifacts", []) if isinstance(item, dict)] if isinstance(state_payload.get("artifacts"), list) else []
+        receipt_path = str(state_payload.get("release_receipt", "") or "").strip()
+        summary_path = str(state_payload.get("release_summary", "") or "").strip()
+        gate_summary = str(state_payload.get("gate_summary", "") or "").strip()
+        gate_detail = str(state_payload.get("gate_detail", "") or "").strip()
+        gate_recommendations = [str(item).strip() for item in state_payload.get("gate_recommendations", []) if str(item).strip()] if isinstance(state_payload.get("gate_recommendations"), list) else []
+        gate_recommendation_details = [item for item in state_payload.get("gate_recommendation_details", []) if isinstance(item, dict)] if isinstance(state_payload.get("gate_recommendation_details"), list) else []
+        primary_gate_fix = gate_recommendation_details[0] if gate_recommendation_details else {}
         step_text = (
             f" | Steps: {int(steps_completed or 0)}/{int(steps_total or 0)}"
             if steps_completed is not None and steps_total is not None
@@ -1167,7 +1222,7 @@ class AdvancedView(QWidget):
                     + (f" | Command: {entry_point}" if entry_point else "")
                 )
                 if next_step
-                else "Next servicing step: choose VERIFY, UPDATE, RESTART, or REPAIR from App Mgmt."
+                else "Next servicing step: choose VERIFY, UPDATE, PACKAGE, RELEASE DRY RUN, SUPERVISED API, RESTART, or REPAIR from App Mgmt."
             ),
             "service": (
                 f"Last servicing action: {last_action} @ {last_timestamp} | {'OK' if ok else 'CHECK'} | {last_summary}{phase_text}{step_text}{ref_text}"
@@ -1175,6 +1230,24 @@ class AdvancedView(QWidget):
                 else "Last servicing action: none recorded yet"
             ),
             "changes": f"What changed: {last_changes or 'No servicing change summary recorded yet.'}",
+            "gate": "Release gate: " + (
+                gate_summary + (f" | {gate_detail}" if gate_detail else "")
+                if gate_summary
+                else "no dry-run verdict recorded yet."
+            ),
+            "gate_fix": "Release fix-first: " + (
+                (
+                    str(primary_gate_fix.get("text", "") or "").strip()
+                    + (f" | Fix in: {str(primary_gate_fix.get('fix_target', '') or '').strip()}" if str(primary_gate_fix.get("fix_target", "") or "").strip() else "")
+                    + (f" | Doc: {str(primary_gate_fix.get('docs_hint', '') or '').strip()}" if str(primary_gate_fix.get("docs_hint", "") or "").strip() else "")
+                    + (f" | Cmd: {str(primary_gate_fix.get('entry_point', '') or '').strip()}" if str(primary_gate_fix.get("entry_point", "") or "").strip() else "")
+                )
+                if primary_gate_fix
+                else " | ".join(gate_recommendations[:2])
+                if gate_recommendations
+                else "no release-gate recommendations recorded yet."
+            ),
+            "handoff": self._windows_handoff_line(artifacts, receipt_path=receipt_path, summary_path=summary_path),
         }
 
     def _refresh_windows_ops_labels(self) -> None:
@@ -1188,6 +1261,9 @@ class AdvancedView(QWidget):
         self._windows_next_lbl.setText(self._windows_ops.get("next", "Next servicing step: unavailable"))
         self._windows_service_lbl.setText(self._windows_ops.get("service", "Last servicing action: unavailable"))
         self._windows_change_lbl.setText(self._windows_ops.get("changes", "What changed: unavailable"))
+        self._windows_gate_lbl.setText(self._windows_ops.get("gate", "Release gate: unavailable"))
+        self._windows_gate_fix_lbl.setText(self._windows_ops.get("gate_fix", "Release fix-first: unavailable"))
+        self._windows_handoff_lbl.setText(self._windows_ops.get("handoff", "Evidence handoff: unavailable"))
 
     def refresh_windows_ops_snapshot(self) -> None:
         runtime_line = self._windows_ops.get("runtime", "")
@@ -1207,11 +1283,39 @@ class AdvancedView(QWidget):
         fix_target: str = "",
         docs_hint: str = "",
         entry_point: str = "",
+        artifacts: list[dict[str, object]] | None = None,
+        receipt_path: str = "",
+        summary_path: str = "",
+        gate_summary: str = "",
+        gate_detail: str = "",
+        gate_recommendations: list[str] | None = None,
+        gate_recommendation_details: list[dict[str, object]] | None = None,
     ) -> None:
         self._windows_ops["service"] = (
             f"Last servicing action: {action} | {'OK' if ok else 'CHECK'} | {summary}"
         )
         self._windows_ops["changes"] = f"What changed: {changes}"
+        self._windows_ops["gate"] = "Release gate: " + (
+            str(gate_summary or "").strip() + (f" | {str(gate_detail or '').strip()}" if str(gate_detail or "").strip() else "")
+            if str(gate_summary or "").strip()
+            else "no dry-run verdict recorded yet."
+        )
+        rendered_recommendations = [str(item).strip() for item in (gate_recommendations or []) if str(item).strip()]
+        rendered_recommendation_details = [item for item in (gate_recommendation_details or []) if isinstance(item, dict)] 
+        primary_gate_fix = rendered_recommendation_details[0] if rendered_recommendation_details else {}
+        self._windows_ops["gate_fix"] = "Release fix-first: " + (
+            (
+                str(primary_gate_fix.get("text", "") or "").strip()
+                + (f" | Fix in: {str(primary_gate_fix.get('fix_target', '') or '').strip()}" if str(primary_gate_fix.get("fix_target", "") or "").strip() else "")
+                + (f" | Doc: {str(primary_gate_fix.get('docs_hint', '') or '').strip()}" if str(primary_gate_fix.get("docs_hint", "") or "").strip() else "")
+                + (f" | Cmd: {str(primary_gate_fix.get('entry_point', '') or '').strip()}" if str(primary_gate_fix.get("entry_point", "") or "").strip() else "")
+            )
+            if primary_gate_fix
+            else " | ".join(rendered_recommendations[:2])
+            if rendered_recommendations
+            else "no release-gate recommendations recorded yet."
+        )
+        self._windows_ops["handoff"] = self._windows_handoff_line(artifacts, receipt_path=receipt_path, summary_path=summary_path)
         if next_step:
             self._windows_ops["next"] = (
                 "Next servicing step: "
@@ -1695,6 +1799,14 @@ class AdvancedView(QWidget):
                 event_id = str(item.get("event_id", "") or "").strip()
                 next_step = str(item.get("next_step", "") or "").strip()
                 fix_target = str(item.get("fix_target", "") or "").strip()
+                gate_summary = str(item.get("gate_summary", "") or "").strip()
+                gate_detail = str(item.get("gate_detail", "") or "").strip()
+                gate_failed_checks = [str(row).strip() for row in item.get("gate_failed_checks", []) if str(row).strip()] if isinstance(item.get("gate_failed_checks"), list) else []
+                gate_missing_files = [str(row).strip() for row in item.get("gate_missing_files", []) if str(row).strip()] if isinstance(item.get("gate_missing_files"), list) else []
+                gate_passed_checks = str(item.get("gate_passed_checks", "") or "").strip()
+                gate_total_checks = str(item.get("gate_total_checks", "") or "").strip()
+                gate_recommendations = [str(row).strip() for row in item.get("gate_recommendations", []) if str(row).strip()] if isinstance(item.get("gate_recommendations"), list) else []
+                gate_recommendation_details = [row for row in item.get("gate_recommendation_details", []) if isinstance(row, dict)] if isinstance(item.get("gate_recommendation_details"), list) else []
                 bits = [action]
                 if queued is not None:
                     bits.append("QUEUED" if bool(queued) else "QUEUE_FAIL")
@@ -1706,11 +1818,50 @@ class AdvancedView(QWidget):
                     bits.append(f"ref={event_id}")
                 if fix_target:
                     bits.append(f"fix={fix_target}")
+                receipt_path = self._artifact_display_path(str(item.get("release_receipt", "") or ""))
+                summary_path = self._artifact_display_path(str(item.get("release_summary", "") or ""))
+                artifacts = [row for row in item.get("artifacts", []) if isinstance(row, dict)] if isinstance(item.get("artifacts"), list) else []
+                artifact_refs = []
+                for artifact in artifacts[:3]:
+                    label = str(artifact.get("id", "") or artifact.get("label", "") or "artifact").strip()
+                    path = self._artifact_display_path(str(artifact.get("path", "") or ""))
+                    if label and path:
+                        artifact_refs.append(f"{label}={path}")
                 detail = " | ".join(bits)
                 if summary:
                     detail += f" | {summary}"
                 if next_step:
                     detail += f" | next={next_step}"
+                if gate_summary:
+                    detail += f" | gate={gate_summary}"
+                    if gate_detail:
+                        detail += f" | gate_detail={gate_detail}"
+                    if gate_passed_checks and gate_total_checks:
+                        detail += f" | gate_checks={gate_passed_checks}/{gate_total_checks}"
+                    if gate_failed_checks:
+                        detail += f" | gate_failed={','.join(gate_failed_checks[:3])}"
+                    if gate_missing_files:
+                        rendered_missing = ",".join(Path(path).name or path for path in gate_missing_files[:3])
+                        detail += f" | gate_missing={rendered_missing}"
+                    if gate_recommendations:
+                        detail += f" | gate_fix={'; '.join(gate_recommendations[:2])}"
+                    if gate_recommendation_details:
+                        first_fix = gate_recommendation_details[0]
+                        fix_target = str(first_fix.get("fix_target", "") or "").strip()
+                        fix_docs = str(first_fix.get("docs_hint", "") or "").strip()
+                        fix_command = str(first_fix.get("entry_point", "") or "").strip()
+                        if fix_target:
+                            detail += f" | gate_fix_target={fix_target}"
+                        if fix_docs:
+                            detail += f" | gate_fix_doc={fix_docs}"
+                        if fix_command:
+                            detail += f" | gate_fix_cmd={fix_command}"
+                if receipt_path:
+                    detail += f" | receipt={receipt_path}"
+                if summary_path:
+                    detail += f" | summary={summary_path}"
+                if artifact_refs:
+                    detail += f" | handoff={', '.join(artifact_refs)}"
             lines.append(f"[{level}] {ts} {event}" + (f" :: {detail}" if detail else ""))
         self._syslog.setPlainText(
             "\n".join(lines[-50:])

@@ -67,7 +67,7 @@ These capabilities exist now and are usable in pilot:
 17. Connector governance v1 is now live as workspace bindings over shared machine auth: `config/tool_permissions.json` remains the coarse guardrail, `config/connector_bindings.json` adds per-workspace connector/account/provider/action/endpoint policy, and the runtime enforces both layers before connector tool execution.
 18. App Mgmt now includes a machine-level connector inventory/auth surface with `verify`, `connect`, `reconnect`, `disconnect`, and secret-management flows across Gmail, Calendar, Spotify, YouTube, CRM, and VoIP.
 19. Blocked connector actions now report whether the stop came from an unbound workspace connector, connector action policy, account/provider mismatch, host auth readiness, or endpoint scope instead of a single coarse denial reason.
-20. App Mgmt now includes a dedicated Windows install/update/diagnostics surface with visible runtime/data-path evidence plus one-click verify, update, restart, and repair actions.
+20. App Mgmt now includes a dedicated Windows install/update/diagnostics surface with visible runtime/data-path evidence plus one-click verify, update, package, supervised-API launch, restart, and repair actions.
 
 ## What Is Not Yet Fully Productized
 
@@ -170,9 +170,18 @@ not by implementation convenience. Status values:
    - Scope: tighten installer/build entry points, repair sequencing, and operator-visible "where to fix this" guidance for packaging/runtime recovery.
    - Acceptance: App Mgmt can point operators at the right install/build/repair path without them reconstructing it from docs and scripts.
 7. Card WO2.4 - Packaging/install automation lane
-   - Status: active
+   - Status: done
    - Scope: turn the packaging and supervised-launch paths into more direct launcher-driven actions with clearer completion evidence.
    - Acceptance: operators can trigger the most common package/install follow-ups from App Mgmt instead of assembling the commands manually.
+8. Card WO2.5 - Servicing docs + release evidence sync
+   - Status: done
+   - Scope: align packaging/supervision/troubleshooting docs with the now-direct launcher actions and tighten release-facing evidence wording.
+   - Acceptance: docs and operator surfaces describe the same packaging/install/recovery path with no stale manual-only assumptions.
+9. Card R2.1 - Release lane hardening
+   - Status: active
+   - Scope: push the new package/install lane toward release-grade repeatability with better artifact/report handoff and fewer manual follow-up steps.
+   - Acceptance: the common release path is mostly launcher-driven, with remaining manual steps explicit and evidence-backed.
+   - Progress: App Mgmt now persists release handoff refs for diagnostics, challenger, package, beta-policy, and dry-run artifacts in `windows_ops_state.json`, mirrors them into operator-visible launcher events, writes a canonical `runtime/windows_release_receipt.json` handoff file after completed servicing runs, emits a readable `runtime/windows_release_summary.md` companion summary for operator handoff, exposes a launcher-first `RELEASE DRY RUN` action for the beta release gate, surfaces parsed gate verdict details directly in App Mgmt plus operator logs, includes structured dry-run check/file breakdown in the release receipt for handoff-safe review, and now generates fix-first release recommendations with direct fix targets, docs hints, and entry commands from failed checks and missing handoff files across the receipt, live App Mgmt surface, and operator log stream.
 
 ## GuppyPrime Action Queue (Prioritized With Milestones)
 
@@ -368,7 +377,7 @@ not by implementation convenience. Status values:
   - permission metadata now carries connector name, connector auth state/detail, and a structured policy reason code so blocked actions can distinguish auth failures, endpoint scope failures, and workspace-policy denials.
   - Agent Tools cards now surface connector auth state alongside the existing role/policy explanation.
 - Turned Windows ops into action:
-  - App Mgmt now exposes one-click `VERIFY`, `UPDATE`, `RESTART`, and `REPAIR` flows, routing verify/update into the embedded terminal and restart/repair into the existing guarded recovery path.
+  - App Mgmt now exposes one-click `VERIFY`, `UPDATE`, `PACKAGE`, `SUPERVISED API`, `RESTART`, and `REPAIR` flows, routing verify/update/package into the embedded terminal, supervised launch through the packaged batch entry point, and restart/repair into the existing guarded recovery path.
 - Verified with focused regression coverage:
   - `.venv\Scripts\python.exe -m pytest tests\unit\test_instance_controls.py tests\smoke\test_launcher_interactions_smoke.py tests\smoke\test_runtime_smoke.py -q`
   - `python tools/check_new_module_line_cap.py`

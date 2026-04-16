@@ -5,7 +5,7 @@
       "auth_state": "partial",
       "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
       "source": "file",
-      "last_seen_at": "2026-04-15T22:55:55.093350+00:00",
+      "last_seen_at": "2026-04-16T03:02:10.932058+00:00",
       "last_action": "verify",
       "last_action_at": "2026-04-15T22:23:52.043052+00:00",
       "last_result": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
@@ -132,31 +132,31 @@
       "auth_state": "optional",
       "auth_detail": "YouTube API key is missing; fallback scraping may still work.",
       "source": "none",
-      "last_seen_at": "2026-04-15T22:55:55.105863+00:00"
+      "last_seen_at": "2026-04-16T03:02:10.945320+00:00"
     },
     "calendar": {
       "auth_state": "missing",
       "auth_detail": "Calendar credentials file is missing for this host.",
       "source": "none",
-      "last_seen_at": "2026-04-15T22:55:55.097350+00:00"
+      "last_seen_at": "2026-04-16T03:02:10.936561+00:00"
     },
     "spotify": {
       "auth_state": "partial",
       "auth_detail": "Spotify credentials exist, but browser auth has not completed yet.",
       "source": "env",
-      "last_seen_at": "2026-04-15T22:55:55.101863+00:00"
+      "last_seen_at": "2026-04-16T03:02:10.940565+00:00"
     },
     "crm": {
       "auth_state": "missing",
       "auth_detail": "HubSpot still needs HUBSPOT_API_KEY.",
       "source": "none",
-      "last_seen_at": "2026-04-15T22:55:55.109877+00:00"
+      "last_seen_at": "2026-04-16T03:02:10.950619+00:00"
     },
     "voip": {
       "auth_state": "missing",
       "auth_detail": "Twilio still needs TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN.",
       "source": "none",
-      "last_seen_at": "2026-04-15T22:55:55.114882+00:00"
+      "last_seen_at": "2026-04-16T03:02:10.954620+00:00"
     }
   }
 }
