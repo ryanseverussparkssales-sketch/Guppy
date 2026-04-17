@@ -1,13 +1,14 @@
 import os
 import tempfile
 import unittest
+import json
 from pathlib import Path
 from queue import SimpleQueue
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PySide6.QtWidgets import QApplication, QPushButton
+    from PySide6.QtWidgets import QApplication, QLabel, QPushButton
     from ui.launcher.components.agent_card import AgentCard
     from ui.launcher.components.sidebar import Sidebar
     from ui.launcher.components.status_panel import StatusPanel
@@ -180,13 +181,18 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertTrue(view._runtime_bar.isHidden())
         self.assertTrue(view._route_bar.isHidden())
         self.assertFalse(view._library_scroll.isHidden())
+        self.assertEqual(view._title_lbl.text(), "MODELS")
+        self.assertTrue(view._active_lbl.text().startswith("CURRENT MODEL:"))
+        self.assertTrue(view._active_runtime_lbl.text().startswith("LOCAL ENGINE:"))
         self.assertEqual(view._local_header.text(), "ON THIS PC")
         self.assertEqual(view._cloud_header.text(), "CLOUD OPTIONS")
         labels = [child.text() for child in view.findChildren(type(view._local_header))]
         self.assertIn("RECOMMENDED", labels)
         self.assertIn("INSTALLED ON THIS PC", labels)
         self.assertIn("ADVANCED / EXPERIMENTAL", labels)
-        self.assertIn("Pick what Guppy should use for this session", view._library_hint_lbl.text())
+        self.assertIn("Pick the model Guppy should use for this session", view._library_hint_lbl.text())
+        self.assertIn("Recommended default:", view._library_summary_lbl.text())
+        self.assertIn("Heavier local option:", view._library_summary_lbl.text())
 
     def test_my_pc_view_surfaces_human_friendly_api_key_field(self):
         view = MyPCView()
@@ -215,7 +221,11 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             ]
         )
 
-        self.assertIn("Ollama", view._summary_lbl.text())
+        self.assertIn("ready on this pc", view._summary_lbl.text().lower())
+        self.assertIn("Ollama is healthy and ready", view._pc_runtime_lbl.text())
+        self.assertIn("Next step: verify runtime", view._pc_next_lbl.text())
+        self.assertIn("supervised launch", view._pc_diag_lbl.text())
+        self.assertIn("Local AI health:", view._pc_runtime_lbl.text())
         self.assertIn("YouTube", view._account_status_lbl.text())
         self.assertIn("video tools", view._account_status_lbl.text().lower())
         self.assertEqual(len(view._connector_card_buttons), 1)
@@ -268,7 +278,15 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
     def test_assistant_home_surface_shows_instance_and_background_context(self):
         assistant = AssistantView()
 
-        assistant.set_active_instance("builder-collab")
+        assistant.set_active_instance(
+            "builder-collab",
+            workspace_type="builder_instance",
+            description="Planning partner for review loops.",
+            mode="code",
+            persona="guppy",
+            voice="default",
+            last_message="Finish the launcher framing pass and verify the workspace cues.",
+        )
         assistant.set_background_status("builder-collab · STANDARD · GUPPY LIVE", healthy=True)
         assistant.set_background_event("Recovery warmup completed")
         assistant.set_runtime_facts(
@@ -295,13 +313,59 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Active agent switched to GUPPY", assistant._background_event.text())
         self.assertIn("Active agent switched to GUPPY", assistant._hero_subtitle.text())
         self.assertIn("Active workspace:", assistant._workspace_summary.text())
+        self.assertIn("Planning partner for review loops.", assistant._workspace_summary.text())
+        self.assertIn("Saved context:", assistant._workspace_summary.text())
+        self.assertIn("CODE mode", assistant._workspace_summary.text())
+        self.assertIn("Recent context:", assistant._workspace_summary.text())
+        self.assertIn("Finish the launcher framing pass", assistant._workspace_summary.text())
         self.assertIn("GUPPY model", assistant._runtime_facts.text())
         self.assertIn("EDGE TTS from persona voice", assistant._runtime_facts.text())
         self.assertIn("Why: simple task classification", assistant._route_facts.text())
         self.assertIn("Evidence: cloud route needs API key; launcher-wide last reply 42 ms", assistant._route_facts.text())
         self.assertIn("warmup complete", assistant._recovery_summary.text().lower())
         self.assertIn("Start here in builder-collab", assistant._entry_hint.text())
+        self.assertIn("PLAN NEXT PASS", assistant._entry_hint.text())
+        self.assertIn("next pass", assistant._input.placeholderText().lower())
+        self.assertIn("optional starter", assistant._starter_summary.text().lower())
         self.assertEqual(assistant._cb_persona.currentText(), "GUPPY")
+
+    def test_assistant_home_surface_updates_copy_when_workspace_role_changes(self):
+        assistant = AssistantView()
+
+        assistant.set_active_instance(
+            "guppy-primary",
+            workspace_type="user_instance",
+            description="Daily help and recurring requests.",
+            mode="auto",
+            persona="guppy",
+            voice="default",
+            last_message="Start with the morning brief and inbox review.",
+        )
+        daily_summary = assistant._workspace_summary.text()
+        daily_entry = assistant._entry_hint.text()
+        daily_placeholder = assistant._input.placeholderText()
+        daily_starter = assistant._starter_buttons["morning_brief"].text()
+
+        assistant.set_active_instance(
+            "builder-collab",
+            workspace_type="builder_instance",
+            description="Planning partner for review loops.",
+            mode="code",
+            persona="guppy",
+            voice="default",
+            last_message="Finish the launcher framing pass and verify the workspace cues.",
+        )
+
+        self.assertIn("Daily help and recurring requests.", daily_summary)
+        self.assertIn("Recent context: Start with the morning brief", daily_summary)
+        self.assertIn("Start here in guppy-primary", daily_entry)
+        self.assertIn("next thing you want to move forward", daily_placeholder.lower())
+        self.assertEqual(daily_starter, "MORNING BRIEF")
+        self.assertIn("Planning partner for review loops.", assistant._workspace_summary.text())
+        self.assertIn("Recent context: Finish the launcher framing pass", assistant._workspace_summary.text())
+        self.assertIn("Start here in builder-collab", assistant._entry_hint.text())
+        self.assertIn("next pass", assistant._input.placeholderText().lower())
+        self.assertEqual(assistant._starter_buttons["morning_brief"].text(), "PLAN NEXT PASS")
 
     def test_assistant_starter_actions_load_prompt_and_mode(self):
         assistant = AssistantView()
@@ -321,6 +385,28 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Starter loaded: BUILDER REVIEW", assistant._hero_subtitle.text())
         self.assertIn("BUILDER REVIEW is ready", assistant._starter_summary.text())
         self.assertEqual(loaded[-1][0], "builder_review")
+
+    def test_assistant_builder_workspace_refreshes_starter_language(self):
+        assistant = AssistantView()
+        loaded: list[tuple[str, str]] = []
+        assistant.starter_requested.connect(lambda starter_id, prompt: loaded.append((starter_id, prompt)))
+
+        assistant.set_active_instance(
+            "builder-collab",
+            workspace_type="builder_instance",
+            description="Planning partner for review loops.",
+        )
+
+        self.assertEqual(assistant._starter_buttons["morning_brief"].text(), "PLAN NEXT PASS")
+        assistant._starter_buttons["morning_brief"].click()
+
+        self.assertEqual(assistant.selected_mode(), "code")
+        self.assertIn("Plan the next builder pass", assistant._input.text())
+        assistant.ensure_welcome_message()
+        self.assertTrue(assistant._conversation_history)
+        self.assertIn("Start the builder workspace", assistant._conversation_history[-1]["content"])
+        self.assertIn("next pass", assistant._conversation_history[-1]["content"].lower())
+        self.assertEqual(loaded[-1][0], "morning_brief")
 
     def test_assistant_mic_button_emits_and_updates_state(self):
         assistant = AssistantView()
@@ -518,10 +604,13 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Role mix:", view._role_mix_lbl.text())
         self.assertIn("Builder 1", view._role_mix_lbl.text())
         self.assertIn("Active workspace fit:", view._collab_lbl.text())
+        self.assertIn("Saved context:", view._recurring_lbl.text())
+        self.assertIn("AUTO mode", view._recurring_lbl.text())
         self.assertIn("Warnings: 1", view._summary_lbl.text())
         self.assertEqual(view._governance_workspace.currentText(), "guppy-primary")
         self.assertIn("runtime_default", view._governance_status.text())
         self.assertIn("hello", view._logs.toPlainText())
+        self.assertEqual(view._description.text(), "Daily tasks, follow-ups, and recurring requests")
 
         view._governance_workspace.setCurrentText("builder-collab")
         self.assertEqual(view._governance_auth_mode.currentText(), "local_only")
@@ -541,6 +630,86 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
 
         view.set_logs("builder-collab", [])
         self.assertIn("No recent conversation or ops activity yet for workspace builder-collab", view._logs.toPlainText())
+
+    def test_instance_manager_view_tracks_mixed_workspace_role_summary(self):
+        view = InstanceManagerView()
+
+        view.set_instances(
+            {
+                "active_instance": "ops-console",
+                "limits": {
+                    "configured": 4,
+                    "max_configured": 5,
+                    "active_runtime": 2,
+                    "max_active_runtime": 2,
+                },
+                "instances": [
+                    {"name": "guppy-primary", "type": "user_instance", "status": "active", "mode": "auto", "persona": "guppy", "voice": "default", "description": "Daily work", "last_message": "Morning brief", "governance": {}, "connectors": []},
+                    {"name": "builder-collab", "type": "builder_instance", "status": "idle", "mode": "code", "persona": "guppy", "voice": "default", "description": "Builder review", "last_message": "Review the next patch", "governance": {}, "connectors": []},
+                    {"name": "reference-desk", "type": "read_only_instance", "status": "idle", "mode": "local", "persona": "guppy", "voice": "default", "description": "Safe reference work", "last_message": "Compare the source docs", "governance": {}, "connectors": []},
+                    {"name": "ops-console", "type": "admin_instance", "status": "running", "mode": "auto", "persona": "guppy", "voice": "default", "description": "Diagnostics and recovery", "last_message": "Check runtime health", "governance": {}, "connectors": []},
+                ],
+                "warnings": [],
+            }
+        )
+
+        self.assertIn("Daily 1 | Builder 1 | Reference 1 | Ops 1", view._role_mix_lbl.text())
+        self.assertIn("Operations workspace", view._collab_lbl.text())
+        self.assertIn("Diagnostics and recovery", view._collab_lbl.text())
+        self.assertIn("AUTO mode", view._recurring_lbl.text())
+        self.assertIn("Check runtime health", view._recurring_lbl.text())
+
+    def test_instance_manager_view_shows_empty_workspace_onboarding_guidance(self):
+        view = InstanceManagerView()
+
+        view.set_instances(
+            {
+                "active_instance": "",
+                "limits": {
+                    "configured": 0,
+                    "max_configured": 5,
+                    "active_runtime": 0,
+                    "max_active_runtime": 2,
+                },
+                "instances": [],
+                "warnings": [],
+            }
+        )
+
+        self.assertFalse(view._empty_state_lbl.isHidden())
+        self.assertIn("Create a workspace", view._empty_state_lbl.text())
+        self.assertTrue(
+            any("No workspaces yet." in label.text() for label in view._cards_host.findChildren(QLabel))
+        )
+        self.assertIn("Pick a workspace to see its saved purpose", view._collab_lbl.text())
+        self.assertIn("Pick a workspace to see its saved mode", view._recurring_lbl.text())
+
+    def test_workspace_form_applies_role_specific_presets(self):
+        view = InstanceManagerView()
+
+        self.assertEqual(view._name.placeholderText(), "daily-desk")
+        self.assertEqual(view._description.text(), "Daily tasks, follow-ups, and recurring requests")
+        self.assertEqual(view._mode.currentText(), "auto")
+
+        view._type.setCurrentText("builder_instance")
+        self.assertEqual(view._name.placeholderText(), "builder-collab")
+        self.assertEqual(view._description.text(), "Planning, review loops, and low-risk drafting")
+        self.assertEqual(view._mode.currentText(), "code")
+        self.assertIn("builder workspace defaults", view._preset_lbl.text().lower())
+        self.assertIn("PLAN NEXT PASS", view._recipe_lbl.text())
+        self.assertIn("release-review", view._examples_lbl.text())
+
+        view._description.setText("Custom builder purpose")
+        view._type.setCurrentText("read_only_instance")
+        self.assertEqual(view._description.text(), "Custom builder purpose")
+        self.assertEqual(view._mode.currentText(), "local")
+        self.assertIn("SOURCE RESEARCH", view._recipe_lbl.text())
+        self.assertIn("source-check", view._examples_lbl.text())
+
+        view._type.setCurrentText("admin_instance")
+        self.assertEqual(view._mode.currentText(), "auto")
+        self.assertIn("OPS CHECK", view._recipe_lbl.text())
+        self.assertIn("ops-console", view._examples_lbl.text())
 
     def test_agent_tools_view_reflects_instance_restrictions(self):
         view = ToolsView()
@@ -569,6 +738,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             {"limits": {"configured": 2, "max_configured": 5, "active_runtime": 1, "max_active_runtime": 2}},
         )
         self.assertTrue(view._builder_panel._queue_btn.isEnabled())
+        self.assertIn("Automation Test", view._builder_panel._status_lbl.text())
         view._details_btn.click()
         self.assertIn("sign-in mode:", view._tool_cards["write_file"]._guard_lbl.text().lower())
         self.assertIn("sign-in:", view._tool_cards["query_instance"]._policy_lbl.text().lower())
@@ -608,13 +778,36 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("headroom stable", view._resource_lbl.text())
         self.assertIn("warmup", view._last_recovery_lbl.text().lower())
         self.assertIn("Recent activity:", view._daily_activity_lbl.text())
-        self.assertIn("installed on this pc:", view._windows_install_lbl.text().lower())
-        self.assertIn("local ai runtime:", view._windows_runtime_lbl.text().lower())
-        self.assertIn("data locations:", view._windows_paths_lbl.text().lower())
+        self.assertIn("ready on this pc:", view._windows_install_lbl.text().lower())
+        self.assertIn("local ai health:", view._windows_runtime_lbl.text().lower())
+        self.assertIn("saved data:", view._windows_paths_lbl.text().lower())
         self.assertTrue(view._connectors_frame.isHidden())
         self.assertTrue(view._workflow_frame.isHidden())
         self.assertTrue(view._operator_logs_frame.isHidden())
         self.assertTrue(view._terminal_frame.isHidden())
+
+    def test_app_management_view_exposes_guided_automation_testing_surface(self):
+        view = AdvancedView()
+        view.set_automation_snapshot(
+            {
+                "workspace": "Workspace step: active=builder-collab | preferred=builder-collab",
+                "queue_counts": "Queue counts: pending=1 | running=0 | awaiting approval=1 | done=2",
+                "staged_file": "Latest staged output: runtime/offhours_results/dry_run/sample.md",
+                "result_path": "Latest result: docs/generated/sample.md",
+                "approval_state": "Latest approval: awaiting approval for Draft regression checklist",
+                "report_path": "runtime/offhours_builder_report.json",
+                "validation_command": launcher_window._AUTOMATION_TEST_VALIDATION_COMMAND,
+                "status": "Automation test guide ready",
+            }
+        )
+
+        self.assertFalse(view._automation_frame.isHidden())
+        self.assertIn("builder-collab", view._automation_workspace_lbl.text())
+        self.assertIn("awaiting approval=1", view._automation_queue_lbl.text())
+        self.assertIn("sample.md", view._automation_staged_lbl.text())
+        self.assertIn("APPROVE LATEST STAGED TASK", view._automation_action_buttons["approve_latest_staged_task"].text())
+        self.assertIn(".venv\\Scripts\\python.exe", view._automation_validation_lbl.text())
+        self.assertIn("guided launcher test pass", view._automation_summary_lbl.text().lower())
 
     def test_app_management_connector_inventory_emits_normalized_actions(self):
         view = AdvancedView()
@@ -902,11 +1095,11 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             summary_path="runtime/windows_release_summary.md",
             gate_summary="PASS | checks 2/2 | required files OK",
             gate_detail="all dry-run checks passed and required handoff files are present",
-            gate_recommendations=["Release gate is green; package or hand off the receipt and dry-run report."],
+            gate_recommendations=["Release gate is green; review the dry-run report, receipt, and summary in that order, then package or hand off the bundle."],
             gate_recommendation_details=[
                 {
-                    "text": "Release gate is green; package or hand off the receipt and dry-run report.",
-                    "fix_target": "runtime/windows_release_receipt.json",
+                    "text": "Release gate is green; review the dry-run report, receipt, and summary in that order, then package or hand off the bundle.",
+                    "fix_target": "runtime/beta_release_dry_run_report.json -> runtime/windows_release_receipt.json -> runtime/windows_release_summary.md",
                     "docs_hint": "docs/PACKAGING.md",
                     "entry_point": "python tools/beta_release_dry_run.py",
                 }
@@ -917,9 +1110,11 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("docs/PACKAGING.md", view._windows_next_lbl.text())
         self.assertIn("Ref: recipe-1", view._windows_service_lbl.text())
         self.assertIn("PASS | checks 2/2", view._windows_gate_lbl.text())
+        self.assertTrue(view._windows_gate_fix_lbl.text().startswith("Review next:"))
         self.assertIn("Release gate is green", view._windows_gate_fix_lbl.text())
-        self.assertIn("Fix in: runtime/windows_release_receipt.json", view._windows_gate_fix_lbl.text())
+        self.assertIn("Review: runtime/beta_release_dry_run_report.json -> runtime/windows_release_receipt.json -> runtime/windows_release_summary.md", view._windows_gate_fix_lbl.text())
         self.assertIn("Doc: docs/PACKAGING.md", view._windows_gate_fix_lbl.text())
+        self.assertNotIn("review order=", view._windows_handoff_lbl.text())
         self.assertIn("receipt=runtime/windows_release_receipt.json", view._windows_handoff_lbl.text())
         self.assertIn("summary=runtime/windows_release_summary.md", view._windows_handoff_lbl.text())
         self.assertIn("diagnostics bundle=runtime/diagnostics_bundle_20260415_120000.json", view._windows_handoff_lbl.text())
@@ -1111,6 +1306,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             self.assertEqual(receipt["artifacts"][0]["id"], "diagnostics")
             summary_text = (runtime_dir / "windows_release_summary.md").read_text(encoding="utf-8")
             self.assertIn("# Windows Release Summary", summary_text)
+            self.assertIn("- Ref:", summary_text)
             self.assertIn("start_supervised_api", summary_text)
             self.assertTrue(any(event == "windows_ops_completed" for event, _fields in stub.logged))
 
@@ -1225,6 +1421,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             self.assertEqual(payload["action"], "verify_runtime")
             self.assertEqual(payload["event_id"], "recipe-abc123")
             self.assertEqual(payload["steps_completed"], 1)
+            self.assertNotIn("review_order", payload)
             self.assertEqual(payload["steps_total"], 1)
             self.assertEqual(payload["phase"], "completed")
             self.assertIn("pip changed during servicing", payload["changes"])
@@ -1236,6 +1433,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             self.assertEqual(receipt["operator_guidance"]["docs_hint"], "docs/TROUBLESHOOTING.md")
             summary_text = (runtime_dir / "windows_release_summary.md").read_text(encoding="utf-8")
             self.assertIn("WINDOWS VERIFY completed", summary_text)
+            self.assertIn("- Ref: recipe-abc123", summary_text)
             self.assertTrue(payload["next_step"])
             self.assertTrue(payload["fix_target"])
             self.assertTrue(any(event == "windows_ops_completed" for event, _fields in stub.logged))
@@ -1369,9 +1567,20 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             self.assertEqual(receipt["release_gate"]["checks"][0]["name"], "beta_policy")
             self.assertTrue(any("release dry-run" in item.lower() for item in receipt["release_gate"]["recommendations"]))
             self.assertEqual(receipt["release_gate"]["recommendation_details"][0]["entry_point"], "python tools/pilot_exit_check.py --allow-limited-go")
+            self.assertEqual(
+                receipt["review_order"],
+                [
+                    "runtime/beta_release_dry_run_report.json",
+                    "runtime/windows_release_receipt.json",
+                    "runtime/windows_release_summary.md",
+                ],
+            )
             summary_text = (runtime_dir / "windows_release_summary.md").read_text(encoding="utf-8")
             self.assertIn("## Release Gate", summary_text)
+            self.assertIn("## Review Order", summary_text)
             self.assertIn("## Fix-First", summary_text)
+            self.assertIn("- Ref: recipe-release-1", summary_text)
+            self.assertIn("1. runtime/beta_release_dry_run_report.json", summary_text)
             self.assertIn("python tools/pilot_exit_check.py --allow-limited-go", summary_text)
             self.assertTrue(any(fields.get("gate_summary") for event, fields in stub.logged if event == "windows_ops_completed"))
             completed_fields = next(fields for event, fields in stub.logged if event == "windows_ops_completed")
@@ -1383,6 +1592,65 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             self.assertEqual(completed_fields["gate_fix_docs"], "docs/PACKAGING.md")
             self.assertEqual(completed_fields["gate_fix_command"], "python tools/pilot_exit_check.py --allow-limited-go")
             self.assertTrue(str(completed_fields["release_summary"]).endswith("windows_release_summary.md"))
+
+    def test_windows_release_summary_green_path_uses_next_review_step(self):
+        with tempfile.TemporaryDirectory() as td:
+            summary_path = Path(td) / "windows_release_summary.md"
+            launcher_window.LauncherWindow._write_windows_release_summary(
+                summary_path,
+                {
+                    "timestamp": "2026-04-16T12:34:56+00:00",
+                    "event_id": "release-pass-1",
+                    "release_stage": "release_gate",
+                    "action": "release_dry_run",
+                    "ok": True,
+                    "summary": "WINDOWS RELEASE DRY RUN completed 1/1 servicing step(s).",
+                    "changes": "beta release dry-run report refreshed",
+                    "review_order": [
+                        "runtime/beta_release_dry_run_report.json",
+                        "runtime/windows_release_receipt.json",
+                        "runtime/windows_release_summary.md",
+                    ],
+                    "release_gate": {
+                        "summary": "PASS | checks 2/2 | required files OK",
+                        "detail": "all dry-run checks passed and required handoff files are present",
+                        "passed_checks": 2,
+                        "total_checks": 2,
+                        "recommendations": [
+                            "Release gate is green; review the dry-run report, receipt, and summary in that order, then package or hand off the bundle."
+                        ],
+                        "recommendation_details": [
+                            {
+                                "text": "Release gate is green; review the dry-run report, receipt, and summary in that order, then package or hand off the bundle.",
+                                "fix_target": "runtime/beta_release_dry_run_report.json -> runtime/windows_release_receipt.json -> runtime/windows_release_summary.md",
+                                "docs_hint": "docs/PACKAGING.md",
+                                "entry_point": "python tools/beta_release_dry_run.py",
+                            }
+                        ],
+                    },
+                    "artifacts": [
+                        {
+                            "id": "release_dry_run",
+                            "label": "release dry-run report",
+                            "path": "runtime/beta_release_dry_run_report.json",
+                            "mtime": "2026-04-16T12:34:10+00:00",
+                            "size": 321,
+                        }
+                    ],
+                    "operator_guidance": {
+                        "next_step": "Release dry-run passed. Review the dry-run report, receipt, and summary in that order, then package or hand off the reviewer bundle.",
+                        "fix_target": "runtime/beta_release_dry_run_report.json",
+                        "docs_hint": "docs/PACKAGING.md",
+                        "entry_point": "python tools/beta_release_dry_run.py",
+                    },
+                },
+            )
+
+            summary_text = summary_path.read_text(encoding="utf-8")
+            self.assertIn("- Ref: release-pass-1", summary_text)
+            self.assertIn("## Next Review Step", summary_text)
+            self.assertIn("Review: runtime/beta_release_dry_run_report.json -> runtime/windows_release_receipt.json -> runtime/windows_release_summary.md", summary_text)
+            self.assertIn("release dry-run report: runtime/beta_release_dry_run_report.json (updated 2026-04-16T12:34:10+00:00, 321 B)", summary_text)
 
     def test_settings_view_persists_persona_builder_config(self):
         old_settings_path = runtime_profile.SETTINGS_PATH
@@ -1659,6 +1927,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         dummy._request_in_flight = False
         dummy._apply_instance_switch = lambda *_args, **_kwargs: None
         dummy._sync_right_tray = lambda *_args, **_kwargs: None
+        dummy._sync_automation_test_state = lambda *_args, **_kwargs: None
         dummy._workspace_role_label = lambda *_args, **_kwargs: "daily"
         dummy._on_instance_logs_requested = lambda *_args, **_kwargs: None
         dummy._payload_signature = launcher_window.LauncherWindow._payload_signature
@@ -1670,6 +1939,159 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertEqual(dummy._advanced_view.calls, 2)
         self.assertEqual(dummy._my_pc_view.calls, 2)
         self.assertEqual(dummy._tools_view.calls, 1)
+
+    def test_apply_start_destination_opens_guided_automation_flow(self):
+        class _AdvancedStub:
+            def __init__(self) -> None:
+                self.note = ""
+
+            def focus_automation_test(self, note: str = "") -> None:
+                self.note = note
+
+        class _AssistantStub:
+            def __init__(self) -> None:
+                self.event = ""
+
+            def set_background_event(self, text: str) -> None:
+                self.event = text
+
+        class _StatusStub:
+            def __init__(self) -> None:
+                self.lines: list[str] = []
+
+            def append_syslog(self, text: str) -> None:
+                self.lines.append(text)
+
+        dummy = type("StartIntentDummy", (), {})()
+        dummy._start_destination = "automation-test"
+        dummy._advanced_view = _AdvancedStub()
+        dummy._assistant_view = _AssistantStub()
+        dummy._status_panel = _StatusStub()
+        dummy._active_tab = None
+        dummy._daily_activity = ""
+        dummy._logged = None
+        dummy._on_tab_change = lambda index: setattr(dummy, "_active_tab", index)
+        dummy._set_daily_activity = lambda text: setattr(dummy, "_daily_activity", text)
+        dummy._log_launcher_event = lambda event, **fields: setattr(dummy, "_logged", (event, fields))
+
+        launcher_window.LauncherWindow._apply_start_destination(dummy)
+
+        self.assertEqual(dummy._active_tab, 3)
+        self.assertIn("Test flow ready", dummy._advanced_view.note)
+        self.assertIn("Test flow ready", dummy._assistant_view.event)
+        self.assertIn("Setup & Health", dummy._daily_activity)
+        self.assertEqual(dummy._logged[0], "start_destination_applied")
+
+    def test_workspace_create_opens_new_workspace_for_first_run_onboarding(self):
+        class _ManagerStub:
+            def __init__(self) -> None:
+                self.status = ""
+
+            def set_status(self, text: str, ok: bool = True) -> None:
+                del ok
+                self.status = text
+
+        class _StatusStub:
+            def __init__(self) -> None:
+                self.lines: list[str] = []
+
+            def append_syslog(self, text: str) -> None:
+                self.lines.append(text)
+
+        class _AssistantStub:
+            def __init__(self) -> None:
+                self.messages: list[str] = []
+
+            def add_system_message(self, text: str) -> None:
+                self.messages.append(text)
+
+        dummy = type("CreateDummy", (), {})()
+        dummy._http_json = lambda *args, **kwargs: {"action": "created"}
+        dummy._refresh_calls = 0
+        dummy._refresh_instance_views = lambda *args, **kwargs: setattr(dummy, "_refresh_calls", dummy._refresh_calls + 1)
+        dummy._apply_instance_switch = lambda target, announce=True: setattr(dummy, "_switched_to", (target, announce))
+        dummy._instance_manager_view = _ManagerStub()
+        dummy._status_panel = _StatusStub()
+        dummy._assistant_view = _AssistantStub()
+        dummy._daily_activity = ""
+        dummy._set_daily_activity = lambda text: setattr(dummy, "_daily_activity", text)
+        dummy._logged = None
+        dummy._log_launcher_event = lambda event, **fields: setattr(dummy, "_logged", (event, fields))
+        dummy._workspace_first_run_recipe = launcher_window.LauncherWindow._workspace_first_run_recipe
+        dummy._workspace_role_label = launcher_window.LauncherWindow._workspace_role_label
+
+        launcher_window.LauncherWindow._on_instance_create_requested(
+            dummy,
+            {"name": "builder-collab", "type": "builder_instance", "description": "Planning workspace"},
+        )
+
+        self.assertEqual(dummy._switched_to, ("builder-collab", True))
+        self.assertIn("PLAN NEXT PASS", dummy._instance_manager_view.status)
+        self.assertIn("PLAN NEXT PASS", dummy._status_panel.lines[-1])
+        self.assertIn("Builder collaborator workspace", dummy._assistant_view.messages[-1])
+        self.assertIn("Workspace ready: builder-collab", dummy._daily_activity)
+        self.assertEqual(dummy._logged[0], "workspace_onboarding_ready")
+        self.assertGreaterEqual(dummy._refresh_calls, 2)
+
+    def test_approve_latest_builder_task_uses_safe_approval_flow(self):
+        from utils import offhours_builder
+
+        old_root = offhours_builder.ROOT
+        old_runtime = offhours_builder.RUNTIME
+        old_queue = offhours_builder.QUEUE_PATH
+        old_results = offhours_builder.RESULTS_PATH
+        old_metrics = offhours_builder.METRICS_PATH
+        old_dry_run = offhours_builder.DRY_RUN_DIR
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                runtime = root / "runtime"
+                dry_run_dir = runtime / "offhours_results" / "dry_run"
+                dry_run_dir.mkdir(parents=True, exist_ok=True)
+                staged_file = dry_run_dir / "automation-guide.staged"
+                staged_file.write_text("# approved\n", encoding="utf-8")
+
+                offhours_builder.ROOT = root
+                offhours_builder.RUNTIME = runtime
+                offhours_builder.QUEUE_PATH = runtime / "offhours_task_queue.json"
+                offhours_builder.RESULTS_PATH = runtime / "offhours_task_results.jsonl"
+                offhours_builder.METRICS_PATH = runtime / "offhours_metrics.jsonl"
+                offhours_builder.DRY_RUN_DIR = dry_run_dir
+                offhours_builder.QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                offhours_builder.QUEUE_PATH.write_text(
+                    json.dumps(
+                        {
+                            "version": 1,
+                            "tasks": [
+                                {
+                                    "id": "builder_docs_followup_test",
+                                    "title": "Draft docs follow-up",
+                                    "status": "awaiting_approval",
+                                    "output_file_path": "docs/generated/automation-guide.md",
+                                    "pending_approval": {
+                                        "staged_file": str(staged_file),
+                                        "workspace_file": "docs/generated/automation-guide.md",
+                                    },
+                                }
+                            ],
+                        },
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+                dummy = type("ApprovalDummy", (), {"_active_instance_name": "builder-collab"})()
+
+                payload = launcher_window.LauncherWindow._approve_latest_builder_task(dummy)
+
+                self.assertEqual(payload["approved_by"], "builder-collab")
+                self.assertTrue((root / "docs" / "generated" / "automation-guide.md").exists())
+        finally:
+            offhours_builder.ROOT = old_root
+            offhours_builder.RUNTIME = old_runtime
+            offhours_builder.QUEUE_PATH = old_queue
+            offhours_builder.RESULTS_PATH = old_results
+            offhours_builder.METRICS_PATH = old_metrics
+            offhours_builder.DRY_RUN_DIR = old_dry_run
 
     def test_settings_mode_roundtrip_persists_selection(self):
         import ui.launcher.views.settings_view as settings_view_module

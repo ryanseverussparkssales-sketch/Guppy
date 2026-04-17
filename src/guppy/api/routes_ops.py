@@ -113,7 +113,11 @@ def build_ops_router(ctx: ServerContext) -> APIRouter:
         }
 
     @router.get("/repair-token/refresh")
-    async def repair_token_refresh(_req: Request):
+    async def repair_token_refresh(
+        _req: Request,
+        user_id: str = Depends(ctx.require_rate_limit),
+    ):
+        del user_id
         client_ip = _req.client.host if _req.client else ""
         if client_ip not in ("127.0.0.1", "::1", "localhost", ""):
             owner.log_session_event(

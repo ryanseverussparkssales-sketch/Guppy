@@ -74,26 +74,26 @@ def _fmt_size(num_bytes: int) -> str:
 def _model_use_hint(name: str, display: str, tier: str, context: str = "", note: str = "") -> str:
     joined = " ".join(str(part or "").lower() for part in (name, display, context, note))
     if "haiku" in joined or "fast" in joined:
-        return "Best for quick everyday help and lighter tasks."
+        return "Good for quick everyday help and lighter tasks."
     if "sonnet" in joined:
-        return "Best default for balanced quality and speed."
+        return "Good default for balanced quality and speed."
     if "opus" in joined:
-        return "Best for the hardest writing and reasoning work."
+        return "Good for the hardest writing and reasoning work."
     if "vault" in joined:
-        return "Best for extraction and document-heavy lookup work."
+        return "Good for document lookup and extraction work."
     if "code" in joined or "coder" in joined or "merlin" in joined:
-        return "Best for coding, repo work, and technical tasks."
+        return "Good for coding, repo work, and technical tasks."
     if "teach" in joined:
-        return "Best for guided explanations and teaching-style help."
+        return "Good for guided explanations and teaching-style help."
     if "guppy-fast" in joined:
-        return "Best for fast local replies when you want low wait time."
+        return "Good for fast local replies when you want low wait time."
     if "guppy" in joined and tier == "LOCAL":
-        return "Best for local everyday chat on this PC."
+        return "Good for everyday chat on this PC."
     if "small" in joined or "1b" in joined or "3b" in joined:
-        return "Best for lighter local tasks and quick experiments."
+        return "Good for lighter local tasks and quick experiments."
     if "30b" in joined or "32b" in joined or "24b" in joined:
-        return "Best for heavier work when you can trade speed for depth."
-    return "Use this when it best matches the kind of work you are doing."
+        return "Good for heavier work when you can trade speed for depth."
+    return "Use this when it best fits the work you are doing."
 
 
 def _normalized_model_name(value: str) -> str:
@@ -259,11 +259,11 @@ class ModelsView(QWidget):
         topbar.setStyleSheet(f"QFrame#models_topbar {{ background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER}; }}")
         tb = QHBoxLayout(topbar)
         tb.setContentsMargins(28, 0, 28, 0)
-        self._title_lbl = QLabel("MODEL LIBRARY")
+        self._title_lbl = QLabel("MODELS")
         self._title_lbl.setStyleSheet(f"color: {T.PRIMARY}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_TITLE}pt; font-weight: bold; letter-spacing: 2px;")
-        self._active_lbl = QLabel(f"USING NOW: {self._active_model.upper()}")
+        self._active_lbl = QLabel(f"CURRENT MODEL: {self._active_model.upper()}")
         self._active_lbl.setStyleSheet(f"color: {T.PRIMARY_DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
-        self._active_runtime_lbl = QLabel("RUNS THROUGH: OLLAMA")
+        self._active_runtime_lbl = QLabel("LOCAL ENGINE: OLLAMA")
         self._active_runtime_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
         self._refresh_btn = QPushButton("REFRESH")
         self._refresh_btn.setFixedHeight(28)
@@ -286,7 +286,7 @@ class ModelsView(QWidget):
         self._library_search.setMinimumWidth(320)
         self._library_search.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 6px 8px;")
         self._library_search.textChanged.connect(lambda _=None: self._apply_library_filter())
-        self._library_hint_lbl = QLabel("Pick what Guppy should use for this session. Open RUNTIME only for backend or advanced routing changes.")
+        self._library_hint_lbl = QLabel("Pick the model Guppy should use for this session. Open Runtime only if you want to change the local engine or advanced routing.")
         self._library_hint_lbl.setWordWrap(True)
         self._library_hint_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
         search_row.addWidget(self._library_search)
@@ -560,7 +560,7 @@ class ModelsView(QWidget):
 
     def _update_runtime_controls(self) -> None:
         is_lemonade = self._local_runtime_backend == "lemonade"
-        self._active_runtime_lbl.setText(f"RUNS THROUGH: {self._local_runtime_backend.upper()}")
+        self._active_runtime_lbl.setText(f"LOCAL ENGINE: {self._local_runtime_backend.upper()}")
         self._lemonade_base_url_input.setEnabled(is_lemonade)
         for combo in self._lemonade_role_inputs.values():
             combo.setEnabled(is_lemonade)
@@ -648,8 +648,8 @@ class ModelsView(QWidget):
         runtime_name = self._saved_runtime_backend.upper()
         selected_name = self._active_model or "unset"
         self._library_summary_lbl.setText(
-            f"Start with {daily} for everyday use. Reach for {heavy} when you want a heavier local pass. "
-            f"You are currently using {selected_name} through {runtime_name}. "
+            f"Recommended default: {daily} for everyday use. Heavier local option: {heavy} when you want a deeper local pass. "
+            f"This session is using {selected_name} on {runtime_name}. "
             f"{local_count} local models are installed on this PC"
             + (f", with {advanced_count} advanced picks kept in their own section." if advanced_count else ".")
         )
@@ -676,11 +676,11 @@ class ModelsView(QWidget):
             self._local_placeholder.setVisible(not self._local_cards)
         if query:
             self._library_hint_lbl.setText(
-                f"Showing {local_matches} local and {cloud_matches} cloud matches. Open RUNTIME only if you want to change the engine or advanced routing."
+                f"Showing {local_matches} local and {cloud_matches} cloud matches. Open Runtime only if you want to change the local engine or advanced routing."
             )
         else:
             self._library_hint_lbl.setText(
-                "Pick what Guppy should use for this session. Open RUNTIME only for backend or advanced routing changes."
+                "Pick the model Guppy should use for this session. Open Runtime only if you want to change the local engine or advanced routing."
             )
 
     def _local_model_section(self, model_name: str) -> str:
@@ -921,7 +921,7 @@ class ModelsView(QWidget):
 
     def _on_model_selected(self, name: str) -> None:
         self._active_model = name
-        self._active_lbl.setText(f"USING NOW: {name.upper()}")
+        self._active_lbl.setText(f"CURRENT MODEL: {name.upper()}")
         os.environ["GUPPY_LOCAL_MODEL"] = name
         for card in self._local_cards:
             card.mark_active(card._model_name == name)

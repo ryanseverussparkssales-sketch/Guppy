@@ -7,10 +7,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from src.guppy.api import server as guppy_api
+from src.guppy.api import auth as guppy_api_auth
 from src.guppy.daemon.daemon import TaskScheduler
 from src.guppy.inference.router import InferenceRouter, resolve_ui_route
 from utils.router_scorecard import log_router_scorecard
@@ -150,6 +152,93 @@ def _run_api_endpoint_stress(total_requests: int, workers: int) -> dict:
     }
 
 
+def _run_control_plane_stress() -> dict:
+    app = guppy_api.app
+    app.dependency_overrides.pop(guppy_api.require_rate_limit, None)
+    localhost_client = TestClient(app, raise_server_exceptions=False, client=("127.0.0.1", 50010))
+    external_client = TestClient(app, raise_server_exceptions=False, client=("10.0.0.5", 50010))
+
+    token = guppy_api_auth.create_access_token({"sub": "stress-user"})
+    auth_headers = {"Authorization": f"Bearer {token}"}
+    repair_token = "ab" * 32
+    guppy_api._REPAIR_TOKEN = repair_token
+
+    failures: list[dict[str, object]] = []
+    checks: list[dict[str, object]] = []
+    started = time.perf_counter()
+
+    def _record(name: str, ok: bool, detail: str, latency_ms: float) -> None:
+        checks.append(
+            {
+                "name": name,
+                "ok": ok,
+                "detail": detail,
+                "latency_ms": round(latency_ms, 2),
+            }
+        )
+        if not ok:
+            failures.append({"name": name, "detail": detail, "latency_ms": round(latency_ms, 2)})
+
+    with patch.object(guppy_api._server_context, "call_unified_inference", return_value="stress-chat-ok"), patch.object(
+        guppy_api,
+        "get_cached_response",
+        return_value=None,
+    ):
+        t0 = time.perf_counter()
+        resp = localhost_client.get("/status")
+        _record("status_requires_bearer", resp.status_code == 401, f"status={resp.status_code}", (time.perf_counter() - t0) * 1000)
+
+        t0 = time.perf_counter()
+        resp = localhost_client.get("/auth/self-check", headers=auth_headers)
+        _record("auth_self_check", resp.status_code == 200, f"status={resp.status_code}", (time.perf_counter() - t0) * 1000)
+
+        t0 = time.perf_counter()
+        resp = localhost_client.get("/repair-token/refresh", headers=auth_headers)
+        ok = resp.status_code == 200 and resp.json().get("repair_token") == repair_token
+        _record("repair_token_refresh", ok, f"status={resp.status_code}", (time.perf_counter() - t0) * 1000)
+
+        t0 = time.perf_counter()
+        resp = external_client.get("/repair-token/refresh", headers=auth_headers)
+        _record("repair_token_refresh_external_blocked", resp.status_code == 403, f"status={resp.status_code}", (time.perf_counter() - t0) * 1000)
+
+        t0 = time.perf_counter()
+        resp = localhost_client.post(
+            "/repair",
+            json={"action": "warmup", "dry_run": True},
+            headers={**auth_headers, "X-Repair-Token": repair_token},
+        )
+        _record("repair_guarded_post", resp.status_code == 200, f"status={resp.status_code}", (time.perf_counter() - t0) * 1000)
+
+        t0 = time.perf_counter()
+        resp = localhost_client.post(
+            "/chat",
+            json={"message": "stress chat probe", "session_id": "stress-chat"},
+            headers=auth_headers,
+        )
+        _record("chat_authenticated", resp.status_code == 200, f"status={resp.status_code}", (time.perf_counter() - t0) * 1000)
+
+        t0 = time.perf_counter()
+        try:
+            with localhost_client.websocket_connect("/ws") as websocket:
+                websocket.send_json({"token": token})
+                auth_ok = websocket.receive_json() == {"status": "authenticated"}
+                websocket.send_json({"message": "stress websocket probe", "session_id": "stress-ws"})
+                chunk = websocket.receive_json()
+                done = websocket.receive_json()
+                ws_ok = auth_ok and chunk == {"chunk": "stress-chat-ok "} and done == {"done": True}
+                _record("websocket_authenticated", ws_ok, f"chunk={chunk} done={done}", (time.perf_counter() - t0) * 1000)
+        except Exception as exc:
+            _record("websocket_authenticated", False, str(exc), (time.perf_counter() - t0) * 1000)
+
+    return {
+        "name": "control_plane",
+        "checks": checks,
+        "failure_count": len(failures),
+        "failure_samples": failures[:10],
+        "elapsed_s": round(time.perf_counter() - started, 3),
+    }
+
+
 def _run_reminder_scheduler_stress(reminders: int) -> dict:
     scheduler = TaskScheduler(notifier=None)
     scheduler.start()
@@ -228,6 +317,7 @@ def _run_logging_stress(events: int) -> dict:
 def run_stress(api_requests: int, api_workers: int, route_iterations: int, reminders: int, log_events: int) -> dict:
     sections = []
     sections.append(_run_route_resolution_stress(route_iterations))
+    sections.append(_run_control_plane_stress())
     sections.append(_run_api_endpoint_stress(api_requests, api_workers))
     sections.append(_run_reminder_scheduler_stress(reminders))
     sections.append(_run_logging_stress(log_events))

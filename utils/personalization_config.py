@@ -18,16 +18,29 @@ PERSONA_CONFIG_PATH = RUNTIME_DIR / "persona_config.json"
 PROVIDER_REGISTRY_PATH = RUNTIME_DIR / "provider_registry.json"
 VOICE_BINDINGS_PATH = RUNTIME_DIR / "voice_bindings.json"
 
+MAIN_GUPPY_PERSONA_ID = "main_guppy"
+MAIN_GUPPY_PROFILE_SUMMARY = (
+    "- Ryan prefers concise, high-signal answers with low filler.\n"
+    "- Keep the tone calm, exact, proactive, and quietly confident. Aim for a Jarvis-like feel without theatrical phrasing.\n"
+    "- Preserve continuity across coding, launcher UX, automation, and workspace work so progress feels cumulative.\n"
+    "- Keep Home calm and chat-first. Move heavier runtime, routing, recovery, and logs detail into App Mgmt or dedicated surfaces.\n"
+    "- Never pretend an action, tool result, or state change happened unless it was actually executed."
+)
+
 
 DEFAULT_PERSONA_CONFIG: dict[str, Any] = {
     "version": 1,
-    "default_persona_id": "guppy_global",
+    "default_persona_id": MAIN_GUPPY_PERSONA_ID,
     "personas": [
         {
-            "id": "guppy_global",
-            "name": "Guppy Global",
+            "id": MAIN_GUPPY_PERSONA_ID,
+            "name": "Main Guppy",
             "scope": "global",
-            "system_prompt": "You are Guppy. Be concise, dependable, and practical.",
+            "system_prompt": (
+                "You are Main Guppy, Ryan's primary day-to-day assistant. "
+                "Be calm, dependable, practical, and quietly confident. "
+                "Keep the Jarvis-like feel understated and never theatrical."
+            ),
             "traits": {
                 "tone": "butler",
                 "verbosity": "medium",
@@ -38,10 +51,11 @@ DEFAULT_PERSONA_CONFIG: dict[str, Any] = {
                 "socratic_bias": 35,
                 "example_bias": 60,
             },
+            "profile_summary": MAIN_GUPPY_PROFILE_SUMMARY,
         }
     ],
     "assignments": {
-        "global": "guppy_global",
+        "global": MAIN_GUPPY_PERSONA_ID,
         "by_model": {},
     },
 }
@@ -102,7 +116,12 @@ DEFAULT_VOICE_BINDINGS: dict[str, Any] = {
     },
     "bindings": {
         "by_model": {},
-        "by_persona": {},
+        "by_persona": {
+            MAIN_GUPPY_PERSONA_ID: {
+                "engine": "EDGE TTS",
+                "voice_id": "en-GB-RyanNeural",
+            }
+        },
     },
     "imports": [],
 }
@@ -168,6 +187,12 @@ def _normalize_persona_config(data: Any, diagnostics: list[str] | None = None) -
                     "socratic_bias": 35,
                     "example_bias": 60,
                 }
+            profile_summary = persona.get("profile_summary")
+            if profile_summary is not None and not isinstance(profile_summary, str):
+                notes.append(f"persona {persona.get('id')} profile_summary must be a string; dropped invalid value")
+                persona.pop("profile_summary", None)
+            if persona.get("id") == MAIN_GUPPY_PERSONA_ID and not str(persona.get("profile_summary", "") or "").strip():
+                persona["profile_summary"] = MAIN_GUPPY_PROFILE_SUMMARY
             cleaned.append(persona)
         if dropped:
             notes.append(f"ignored {dropped} invalid persona entries")
@@ -452,6 +477,9 @@ def validate_persona_config(data: dict[str, Any]) -> list[str]:
             errors.append(f"personas[{idx}].id is required")
             continue
         ids.add(pid)
+        profile_summary = p.get("profile_summary")
+        if profile_summary is not None and not isinstance(profile_summary, str):
+            errors.append(f"personas[{idx}].profile_summary must be a string when present")
         scope = p.get("scope")
         if scope not in {"global", "model"}:
             errors.append(f"personas[{idx}].scope must be global or model")
@@ -640,11 +668,11 @@ def list_persona_choices(persona_config: dict[str, Any] | None = None) -> list[d
         return choices
     return [
         {
-            "id": "guppy_global",
-            "name": "Guppy Global",
+            "id": MAIN_GUPPY_PERSONA_ID,
+            "name": "Main Guppy",
             "scope": "global",
             "model": "",
-            "label": "Guppy Global [GLOBAL]",
+            "label": "Main Guppy [GLOBAL]",
         }
     ]
 
@@ -755,6 +783,15 @@ def build_persona_prompt_overlay(
     if system_prompt:
         lines.append("- Persona prompt override:")
         lines.append(system_prompt)
+
+    profile_summary = str(persona.get("profile_summary", "") or "").strip()
+    if profile_summary:
+        lines.append("- Curated long-term profile summary:")
+        for raw_line in profile_summary.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            lines.append(f"  {line}")
 
     lines.append("- Apply this persona as a style and teaching overlay while preserving tool-use honesty and safety rules.")
     return persona, "\n".join(lines)

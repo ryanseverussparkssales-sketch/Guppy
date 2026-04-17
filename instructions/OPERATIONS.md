@@ -1,6 +1,6 @@
 # Operations Instructions
 
-Last verified: 2026-04-14
+Last verified: 2026-04-16
 
 This is the primary operator runbook for the current codebase.
 
@@ -8,6 +8,7 @@ This is the primary operator runbook for the current codebase.
 
 1. Activate environment and launch the app:
    - `python src/guppy/cli/launch.py launcher`
+   - Automation-test entrypoint: `bin\launch_automation_test.bat`
 2. Launcher implementation is in `src/guppy/apps/launcher_app.py`.
 3. Wrapper `guppy_launcher.py` is compatibility-only and should stay thin.
 4. Use `src/guppy/cli/launch.py` for Hub, API, and GuppyPrime launches.
@@ -46,17 +47,21 @@ Run this after launcher builder, route, or voice changes:
    - `.venv\Scripts\python.exe -m pytest tests/unit/test_offhours_builder.py tests/unit/test_instance_controls.py -q`
 5. Launcher workflow shortcuts:
    - Use App Mgmt -> `WORKFLOW LOOPS` to load or run Morning Boot, acceptance snapshot, midday stability, evening close, or overnight low-compute commands without leaving the launcher.
+6. Guided automation testing:
+   - Use App Mgmt -> `AUTOMATION TEST` for verify, switch-workspace, queue, review, approval, and validation.
+   - Use Agent Tools only when you need the raw builder queue surface directly.
 
 ## 4) Recovery Flow
 
 If runtime appears degraded:
 
-1. Use launcher Settings recovery actions first.
+1. Use App Mgmt `WINDOWS INSTALL / UPDATE / DIAGNOSTICS` recovery actions first.
 2. If API is reachable, launcher sends `POST /repair` with `X-Repair-Token`.
-3. Repair-token source order:
+3. If the API reports `repair_token_mismatch`, launcher re-syncs through `GET /repair-token/refresh` using localhost plus valid bearer auth.
+4. Repair-token source order:
    - OS credential store (`keyring` via `utils/secret_store.py`)
    - Fallback file: `runtime/repair_token.txt` (for headless/no-keyring scenarios)
-4. If API is down, launcher direct fallback paths execute warmup/audit/snapshot locally.
+5. If API is down, launcher direct fallback paths execute warmup/audit/snapshot locally.
 
 ## 5) Auth and Secret Handling
 

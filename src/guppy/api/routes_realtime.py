@@ -13,6 +13,33 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
     router = APIRouter()
     owner = ctx.owner
 
+    def _persist_chat_memory(
+        *,
+        session_id: str | None,
+        user_text: str,
+        assistant_text: str,
+        persona_id: str = "",
+    ) -> None:
+        if not session_id or not owner.GUPPY_MEMORY_AVAILABLE:
+            return
+        try:
+            owner.memory.save_message(session_id, "user", user_text)
+            owner.memory.save_message(session_id, "assistant", assistant_text)
+            if hasattr(owner.memory, "promote_durable_chat_memory"):
+                owner.memory.promote_durable_chat_memory(
+                    user_text,
+                    assistant_text,
+                    session_id=session_id,
+                    persona_id=persona_id,
+                )
+        except Exception as exc:
+            owner.logger.error(
+                "chat memory persistence failed session_id=%r persona_id=%r error=%s",
+                session_id,
+                persona_id,
+                exc,
+            )
+
     @router.post("/chat")
     async def chat(request: ChatRequest, user_id: str = Depends(ctx.require_rate_limit)):
         del user_id
@@ -146,9 +173,12 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 except Exception as e:
                     owner.logger.debug("Response cache store skipped: %s", e)
 
-            if request.session_id and owner.GUPPY_MEMORY_AVAILABLE:
-                owner.memory.save_message(request.session_id, "user", request.message)
-                owner.memory.save_message(request.session_id, "assistant", response)
+            _persist_chat_memory(
+                session_id=request.session_id,
+                user_text=request.message,
+                assistant_text=response,
+                persona_id=str(request.persona or active_instance_persona or "").strip(),
+            )
 
             payload = {"response": response, "session_id": request.session_id}
             if idempotency_owner and idempotency_key:
@@ -248,9 +278,12 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     timeout_seconds=owner.CHAT_TIMEOUT_SECONDS,
                 )
 
-                if session_id and owner.GUPPY_MEMORY_AVAILABLE:
-                    owner.memory.save_message(session_id, "user", f"[Voice] {transcription}")
-                    owner.memory.save_message(session_id, "assistant", response)
+                _persist_chat_memory(
+                    session_id=session_id,
+                    user_text=f"[Voice] {transcription}",
+                    assistant_text=response,
+                    persona_id=str(active_instance_persona or "").strip(),
+                )
 
                 return {
                     "transcription": transcription,
@@ -339,6 +372,12 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         await websocket.send_json({"chunk": chunk})
 
                     await websocket.send_json({"done": True})
+                    _persist_chat_memory(
+                        session_id=session_id,
+                        user_text=message,
+                        assistant_text=text,
+                        persona_id=str(data.get("persona") or active_instance_persona or "").strip(),
+                    )
 
                 except WebSocketDisconnect:
                     break

@@ -304,9 +304,11 @@ Repair token notes:
 ### `GET /repair-token/refresh`
 
 - Localhost-only
-- No auth header required
+- Header: `Authorization: Bearer <jwt>`
 - Returns: `{ "repair_token": "<current-token>" }`
 - Used by the launcher after a `repair_token_mismatch` response to re-sync and retry
+- Returns `401` when the bearer token is missing or invalid
+- Returns `403` for non-localhost callers even with a valid bearer token
 
 ## Chat
 

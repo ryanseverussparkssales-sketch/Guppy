@@ -124,8 +124,8 @@ not by implementation convenience. Status values:
 | Priority | Track | Status | Current Tranche | Acceptance Criteria | Depends On | Target Window |
 | --- | --- | --- | --- | --- | --- | --- |
 | P0 | Connector Governance V2 | validation | Provider-specific readiness, guided auth, and telemetry alignment are implemented; close out evidence and keep provider detail stable while release-lane work finishes | App Mgmt can explain what is missing, what passed, and where to fix it for Salesforce/Twilio/HubSpot/Zoho/GoHighLevel without config-file editing | Existing connector governance v1 surface | Apr 16 - Apr 24 |
-| P1 | Windows Servicing V2 | active | Installer/update automation, stronger verify/update/restart/repair choreography, durable change summaries, and release-lane hardening | Operator can answer what is installed, what changed, what is active, and how to repair it from App Mgmt alone | Current Windows ops panel and recovery paths | Apr 16 - Apr 24 |
-| P2 | Workspace Framing | next | Recast instances into clearer user-facing workspaces with stronger recurring-context and collaboration cues | A user can tell what each workspace is for without backend knowledge | Stable governance + connector workflow | May 06 - May 23 |
+| P1 | Windows Servicing V2 | validation | Installer/update automation, stronger verify/update/restart/repair choreography, durable change summaries, and release-lane hardening are implemented; keep the reviewer bundle stable while the lane closes | Operator can answer what is installed, what changed, what is active, how to repair it, and what exact release bundle to hand off from App Mgmt alone | Current Windows ops panel and recovery paths | Apr 16 - Apr 24 |
+| P2 | Workspace Framing | active | Role-aware creation defaults, recurring-context cues, collaboration-fit framing, and onboarding prep are now in progress in the live launcher shell | A user can tell what each workspace is for without backend knowledge and can start the right kind of work without backend vocabulary | Stable governance + connector workflow | Apr 16 - May 23 |
 | P3 | Home / Chat-First Polish | queued | First-run guidance, calmer transcript/composer rhythm, starter-path polish | New users can start productive work from Home without reading operator docs | Workspace framing direction | May 20 - Jun 06 |
 | P4 | Route + Voice Trust Layer | queued | Better plain-language route reasoning, readiness, latency evidence, and device-state clarity | Users can understand route/voice choices and recovery state from launcher surfaces | Home polish and servicing evidence | Jun 03 - Jun 20 |
 | P5 | Local LLM Promotion Flow | queued | Runtime/default decision workflow, benchmark-to-promotion evidence, clearer role mapping | Default local runtime/model choices are measurable and auditable from the product | Servicing and trust layers | Jun 17 - Jul 03 |
@@ -135,12 +135,13 @@ not by implementation convenience. Status values:
 ### Re-Baselined 6-Week Window (Apr 16 - May 29, 2026)
 
 1. April 16 - April 24
-   - Close `R2.1` release-lane hardening.
+   - Keep `R2.1` stable in validation and close the release-lane hardening pass.
    - Align handoff artifacts and fix stale board/doc statuses.
    - Keep Connector Governance V2 in validation while release evidence stabilizes.
+   - Keep the already-started Workspace Framing slice moving without letting it displace release closeout.
 2. April 27 - May 08
-   - Promote Workspace Framing into the active product lane once `R2.1` evidence is stable.
-   - Ship clearer workspace language, recurring-context cues, and collaboration-fit framing.
+   - Finish the first active Workspace Framing lane with onboarding examples, create-flow recipes, and stronger first-run guidance.
+   - Keep clearer workspace language, recurring-context cues, and collaboration-fit framing consistent across Home, Workspaces, and App Mgmt.
 3. May 11 - May 22
    - Ship Home/chat-first polish, first-run guidance, and calmer starter flows.
    - Keep operator-heavy context deeper in App Mgmt, Models, and Voices.
@@ -156,8 +157,20 @@ not by implementation convenience. Status values:
 2. Connector Governance V2 validation
    - Keep provider verify detail, guided auth, and telemetry outputs stable while the servicing lane closes.
    - Treat this as evidence closeout, not a new feature build.
-3. Workspace Framing preparation
-   - Keep naming, recurring-context, and collaboration-fit direction ready to move into the active lane once `R2.1` is stable.
+3. Workspace Framing implementation
+   - Continue the live role-aware workspace pass: creation defaults, recurring-context cues, role-specific starters, and onboarding prep.
+   - Keep the workspace story coherent across Home, Workspaces, and App Mgmt while `R2.1` closes.
+
+### Best Next Actions (Apr 16 - Apr 24)
+
+1. Release-lane closeout
+   - Keep `R2.1` handoff evidence, dry-run wording, and operator-visible release summaries stable so the common package/install path stays ready for repeatable review.
+2. Workspace onboarding pass
+   - Add first-run workspace examples, create-flow recipes, and clearer empty-state guidance so the current framing work lands as a usable user story instead of only better labels.
+3. App Mgmt copy simplification
+   - Translate `MY PC` and `MODEL LIBRARY` copy away from backend/operator language and toward plain-English health, recommendations, and next actions.
+4. Guided automation validation
+   - Keep the new `Automation Test` path and runbooks aligned so internal testers have one obvious launch path and one obvious in-product workflow.
 
 ### Immediate Card Breakdown
 
@@ -194,10 +207,10 @@ not by implementation convenience. Status values:
    - Scope: align packaging/supervision/troubleshooting docs with the now-direct launcher actions and tighten release-facing evidence wording.
    - Acceptance: docs and operator surfaces describe the same packaging/install/recovery path with no stale manual-only assumptions.
 9. Card R2.1 - Release lane hardening
-   - Status: active
+   - Status: validation
    - Scope: push the new package/install lane toward release-grade repeatability with better artifact/report handoff and fewer manual follow-up steps.
    - Acceptance: the common release path is mostly launcher-driven, with remaining manual steps explicit and evidence-backed.
-   - Progress: App Mgmt now persists release handoff refs for diagnostics, challenger, package, beta-policy, and dry-run artifacts in `windows_ops_state.json`, mirrors them into operator-visible launcher events, writes a canonical `runtime/windows_release_receipt.json` handoff file after completed servicing runs, emits a readable `runtime/windows_release_summary.md` companion summary for operator handoff, exposes both receipt and summary in the App Mgmt handoff line, exposes a launcher-first `RELEASE DRY RUN` action for the beta release gate, surfaces parsed gate verdict details directly in App Mgmt plus operator logs, includes structured dry-run check/file breakdown in the release receipt for handoff-safe review, and now generates fix-first release recommendations with direct fix targets, docs hints, and entry commands from failed checks and missing handoff files across the receipt, live App Mgmt surface, and operator log stream.
+   - Progress: App Mgmt now persists release handoff refs for diagnostics, challenger, package, beta-policy, and dry-run artifacts in `windows_ops_state.json`, mirrors them into operator-visible launcher events, writes a canonical `runtime/windows_release_receipt.json` handoff file after completed servicing runs, emits a readable `runtime/windows_release_summary.md` companion summary for operator handoff, exposes both receipt and summary in the App Mgmt handoff line, exposes a launcher-first `RELEASE DRY RUN` action for the beta release gate, surfaces parsed gate verdict details directly in App Mgmt plus operator logs, includes structured dry-run check/file breakdown in the release receipt for handoff-safe review, generates fix-first release recommendations with direct fix targets, docs hints, and entry commands from failed checks and missing handoff files, and now keeps the successful reviewer bundle explicit with a stable `Ref`, artifact timestamps, and a `Next Review Step` handoff state instead of failure-only wording.
 
 ### Architecture Note - April 16, 2026
 
@@ -1760,8 +1773,79 @@ Use this format for the next roadmap update:
 
 ### 2026-04-16
 
+- Changed: synced the active docs and roadmap to the current launcher/recovery/security state after the latest workspace-framing, automation-test, and auth-hardening passes.
+- Changed:
+  - `Workspace Framing` now reads as an active lane in the execution board instead of only a queued follow-up because role-aware presets, recurring-context cues, and role-specific starters are already live in the launcher shell.
+  - Active docs now point automation testing to `bin/launch_automation_test.bat` plus `App Mgmt > Automation Test`, and recovery guidance now reflects that `/repair-token/refresh` requires both localhost origin and valid bearer auth.
+  - Active product docs now note the seeded `main_guppy` persona/profile summary path and the user-authored durable-memory promotion flow instead of describing memory only at a generic capability level.
+- Follow-up: finish `R2.1` release evidence, land workspace-create onboarding examples, and simplify `MY PC` / `MODEL LIBRARY` copy before the next mid-M2 checkpoint.
+
+### 2026-04-16
+
+- Changed: followed the workspace-framing pass with role-aware creation and re-entry defaults.
+- Changed:
+  - `Workspaces` now applies role-specific create presets for name/description placeholders, recommended starting mode, and a clearer explanation of what each new workspace type is meant to support.
+  - `Home` starter buttons now refresh by workspace role, so builder/reference/ops workspaces start with role-appropriate first prompts instead of reusing the exact daily-workspace language.
+- Verified: `.venv\Scripts\python.exe -m compileall ui\launcher\views\assistant_view.py ui\launcher\views\instance_manager_view.py` and `.venv\Scripts\python.exe -m pytest tests\smoke\test_launcher_interactions_smoke.py -q`
+- Follow-up: decide whether the next workspace-framing step should add role-aware starter sets inside the empty-state body itself or move to workspace-create examples and onboarding copy in the first-run flow.
+
+### 2026-04-16
+
+- Changed: moved `P1 / R2.1` into validation after tightening the reviewer-bundle contract in the launcher and docs.
+- Changed:
+  - Completed Windows Ops now always carry a stable `Ref`, including direct launcher actions that do not run through the terminal recipe tracker.
+  - The written release summary now prints that `Ref`, includes artifact timestamps in the handoff bundle, and switches successful dry-run guidance from failure-only `Fix-First` wording to a real `Next Review Step` handoff state.
+  - App Mgmt mirrors that same green-path language so a passed release dry run reads as "review/share next" instead of "fix first," while failed gates still keep direct fix targets, docs hints, and entry commands.
+- Verified: `.venv\\Scripts\\python.exe -m pytest tests\\smoke\\test_launcher_interactions_smoke.py tests\\unit\\test_launch_cli.py -q`, `.venv\\Scripts\\python.exe -m compileall ui\\launcher\\views\\advanced_view.py ui\\launcher\\launcher_window.py tests\\smoke\\test_launcher_interactions_smoke.py`, and `.venv\\Scripts\\python.exe tools\\check_doc_ownership.py`
+- Follow-up: keep the release reviewer bundle stable through repeated dry-run passes while the primary focus shifts to the May 8 Workspace Framing checkpoint and the May 22 Home calm-start pass.
+
+### 2026-04-16
+
+- Changed: closed the next four immediate action items across release docs, workspace onboarding, launcher copy, and automation-test acceptance.
+- Changed:
+  - `docs/PACKAGING.md` and `docs/TROUBLESHOOTING.md` now spell out the release dry-run handoff order, artifact bundle, and the exact `Fix-First` escalation behavior for operator review.
+  - `Workspaces` creation now opens newly created workspaces into their first-run flow, and `Home` empty-state copy now points each workspace type to the right starter recipe instead of using one generic first-step message.
+  - `MY PC` and `MODEL LIBRARY` now use plainer recommendation and health wording so internal testers can tell what is healthy, what is selected, and what to do next without reading routing jargon.
+- Verified: focused launcher smoke coverage plus the guided automation launch path acceptance suite.
+- Follow-up: finish the remaining `R2.1` release evidence closeout, then move the next M2 execution window toward workspace onboarding polish and Home/chat-first calm-start work.
+
+### 2026-04-16
+
+- Changed: pushed the next M2 tranche across the remaining `R2.1` reviewer handoff work, workspace-create polish, and the first May 22 Home calm-start pass.
+- Changed:
+  - `R2.1` handoff now reads as a reviewer bundle in App Mgmt and the written release summary: the dry-run report, receipt, and summary now carry an explicit review order instead of forcing operators to infer it.
+  - `Workspaces` creation now shows example names alongside role recipes, and newly created workspaces land in a tailored "workspace ready" handoff instead of only a generic switch message.
+  - `Home` now frames the composer as the primary action, keeps starters explicitly optional, and uses calmer role-aware first-run copy so the May 8 workspace-framing checkpoint and the May 22 calm-start pass are both underway in the live shell.
+- Verified: focused launcher smoke coverage, launch CLI coverage, doc ownership check, and compile checks on the touched launcher views.
+- Follow-up: keep `R2.1` evidence stable through repeated dry-run passes, then finish the remaining workspace collaboration cues and Home transcript/composer rhythm polish before the May 22 checkpoint.
+
+### 2026-04-16
+
+- Changed: pushed the next Workspace Framing pass into the launcher shell by deepening recurring-context cues instead of only relabeling roles.
+- Changed:
+  - `Workspaces` cards and summaries now surface saved mode/persona/voice context, clearer "return here for..." re-entry guidance, and recent-thread cues alongside the existing role/purpose framing.
+  - `Home` now carries the active workspace's saved context and varies its start-here hint by workspace role so builder/reference/ops workspaces no longer greet users like the daily workspace.
+  - App Mgmt daily-context workspace text now mirrors the same saved-context framing so the active workspace story stays consistent across launcher surfaces.
+- Verified: `.venv\Scripts\python.exe -m compileall ui\launcher\views\assistant_view.py ui\launcher\views\instance_manager_view.py ui\launcher\launcher_window.py` and `.venv\Scripts\python.exe -m pytest tests\smoke\test_launcher_interactions_smoke.py -q`
+- Follow-up: decide whether the next Workspace Framing slice should add lightweight workspace-specific starter sets or keep the next pass focused on stronger workspace-create defaults and first-run examples.
+
+### 2026-04-16
+
 - Changed: started a screenshot-driven launcher copy simplification pass for the `MY PC` and `MODEL LIBRARY` surfaces after reviewing live UI captures from the current shell.
 - Observed: the captures confirm that regular users still see too much backend/operator language in Windows/runtime summaries, connector setup copy, provider/account selectors, and model-library controls. The next rewrite pass should translate machine status into plain-English health guidance, hide provider/account inputs unless they are actually required, make connector actions match the real auth flow for each service, and recast model selection around recommendations and outcomes instead of route/runtime terminology.
 - Follow-up: finish the `MY PC` rewrite first, then simplify `MODEL LIBRARY` with clearer section framing, friendlier default-model messaging, and a saved-choice action that matches the actual persistence behavior.
+
+### 2026-04-16
+
+- Changed: tightened the active M2 polish pass with one more recurring-context layer in Home, a true no-workspace onboarding cue in Workspaces, plainer `MY PC` front-door copy, and a launch-CLI warning when `--start automation-test` is passed to non-launcher surfaces.
+- Verified: `.venv\Scripts\python.exe -m pytest tests\smoke\test_launcher_interactions_smoke.py -q` and `.venv\Scripts\python.exe -m pytest tests\unit\test_launch_cli.py -q`
+- Follow-up: keep the next copy pass aligned across `MY PC`, `App Mgmt`, and `MODEL LIBRARY`, then use the next Workspace Framing slice for broader real-workspace acceptance instead of more role-label churn.
+
+### 2026-04-16
+
+- Changed: finished the next user-test prep pass across `Setup & Health` and `Models`, softening the remaining launcher-facing jargon, widening workspace-framing smoke coverage to include role switching plus a four-role workspace mix, and leaving a clean desktop launcher at `C:\Users\Ryan\Desktop\Test Launch.bat`.
+- Verified: `.venv\Scripts\python.exe -m pytest tests\unit\test_launch_cli.py -q`, `.venv\Scripts\python.exe -m pytest tests\smoke\test_launcher_interactions_smoke.py -q`, and `.venv\Scripts\python.exe -m tests.smoke.stress_system --api-requests 900 --api-workers 35 --route-iterations 14000 --reminders 900 --log-events 8000`.
+- Observed: the full stress harness returned `ok=true` with `api_endpoints.failure_count=0`, `control_plane.failure_count=0`, `reminder_scheduler.left_after_cancel=0`, `route_resolution.failures=0`, `api_endpoints.latency_ms_avg=459.61`, `api_endpoints.latency_ms_p95=731.85`, and `api_endpoints.latency_ms_p95_hotpath=583.83`, writing the readiness report to `tests/runtime/stress_report_20260417_022711.json`.
+- Follow-up: use the desktop `Test Launch` entrypoint for the next user session, then capture any copy friction or launcher hesitation directly against the now-green stress baseline instead of reopening setup wording in the abstract.
 
 Keep this template at the bottom of the roadmap.

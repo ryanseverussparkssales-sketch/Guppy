@@ -47,6 +47,61 @@ def _workspace_default_purpose(workspace_type: str) -> str:
     }.get(key, "Task-focused context for this workspace.")
 
 
+def _workspace_collaboration_hint(workspace_type: str) -> str:
+    key = (workspace_type or "user_instance").strip().lower()
+    return {
+        "user_instance": "Best for recurring daily work and live conversation.",
+        "builder_instance": "Best for reviews, plans, and low-risk builder collaboration.",
+        "read_only_instance": "Best for source checking and safe reference work.",
+        "admin_instance": "Best for recovery, diagnostics, and guarded operational steps.",
+    }.get(key, "Best for focused work in its saved context.")
+
+
+def _workspace_reentry_hint(workspace_type: str) -> str:
+    key = (workspace_type or "user_instance").strip().lower()
+    return {
+        "user_instance": "Return here for repeated daily requests, follow-ups, and quick decisions.",
+        "builder_instance": "Return here for planning passes, review loops, and low-risk drafting.",
+        "read_only_instance": "Return here for source checks, comparisons, and reference-safe inspection.",
+        "admin_instance": "Return here for servicing, diagnostics, and guarded operator actions.",
+    }.get(key, "Return here when you want this workspace's saved context and purpose.")
+
+
+def _workspace_first_run_recipe(workspace_type: str) -> str:
+    key = (workspace_type or "user_instance").strip().lower()
+    return {
+        "user_instance": "First run: use MORNING BRIEF for priorities, then keep the workspace on daily follow-ups.",
+        "builder_instance": "First run: open PLAN NEXT PASS, then use BUILDER REVIEW to catch regressions early.",
+        "read_only_instance": "First run: open SOURCE RESEARCH, then SOURCE TRIAGE to organize evidence safely.",
+        "admin_instance": "First run: open OPS CHECK, then VERIFY or REPAIR only after the evidence is clear.",
+    }.get(key, "First run: use the starter that best matches the workspace's saved purpose.")
+
+
+def _workspace_example_names(workspace_type: str) -> str:
+    key = (workspace_type or "user_instance").strip().lower()
+    return {
+        "user_instance": "Good names: daily-desk | inbox-desk | project-rhythm",
+        "builder_instance": "Good names: builder-collab | release-review | docs-pass",
+        "read_only_instance": "Good names: reference-desk | source-check | partner-brief",
+        "admin_instance": "Good names: ops-console | recovery-desk | servicing-check",
+    }.get(key, "Good names: pick one that matches the saved purpose.")
+
+
+def _workspace_saved_context(payload: dict[str, object]) -> str:
+    mode = str(payload.get("mode", "auto") or "auto").strip().upper()
+    persona = str(payload.get("persona", "guppy") or "guppy").strip().upper()
+    voice = str(payload.get("voice", "default") or "default").strip().upper()
+    return f"Saved context: {mode} mode | {persona} persona | {voice} voice"
+
+
+def _workspace_recent_context(payload: dict[str, object]) -> str:
+    last_message = str(payload.get("last_message", "") or "").strip()
+    if not last_message:
+        return "Recent context: no recent thread is pinned yet."
+    snippet = last_message[:120] + ("..." if len(last_message) > 120 else "")
+    return f"Recent context: {snippet}"
+
+
 def _workspace_role_summary(items: list[dict[str, object]]) -> str:
     counts = {
         "daily": 0,
@@ -115,16 +170,11 @@ class _InstanceCard(QFrame):
         ]
         description = str(payload.get("description", "")).strip()
         details.append(f"Purpose: {description or _workspace_default_purpose(workspace_type)}")
-        collaboration_hint = {
-            "user_instance": "Best for recurring daily work and live conversation.",
-            "builder_instance": "Best for reviews, plans, and low-risk builder collaboration.",
-            "read_only_instance": "Best for source checking and safe reference work.",
-            "admin_instance": "Best for recovery, diagnostics, and guarded operational steps.",
-        }.get(workspace_type, "Best for focused work in its saved context.")
-        details.append(f"Fit: {collaboration_hint}")
-        last_message = str(payload.get("last_message", "")).strip()
-        if last_message:
-            details.append(f"Recent: {last_message[:120]}")
+        details.append(f"Fit: {_workspace_collaboration_hint(workspace_type)}")
+        details.append(_workspace_first_run_recipe(workspace_type))
+        details.append(_workspace_saved_context(payload))
+        details.append(f"Return here for: {_workspace_reentry_hint(workspace_type)}")
+        details.append(_workspace_recent_context(payload))
         for line in details:
             root.addWidget(_mono(line, T.DIM, T.FS_TINY))
 
@@ -163,6 +213,7 @@ class InstanceManagerView(QWidget):
         self._max_active_runtime = 2
         self._governance_by_name: dict[str, dict[str, object]] = {}
         self._connectors_by_name: dict[str, dict[str, dict[str, object]]] = {}
+        self._last_role_preset_type = "user_instance"
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -207,6 +258,15 @@ class InstanceManagerView(QWidget):
         form_layout.setContentsMargins(14, 12, 14, 12)
         form_layout.setSpacing(8)
         form_layout.addWidget(_mono("WORKSPACE DETAILS", T.PRIMARY, T.FS_TINY, True))
+        self._preset_lbl = _mono("Preset: daily workspace defaults are ready.", T.DIM, T.FS_TINY)
+        self._preset_lbl.setWordWrap(True)
+        form_layout.addWidget(self._preset_lbl)
+        self._recipe_lbl = _mono("First run: use MORNING BRIEF to get the workspace moving.", T.DIM, T.FS_TINY)
+        self._recipe_lbl.setWordWrap(True)
+        form_layout.addWidget(self._recipe_lbl)
+        self._examples_lbl = _mono(_workspace_example_names("user_instance"), T.DIM, T.FS_TINY)
+        self._examples_lbl.setWordWrap(True)
+        form_layout.addWidget(self._examples_lbl)
 
         row1 = QHBoxLayout()
         self._name = QLineEdit()
@@ -444,10 +504,20 @@ class InstanceManagerView(QWidget):
         self._role_mix_lbl = _mono("Role mix: Daily 0 | Builder 0 | Reference 0 | Ops 0", T.DIM, T.FS_TINY)
         self._collab_lbl = _mono("Collaboration cues appear here once workspaces load.", T.DIM, T.FS_TINY)
         self._collab_lbl.setWordWrap(True)
+        self._recurring_lbl = _mono("Recurring context cues appear here once workspaces load.", T.DIM, T.FS_TINY)
+        self._recurring_lbl.setWordWrap(True)
+        self._empty_state_lbl = _mono(
+            "Create a workspace to get started: Daily for recurring help, Builder for review loops, Reference for safe source checks, or Ops for recovery work.",
+            T.DIM,
+            T.FS_TINY,
+        )
+        self._empty_state_lbl.setWordWrap(True)
         self._limits_lbl = _mono("Configured workspaces: 0 / 5 | Live workspaces: 0 / 2", T.DIM, T.FS_TINY)
         layout.addWidget(self._limits_lbl)
         layout.addWidget(self._role_mix_lbl)
         layout.addWidget(self._collab_lbl)
+        layout.addWidget(self._recurring_lbl)
+        layout.addWidget(self._empty_state_lbl)
 
         self._cards_host = QWidget()
         self._cards_layout = QVBoxLayout(self._cards_host)
@@ -476,6 +546,7 @@ class InstanceManagerView(QWidget):
         outer.addWidget(scroll)
 
         self._name.textChanged.connect(self._sync_save_affordance)
+        self._type.currentTextChanged.connect(self._apply_role_preset)
         self._governance_workspace.currentTextChanged.connect(self._load_governance_editor)
         self._connector_workspace.currentTextChanged.connect(self._load_connector_binding_editor)
         self._connector_id.currentTextChanged.connect(self._load_connector_binding_editor)
@@ -485,6 +556,7 @@ class InstanceManagerView(QWidget):
         self._governance_save_btn.clicked.connect(self._emit_governance_save)
         self._connector_save_btn.clicked.connect(self._emit_connector_binding_save)
         self._save_btn = save_btn
+        self._apply_role_preset(self._type.currentText())
         self._sync_save_affordance()
 
     def _emit_create(self) -> None:
@@ -536,6 +608,59 @@ class InstanceManagerView(QWidget):
         if last_result:
             summary += f" | {last_result}"
         return summary
+
+    @staticmethod
+    def _role_preset(workspace_type: str) -> dict[str, str]:
+        key = (workspace_type or "user_instance").strip().lower()
+        presets = {
+            "user_instance": {
+                "name_placeholder": "daily-desk",
+                "description_placeholder": "Daily tasks, follow-ups, and recurring requests",
+                "mode": "auto",
+                "summary": "Preset: daily workspace defaults favor recurring conversation, quick follow-ups, and calm starter flows.",
+                "recipe": "First run: use MORNING BRIEF for priorities, then continue with daily follow-ups.",
+            },
+            "builder_instance": {
+                "name_placeholder": "builder-collab",
+                "description_placeholder": "Planning, review loops, and low-risk drafting",
+                "mode": "code",
+                "summary": "Preset: builder workspace defaults favor review passes, planning, and low-risk drafting.",
+                "recipe": "First run: open PLAN NEXT PASS, then use BUILDER REVIEW on the draft.",
+            },
+            "read_only_instance": {
+                "name_placeholder": "reference-desk",
+                "description_placeholder": "Source checking, comparisons, and safe reference work",
+                "mode": "local",
+                "summary": "Preset: reference workspace defaults favor safe inspection, comparisons, and evidence-first research.",
+                "recipe": "First run: open SOURCE RESEARCH, then SOURCE TRIAGE to sort the evidence.",
+            },
+            "admin_instance": {
+                "name_placeholder": "ops-console",
+                "description_placeholder": "Recovery, diagnostics, servicing, and guarded operator work",
+                "mode": "auto",
+                "summary": "Preset: ops workspace defaults favor diagnostics, recovery, and guarded operator actions.",
+                "recipe": "First run: open OPS CHECK, then VERIFY or REPAIR after checking evidence.",
+            },
+        }
+        return presets.get(key, presets["user_instance"])
+
+    def _apply_role_preset(self, workspace_type: str) -> None:
+        preset = self._role_preset(workspace_type)
+        previous_preset = self._role_preset(self._last_role_preset_type)
+        self._name.setPlaceholderText(preset["name_placeholder"])
+        self._description.setPlaceholderText(preset["description_placeholder"])
+        self._preset_lbl.setText(preset["summary"])
+        self._recipe_lbl.setText(preset.get("recipe", _workspace_first_run_recipe(workspace_type)))
+        self._examples_lbl.setText(_workspace_example_names(workspace_type))
+        current_description = self._description.text().strip()
+        if not current_description or current_description == previous_preset["description_placeholder"]:
+            self._description.setText(preset["description_placeholder"])
+        current_mode = self._mode.currentText().strip().lower()
+        if not current_mode or current_mode == previous_preset["mode"]:
+            idx = self._mode.findText(preset["mode"])
+            if idx >= 0:
+                self._mode.setCurrentIndex(idx)
+        self._last_role_preset_type = (workspace_type or "user_instance").strip().lower() or "user_instance"
 
     def _load_governance_editor(self, workspace_name: str) -> None:
         target = str(workspace_name or "").strip()
@@ -870,10 +995,27 @@ class InstanceManagerView(QWidget):
         active_type = str(active_payload.get("type", "user_instance") or "user_instance")
         active_purpose = str(active_payload.get("description", "") or _workspace_default_purpose(active_type)).strip()
         self._collab_lbl.setText(
-            f"Active workspace fit: {_workspace_role_label(active_type)}. {active_purpose}"
+            f"Active workspace fit: {_workspace_role_label(active_type)}. {active_purpose} | {_workspace_collaboration_hint(active_type)}"
             if active_instance
             else "Pick a workspace to see its saved purpose and collaboration fit."
         )
+        self._recurring_lbl.setText(
+            f"Recurring context: {_workspace_saved_context(active_payload)} | {_workspace_reentry_hint(active_type)} | {_workspace_recent_context(active_payload)}"
+            if active_instance
+            else "Pick a workspace to see its saved mode/persona/voice rhythm and recent thread cues."
+        )
+        self._empty_state_lbl.setVisible(not bool(items))
+        if not items:
+            empty_card = QLabel(
+                "No workspaces yet.\n\nStart with Daily for recurring help, Builder for reviews and planning, Reference for evidence-first checks, or Ops for guarded recovery work."
+            )
+            empty_card.setWordWrap(True)
+            empty_card.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            empty_card.setStyleSheet(
+                f"color: {T.DIM}; background-color: {T.BG1}; border: 1px dashed {T.BORDER};"
+                f" padding: 14px; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
+            )
+            self._cards_layout.addWidget(empty_card)
 
         for item in items:
             if not isinstance(item, dict):

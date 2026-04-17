@@ -1,6 +1,6 @@
 # Security and Resilience
 
-Last verified: 2026-04-13
+Last verified: 2026-04-16
 
 ## 1) Secret Storage Model
 
@@ -20,6 +20,8 @@ preserve compatibility in constrained environments.
 - Placeholder secret detection enforced
 - Strict-mode behavior rejects invalid/expired tokens
 - Secret retrieval supports OS store (`jwt_secret`) with env fallback
+- Direct loopback callers still require a valid bearer token; localhost only bypasses rate limiting, not authentication
+- Request-rate enforcement now uses a SQLite-backed event store so limits stay bounded and shared across local processes on the same machine
 
 ## 3) Repair Endpoint Security
 
@@ -27,6 +29,8 @@ preserve compatibility in constrained environments.
 - Requires valid `X-Repair-Token`
 - Token is process-scoped and regenerated on API startup
 - Cleanup removes token from OS store and file fallback on API shutdown
+- Related endpoint: `GET /repair-token/refresh`
+- `GET /repair-token/refresh` now requires both localhost origin and a valid bearer token before returning the active repair token
 
 ## 4) UI Concurrency Safety
 

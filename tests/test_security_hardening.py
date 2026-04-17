@@ -408,6 +408,16 @@ class AuthAndRepairLifecycleTests(unittest.TestCase):
         data = resp.json()
         self.assertTrue(data.get("ok"))
 
+    def test_localhost_self_check_requires_bearer_token(self):
+        secret_store._KEYRING_AVAILABLE = False
+        os.environ["GUPPY_JWT_SECRET"] = _TEST_SECRET
+        guppy_api_auth.SECRET_KEY = _TEST_SECRET
+
+        app = guppy_api.app
+        client = TestClient(app, raise_server_exceptions=False, client=("127.0.0.1", 50000))
+        resp = client.get("/auth/self-check")
+        self.assertEqual(resp.status_code, 401)
+
     def test_repair_token_accepted_from_keyring_and_file_fallback(self):
         app = guppy_api.app
         app.dependency_overrides[guppy_api.require_rate_limit] = lambda: "smoke-user"
@@ -521,10 +531,16 @@ class RepairTokenRefreshEndpointTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = guppy_api.app
-        cls.app.dependency_overrides[guppy_api.require_rate_limit] = lambda: "smoke-user"
-        # Use 127.0.0.1 as client host so the localhost-only guard passes.
+        secret_store._KEYRING_AVAILABLE = False
+        os.environ["GUPPY_JWT_SECRET"] = _TEST_SECRET
+        guppy_api_auth.SECRET_KEY = _TEST_SECRET
         cls._client = TestClient(cls.app, raise_server_exceptions=False, client=("127.0.0.1", 50000))
         cls._external_client = TestClient(cls.app, raise_server_exceptions=False, client=("10.0.0.1", 50000))
+        cls._token = guppy_api_auth.create_access_token({"sub": "smoke-user"})
+
+    @classmethod
+    def _auth_headers(cls):
+        return {"Authorization": f"Bearer {cls._token}"}
 
     def test_refresh_returns_current_token_to_localhost(self):
         """
@@ -533,7 +549,7 @@ class RepairTokenRefreshEndpointTests(unittest.TestCase):
         """
         token = "ee" * 32  # valid 64-char hex
         guppy_api._REPAIR_TOKEN = token
-        resp = self._client.get("/repair-token/refresh")
+        resp = self._client.get("/repair-token/refresh", headers=self._auth_headers())
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertIn("repair_token", data)
@@ -551,12 +567,18 @@ class RepairTokenRefreshEndpointTests(unittest.TestCase):
         try:
             guppy_api._SECRET_STORE_AVAILABLE = False
             guppy_api._REPAIR_TOKEN_FILE = Path("/nonexistent/path/repair_token.txt")
-            resp = self._client.get("/repair-token/refresh")
+            resp = self._client.get("/repair-token/refresh", headers=self._auth_headers())
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp.json().get("repair_token"), token)
         finally:
             guppy_api._SECRET_STORE_AVAILABLE = old_available
             guppy_api._REPAIR_TOKEN_FILE = old_file
+
+    def test_refresh_requires_bearer_token_even_on_localhost(self):
+        token = "cd" * 32
+        guppy_api._REPAIR_TOKEN = token
+        resp = self._client.get("/repair-token/refresh")
+        self.assertEqual(resp.status_code, 401)
 
     def test_refresh_rejects_non_localhost_client(self):
         """
@@ -565,7 +587,7 @@ class RepairTokenRefreshEndpointTests(unittest.TestCase):
         """
         token = "ab" * 32
         guppy_api._REPAIR_TOKEN = token
-        resp = self._external_client.get("/repair-token/refresh")
+        resp = self._external_client.get("/repair-token/refresh", headers=self._auth_headers())
         self.assertEqual(resp.status_code, 403)
 
 
@@ -590,7 +612,7 @@ class LauncherRepairTokenResyncTests(unittest.TestCase):
 
         # Build a duck-typed stub and bind the real methods under test.
         stub = _types.SimpleNamespace()
-        stub._api_bearer_token = ""
+        stub._api_bearer_token = "local-bearer"
         stub._api_token_source = "test"
         stub._api_base_url = lambda: "http://127.0.0.1:8100"
         stub._log_launcher_event = lambda *a, **kw: None
@@ -606,6 +628,7 @@ class LauncherRepairTokenResyncTests(unittest.TestCase):
             url = req.get_full_url()
             call_count["n"] += 1
             if "/repair-token/refresh" in url:
+                self.assertEqual(req.headers.get("Authorization"), "Bearer local-bearer")
                 cm = MagicMock()
                 cm.__enter__ = lambda s: MagicMock(
                     read=lambda: json.dumps({"repair_token": new_token}).encode()

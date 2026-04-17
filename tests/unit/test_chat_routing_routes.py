@@ -376,6 +376,51 @@ def test_chat_route_follow_up_request_keeps_rich_prompt_context() -> None:
         app.dependency_overrides.pop(guppy_api.require_rate_limit, None)
 
 
+def test_chat_route_persists_and_curates_memory_after_response() -> None:
+    app = _with_rate_limit_override()
+    client = TestClient(app)
+
+    try:
+        with patch.object(
+            guppy_api._server_context,
+            "call_unified_inference",
+            return_value="Understood. The Local LLM page should remain separate from Home.",
+        ), patch.object(
+            guppy_api,
+            "get_cached_response",
+            return_value=None,
+        ), patch.object(
+            guppy_api.memory,
+            "save_message",
+        ) as save_message, patch.object(
+            guppy_api.memory,
+            "promote_durable_chat_memory",
+            return_value=[{"key": "product.the_local_llm_page_scope"}],
+        ) as promote_memory:
+            resp = client.post(
+                "/chat",
+                json={
+                    "message": "I prefer concise answers. The Local LLM page should stay out of Home.",
+                    "session_id": "chat-memory-1",
+                },
+            )
+
+        assert resp.status_code == 200
+        assert save_message.call_count == 2
+        save_message.assert_any_call(
+            "chat-memory-1",
+            "user",
+            "I prefer concise answers. The Local LLM page should stay out of Home.",
+        )
+        promote_memory.assert_called_once()
+        args, kwargs = promote_memory.call_args
+        assert args[0] == "I prefer concise answers. The Local LLM page should stay out of Home."
+        assert "remain separate from Home" in args[1]
+        assert kwargs["session_id"] == "chat-memory-1"
+    finally:
+        app.dependency_overrides.pop(guppy_api.require_rate_limit, None)
+
+
 def test_chat_voice_route_simple_transcription_uses_light_prompt_context() -> None:
     app = _with_rate_limit_override()
     client = TestClient(app)

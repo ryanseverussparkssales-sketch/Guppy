@@ -64,6 +64,30 @@ def test_build_persona_prompt_overlay_contains_trait_and_prompt_details() -> Non
     assert "55/100" in overlay
 
 
+def test_build_persona_prompt_overlay_includes_curated_profile_summary() -> None:
+    config = {
+        "personas": [
+            {
+                "id": "main_guppy",
+                "name": "Main Guppy",
+                "scope": "global",
+                "system_prompt": "Stay calm and exact.",
+                "profile_summary": "- Ryan prefers concise answers.\n- Keep Home calm and chat-first.",
+                "traits": {"tone": "butler", "verbosity": "medium", "response_style": "direct"},
+                "teaching": {"enabled": True, "socratic_bias": 35, "example_bias": 60},
+            }
+        ],
+        "assignments": {"global": "main_guppy", "by_model": {}},
+        "default_persona_id": "main_guppy",
+    }
+
+    _persona, overlay = build_persona_prompt_overlay(requested_persona="main_guppy", persona_config=config)
+
+    assert "Curated long-term profile summary" in overlay
+    assert "concise answers" in overlay
+    assert "Home calm and chat-first" in overlay
+
+
 def test_resolve_voice_binding_prefers_model_then_persona_then_default() -> None:
     bindings = {
         "defaults": {"engine": "EDGE TTS", "voice_id": "default-voice"},

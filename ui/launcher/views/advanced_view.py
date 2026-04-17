@@ -153,6 +153,7 @@ class AdvancedView(QWidget):
     recovery_requested = Signal(str)
     windows_ops_requested = Signal(str)
     connector_action_requested = Signal(dict)
+    automation_action_requested = Signal(str)
     terminal_recipe_finished = Signal(dict)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -326,7 +327,7 @@ class AdvancedView(QWidget):
         windows_ops_layout.addWidget(_mono("DESKTOP RUNTIME", T.PRIMARY, T.FS_TINY, True))
         windows_ops_layout.addWidget(
             _mono(
-                "See what is installed, which local AI runtime is active, and what to try next if something needs repair.",
+                "See what is ready on this PC, which local AI engine is active, and the safest next step if something needs attention.",
                 T.DIM,
                 T.FS_SMALL,
             )
@@ -350,7 +351,7 @@ class AdvancedView(QWidget):
             ("UPDATE", "update_runtime", T.PRIMARY_DIM),
             ("PACKAGE", "package_desktop", T.SECONDARY),
             ("RELEASE DRY RUN", "release_dry_run", T.PRIMARY),
-            ("SUPERVISED API", "start_supervised_api", T.PRIMARY_DIM),
+            ("START API", "start_supervised_api", T.PRIMARY_DIM),
             ("RESTART", "restart_runtime", T.ERROR),
             ("REPAIR", "repair_runtime", T.SECONDARY),
         ]:
@@ -477,6 +478,91 @@ class AdvancedView(QWidget):
             connectors_layout.addWidget(widget)
         layout.addWidget(self._connectors_frame)
         self._detail_frames.append(self._connectors_frame)
+
+        self._automation_frame = QFrame()
+        self._automation_frame.setStyleSheet(
+            f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
+        )
+        automation_layout = QVBoxLayout(self._automation_frame)
+        automation_layout.setContentsMargins(16, 14, 16, 14)
+        automation_layout.setSpacing(8)
+        automation_layout.addWidget(_mono("AUTOMATION TEST", T.PRIMARY, T.FS_TINY, True))
+        automation_layout.addWidget(
+            _mono(
+                "Use this guided check flow to verify readiness, queue one safe builder task, review the draft, approve it, and run focused validation.",
+                T.DIM,
+                T.FS_SMALL,
+            )
+        )
+        self._automation_summary_lbl = _mono(
+            "Use this flow when you want one guided launcher test pass from start to finish.",
+            T.DIM,
+            T.FS_SMALL,
+        )
+        self._automation_summary_lbl.setWordWrap(True)
+        automation_layout.addWidget(self._automation_summary_lbl)
+
+        for text in (
+            "1. VERIFY NOW refreshes launcher and local-runtime readiness.",
+            "2. SWITCH TO BUILDER WORKSPACE moves to the preferred builder workspace when it exists.",
+            "3. QUEUE DRY RUN creates one small builder draft for review.",
+            "4. OPEN LATEST REPORT refreshes queue counts, draft output, and result paths.",
+            "5. APPROVE LATEST STAGED TASK only applies reviewed safe output.",
+            "6. RUN VALIDATION queues the focused builder check in the embedded terminal.",
+        ):
+            step_lbl = _mono(text, T.DIM, T.FS_TINY)
+            step_lbl.setWordWrap(True)
+            automation_layout.addWidget(step_lbl)
+
+        self._automation_action_buttons: dict[str, QPushButton] = {}
+        action_rows = [
+            [
+                ("VERIFY NOW", "verify_now", T.PRIMARY),
+                ("SWITCH TO BUILDER WORKSPACE", "switch_builder_workspace", T.SECONDARY),
+                ("QUEUE DRY RUN", "queue_dry_run", T.PRIMARY_DIM),
+            ],
+            [
+                ("OPEN LATEST REPORT", "open_latest_report", T.DIM),
+                ("APPROVE LATEST STAGED TASK", "approve_latest_staged_task", T.GREEN),
+                ("RUN VALIDATION", "run_validation", T.PRIMARY),
+            ],
+        ]
+        for row_actions in action_rows:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            for label, action, accent in row_actions:
+                button = QPushButton(label)
+                button.setStyleSheet(
+                    f"QPushButton {{ background: {T.BG0}; color: {accent}; border: 1px solid {accent};"
+                    f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+                    f"QPushButton:hover {{ background: rgba(242,202,80,0.12); }}"
+                )
+                button.clicked.connect(lambda _=False, action_name=action: self.automation_action_requested.emit(action_name))
+                self._automation_action_buttons[action] = button
+                row.addWidget(button)
+            automation_layout.addLayout(row)
+
+        self._automation_workspace_lbl = _mono("Workspace step: waiting for workspace telemetry.", T.TEXT, T.FS_TINY)
+        self._automation_queue_lbl = _mono("Queue counts: waiting for builder report.", T.DIM, T.FS_TINY)
+        self._automation_staged_lbl = _mono("Latest draft waiting for review: nothing is waiting yet.", T.DIM, T.FS_TINY)
+        self._automation_result_lbl = _mono("Latest result: no approved builder output has been recorded yet.", T.DIM, T.FS_TINY)
+        self._automation_approval_lbl = _mono("Latest approval: no queued draft is awaiting approval yet.", T.DIM, T.FS_TINY)
+        self._automation_report_lbl = _mono("Latest report: runtime/offhours_builder_report.json", T.DIM, T.FS_TINY)
+        self._automation_validation_lbl = _mono("Validation command: unavailable", T.PRIMARY_DIM, T.FS_TINY)
+        self._automation_status_lbl = _mono("Automation check flow ready", T.DIM, T.FS_TINY)
+        for widget in (
+            self._automation_workspace_lbl,
+            self._automation_queue_lbl,
+            self._automation_staged_lbl,
+            self._automation_result_lbl,
+            self._automation_approval_lbl,
+            self._automation_report_lbl,
+            self._automation_validation_lbl,
+            self._automation_status_lbl,
+        ):
+            widget.setWordWrap(True)
+            automation_layout.addWidget(widget)
+        layout.addWidget(self._automation_frame)
 
         self._workflow_frame = QFrame()
         self._workflow_frame.setStyleSheet(
@@ -662,6 +748,7 @@ class AdvancedView(QWidget):
         self._terminal_timer.timeout.connect(self._drain_terminal_queue)
         self._terminal_timer.start(150)
         self._sync_workflow_recipe()
+        self.set_automation_snapshot({})
         self._refresh_windows_ops_labels()
         self._detail_widgets.extend(
             [
@@ -792,6 +879,45 @@ class AdvancedView(QWidget):
         active_instance = str(payload.get("active_instance", "-") or "-") if isinstance(payload, dict) else "-"
         self._instances_lbl.setText(
             f"Workspaces: active={active_instance} | configured {configured}/{max_configured} | live {active_runtime}/{max_active_runtime}"
+        )
+
+    def set_automation_snapshot(self, payload: dict[str, object]) -> None:
+        workspace = str(payload.get("workspace", "") or "").strip()
+        queue_counts = str(payload.get("queue_counts", "") or "").strip()
+        staged_file = str(payload.get("staged_file", "") or "").strip()
+        result_path = str(payload.get("result_path", "") or "").strip()
+        approval_state = str(payload.get("approval_state", "") or "").strip()
+        report_path = str(payload.get("report_path", "") or "runtime/offhours_builder_report.json").strip()
+        validation_command = str(payload.get("validation_command", "") or "").strip()
+        status = str(payload.get("status", "") or "").strip()
+        self._automation_workspace_lbl.setText(
+            workspace or "Workspace step: active workspace telemetry is not available yet."
+        )
+        self._automation_queue_lbl.setText(
+            queue_counts or "Queue counts: builder queue status is not available yet."
+        )
+        self._automation_staged_lbl.setText(
+            staged_file or "Latest staged output: nothing is waiting for approval yet."
+        )
+        self._automation_result_lbl.setText(
+            result_path or "Latest result: no approved builder output has been recorded yet."
+        )
+        self._automation_approval_lbl.setText(
+            approval_state or "Latest approval: no staged task is awaiting approval yet."
+        )
+        self._automation_report_lbl.setText(f"Latest report: {report_path}")
+        self._automation_validation_lbl.setText(
+            f"Validation command: {validation_command}" if validation_command else "Validation command: unavailable"
+        )
+        if status:
+            self.set_automation_status(status)
+
+    def set_automation_status(self, text: str, ok: bool = True) -> None:
+        color = T.GREEN if ok else T.ERROR
+        message = (text or "Automation test guide ready").strip() or "Automation test guide ready"
+        self._automation_status_lbl.setText(message)
+        self._automation_status_lbl.setStyleSheet(
+            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
 
     @staticmethod
@@ -1240,12 +1366,16 @@ class AdvancedView(QWidget):
         *,
         receipt_path: str = "",
         summary_path: str = "",
+        review_order: list[str] | None = None,
     ) -> str:
         rendered: list[str] = []
         receipt = cls._artifact_display_path(receipt_path)
+        summary = cls._artifact_display_path(summary_path)
+        review_items = [str(item).strip() for item in (review_order or []) if str(item).strip()]
+        if review_items:
+            rendered.append(f"review order={' -> '.join(review_items)}")
         if receipt:
             rendered.append(f"receipt={receipt}")
-        summary = cls._artifact_display_path(summary_path)
         if summary:
             rendered.append(f"summary={summary}")
         for item in artifacts or []:
@@ -1257,8 +1387,53 @@ class AdvancedView(QWidget):
                 continue
             rendered.append(f"{label}={path}")
         if not rendered:
-            return "Files to share: run VERIFY, UPDATE, PACKAGE, or RELEASE DRY RUN to create reports and handoff files."
+            return (
+                "Files to share: run RELEASE DRY RUN first, then share the dry-run report, receipt, and summary in that order."
+            )
         return "Files to share: " + " | ".join(rendered[:4])
+
+    @staticmethod
+    def _release_gate_is_green(gate_summary: str) -> bool:
+        return str(gate_summary or "").strip().upper().startswith("PASS")
+
+    @classmethod
+    def _windows_gate_followup_line(
+        cls,
+        gate_summary: str,
+        gate_recommendations: list[str] | None,
+        gate_recommendation_details: list[dict[str, object]] | None,
+    ) -> str:
+        rendered_recommendations = [str(item).strip() for item in (gate_recommendations or []) if str(item).strip()]
+        rendered_recommendation_details = [item for item in (gate_recommendation_details or []) if isinstance(item, dict)]
+        primary_gate_fix = rendered_recommendation_details[0] if rendered_recommendation_details else {}
+        gate_ok = cls._release_gate_is_green(gate_summary)
+        prefix = "Review next" if gate_ok else "Fix first" if str(gate_summary or "").strip() else "Release follow-up"
+        target_label = "Review" if gate_ok else "Fix in"
+        body = (
+            (
+                str(primary_gate_fix.get("text", "") or "").strip()
+                + (
+                    f" | {target_label}: {str(primary_gate_fix.get('fix_target', '') or '').strip()}"
+                    if str(primary_gate_fix.get("fix_target", "") or "").strip()
+                    else ""
+                )
+                + (
+                    f" | Doc: {str(primary_gate_fix.get('docs_hint', '') or '').strip()}"
+                    if str(primary_gate_fix.get("docs_hint", "") or "").strip()
+                    else ""
+                )
+                + (
+                    f" | Cmd: {str(primary_gate_fix.get('entry_point', '') or '').strip()}"
+                    if str(primary_gate_fix.get("entry_point", "") or "").strip()
+                    else ""
+                )
+            )
+            if primary_gate_fix
+            else " | ".join(rendered_recommendations[:2])
+            if rendered_recommendations
+            else "no release-check recommendations recorded yet."
+        )
+        return f"{prefix}: {body}"
 
     def _build_windows_ops_snapshot(self) -> dict[str, str]:
         runtime_dir = _ROOT / "runtime"
@@ -1308,7 +1483,7 @@ class AdvancedView(QWidget):
         gate_detail = str(state_payload.get("gate_detail", "") or "").strip()
         gate_recommendations = [str(item).strip() for item in state_payload.get("gate_recommendations", []) if str(item).strip()] if isinstance(state_payload.get("gate_recommendations"), list) else []
         gate_recommendation_details = [item for item in state_payload.get("gate_recommendation_details", []) if isinstance(item, dict)] if isinstance(state_payload.get("gate_recommendation_details"), list) else []
-        primary_gate_fix = gate_recommendation_details[0] if gate_recommendation_details else {}
+        review_order = [str(item).strip() for item in state_payload.get("review_order", []) if str(item).strip()] if isinstance(state_payload.get("review_order"), list) else []
         step_text = (
             f" | Steps: {int(steps_completed or 0)}/{int(steps_total or 0)}"
             if steps_completed is not None and steps_total is not None
@@ -1358,19 +1533,17 @@ class AdvancedView(QWidget):
                 if gate_summary
                 else "no dry-run result recorded yet."
             ),
-            "gate_fix": "Fix first: " + (
-                (
-                    str(primary_gate_fix.get("text", "") or "").strip()
-                    + (f" | Fix in: {str(primary_gate_fix.get('fix_target', '') or '').strip()}" if str(primary_gate_fix.get("fix_target", "") or "").strip() else "")
-                    + (f" | Doc: {str(primary_gate_fix.get('docs_hint', '') or '').strip()}" if str(primary_gate_fix.get("docs_hint", "") or "").strip() else "")
-                    + (f" | Cmd: {str(primary_gate_fix.get('entry_point', '') or '').strip()}" if str(primary_gate_fix.get("entry_point", "") or "").strip() else "")
-                )
-                if primary_gate_fix
-                else " | ".join(gate_recommendations[:2])
-                if gate_recommendations
-                else "no release-check recommendations recorded yet."
+            "gate_fix": self._windows_gate_followup_line(
+                gate_summary,
+                gate_recommendations,
+                gate_recommendation_details,
             ),
-            "handoff": self._windows_handoff_line(artifacts, receipt_path=receipt_path, summary_path=summary_path),
+            "handoff": self._windows_handoff_line(
+                artifacts,
+                receipt_path=receipt_path,
+                summary_path=summary_path,
+                review_order=review_order,
+            ),
         }
 
     def _refresh_windows_ops_labels(self) -> None:
@@ -1397,24 +1570,24 @@ class AdvancedView(QWidget):
         state = runtime_fields.get("status", "unknown").lower()
 
         self._windows_install_lbl.setText(
-            "Installed on this PC: " + (", ".join(install_bits) if install_bits else "Core launcher tools found.")
+            "Ready on this PC: " + (", ".join(install_bits) if install_bits else "Core launcher tools found.")
         )
         if state == "ready":
-            self._windows_runtime_lbl.setText(f"Local AI runtime: {live_backend.title()} is connected and ready.")
+            self._windows_runtime_lbl.setText(f"Local AI health: {live_backend.title()} is connected and ready.")
         elif state == "unknown":
-            self._windows_runtime_lbl.setText(f"Local AI runtime: {configured.title()} is selected, but it has not been confirmed yet.")
+            self._windows_runtime_lbl.setText(f"Local AI health: {configured.title()} is selected, but it has not been confirmed yet.")
         else:
-            self._windows_runtime_lbl.setText(f"Local AI runtime: {configured.title()} needs attention.")
-        self._windows_paths_lbl.setText("Data locations: runtime, config, and settings are available on this PC.")
-        self._windows_repair_lbl.setText("Repair help: Use Repair if sign-in, startup, or local runtime checks fail.")
+            self._windows_runtime_lbl.setText(f"Local AI health: {configured.title()} needs attention.")
+        self._windows_paths_lbl.setText("Saved data: runtime, config, and settings are available on this PC.")
+        self._windows_repair_lbl.setText("Repair tip: Use Repair if sign-in, startup, or local runtime checks fail.")
         self._windows_update_lbl.setText("Update path: Update refreshes dependencies, then runs the built-in post-update checks.")
         self._windows_diagnostics_lbl.setText("Diagnostics: launcher logs and the latest diagnostic bundle are available for troubleshooting.")
-        self._windows_entry_lbl.setText("Useful actions: Package makes a shareable desktop build, and Supervised API restarts the background service safely.")
-        self._windows_next_lbl.setText(next_raw or "Recommended next step: unavailable")
+        self._windows_entry_lbl.setText("Useful actions: Package makes a shareable desktop build, and Start API safely restarts the background service.")
+        self._windows_next_lbl.setText((next_raw or "Next step: unavailable").replace("Recommended next step:", "Next step:"))
         self._windows_service_lbl.setText(service_raw or "Recent service action: unavailable")
         self._windows_change_lbl.setText(change_raw or "Recent changes: unavailable")
         self._windows_gate_lbl.setText(gate_raw or "Release check: unavailable")
-        self._windows_gate_fix_lbl.setText(gate_fix_raw or "Fix first: unavailable")
+        self._windows_gate_fix_lbl.setText(gate_fix_raw or "Release follow-up: unavailable")
         self._windows_handoff_lbl.setText(handoff_raw or "Files to share: unavailable")
 
     def refresh_windows_ops_snapshot(self) -> None:
@@ -1445,6 +1618,7 @@ class AdvancedView(QWidget):
         gate_detail: str = "",
         gate_recommendations: list[str] | None = None,
         gate_recommendation_details: list[dict[str, object]] | None = None,
+        review_order: list[str] | None = None,
     ) -> None:
         self._windows_ops["service"] = (
             f"Recent service action: {action} | {'OK' if ok else 'CHECK'} | {summary}"
@@ -1455,25 +1629,20 @@ class AdvancedView(QWidget):
             if str(gate_summary or "").strip()
             else "no dry-run result recorded yet."
         )
-        rendered_recommendations = [str(item).strip() for item in (gate_recommendations or []) if str(item).strip()]
-        rendered_recommendation_details = [item for item in (gate_recommendation_details or []) if isinstance(item, dict)] 
-        primary_gate_fix = rendered_recommendation_details[0] if rendered_recommendation_details else {}
-        self._windows_ops["gate_fix"] = "Fix first: " + (
-            (
-                str(primary_gate_fix.get("text", "") or "").strip()
-                + (f" | Fix in: {str(primary_gate_fix.get('fix_target', '') or '').strip()}" if str(primary_gate_fix.get("fix_target", "") or "").strip() else "")
-                + (f" | Doc: {str(primary_gate_fix.get('docs_hint', '') or '').strip()}" if str(primary_gate_fix.get("docs_hint", "") or "").strip() else "")
-                + (f" | Cmd: {str(primary_gate_fix.get('entry_point', '') or '').strip()}" if str(primary_gate_fix.get("entry_point", "") or "").strip() else "")
-            )
-            if primary_gate_fix
-            else " | ".join(rendered_recommendations[:2])
-            if rendered_recommendations
-            else "no release-check recommendations recorded yet."
+        self._windows_ops["gate_fix"] = self._windows_gate_followup_line(
+            str(gate_summary or "").strip(),
+            gate_recommendations,
+            gate_recommendation_details,
         )
-        self._windows_ops["handoff"] = self._windows_handoff_line(artifacts, receipt_path=receipt_path, summary_path=summary_path)
+        self._windows_ops["handoff"] = self._windows_handoff_line(
+            artifacts,
+            receipt_path=receipt_path,
+            summary_path=summary_path,
+            review_order=review_order,
+        )
         if next_step:
             self._windows_ops["next"] = (
-                "Recommended next step: "
+                "Next step: "
                 + next_step
                 + (f" | Fix in: {fix_target}" if fix_target else "")
                 + (f" | Doc: {docs_hint}" if docs_hint else "")
@@ -1502,6 +1671,13 @@ class AdvancedView(QWidget):
         if note:
             self._append_terminal_output(note)
         self._terminal_input.setFocus()
+
+    def focus_automation_test(self, note: str = "") -> None:
+        if note:
+            self.set_automation_status(note)
+        button = self._automation_action_buttons.get("verify_now")
+        if button is not None:
+            button.setFocus()
 
     def queue_terminal_recipe(
         self,

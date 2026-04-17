@@ -17,7 +17,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, ExpiredSignatureError, jwt
 from pydantic import BaseModel
 
+from src.guppy.paths import ensure_user_data_dir
 from utils.env_bootstrap import load_env_file
+from utils.db_utils import open_db
 try:
     from utils import secret_store as _secret_store
     _SECRET_STORE_AVAILABLE = True
@@ -231,7 +233,42 @@ async def require_turnstile(request: Request) -> str:
 # ── Rate Limiting (Basic) ─────────────────────────────────────────────────────
 
 # Simple in-memory rate limiting (use Redis/external service for production)
-rate_limit_store: dict = {}
+_RATE_LIMIT_DB_PATH = (
+    os.getenv("GUPPY_RATE_LIMIT_DB_PATH", "").strip()
+    or str(ensure_user_data_dir() / "guppy_rate_limits.sqlite3")
+)
+_RATE_LIMIT_ROW_CAP = max(1000, int(os.getenv("GUPPY_RATE_LIMIT_ROW_CAP", "50000")))
+_RATE_LIMIT_RETENTION_MINUTES = max(10, int(os.getenv("GUPPY_RATE_LIMIT_RETENTION_MINUTES", "1440")))
+_RATE_LIMIT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS rate_limit_events (
+    principal TEXT NOT NULL,
+    timestamp_utc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rate_limit_principal_ts
+    ON rate_limit_events(principal, timestamp_utc);
+CREATE INDEX IF NOT EXISTS idx_rate_limit_ts
+    ON rate_limit_events(timestamp_utc);
+"""
+
+
+def _clear_rate_limit_backend() -> None:
+    try:
+        with open_db(_RATE_LIMIT_DB_PATH, schema_sql=_RATE_LIMIT_SCHEMA) as conn:
+            conn.execute("DELETE FROM rate_limit_events")
+            conn.commit()
+    except Exception:
+        pass
+
+
+class _RateLimitStoreMirror(dict):
+    """Compatibility mirror for tests; sqlite is the enforcement source of truth."""
+
+    def clear(self) -> None:  # type: ignore[override]
+        super().clear()
+        _clear_rate_limit_backend()
+
+
+rate_limit_store: dict = _RateLimitStoreMirror()
 
 _POLL_PATHS = {
     "/status",
@@ -281,25 +318,64 @@ def _resolve_rate_limit_policy(request: Request) -> tuple[str, int, int]:
     )
 
 def check_rate_limit(user_id: str, max_requests: int = 100, window_minutes: int = 60) -> bool:
-    """Check if user has exceeded rate limit."""
+    """Check if user has exceeded rate limit across local processes."""
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(minutes=window_minutes)
+    retention_start = now - timedelta(minutes=_RATE_LIMIT_RETENTION_MINUTES)
+    timestamp_now = now.isoformat()
+    timestamp_window_start = window_start.isoformat()
+    timestamp_retention_start = retention_start.isoformat()
 
-    if user_id not in rate_limit_store:
-        rate_limit_store[user_id] = []
+    with open_db(_RATE_LIMIT_DB_PATH, schema_sql=_RATE_LIMIT_SCHEMA) as conn:
+        conn.execute(
+            "DELETE FROM rate_limit_events WHERE timestamp_utc <= ?",
+            (timestamp_retention_start,),
+        )
+        count = int(
+            conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM rate_limit_events
+                WHERE principal = ? AND timestamp_utc > ?
+                """,
+                (user_id, timestamp_window_start),
+            ).fetchone()[0]
+        )
+        if count >= max_requests:
+            conn.commit()
+            return False
 
-    # Clean old requests
-    rate_limit_store[user_id] = [
-        req_time for req_time in rate_limit_store[user_id]
-        if req_time > window_start
-    ]
+        conn.execute(
+            "INSERT INTO rate_limit_events (principal, timestamp_utc) VALUES (?, ?)",
+            (user_id, timestamp_now),
+        )
+        total_rows = int(
+            conn.execute("SELECT COUNT(*) FROM rate_limit_events").fetchone()[0]
+        )
+        if total_rows > _RATE_LIMIT_ROW_CAP:
+            rows_to_trim = total_rows - _RATE_LIMIT_ROW_CAP
+            conn.execute(
+                """
+                DELETE FROM rate_limit_events
+                WHERE rowid IN (
+                    SELECT rowid
+                    FROM rate_limit_events
+                    ORDER BY timestamp_utc ASC
+                    LIMIT ?
+                )
+                """,
+                (rows_to_trim,),
+            )
+        conn.commit()
 
-    # Check limit
-    if len(rate_limit_store[user_id]) >= max_requests:
-        return False
-
-    # Add current request
-    rate_limit_store[user_id].append(now)
+    # Keep a tiny compatibility mirror for tests and debug visibility.
+    current = rate_limit_store.get(user_id, [])
+    if isinstance(current, list):
+        filtered = [req_time for req_time in current if req_time > window_start]
+        filtered.append(now)
+        rate_limit_store[user_id] = filtered[-max_requests:]
+    else:
+        rate_limit_store[user_id] = [now]
     return True
 
 def _is_localhost_request(request: Request) -> bool:
@@ -316,19 +392,14 @@ def require_rate_limit(request: Request, credentials: HTTPAuthorizationCredentia
     """Dependency to enforce rate limiting.
 
     Localhost requests (direct loopback, no proxy headers) are exempt from rate
-    limiting.  Rate limits apply only to externally forwarded requests so that
-    tunnel/remote access is protected without blocking normal launcher usage or
-    stress-test runs that target the local API directly.
+    limiting, but not from bearer authentication. Rate limits apply only to
+    externally forwarded requests so that tunnel/remote access is protected
+    without blocking normal launcher usage.
     """
-    if _is_localhost_request(request):
-        try:
-            return _verify_token_credentials(credentials)
-        except HTTPException as exc:
-            detail = exc.detail if isinstance(exc.detail, dict) else {}
-            auth_code = detail.get("code", "auth_bypass_localhost") if isinstance(detail, dict) else "auth_bypass_localhost"
-            logger.info("Localhost auth bypass applied [%s]", auth_code)
-            return "localhost_loopback"
     user_id = _verify_token_credentials(credentials)
+    if _is_localhost_request(request):
+        logger.info("Localhost rate-limit bypass applied for %s", user_id)
+        return user_id
     bucket, max_requests, window_minutes = _resolve_rate_limit_policy(request)
     bucketed_user = f"{user_id}:{bucket}"
     if not check_rate_limit(bucketed_user, max_requests=max_requests, window_minutes=window_minutes):

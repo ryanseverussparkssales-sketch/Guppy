@@ -14,10 +14,10 @@ Guppy is a Windows-first, local-first personal assistant focused on:
 ## Current State Snapshot
 
 1. `M1` closed on April 13, 2026; `M2` is active as of April 15, 2026.
-2. Current verified baseline on April 16, 2026: runtime smoke plus launcher/security regression suites are green.
-3. Next checkpoint: April 24, 2026 - close release-lane hardening and align handoff/doc status.
-4. Next checkpoint: May 8, 2026 - promote Workspace Framing into the active lane if servicing evidence remains stable.
-5. Next checkpoint: May 22, 2026 - land Home/chat-first polish, first-run guidance, and calmer starter flows.
+2. Current verified baseline on April 16, 2026: runtime smoke plus launcher/security regression suites are green, `R2.1` release-lane hardening is now in validation, and Workspace Framing is already in implementation alongside that closeout.
+3. Next checkpoint: April 24, 2026 - keep release-lane hardening stable in validation with a reviewer bundle that carries a clear `Ref`, evidence timestamps, repeatable dry-run artifacts, and operator-readable handoff copy.
+4. Next checkpoint: May 8, 2026 - finish the first Workspace Framing slice with onboarding examples, create-flow recipes, stronger recurring-context guidance, and cleaner workspace-ready handoff.
+5. Next checkpoint: May 22, 2026 - continue Home/chat-first polish with calmer default copy, one obvious primary action, and optional starter guidance that does not crowd the chat surface.
 
 ## Primary Product Surface
 
@@ -70,6 +70,11 @@ Status contract for active docs:
 27. Blocked tool telemetry now distinguishes connector unbound/action/account/provider/auth failures plus endpoint scope and workspace-policy denials instead of collapsing everything into one coarse restriction reason, and Agent Tools surfaces the connector auth state directly.
 28. App Mgmt now includes a Windows install/update/diagnostics surface with installed-runtime visibility, active local backend, data paths, repair-token posture, latest diagnostics artifact visibility, and one-click verify/update/package/supervised-API/restart/repair actions.
 29. Windows servicing evidence is now persisted and operator-readable in App Mgmt: terminal-backed actions carry refs, step counts, "what changed" notes, and next-step guidance that point directly at packaging, supervision, or repair follow-ups.
+30. App Mgmt now includes a guided `Automation Test` path, and the repo now ships a dedicated tester entrypoint at `bin/launch_automation_test.bat` for verify -> queue -> review -> approve -> validate flows.
+31. Workspace Framing is already live as more than a rename pass: Workspaces and Home now carry role-aware creation defaults, recurring-context cues, saved mode/persona/voice framing, and role-specific starter behavior.
+32. The default persona is now `main_guppy` with a curated profile summary plus persona-specific voice binding, and post-chat durable-memory promotion now lifts user-authored preferences, decisions, and scope cues into semantic memory.
+33. Release-lane handoff now reads as a reviewer bundle instead of a loose status note: App Mgmt, the release summary, and the packaging/troubleshooting docs all point reviewers through the dry-run report, receipt, and summary in a consistent order, with a stable `Ref`, evidence timestamps, and a `Next Review Step` state when the gate is green.
+34. Workspace creation now carries better first-run polish: role presets include example names and recipes, newly created workspaces open directly into onboarding, and Home now frames the composer as the main action with starters as optional head starts.
 
 What is live in the M2 launcher shell right now:
 
@@ -90,10 +95,12 @@ What is live in the M2 launcher shell right now:
 5. Builder/off-hours flow needs output-cleanup polish, broader template coverage, and repeated stress validation before wider rollout.
 6. Finish pruning remaining legacy aliases, historical docs, and compatibility wording that still imply Merlin/Council are active surfaces.
 7. Workflow loop productization is underway: App Mgmt now has launcher-first workflow shortcuts, next-step guidance, and short outcome summaries, but richer execution evidence and tighter UX still need work.
-8. Workspace framing is stronger, but recurring-context and collaboration cues still need to deepen beyond the current role mix / fit layer.
+8. Workspace framing is active and materially stronger, but it still needs deeper collaboration cues and broader acceptance validation across more real workspace mixes.
 9. Dependency and packaging surface is still broader than the long-term product target because local, cloud, provider, and voice stacks still share one base runtime bundle.
 10. Local LLM evidence is now centralized in its own launcher surface, but promotion decisions still need more reviewer scores, broader challenger comparison, and a clearer default-runtime decision between Ollama and the new Lemonade lane.
 11. Governance and Windows ops now have stronger productized surfaces, but richer provider/account UX, deeper workspace credential lifecycle polish, broader release automation, and fuller installer lifecycle polish still need deeper productization.
+12. Home calm-start work has started, but transcript/composer rhythm, starter priority, and first-run persistence still need one more polish pass before the May 22 checkpoint feels closed.
+13. The new `main_guppy` persona and durable-memory path need calmer operator-facing explanation and review controls so persistent identity feels deliberate instead of implicit.
 
 ## Developer Rules
 

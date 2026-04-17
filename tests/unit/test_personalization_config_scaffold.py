@@ -50,7 +50,7 @@ class PersonalizationConfigScaffoldTests(unittest.TestCase):
 
                 data, diagnostics = pc.load_persona_config_with_diagnostics()
 
-                self.assertEqual(data["default_persona_id"], "guppy_global")
+                self.assertEqual(data["default_persona_id"], "main_guppy")
                 self.assertTrue(diagnostics)
                 self.assertIn("root must be an object", diagnostics[0])
             finally:

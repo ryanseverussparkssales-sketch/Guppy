@@ -1,6 +1,6 @@
 # Daily Workflow
 
-Last updated: April 14, 2026
+Last updated: April 16, 2026
 
 This runbook is designed for the current Guppy build and can be executed today.
 
@@ -90,11 +90,11 @@ Handled by current build:
 ## Workday Loop
 
 1. Use Home for default interaction and quick tasks.
-2. Use Settings when persona tone, scope, or preview needs to change.
+2. Use App Mgmt settings when persona tone, scope, or prompt preview needs to change.
 3. Use Models to confirm route strategy and sample-query explainability.
 4. Use Voices to confirm current bindings, imports, and preview behavior.
 5. Use Instances to switch between `guppy-primary` and any configured collaborator such as `builder-collab`.
-6. Use Agent Tools and App Mgmt for bounded tooling, recovery, workflow loops, and operator workflows.
+6. Use Agent Tools for power-user tool work, and use App Mgmt for recovery, settings, workflow loops, automation testing, and operator workflows.
 7. Use reminders and daemon-backed nudges for follow-through.
 8. For coding sessions, use code mode and tool-assisted checks.
 
@@ -109,10 +109,27 @@ Handled by current build:
 
 Run this after changing persona/model/voice behavior or before a pilot candidate handoff.
 
-1. Save or reload the target persona in Settings and confirm the prompt preview updates.
+1. Save or reload the target persona in App Mgmt settings and confirm the prompt preview updates.
 2. Use Models with a sample request to confirm the route explainer still matches the expected task type and fallback.
 3. Use Voices to confirm the default or selected binding can preview successfully.
-4. If the change touched automation, queue a dry-run builder task from Agent Tools and confirm it lands in `runtime/offhours_results/` for approval.
+4. If the change touched automation, use App Mgmt `AUTOMATION TEST` to queue a dry-run builder task and confirm it lands in `runtime/offhours_results/` for approval.
+
+## Automation Test Path (2 minutes)
+
+Use this when the question is "how do I test automation?" on the current build.
+
+1. Launch the guided tester entrypoint.
+  - Command: `bin\launch_automation_test.bat`
+  - Alternate: `python src/guppy/cli/launch.py launcher --start automation-test`
+2. In the launcher, go to App Mgmt `AUTOMATION TEST`.
+3. Follow the guided order:
+  - `VERIFY NOW`
+  - `SWITCH TO BUILDER WORKSPACE`
+  - `QUEUE DRY RUN`
+  - `OPEN LATEST REPORT`
+  - `APPROVE LATEST STAGED TASK`
+  - `RUN VALIDATION`
+4. Use Agent Tools only when you already know you need the raw builder queue surface.
 
 ## Midday Stability Check (2 minutes)
 
@@ -143,9 +160,10 @@ Handled by current build:
 ## Recovery Flow (When Something Breaks)
 
 1. Run pilot gate report first.
-2. If API or hub are not responding, use the RECOVERY controls in the launcher status panel.
+2. If API or hub are not responding, use App Mgmt `WINDOWS INSTALL / UPDATE / DIAGNOSTICS` recovery actions first.
   - The launcher will call /repair (with token auth) or fall back to direct file-level diagnostics.
   - Repair token is auto-generated at API startup and stored in OS keyring when available, with runtime/repair_token.txt as fallback.
+  - Repair-token refresh is localhost-only and now also requires valid bearer auth; the launcher handles that re-sync automatically.
 3. If models fail, rebuild model/runtime state.
   - Command: python tools/verify_ollama_runtime.py
 4. If logs fail freshness checks, run logging probe and inspect snapshots.

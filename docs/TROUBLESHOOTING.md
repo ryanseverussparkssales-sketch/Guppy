@@ -142,10 +142,18 @@
   - `VERIFY`
   - `UPDATE` if dependencies/runtime posture changed
   - `PACKAGE` when you need a desktop build
+- If you are reviewing a release candidate or beta gate, use `RELEASE DRY RUN` after `PACKAGE` so the receipt and summary stay current.
 - Read the final servicing summary:
   - `Ref:` gives the stable operator-facing package/update reference
   - `What changed:` calls out the detected environment or artifact delta
-  - `Next servicing step:` points at the right fix target, doc, and command
+  - `Operator Guidance:` points at the right fix target, doc, and command
+- For release dry runs, read the matching handoff files in this order:
+  - `runtime/beta_release_dry_run_report.json`
+  - `runtime/windows_release_receipt.json`
+  - `runtime/windows_release_summary.md`
+- The summary is the human-readable handoff. If it says `Next Review Step`, follow the `Review`, `Doc`, and `Cmd` lines to hand off or package the current bundle.
+- If it says `Fix-First`, follow the `Fix in`, `Doc`, and `Cmd` lines before rerunning the dry run.
+- When you hand the bundle to another reviewer, pass the same three files in that order and call out the `Review Order` section so they know the report was read before the receipt and summary.
 - Use the deeper docs when you need non-default flows:
   - `docs/PACKAGING.md` for build variants and release checklist work
   - `docs/SUPERVISION_WINDOWS.md` for Task Scheduler or NSSM ownership

@@ -1,7 +1,7 @@
 """Guppy launch CLI — replaces verbose env-setup bat boilerplate.
 
 Usage:
-    python src/guppy/cli/launch.py <surface> [--profile PROFILE] [--no-hub]
+    python src/guppy/cli/launch.py <surface> [--profile PROFILE] [--no-hub] [--start DESTINATION]
 
 Surfaces:
     guppy        — standard Guppy launcher   (profile: standard)
@@ -121,6 +121,7 @@ SURFACES: dict[str, tuple[str, bool, str]] = {
     "hub":         ("guppy_hub.py",      False, "standard"),
     "api":         ("guppy_api.py",      False, "standard"),
 }
+START_DESTINATIONS = ["home", "tools", "appmgmt", "automation-test"]
 
 
 def _setup_api_env() -> None:
@@ -160,12 +161,30 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Skip automatic hub background start",
     )
+    parser.add_argument(
+        "--start",
+        choices=START_DESTINATIONS,
+        default=None,
+        metavar="DESTINATION",
+        help="Open the launcher on a specific destination",
+    )
     args = parser.parse_args(argv)
 
     script, hub_by_default, default_profile = SURFACES[args.surface]
     profile = args.profile or default_profile
 
     setup_env(ROOT, profile=profile)
+    if script == "guppy_launcher.py":
+        if args.start:
+            os.environ["GUPPY_START_DESTINATION"] = args.start
+        else:
+            os.environ.pop("GUPPY_START_DESTINATION", None)
+    else:
+        if args.start:
+            print(
+                f"[launch] WARNING: --start only applies to launcher surfaces; ignoring '{args.start}' for {args.surface}"
+            )
+        os.environ.pop("GUPPY_START_DESTINATION", None)
 
     if hub_by_default and not args.no_hub:
         print("[launch] Starting hub in background...")

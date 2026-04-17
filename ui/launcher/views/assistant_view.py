@@ -52,21 +52,26 @@ class AssistantView(QWidget):
         super().__init__(parent)
         self._request_in_flight_ui = False
         self._mic_capture_active = False
+        self._workspace_type = "user_instance"
         self._workspace_role = "Daily assistant workspace"
         self._workspace_purpose = "General help, chat, and quick tasks."
         self._starter_buttons: dict[str, QPushButton] = {}
+        self._starter_meta: dict[str, tuple[str, str, str]] = {}
         self._conversation_history: list[dict[str, str]] = []
+        self._empty_state_title_text = "Start with one clear ask"
+        self._empty_state_subtitle_text = "Type a single request in the composer below. Use a starter only if you want a head start."
+        self._empty_state_recipe_text = "Primary action: ask Guppy one thing and press Send."
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 14, 16, 12)
         root.setSpacing(12)
 
-        self._hero_title = QLabel("Ask clearly. Move the work forward.")
-        self._hero_subtitle = QLabel("Pick up the work, ask a question, or hand Guppy the next move.")
+        self._hero_title = QLabel("One clear ask at a time.")
+        self._hero_subtitle = QLabel("Use the composer below for the main action. Start with a starter only if you want a head start.")
         self._rec_chip = QLabel("RECOMMENDED / STANDARD")
         self._instance_chip = QLabel("WORKSPACE / GUPPY-PRIMARY")
         self._background_chip = QLabel("READY")
-        self._entry_hint = QLabel("Ask, continue, or use a starter.")
+        self._entry_hint = QLabel("Primary action: type one short request and press Send.")
         self._background_event = QLabel("Latest activity: launcher ready", self)
         self._background_event.setVisible(False)
         self._workspace_summary = QLabel("Active workspace: Daily assistant workspace. General help, chat, and quick tasks.", self)
@@ -100,14 +105,14 @@ class AssistantView(QWidget):
         self._context_bar.setVisible(False)
 
         self._starter_summary = QLabel(
-            "Load a first draft into the composer."
+            "Optional starters are here if you want a head start."
         )
         self._starter_summary.setWordWrap(True)
         self._starter_summary.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._starter_summary.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
         )
-        self._starter_summary.setVisible(False)
+        self._starter_summary.setVisible(True)
         self._starter_row = QHBoxLayout()
         self._starter_row.setSpacing(8)
         for starter_id, title, mode, prompt in self._starter_templates():
@@ -119,14 +124,11 @@ class AssistantView(QWidget):
                 f" border-radius: 11px; padding: 5px 9px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
                 f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; background: rgba(242,202,80,0.05); }}"
             )
-            btn.clicked.connect(
-                lambda _=False, sid=starter_id, label=title, selected_mode=mode, text=prompt: self._load_starter(
-                    sid, label, selected_mode, text
-                )
-            )
+            btn.clicked.connect(lambda _=False, sid=starter_id: self._load_starter_by_id(sid))
             self._starter_buttons[starter_id] = btn
             self._starter_row.addWidget(btn)
         self._starter_row.addStretch()
+        self._refresh_starter_buttons()
 
         transcript = QFrame()
         transcript.setObjectName("chat_surface")
@@ -176,6 +178,7 @@ class AssistantView(QWidget):
 
         starter_strip = QHBoxLayout()
         starter_strip.setSpacing(8)
+        composer_col.addWidget(self._starter_summary)
         starter_strip.addLayout(self._starter_row, stretch=1)
         composer_col.addLayout(starter_strip)
 
@@ -221,7 +224,7 @@ class AssistantView(QWidget):
         input_row.setSpacing(7)
 
         self._input = QLineEdit()
-        self._input.setPlaceholderText("Message Guppy about this workspace...")
+        self._input.setPlaceholderText(self._workspace_input_placeholder("user_instance"))
         self._input.setStyleSheet(
             f"QLineEdit {{ background: transparent; border: none; color: {T.TEXT};"
             f" font-family: '{T.FF_BODY}'; font-size: {T.FS_LABEL}pt; padding: 2px 0; }}"
@@ -305,27 +308,44 @@ class AssistantView(QWidget):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(10)
 
-        title = QLabel("Start the conversation")
-        title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        title.setStyleSheet(
+        self._empty_state_title_lbl = QLabel(self._empty_state_title_text)
+        self._empty_state_title_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self._empty_state_title_lbl.setStyleSheet(
             f"color: {T.INK}; font-family: '{T.FF_HEAD}'; font-size: 23pt; font-weight: bold;"
         )
-        layout.addWidget(title)
+        layout.addWidget(self._empty_state_title_lbl)
 
-        subtitle = QLabel(
-            "Ask a question, continue this workspace, or use a starter to load a first draft."
-        )
-        subtitle.setWordWrap(True)
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        subtitle.setStyleSheet(
+        self._empty_state_subtitle_lbl = QLabel(self._empty_state_subtitle_text)
+        self._empty_state_subtitle_lbl.setWordWrap(True)
+        self._empty_state_subtitle_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self._empty_state_subtitle_lbl.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_LABEL}pt;"
         )
-        layout.addWidget(subtitle)
+        layout.addWidget(self._empty_state_subtitle_lbl)
+        self._empty_state_recipe_lbl = QLabel(self._empty_state_recipe_text)
+        self._empty_state_recipe_lbl.setWordWrap(True)
+        self._empty_state_recipe_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self._empty_state_recipe_lbl.setStyleSheet(
+            f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        layout.addWidget(self._empty_state_recipe_lbl)
         return frame
 
     def _refresh_empty_state(self) -> None:
         has_history = any(item.get("role") in {"user", "assistant"} for item in self._conversation_history)
         self._empty_state.setVisible(not has_history)
+
+    def _refresh_empty_state_copy(self) -> None:
+        title, subtitle, recipe = self._workspace_onboarding_copy(self._workspace_type)
+        self._empty_state_title_text = title
+        self._empty_state_subtitle_text = subtitle
+        self._empty_state_recipe_text = recipe
+        if hasattr(self, "_empty_state_title_lbl"):
+            self._empty_state_title_lbl.setText(title)
+        if hasattr(self, "_empty_state_subtitle_lbl"):
+            self._empty_state_subtitle_lbl.setText(subtitle)
+        if hasattr(self, "_empty_state_recipe_lbl"):
+            self._empty_state_recipe_lbl.setText(recipe)
 
     def _add_message(self, text: str, role: str) -> None:
         row_host = QWidget()
@@ -452,8 +472,9 @@ class AssistantView(QWidget):
     def ensure_welcome_message(self) -> None:
         if any(item.get("role") in {"user", "assistant"} for item in self._conversation_history):
             return
+        title, subtitle, recipe = self._workspace_onboarding_copy(self._workspace_type)
         self.add_assistant_message(
-            "I can help you brief the day, research a topic, triage files, review builder work, or take the next step in this workspace. Start by telling me what you want to move forward."
+            f"{title}. {subtitle} {recipe} Start with one short request, and I will help from there."
         )
 
     def toggle_launcher_panel(self) -> None:
@@ -553,40 +574,136 @@ class AssistantView(QWidget):
         self._input.setText(text)
         self._input.setFocus()
 
-    @staticmethod
-    def _starter_templates() -> list[tuple[str, str, str, str]]:
-        return [
-            (
-                "morning_brief",
-                "MORNING BRIEF",
-                "auto",
-                "Give me a morning brief for this workspace: priorities, blockers, and the best first move.",
-            ),
-            (
-                "focused_research",
-                "FOCUSED RESEARCH",
-                "claude",
-                "Research this topic for the active workspace and return a concise brief with recommendations: ",
-            ),
-            (
-                "file_triage",
-                "FILE TRIAGE",
-                "local",
-                "Help me triage files for this workspace. Start by asking which folder or files I want reviewed.",
-            ),
-            (
-                "builder_review",
-                "BUILDER REVIEW",
-                "code",
-                "Review the current builder work for this workspace with bugs, regressions, and missing tests first.",
-            ),
-        ]
+    def _starter_templates(self) -> list[tuple[str, str, str, str]]:
+        key = (self._workspace_type or "user_instance").strip().lower()
+        templates = {
+            "user_instance": [
+                (
+                    "morning_brief",
+                    "MORNING BRIEF",
+                    "auto",
+                    "Give me a morning brief for this workspace: priorities, blockers, and the best first move.",
+                ),
+                (
+                    "focused_research",
+                    "FOCUSED RESEARCH",
+                    "claude",
+                    "Research this topic for the active workspace and return a concise brief with recommendations: ",
+                ),
+                (
+                    "file_triage",
+                    "FILE TRIAGE",
+                    "local",
+                    "Help me triage files for this workspace. Start by asking which folder or files I want reviewed.",
+                ),
+                (
+                    "builder_review",
+                    "BUILDER REVIEW",
+                    "code",
+                    "Review the current builder work for this workspace with bugs, regressions, and missing tests first.",
+                ),
+            ],
+            "builder_instance": [
+                (
+                    "morning_brief",
+                    "PLAN NEXT PASS",
+                    "code",
+                    "Plan the next builder pass for this workspace: goals, review targets, and the safest high-value next move.",
+                ),
+                (
+                    "focused_research",
+                    "DESIGN RESEARCH",
+                    "claude",
+                    "Research this implementation question for the builder workspace and return tradeoffs, risks, and a recommended plan: ",
+                ),
+                (
+                    "file_triage",
+                    "PATCH TRIAGE",
+                    "local",
+                    "Help me triage changed files for this builder workspace. Start by asking which files or modules need review.",
+                ),
+                (
+                    "builder_review",
+                    "BUILDER REVIEW",
+                    "code",
+                    "Review the current builder work for this workspace with bugs, regressions, and missing tests first.",
+                ),
+            ],
+            "read_only_instance": [
+                (
+                    "morning_brief",
+                    "REFERENCE SNAPSHOT",
+                    "auto",
+                    "Summarize the key reference context for this workspace: what matters now, what changed, and what to inspect next.",
+                ),
+                (
+                    "focused_research",
+                    "SOURCE RESEARCH",
+                    "claude",
+                    "Research this topic for the reference workspace and return a concise evidence-first brief: ",
+                ),
+                (
+                    "file_triage",
+                    "SOURCE TRIAGE",
+                    "local",
+                    "Help me inspect files for this read-only workspace. Start by asking which folder or files I want compared or reviewed.",
+                ),
+                (
+                    "builder_review",
+                    "REFERENCE REVIEW",
+                    "code",
+                    "Review this source or diff for the reference workspace and call out risks, gaps, and evidence without proposing writes first.",
+                ),
+            ],
+            "admin_instance": [
+                (
+                    "morning_brief",
+                    "OPS CHECK",
+                    "auto",
+                    "Give me an operations check for this workspace: current health, likely blockers, and the safest first operator step.",
+                ),
+                (
+                    "focused_research",
+                    "INCIDENT RESEARCH",
+                    "claude",
+                    "Research this operational issue for the active workspace and return a concise diagnosis brief with likely follow-ups: ",
+                ),
+                (
+                    "file_triage",
+                    "EVIDENCE TRIAGE",
+                    "local",
+                    "Help me triage logs or artifacts for this operations workspace. Start by asking which files or folders need inspection.",
+                ),
+                (
+                    "builder_review",
+                    "RECOVERY REVIEW",
+                    "code",
+                    "Review the current recovery or servicing work for this workspace with failure points, regressions, and missing validation first.",
+                ),
+            ],
+        }
+        return templates.get(key, templates["user_instance"])
+
+    def _refresh_starter_buttons(self) -> None:
+        self._starter_meta = {}
+        for index, (starter_id, title, mode, prompt) in enumerate(self._starter_templates()):
+            self._starter_meta[starter_id] = (title, mode, prompt)
+            button = self._starter_buttons.get(starter_id)
+            if button is None:
+                continue
+            button.setText(title)
+            button.setToolTip(prompt)
+            button.setStyleSheet(self._starter_button_style(primary=index == 0))
+
+    def _load_starter_by_id(self, starter_id: str) -> None:
+        title, mode, prompt = self._starter_meta.get(starter_id, ("STARTER", "auto", ""))
+        self._load_starter(starter_id, title, mode, prompt)
 
     def _load_starter(self, starter_id: str, label: str, mode: str, prompt: str) -> None:
         self.set_input_text(prompt)
         self.set_chat_context(mode, self.selected_persona())
         self.set_background_event(f"Starter loaded: {label}. Edit the draft if needed, then press send.")
-        self._starter_summary.setText(f"{label} is ready. Edit it in the composer, then send.")
+        self._starter_summary.setText(f"{label} is ready if you want a head start. Edit it in the composer, then send.")
         self.set_status("STARTER READY")
         self.starter_requested.emit(starter_id, prompt)
 
@@ -608,16 +725,33 @@ class AssistantView(QWidget):
         *,
         workspace_type: str = "user_instance",
         description: str = "",
+        mode: str = "auto",
+        persona: str = "guppy",
+        voice: str = "default",
+        last_message: str = "",
     ) -> None:
         name = (instance or "guppy-primary").strip() or "guppy-primary"
         role = self._workspace_role_label(workspace_type)
         purpose = (description or self._workspace_default_purpose(workspace_type)).strip()
+        self._workspace_type = (workspace_type or "user_instance").strip().lower() or "user_instance"
         self._workspace_role = role
         self._workspace_purpose = purpose
+        self._refresh_empty_state_copy()
+        self._refresh_starter_buttons()
+        self._starter_summary.setText(self._starter_summary_copy(self._workspace_type))
+        self._input.setPlaceholderText(self._workspace_input_placeholder(self._workspace_type))
+        mode_label = (mode or "auto").strip().upper() or "AUTO"
+        persona_label = (persona or "guppy").strip().upper() or "GUPPY"
+        voice_label = (voice or "default").strip().upper() or "DEFAULT"
+        recent_text = self._workspace_recent_context(last_message)
         self._instance_chip.setText(f"WORKSPACE · {name.upper()}")
-        self._workspace_summary.setText(f"Active workspace: {role}. {purpose}")
+        self._workspace_summary.setText(
+            f"Active workspace: {role}. {purpose} "
+            f"Saved context: {mode_label} mode | {persona_label} persona | {voice_label} voice. "
+            f"{recent_text}"
+        )
         self._workspace_summary.setVisible(True)
-        self._entry_hint.setText(f"Start here in {name}: ask, continue, or use a starter.")
+        self._entry_hint.setText(f"Start here in {name}: {self._workspace_entry_hint(workspace_type)}")
         self._sync_context_bar_visibility()
 
     def set_background_status(self, text: str, healthy: bool = True) -> None:
@@ -771,3 +905,89 @@ class AssistantView(QWidget):
             "read_only_instance": "Safe research, source review, and reference work without writes.",
             "admin_instance": "Recovery, diagnostics, and guarded changes.",
         }.get(key, "Task-focused context for this workspace.")
+
+    @staticmethod
+    def _workspace_entry_hint(workspace_type: str) -> str:
+        key = (workspace_type or "user_instance").strip().lower()
+        return {
+            "user_instance": "type one short request and press Send.",
+            "builder_instance": "start with PLAN NEXT PASS if you want a draft first.",
+            "read_only_instance": "start with SOURCE RESEARCH if you want evidence first.",
+            "admin_instance": "start with a short status check if you want a quick read first.",
+        }.get(key, "type one short request and press Send.")
+
+    @staticmethod
+    def _workspace_first_run_recipe(workspace_type: str) -> str:
+        key = (workspace_type or "user_instance").strip().lower()
+        return {
+            "user_instance": "First run: use the composer for one short request, then add a starter if you want help shaping it.",
+            "builder_instance": "First run: start with PLAN NEXT PASS if you want a draft, then refine it in the composer.",
+            "read_only_instance": "First run: start with SOURCE RESEARCH if you want evidence, then sort it in the composer.",
+            "admin_instance": "First run: start with a short status check if you want a quick read, then decide what to do next.",
+        }.get(key, "First run: type one short request, then use a starter only if you want a head start.")
+
+    @staticmethod
+    def _starter_summary_copy(workspace_type: str) -> str:
+        key = (workspace_type or "user_instance").strip().lower()
+        return {
+            "user_instance": "Optional starter: MORNING BRIEF if you want a head start.",
+            "builder_instance": "Optional starter: PLAN NEXT PASS if you want a draft faster.",
+            "read_only_instance": "Optional starter: SOURCE RESEARCH if you want evidence first.",
+            "admin_instance": "Optional starter: OPS CHECK if you want a quick read.",
+        }.get(key, "Optional starters are here if you want a head start.")
+
+    @staticmethod
+    def _workspace_onboarding_copy(workspace_type: str) -> tuple[str, str, str]:
+        key = (workspace_type or "user_instance").strip().lower()
+        mapping = {
+            "user_instance": (
+                "Start the conversation",
+                "Use the message box below for one clear request. A starter is optional if you want a head start.",
+                "Primary action: ask Guppy one thing and press Send.",
+            ),
+            "builder_instance": (
+                "Start the builder workspace",
+                "Use the message box below for the next step. A starter can give you a faster draft.",
+                "Primary action: ask for the next pass and refine from there.",
+            ),
+            "read_only_instance": (
+                "Start the reference workspace",
+                "Use the message box below for one question or evidence check. A starter can help you begin.",
+                "Primary action: ask for evidence first, then sort what matters.",
+            ),
+            "admin_instance": (
+                "Start the operations workspace",
+                "Keep the first ask small and clear. Use a starter only if you want a quick read.",
+                "Primary action: ask for a short status check and then decide the next step.",
+            ),
+        }
+        return mapping.get(key, mapping["user_instance"])
+
+    @staticmethod
+    def _workspace_input_placeholder(workspace_type: str) -> str:
+        key = (workspace_type or "user_instance").strip().lower()
+        return {
+            "user_instance": "Ask for the next thing you want to move forward...",
+            "builder_instance": "Ask for the next pass, review, or draft you need...",
+            "read_only_instance": "Ask one evidence or source-check question...",
+            "admin_instance": "Ask for a short status check or the safest next step...",
+        }.get(key, "Type one request for this workspace...")
+
+    @staticmethod
+    def _workspace_recent_context(last_message: str) -> str:
+        snippet = str(last_message or "").strip()
+        if not snippet:
+            return "Recent context: no recent thread is pinned yet."
+        snippet = snippet[:120] + ("..." if len(snippet) > 120 else "")
+        return f"Recent context: {snippet}"
+
+    @staticmethod
+    def _starter_button_style(primary: bool = False) -> str:
+        border = T.PRIMARY if primary else T.BORDER
+        color = T.PRIMARY if primary else T.TEXT
+        background = "rgba(242,202,80,0.10)" if primary else T.BG0
+        return (
+            f"QPushButton {{ background: {background}; color: {color}; border: 1px solid {border};"
+            f" border-radius: 11px; padding: 5px 9px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; background: rgba(242,202,80,0.12); }}"
+        )

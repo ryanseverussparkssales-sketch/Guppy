@@ -1,6 +1,6 @@
 # Architecture
 
-Last verified: 2026-04-14
+Last verified: 2026-04-16
 
 ## 1) Runtime Entry Points
 
@@ -29,6 +29,7 @@ Thin root compatibility wrappers now remain only for stable front-door launch pa
 
 - Supported daily path: unified launcher plus configured instances from `config/instances.json`
 - Default runtime instances: foreground `guppy-primary` and optional background `builder-collab`
+- Guided internal automation testing uses the same launcher shell, with `bin/launch_automation_test.bat` or `--start automation-test` routing directly into App Mgmt
 - Historical specialist material is retained under `compat_shims/legacy_surfaces/` and `src/guppy/merlin/`, but not as active desktop entrypoints
 
 ## 3) Core Runtime Packages
@@ -37,6 +38,7 @@ Thin root compatibility wrappers now remain only for stable front-door launch pa
 - `src/guppy/inference/` - routing and dispatch policy
 - `src/guppy/merlin/` - teaching-persona content and legacy compatibility helpers
 - `src/guppy/memory/` - persistent and semantic memory
+- `utils/personalization_config.py` - persona defaults, prompt overlays, and the seeded `main_guppy` profile-summary path
 - `src/guppy/voice/` - TTS/STT and wake-word handling
 - `src/guppy/daemon/` - reminders, ambient watcher, proactive loop
 - `src/guppy/tools/` - GitHub/media helper modules
@@ -69,6 +71,8 @@ Thin root compatibility wrappers now remain only for stable front-door launch pa
   1. OS credential store key `repair_token`
   2. Fallback `runtime/repair_token.txt`
 - Launcher request path: `ui/launcher/launcher_window.py` adds `X-Repair-Token`
+- Refresh path: `GET /repair-token/refresh` requires both localhost origin and a valid bearer token
+- Launcher refresh path: `ui/launcher/launcher_window.py` re-syncs the repair token with bearer auth after a mismatch response
 
 ### Concurrent launcher chat safety
 
@@ -81,6 +85,13 @@ Thin root compatibility wrappers now remain only for stable front-door launch pa
 - Endpoint: `GET /auth/self-check`
 - Launcher performs one-time auth self-check when API becomes reachable
 - Event log includes token source and reason-coded error detail on failure
+
+## 5a) Personalization and Memory Continuity
+
+- Default persona config lives in `runtime/persona_config.json`
+- Default voice bindings live in `runtime/voice_bindings.json`
+- `main_guppy` is the seeded default persona and includes a curated `profile_summary` injected through `utils/personalization_config.py`
+- `src/guppy/memory/memory.py` promotes user-authored durable preferences, decisions, and scope cues into semantic memory after chat persistence
 
 ## 6) Database Architecture
 

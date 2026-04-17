@@ -31,7 +31,14 @@ class BuilderTaskPanel(QFrame):
         root.setContentsMargins(12, 10, 12, 10)
         root.setSpacing(8)
         root.addWidget(_mono("LOCAL BUILDER TASKS", T.PRIMARY, T.FS_TINY, True))
-        root.addWidget(_mono("Queue low-risk local-model work. Writes stay in docs/, tests/, or generated config paths and start in dry-run approval mode.", T.DIM, T.FS_SMALL))
+        root.addWidget(
+            _mono(
+                "Queue low-risk local-model work. First-time testers should start in App Mgmt > Automation Test. "
+                "Writes stay in docs/, tests/, or generated config paths and start in dry-run approval mode.",
+                T.DIM,
+                T.FS_SMALL,
+            )
+        )
 
         row = QHBoxLayout()
         row.setSpacing(8)
@@ -87,7 +94,10 @@ class BuilderTaskPanel(QFrame):
         enabled = self._instance_type != "read_only_instance"
         self._queue_btn.setEnabled(enabled)
         if enabled:
-            self._status_lbl.setText(f"Queue tasks for {self._instance_name} ({self._instance_type.replace('_', ' ')})")
+            self._status_lbl.setText(
+                f"Power-user queue ready for {self._instance_name} ({self._instance_type.replace('_', ' ')}). "
+                "First-time testers: App Mgmt > Automation Test."
+            )
             self._status_lbl.setStyleSheet(
                 f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
             )

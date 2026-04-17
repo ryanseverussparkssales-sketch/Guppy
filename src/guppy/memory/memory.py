@@ -64,6 +64,233 @@ def _normalize_stage(stage: str) -> str:
     candidate = _normalize_text(stage).replace(" ", "_")
     return candidate if candidate in PIPELINE_STAGES else "new_lead"
 
+
+_MEMORY_KEY_RE = re.compile(r"[^a-z0-9]+")
+_USER_PREFERENCE_PATTERNS = [
+    re.compile(r"\bi prefer\s+([^.!?\n]+)", re.IGNORECASE),
+    re.compile(r"\bplease keep\s+([^.!?\n]+)", re.IGNORECASE),
+    re.compile(r"\bi want\s+([^.!?\n]+)", re.IGNORECASE),
+]
+_IDENTITY_PATTERNS = [
+    re.compile(r"\bmy name is\s+([^.!?\n]+)", re.IGNORECASE),
+    re.compile(r"\bcall me\s+([^.!?\n]+)", re.IGNORECASE),
+]
+_DECISION_PATTERNS = [
+    re.compile(r"\bwe decided(?: that)?\s+([^.!?\n]+)", re.IGNORECASE),
+    re.compile(r"\bthe direction is to\s+([^.!?\n]+)", re.IGNORECASE),
+]
+_SCOPE_PATTERNS = [
+    (
+        re.compile(
+            r"\b(?P<subject>[A-Za-z0-9][A-Za-z0-9 /+,_-]{2,80}?)\s+should\s+stay\s+out\s+of\s+(?P<container>[A-Za-z0-9][A-Za-z0-9 /+,_-]{1,80})",
+            re.IGNORECASE,
+        ),
+        "scope",
+        "should stay out of",
+    ),
+    (
+        re.compile(
+            r"\b(?P<subject>[A-Za-z0-9][A-Za-z0-9 /+,_-]{2,80}?)\s+should\s+remain\s+separate\s+from\s+(?P<container>[A-Za-z0-9][A-Za-z0-9 /+,_-]{1,80})",
+            re.IGNORECASE,
+        ),
+        "scope",
+        "should remain separate from",
+    ),
+    (
+        re.compile(
+            r"\b(?P<subject>[A-Za-z0-9][A-Za-z0-9 /+,_-]{2,80}?)\s+belongs\s+in\s+(?P<container>[A-Za-z0-9][A-Za-z0-9 /+,_-]{1,80})",
+            re.IGNORECASE,
+        ),
+        "placement",
+        "belongs in",
+    ),
+]
+
+
+def _slug_memory_fragment(value: str, limit: int = 48) -> str:
+    slug = _MEMORY_KEY_RE.sub("_", (value or "").strip().lower()).strip("_")
+    if not slug:
+        slug = "note"
+    return slug[:limit].strip("_") or "note"
+
+
+def _clean_memory_fragment(value: str) -> str:
+    text = " ".join(str(value or "").strip().split())
+    return text.strip(" ,.;:")
+
+
+def _looks_like_product_memory(value: str) -> bool:
+    lowered = (value or "").lower()
+    return any(
+        token in lowered
+        for token in (
+            "home",
+            "launcher",
+            "workspace",
+            "app mgmt",
+            "app management",
+            "route",
+            "voice",
+            "runtime",
+            "automation",
+            "local llm",
+            "page",
+            "panel",
+            "logs",
+            "recovery",
+        )
+    )
+
+
+def _memory_candidate(key: str, value: str, category: str, source: str) -> dict[str, str]:
+    return {
+        "key": key,
+        "value": value,
+        "category": category,
+        "source": source,
+    }
+
+
+def _extract_preference_candidates(text: str, *, speaker: str) -> list[dict[str, str]]:
+    cleaned = _clean_memory_fragment(text)
+    if not cleaned:
+        return []
+
+    if speaker != "user":
+        return []
+
+    patterns = _USER_PREFERENCE_PATTERNS
+    results: list[dict[str, str]] = []
+    for pattern in patterns:
+        for match in pattern.finditer(cleaned):
+            fragment = _clean_memory_fragment(match.group(1))
+            if not fragment:
+                continue
+            key = "preferences.concise_answers" if "concise" in fragment.lower() and "answer" in fragment.lower() else f"preferences.{_slug_memory_fragment(fragment)}"
+            value = f"Ryan prefers {fragment}."
+            category = "work" if _looks_like_product_memory(fragment) else "preferences"
+            results.append(_memory_candidate(key, value, category, f"{speaker}_preference"))
+    return results
+
+
+def _extract_identity_candidates(text: str, *, speaker: str) -> list[dict[str, str]]:
+    if speaker != "user":
+        return []
+
+    cleaned = _clean_memory_fragment(text)
+    if not cleaned:
+        return []
+
+    results: list[dict[str, str]] = []
+    for pattern in _IDENTITY_PATTERNS:
+        for match in pattern.finditer(cleaned):
+            fragment = _clean_memory_fragment(match.group(1))
+            if not fragment:
+                continue
+            key = "personal.preferred_name"
+            value = f"Ryan prefers to be addressed as {fragment}."
+            results.append(_memory_candidate(key, value, "personal", "user_identity"))
+    return results
+
+
+def _extract_decision_candidates(text: str, *, speaker: str) -> list[dict[str, str]]:
+    if speaker != "user":
+        return []
+
+    cleaned = _clean_memory_fragment(text)
+    if not cleaned:
+        return []
+
+    results: list[dict[str, str]] = []
+    for pattern in _DECISION_PATTERNS:
+        for match in pattern.finditer(cleaned):
+            fragment = _clean_memory_fragment(match.group(1))
+            if not fragment:
+                continue
+            key = f"work.decision_{_slug_memory_fragment(fragment)}"
+            value = f"We decided {fragment}."
+            results.append(_memory_candidate(key, value, "work", f"{speaker}_decision"))
+    return results
+
+
+def _extract_scope_candidates(text: str, *, speaker: str) -> list[dict[str, str]]:
+    if speaker != "user":
+        return []
+
+    cleaned = _clean_memory_fragment(text)
+    if not cleaned:
+        return []
+
+    results: list[dict[str, str]] = []
+    for pattern, suffix, relation in _SCOPE_PATTERNS:
+        for match in pattern.finditer(cleaned):
+            subject = _clean_memory_fragment(match.group("subject"))
+            container = _clean_memory_fragment(match.group("container"))
+            if not subject or not container:
+                continue
+            prefix = "product" if _looks_like_product_memory(subject) or _looks_like_product_memory(container) else "work"
+            key = f"{prefix}.{_slug_memory_fragment(subject)}_{suffix}"
+            if relation == "belongs in":
+                value = f"{subject} belongs in {container}."
+            else:
+                value = f"{subject} {relation} {container}."
+            results.append(_memory_candidate(key, value, "work", f"{speaker}_{suffix}"))
+    return results
+
+
+def _dedupe_memory_candidates(candidates: list[dict[str, str]]) -> list[dict[str, str]]:
+    seen: set[str] = set()
+    deduped: list[dict[str, str]] = []
+    for candidate in candidates:
+        key = str(candidate.get("key", "")).strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+    return deduped
+
+
+def promote_durable_chat_memory(
+    user_text: str,
+    assistant_text: str = "",
+    *,
+    session_id: str = "",
+    persona_id: str = "",
+    max_items: int = 6,
+) -> list[dict[str, str]]:
+    from src.guppy.memory.semantic import remember_semantic
+
+    del assistant_text
+
+    candidates = _dedupe_memory_candidates(
+        _extract_preference_candidates(user_text, speaker="user")
+        + _extract_identity_candidates(user_text, speaker="user")
+        + _extract_decision_candidates(user_text, speaker="user")
+        + _extract_scope_candidates(user_text, speaker="user")
+    )
+
+    promoted: list[dict[str, str]] = []
+    for candidate in candidates[: max(1, int(max_items or 6))]:
+        status = remember_semantic(candidate["key"], candidate["value"], candidate["category"])
+        promoted.append({**candidate, "status": status})
+
+    if promoted:
+        conn = _conn()
+        try:
+            _journal_event(
+                conn,
+                "semantic.promote_chat_memory",
+                {
+                    "session_id": session_id,
+                    "persona_id": persona_id,
+                    "keys": [item["key"] for item in promoted],
+                },
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    return promoted
+
 def _conn():
     """Get database connection with proper setup. Connections are managed by SQLite's built-in pooling."""
     conn = _open_db(DB_PATH)

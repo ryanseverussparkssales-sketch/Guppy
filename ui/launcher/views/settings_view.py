@@ -52,13 +52,17 @@ except Exception:
 
 _DEFAULT_PERSONA_CONFIG: dict[str, Any] = {
     "version": 1,
-    "default_persona_id": "guppy_global",
+    "default_persona_id": "main_guppy",
     "personas": [
         {
-            "id": "guppy_global",
-            "name": "Guppy Global",
+            "id": "main_guppy",
+            "name": "Main Guppy",
             "scope": "global",
-            "system_prompt": "You are Guppy. Be concise, dependable, and practical.",
+            "system_prompt": (
+                "You are Main Guppy, Ryan's primary day-to-day assistant. "
+                "Be calm, dependable, practical, and quietly confident. "
+                "Keep the Jarvis-like feel understated and never theatrical."
+            ),
             "traits": {
                 "tone": "butler",
                 "verbosity": "medium",
@@ -69,10 +73,17 @@ _DEFAULT_PERSONA_CONFIG: dict[str, Any] = {
                 "socratic_bias": 35,
                 "example_bias": 60,
             },
+            "profile_summary": (
+                "- Ryan prefers concise, high-signal answers with low filler.\n"
+                "- Keep the tone calm, exact, proactive, and quietly confident. Aim for a Jarvis-like feel without theatrical phrasing.\n"
+                "- Preserve continuity across coding, launcher UX, automation, and workspace work so progress feels cumulative.\n"
+                "- Keep Home calm and chat-first. Move heavier runtime, routing, recovery, and logs detail into App Mgmt or dedicated surfaces.\n"
+                "- Never pretend an action, tool result, or state change happened unless it was actually executed."
+            ),
         }
     ],
     "assignments": {
-        "global": "guppy_global",
+        "global": "main_guppy",
         "by_model": {},
     },
 }
@@ -144,7 +155,7 @@ class SettingsView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._persona_config = _deepcopy_json(_DEFAULT_PERSONA_CONFIG)
-        self._current_persona_id = "guppy_global"
+        self._current_persona_id = "main_guppy"
         self._loading_persona = False
         self._build_ui()
         self._load()
@@ -378,7 +389,7 @@ class SettingsView(QWidget):
         )
         select_id = str(
             self._persona_config.get("default_persona_id")
-            or self._persona_config.get("assignments", {}).get("global", "guppy_global")
+            or self._persona_config.get("assignments", {}).get("global", "main_guppy")
         )
         self._refresh_persona_lists(select_id)
         self._persona_status_lbl.setText("Persona Builder ready")
@@ -424,7 +435,7 @@ class SettingsView(QWidget):
             self._persona_config = _deepcopy_json(_DEFAULT_PERSONA_CONFIG)
             personas = self._persona_items()
 
-        target = select_id or str(personas[0].get("id", "guppy_global"))
+        target = select_id or str(personas[0].get("id", "main_guppy"))
         self._persona_picker.blockSignals(True)
         self._global_persona_cb.blockSignals(True)
         self._persona_picker.clear()
@@ -547,9 +558,9 @@ class SettingsView(QWidget):
         by_model = assignments.get("by_model", {}) if isinstance(assignments.get("by_model"), dict) else {}
         assignments["by_model"] = {model: persona_id for model, persona_id in by_model.items() if persona_id != self._current_persona_id}
         if assignments.get("global") == self._current_persona_id:
-            assignments["global"] = str(keep[0].get("id", "guppy_global"))
+            assignments["global"] = str(keep[0].get("id", "main_guppy"))
         self._persona_config["default_persona_id"] = assignments["global"]
-        self._refresh_persona_lists(str(keep[0].get("id", "guppy_global")))
+        self._refresh_persona_lists(str(keep[0].get("id", "main_guppy")))
         self._persona_status_lbl.setText("Persona removed from draft config")
 
     def _build_persona_config(self) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -564,7 +575,22 @@ class SettingsView(QWidget):
         if scope == "model" and not model_name:
             raise ValueError("Model scope requires a model binding")
 
+        existing_persona = next(
+            (
+                item
+                for item in personas
+                if isinstance(item, dict) and str(item.get("id", "")).strip() == persona_id
+            ),
+            {},
+        )
+        preserved = {
+            key: value
+            for key, value in existing_persona.items()
+            if key not in {"id", "name", "scope", "model", "system_prompt", "traits", "teaching"}
+        }
+
         persona = {
+            **preserved,
             "id": persona_id,
             "name": name,
             "scope": scope,

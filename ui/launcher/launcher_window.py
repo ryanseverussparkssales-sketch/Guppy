@@ -165,6 +165,16 @@ except Exception:
 _RUNTIME = Path(__file__).resolve().parent.parent.parent / "runtime"
 _CONFIG = Path(__file__).resolve().parent.parent.parent / "config"
 _START_TIME = time.monotonic()
+_AUTOMATION_TEST_VALIDATION_COMMAND = (
+    ".venv\\Scripts\\python.exe -m pytest tests/unit/test_offhours_builder.py tests/unit/test_instance_controls.py -q"
+)
+_AUTOMATION_REPORT_PATH = _RUNTIME / "offhours_builder_report.json"
+_START_DESTINATION_TO_TAB = {
+    "home": 0,
+    "tools": 2,
+    "appmgmt": 3,
+    "automation-test": 3,
+}
 
 
 def _read_json(path: Path) -> dict:
@@ -252,6 +262,7 @@ class LauncherWindow(QMainWindow):
         self._auth_self_check_ok = False
         self._auth_self_check_inflight = False
         self._auth_self_check_last_attempt = 0.0
+        self._start_destination = str(os.environ.get("GUPPY_START_DESTINATION", "") or "").strip().lower()
         self._embedded_online: set[str] = set()
         self._assistant_events: SimpleQueue[tuple[str, str, int]] = SimpleQueue()
         self._recovery_events: SimpleQueue[dict[str, object]] = SimpleQueue()
@@ -371,6 +382,7 @@ class LauncherWindow(QMainWindow):
         self._advanced_view.recovery_requested.connect(self._on_recovery_requested)
         self._advanced_view.windows_ops_requested.connect(self._on_windows_ops_requested)
         self._advanced_view.connector_action_requested.connect(self._on_connector_action_requested)
+        self._advanced_view.automation_action_requested.connect(self._on_automation_action_requested)
         self._my_pc_view.windows_ops_requested.connect(self._on_windows_ops_requested)
         self._my_pc_view.connector_action_requested.connect(self._on_connector_action_requested)
         self._my_pc_view.connector_guided_link_requested.connect(self._on_connector_guided_link_requested)
@@ -402,6 +414,8 @@ class LauncherWindow(QMainWindow):
         self._topbar.set_launcher_summary("AUTO / GUPPY / LIGHT [EDIT]")
         self._bootstrap_instance_switcher()
         self._refresh_personalization_state()
+        self._sync_automation_test_state()
+        QTimer.singleShot(0, self._apply_start_destination)
 
         if _PERSONALIZATION_BOOTSTRAP_AVAILABLE:
             self._log_launcher_event("startup_phase", phase="personalization_scaffold_thread_start")
@@ -532,8 +546,11 @@ class LauncherWindow(QMainWindow):
         description = str(
             active_payload.get("description", "") or self._workspace_default_purpose(workspace_type)
         ).strip()
+        mode = str(active_payload.get("mode", "auto") or "auto").strip().upper()
+        persona = str(active_payload.get("persona", "guppy") or "guppy").strip().upper()
+        voice = str(active_payload.get("voice", "default") or "default").strip().upper()
         self._advanced_view.set_daily_context_workspace(
-            f"Workspace: {self._workspace_role_label(workspace_type)}. {description}"
+            f"Workspace: {self._workspace_role_label(workspace_type)}. {description} | Saved context: {mode} mode / {persona} persona / {voice} voice"
         )
         self._advanced_view.set_daily_context_runtime(self._assistant_view._runtime_facts.text())
 
@@ -556,6 +573,16 @@ class LauncherWindow(QMainWindow):
             "read_only_instance": "Safe research, source review, and reference work without writes.",
             "admin_instance": "Recovery, diagnostics, and guarded changes.",
         }.get(key, "Task-focused context for this workspace.")
+
+    @staticmethod
+    def _workspace_first_run_recipe(workspace_type: str) -> str:
+        key = (workspace_type or "user_instance").strip().lower()
+        return {
+            "user_instance": "Start with MORNING BRIEF or type one short daily request.",
+            "builder_instance": "Start with PLAN NEXT PASS or type the next pass you want reviewed.",
+            "read_only_instance": "Start with SOURCE RESEARCH or type one evidence question.",
+            "admin_instance": "Start with OPS CHECK or type one short status question.",
+        }.get(key, "Type one short request to start this workspace.")
 
     @staticmethod
     def _voice_binding_summary(choice: dict | None) -> str:
@@ -977,6 +1004,23 @@ class LauncherWindow(QMainWindow):
         self._stack.setCurrentIndex(index)
         self._topbar.set_active_tab(index)
         self._sidebar.set_active(index)
+        if index == 3:
+            self._sync_automation_test_state()
+
+    def _apply_start_destination(self) -> None:
+        target = self._start_destination
+        if target not in _START_DESTINATION_TO_TAB:
+            return
+        self._on_tab_change(_START_DESTINATION_TO_TAB[target])
+        if target == "automation-test":
+            note = (
+                "Test flow ready: use Setup & Health to verify readiness, queue one safe check, review it, approve it, and run validation."
+            )
+            self._advanced_view.focus_automation_test(note=note)
+            self._assistant_view.set_background_event(note)
+            self._set_daily_activity("Test flow opened Setup & Health")
+            self._status_panel.append_syslog("automation test start intent opened Setup & Health")
+        self._log_launcher_event("start_destination_applied", destination=target)
 
     def _instances_config_path(self) -> Path:
         return _CONFIG / "instances.json"
@@ -1209,6 +1253,10 @@ class LauncherWindow(QMainWindow):
                 active,
                 workspace_type=str(active_payload.get("type", "user_instance") or "user_instance"),
                 description=str(active_payload.get("description", "") or ""),
+                mode=str(active_payload.get("mode", "auto") or "auto"),
+                persona=str(active_payload.get("persona", "guppy") or "guppy"),
+                voice=str(active_payload.get("voice", "default") or "default"),
+                last_message=str(active_payload.get("last_message", "") or ""),
             )
             self._topbar.set_session(self._workspace_role_label(str(active_payload.get("type", "user_instance") or "user_instance")))
         windows_snapshot = self._advanced_view.windows_ops_snapshot()
@@ -1218,6 +1266,7 @@ class LauncherWindow(QMainWindow):
             self._last_windows_snapshot_signature = windows_snapshot_signature
         if load_logs:
             self._on_instance_logs_requested(active, quiet=True)
+        self._sync_automation_test_state()
 
     def _apply_instance_switch(self, target: str, *, announce: bool = True) -> None:
         if not target:
@@ -1246,6 +1295,10 @@ class LauncherWindow(QMainWindow):
             target,
             workspace_type=str(active_payload.get("type", "user_instance") or "user_instance"),
             description=str(active_payload.get("description", "") or ""),
+            mode=str(active_payload.get("mode", "auto") or "auto"),
+            persona=str(active_payload.get("persona", "guppy") or "guppy"),
+            voice=str(active_payload.get("voice", "default") or "default"),
+            last_message=str(active_payload.get("last_message", "") or ""),
         )
         self._assistant_view.ensure_welcome_message()
         if isinstance(active_payload, dict):
@@ -1260,6 +1313,7 @@ class LauncherWindow(QMainWindow):
             self._status_panel.append_syslog(f"active workspace switched: {target}")
             self._instance_manager_view.set_status(f"Workspace switched to {target}")
             self._log_launcher_event("instance_switched", instance=target)
+        self._sync_automation_test_state()
 
     def _bootstrap_instance_switcher(self) -> None:
         snapshot = self._local_instance_snapshot()
@@ -1270,9 +1324,6 @@ class LauncherWindow(QMainWindow):
         self._instance_snapshot_expires_at = time.monotonic() + max(2.0, self._instance_snapshot_ttl_s)
         self._topbar.set_instances(names, active_instance=active)
         self._rotate_chat_session("instance_bootstrap", instance=active)
-        self._assistant_view.set_active_instance(active)
-        self._assistant_view.ensure_welcome_message()
-        self._set_daily_activity(f"Active workspace: {active}")
         self._instance_manager_view.set_instances(snapshot)
         self._advanced_view.set_instance_snapshot(snapshot)
         connector_inventory_snapshot = self._fetch_connector_inventory(force=True)
@@ -1289,9 +1340,20 @@ class LauncherWindow(QMainWindow):
             {"name": active, "type": "user_instance"},
         )
         if isinstance(active_payload, dict):
+            self._assistant_view.set_active_instance(
+                active,
+                workspace_type=str(active_payload.get("type", "user_instance") or "user_instance"),
+                description=str(active_payload.get("description", "") or ""),
+                mode=str(active_payload.get("mode", "auto") or "auto"),
+                persona=str(active_payload.get("persona", "guppy") or "guppy"),
+                voice=str(active_payload.get("voice", "default") or "default"),
+                last_message=str(active_payload.get("last_message", "") or ""),
+            )
+            self._assistant_view.ensure_welcome_message()
             self._tools_view.set_instance_context(active_payload, snapshot)
             self._sync_right_tray(active_payload)
         self._set_daily_activity(f"Active workspace: {active}")
+        self._sync_automation_test_state()
         QTimer.singleShot(0, self._refresh_instance_views)
         QTimer.singleShot(250, lambda target=active: self._on_instance_logs_requested(target, quiet=True))
 
@@ -1341,6 +1403,7 @@ class LauncherWindow(QMainWindow):
 
     def _on_instance_create_requested(self, payload: dict) -> None:
         name = str(payload.get("name", "")).strip()
+        workspace_type = str(payload.get("type", "user_instance") or "user_instance")
         if not name:
             self._instance_manager_view.set_status("Workspace name is required", ok=False)
             return
@@ -1361,9 +1424,26 @@ class LauncherWindow(QMainWindow):
             self._status_panel.append_syslog(f"workspace save failed: {message}")
             return
         action = str(result.get("action", "updated")).strip() or "updated"
+        self._refresh_instance_views(load_logs=True, force=True)
+        if action == "created":
+            self._apply_instance_switch(name, announce=True)
+            self._refresh_instance_views(load_logs=True, force=True)
+            recipe = self._workspace_first_run_recipe(workspace_type)
+            role = self._workspace_role_label(workspace_type)
+            add_system = getattr(getattr(self, "_assistant_view", None), "add_system_message", None)
+            if callable(add_system):
+                add_system(f"{role} {name} is ready. {recipe}")
+            activity_setter = getattr(self, "_set_daily_activity", None)
+            if callable(activity_setter):
+                activity_setter(f"Workspace ready: {name} | {recipe}")
+            log_event = getattr(self, "_log_launcher_event", None)
+            if callable(log_event):
+                log_event("workspace_onboarding_ready", instance=name, workspace_type=workspace_type, recipe=recipe)
+            self._instance_manager_view.set_status(f"Workspace {name} created. {recipe}")
+            self._status_panel.append_syslog(f"workspace {name} created. {recipe}")
+            return
         self._instance_manager_view.set_status(f"Workspace {name} {action}")
         self._status_panel.append_syslog(f"workspace {name} {action}")
-        self._refresh_instance_views(load_logs=True, force=True)
 
     def _on_instance_governance_save_requested(self, payload: dict) -> None:
         name = str(payload.get("name", "")).strip()
@@ -1646,6 +1726,12 @@ class LauncherWindow(QMainWindow):
         return _RUNTIME / "windows_release_summary.md"
 
     @staticmethod
+    def _default_windows_ops_event_id(action: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "-", str(action or "").strip().lower()).strip("-") or "windows-ops"
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        return f"{slug}-{timestamp}"
+
+    @staticmethod
     def _beta_release_dry_run_report_path() -> Path:
         return _RUNTIME / "beta_release_dry_run_report.json"
 
@@ -1908,12 +1994,12 @@ class LauncherWindow(QMainWindow):
                 }
             )
         if not recommendations and ok:
-            text = "Release gate is green; package or hand off the receipt and dry-run report."
+            text = "Release gate is green; review the dry-run report, receipt, and summary in that order, then package or hand off the bundle."
             recommendations.append(text)
             recommendation_details.append(
                 {
                     "text": text,
-                    "fix_target": "runtime/windows_release_receipt.json",
+                    "fix_target": "runtime/beta_release_dry_run_report.json -> runtime/windows_release_receipt.json -> runtime/windows_release_summary.md",
                     "docs_hint": "docs/PACKAGING.md",
                     "entry_point": "python tools/beta_release_dry_run.py",
                 }
@@ -1974,11 +2060,13 @@ class LauncherWindow(QMainWindow):
             "# Windows Release Summary",
             "",
             f"- Timestamp: {str(payload.get('timestamp', '') or '').strip()}",
+            f"- Ref: {str(payload.get('event_id', '') or '').strip()}",
             f"- Stage: {str(payload.get('release_stage', '') or '').strip()}",
             f"- Action: {str(payload.get('action', '') or '').strip()}",
             f"- Result: {'PASS' if bool(payload.get('ok', False)) else 'FAIL'}",
             f"- Summary: {str(payload.get('summary', '') or '').strip()}",
         ]
+        lines = [line for line in lines if not line.endswith(": ")]
         changes = str(payload.get("changes", "") or "").strip()
         if changes:
             lines.append(f"- What changed: {changes}")
@@ -1992,8 +2080,20 @@ class LauncherWindow(QMainWindow):
             total = release_gate.get("total_checks")
             if passed is not None and total is not None:
                 lines.append(f"- Checks: {int(passed or 0)}/{int(total or 0)} passed")
+        review_order = (
+            [str(item).strip() for item in payload.get("review_order", []) if str(item).strip()]
+            if isinstance(payload.get("review_order"), list)
+            else []
+        )
+        if review_order:
+            lines.extend(["", "## Review Order", ""])
+            for index, item in enumerate(review_order, start=1):
+                lines.append(f"{index}. {item}")
         if recommendation_details or recommendations:
-            lines.extend(["", "## Fix-First", ""])
+            gate_ok = gate_summary.upper().startswith("PASS")
+            section_title = "## Next Review Step" if gate_ok else "## Fix-First"
+            target_label = "Review" if gate_ok else "Fix in"
+            lines.extend(["", section_title, ""])
             if recommendation_details:
                 for item in recommendation_details[:3]:
                     text = str(item.get("text", "") or "").strip()
@@ -2004,7 +2104,7 @@ class LauncherWindow(QMainWindow):
                     docs_hint = str(item.get("docs_hint", "") or "").strip()
                     entry_point = str(item.get("entry_point", "") or "").strip()
                     if fix_target:
-                        lines.append(f"  Fix in: {fix_target}")
+                        lines.append(f"  {target_label}: {fix_target}")
                     if docs_hint:
                         lines.append(f"  Doc: {docs_hint}")
                     if entry_point:
@@ -2018,10 +2118,18 @@ class LauncherWindow(QMainWindow):
                 label = str(item.get("label", "") or item.get("id", "") or "artifact").strip()
                 path = str(item.get("path", "") or "").strip()
                 if label and path:
-                    lines.append(f"- {label}: {path}")
+                    suffix_bits: list[str] = []
+                    updated = str(item.get("mtime", "") or "").strip()
+                    size = int(item.get("size", 0) or 0)
+                    if updated:
+                        suffix_bits.append(f"updated {updated}")
+                    if size > 0:
+                        suffix_bits.append(f"{size} B")
+                    suffix = f" ({', '.join(suffix_bits)})" if suffix_bits else ""
+                    lines.append(f"- {label}: {path}{suffix}")
         next_step = str(operator_guidance.get("next_step", "") or "").strip()
         if next_step:
-            lines.extend(["", "## Operator Guidance", "", f"- Next: {next_step}"])
+            lines.extend(["", "## Operator Guidance", "", f"- Next step: {next_step}"])
             fix_target = str(operator_guidance.get("fix_target", "") or "").strip()
             docs_hint = str(operator_guidance.get("docs_hint", "") or "").strip()
             entry_point = str(operator_guidance.get("entry_point", "") or "").strip()
@@ -2146,6 +2254,12 @@ class LauncherWindow(QMainWindow):
                 "summary_path": str(summary_path),
             },
         }
+        if normalized == "release_dry_run":
+            payload["review_order"] = [
+                "runtime/beta_release_dry_run_report.json",
+                "runtime/windows_release_receipt.json",
+                "runtime/windows_release_summary.md",
+            ]
         _write_json(receipt_path, payload)
         self._write_windows_release_summary(summary_path, payload)
         return str(receipt_path)
@@ -2206,7 +2320,7 @@ class LauncherWindow(QMainWindow):
                 }
             if normalized == "release_dry_run":
                 return {
-                    "next_step": "Release dry-run passed. Review the receipt and dry-run report, then package or hand off the pilot gate evidence.",
+                    "next_step": "Release dry-run passed. Review the dry-run report, receipt, and summary in that order, then package or hand off the reviewer bundle.",
                     "fix_target": "runtime/beta_release_dry_run_report.json",
                     "docs_hint": "docs/PACKAGING.md",
                     "entry_point": "python tools/beta_release_dry_run.py",
@@ -2263,7 +2377,7 @@ class LauncherWindow(QMainWindow):
                 }
             if normalized == "start_supervised_api":
                 return {
-                    "next_step": "Check the supervised launch script and API startup prerequisites, then rerun SUPERVISED API or fall back to REPAIR.",
+                    "next_step": "Check the supervised launch script and API startup prerequisites, then rerun START API or fall back to REPAIR.",
                     "fix_target": "bin/launch_api_supervised.bat / guppy_api.py",
                     "docs_hint": "docs/SUPERVISION_WINDOWS.md",
                     "entry_point": "bin/launch_api_supervised.bat",
@@ -2359,6 +2473,9 @@ class LauncherWindow(QMainWindow):
         release_receipt = ""
         release_summary = ""
         normalized_phase = str(phase or "completed").strip().lower() or "completed"
+        resolved_event_id = str(event_id or "").strip()
+        if normalized_phase != "queued" and not resolved_event_id:
+            resolved_event_id = LauncherWindow._default_windows_ops_event_id(action)
         if normalized_phase != "queued":
             release_receipt = self._write_windows_release_receipt(
                 action,
@@ -2366,7 +2483,7 @@ class LauncherWindow(QMainWindow):
                 changes,
                 ok=ok,
                 commands=commands,
-                event_id=event_id,
+                event_id=resolved_event_id,
                 steps_completed=steps_completed,
                 steps_total=steps_total,
                 phase=normalized_phase,
@@ -2394,7 +2511,7 @@ class LauncherWindow(QMainWindow):
             "summary": str(summary or "").strip(),
             "changes": str(changes or "").strip(),
             "commands": [str(item).strip() for item in (commands or []) if str(item).strip()],
-            "event_id": str(event_id or "").strip(),
+            "event_id": resolved_event_id,
             "steps_completed": int(steps_completed or 0) if steps_completed is not None else None,
             "steps_total": int(steps_total or 0) if steps_total is not None else None,
             "phase": str(phase or "completed").strip().lower() or "completed",
@@ -2458,6 +2575,15 @@ class LauncherWindow(QMainWindow):
                 for item in (gate_recommendation_details or [])
                 if isinstance(item, dict) and str(item.get("text", "") or "").strip()
             ],
+            review_order=(
+                [
+                    "runtime/beta_release_dry_run_report.json",
+                    "runtime/windows_release_receipt.json",
+                    "runtime/windows_release_summary.md",
+                ]
+                if str(action or "").strip().lower() == "release_dry_run"
+                else []
+            ),
         )
         my_pc_view = getattr(self, "_my_pc_view", None)
         advanced_view = getattr(self, "_advanced_view", None)
@@ -2514,11 +2640,13 @@ class LauncherWindow(QMainWindow):
             change_text = f"{change_text} Last result: {final_detail}" if change_text else f"Last result: {final_detail}"
         post_snapshot = self._collect_windows_service_snapshot()
         artifacts = self._windows_ops_artifact_refs(parent_action, post_snapshot)
+        event_id = LauncherWindow._default_windows_ops_event_id(parent_action)
         self._record_windows_ops_state(
             parent_action,
             summary_text,
             change_text,
             ok=overall_ok,
+            event_id=event_id,
             steps_completed=len(results),
             steps_total=len(expected),
             phase="completed",
@@ -2535,6 +2663,7 @@ class LauncherWindow(QMainWindow):
             steps_completed=len(results),
             steps_total=len(expected),
             summary=summary_text,
+            event_id=event_id,
             next_step=str(guidance.get("next_step", "") or ""),
             fix_target=str(guidance.get("fix_target", "") or ""),
             artifacts=artifacts,
@@ -2980,28 +3109,294 @@ class LauncherWindow(QMainWindow):
         }
         return prompts.get(key, f"Prime the {key} workspace tool for this task: ")
 
+    def _available_instance_names(self) -> set[str]:
+        snapshot = self._last_instance_snapshot if isinstance(self._last_instance_snapshot, dict) else {}
+        items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
+        return {
+            str(item.get("name", "")).strip()
+            for item in items
+            if isinstance(item, dict) and str(item.get("name", "")).strip()
+        }
+
+    def _preferred_builder_instance_name(self) -> str:
+        names = self._available_instance_names()
+        if "builder-collab" in names:
+            return "builder-collab"
+        return self._active_instance_name or "guppy-primary"
+
+    def _automation_test_snapshot(self, *, report_path: Path | None = None, status: str = "") -> dict[str, str]:
+        from utils.offhours_builder import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, build_builder_report
+
+        report = build_builder_report(queue_path=QUEUE_PATH, results_path=RESULTS_PATH, metrics_path=METRICS_PATH)
+        queue_payload = _read_json(QUEUE_PATH)
+        tasks = [
+            item for item in queue_payload.get("tasks", [])
+            if isinstance(item, dict)
+        ] if isinstance(queue_payload, dict) else []
+        counts = report.get("queue_counts", {}) if isinstance(report, dict) else {}
+        pending = int(counts.get("pending", 0) or 0)
+        running = int(counts.get("running", 0) or 0)
+        awaiting = int(counts.get("awaiting_approval", 0) or 0)
+        done = int(counts.get("done", 0) or 0)
+        latest_pending = next(
+            (
+                item for item in reversed(tasks)
+                if str(item.get("status", "")).strip() == "awaiting_approval"
+                and isinstance(item.get("pending_approval"), dict)
+            ),
+            {},
+        )
+        latest_result = next(
+            (
+                item for item in reversed(report.get("recent_results", []))
+                if isinstance(item, dict)
+            ),
+            {},
+        )
+        latest_staged_file = str(
+            (latest_pending.get("pending_approval", {}) if isinstance(latest_pending, dict) else {}).get("staged_file", "")
+        ).strip()
+        latest_result_path = str(latest_result.get("output_file", "") or "").strip()
+        if not latest_result_path:
+            latest_done_task = next(
+                (
+                    item for item in reversed(tasks)
+                    if str(item.get("status", "")).strip() == "done"
+                ),
+                {},
+            )
+            latest_result_path = str(latest_done_task.get("approved_output_file", "") or "").strip()
+        preferred_builder = self._preferred_builder_instance_name()
+        if preferred_builder == "builder-collab":
+            workspace_line = (
+                f"Workspace step: active={self._active_instance_name} | preferred=builder-collab | "
+                "switch here before queueing if you want the default builder workspace."
+            )
+        else:
+            workspace_line = (
+                f"Workspace step: active={self._active_instance_name} | preferred={preferred_builder} | "
+                "builder-collab is unavailable, so automation stays in the current workspace."
+            )
+        if latest_pending:
+            approval_state = (
+                "Latest approval: awaiting approval for "
+                f"{str(latest_pending.get('title', latest_pending.get('id', 'builder task')))}"
+            )
+        elif latest_result_path:
+            approval_state = f"Latest approval: most recent approved output is {latest_result_path}"
+        else:
+            approval_state = "Latest approval: no staged task is awaiting approval yet."
+        return {
+            "workspace": workspace_line,
+            "queue_counts": (
+                f"Queue counts: pending={pending} | running={running} | awaiting approval={awaiting} | done={done}"
+            ),
+            "staged_file": (
+                f"Latest staged output: {latest_staged_file}"
+                if latest_staged_file
+                else "Latest staged output: nothing is waiting for approval yet."
+            ),
+            "result_path": (
+                f"Latest result: {latest_result_path}"
+                if latest_result_path
+                else "Latest result: no approved builder output has been recorded yet."
+            ),
+            "approval_state": approval_state,
+            "report_path": str(report_path or _AUTOMATION_REPORT_PATH),
+            "validation_command": _AUTOMATION_TEST_VALIDATION_COMMAND,
+            "status": status or "Automation test guide ready",
+        }
+
+    def _sync_automation_test_state(self, *, status: str = "", ok: bool = True, report_path: Path | None = None) -> None:
+        snapshot = self._automation_test_snapshot(report_path=report_path, status=status)
+        self._advanced_view.set_automation_snapshot(snapshot)
+        if status:
+            self._advanced_view.set_automation_status(status, ok=ok)
+
+    def _queue_builder_task(
+        self,
+        *,
+        template_id: str,
+        target_ref: str,
+        instance_name: str,
+        announce_text: str,
+    ) -> dict[str, object]:
+        from utils.offhours_builder import enqueue_builder_task, render_builder_task
+
+        task = render_builder_task(
+            template_id,
+            target_ref=target_ref,
+            requested_by_instance=instance_name,
+        )
+        enqueue_builder_task(task)
+        self._tools_view.set_builder_status(f"Queued {task['title']} for dry-run review")
+        self._assistant_view.add_system_message(
+            f"Queued local builder task: {task['title']} -> {task['output_file_path']}"
+        )
+        self._set_daily_activity(announce_text)
+        self._status_panel.append_syslog(f"builder task queued: {task['id']}")
+        self._sync_automation_test_state(
+            status=f"Queued {task['title']} for dry-run review.",
+            report_path=_AUTOMATION_REPORT_PATH,
+        )
+        return task
+
+    def _write_automation_report(self) -> Path:
+        from utils.offhours_builder import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, build_builder_report
+
+        report = build_builder_report(queue_path=QUEUE_PATH, results_path=RESULTS_PATH, metrics_path=METRICS_PATH)
+        payload = {
+            **report,
+            "active_workspace": self._active_instance_name,
+            "preferred_builder_workspace": self._preferred_builder_instance_name(),
+            "validation_command": _AUTOMATION_TEST_VALIDATION_COMMAND,
+        }
+        _AUTOMATION_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _AUTOMATION_REPORT_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        return _AUTOMATION_REPORT_PATH
+
+    def _approve_latest_builder_task(self) -> dict[str, object]:
+        from utils.offhours_builder import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, approve_builder_task
+
+        queue_payload = _read_json(QUEUE_PATH)
+        tasks = [
+            item for item in queue_payload.get("tasks", [])
+            if isinstance(item, dict)
+        ] if isinstance(queue_payload, dict) else []
+        pending_task = next(
+            (
+                item for item in reversed(tasks)
+                if str(item.get("status", "")).strip() == "awaiting_approval"
+                and isinstance(item.get("pending_approval"), dict)
+            ),
+            None,
+        )
+        if pending_task is None:
+            raise ValueError("No staged builder task is awaiting approval.")
+        return approve_builder_task(
+            str(pending_task.get("id", "")).strip(),
+            queue_path=QUEUE_PATH,
+            results_path=RESULTS_PATH,
+            metrics_path=METRICS_PATH,
+            approved_by=self._active_instance_name or "launcher",
+        )
+
     def _on_builder_task_requested(self, payload: dict[str, object]) -> None:
         try:
-            from utils.offhours_builder import enqueue_builder_task, render_builder_task
-
             template_id = str(payload.get("template_id", "")).strip()
             target_ref = str(payload.get("target_ref", "")).strip()
             instance_name = str(payload.get("instance_name", self._active_instance_name)).strip() or self._active_instance_name
-            task = render_builder_task(
-                template_id,
+            task = self._queue_builder_task(
+                template_id=template_id,
                 target_ref=target_ref,
-                requested_by_instance=instance_name,
+                instance_name=instance_name,
+                announce_text=f"Builder task queued for {instance_name}: {template_id}",
             )
-            enqueue_builder_task(task)
-            self._tools_view.set_builder_status(f"Queued {task['title']} for dry-run review")
-            self._assistant_view.add_system_message(
-                f"Queued local builder task: {task['title']} -> {task['output_file_path']}"
+            self._advanced_view.set_automation_status(
+                f"Queued {task['title']} from Workspace Tools. Review staged output in App Mgmt when it is ready."
             )
-            self._set_daily_activity(f"Builder task queued for {instance_name}: {task['template_id']}")
-            self._status_panel.append_syslog(f"builder task queued: {task['id']}")
         except Exception as exc:
             self._tools_view.set_builder_status(f"Queue failed: {exc}", ok=False)
+            self._advanced_view.set_automation_status(f"Queue failed: {exc}", ok=False)
             self._status_panel.append_syslog(f"builder task queue failed: {exc}")
+
+    def _on_automation_action_requested(self, action: str) -> None:
+        target = (action or "").strip().lower()
+        if target == "verify_now":
+            self._advanced_view.focus_automation_test(
+                note="VERIFY NOW queued runtime readiness checks in the App Mgmt terminal."
+            )
+            self._on_windows_ops_requested("verify_runtime")
+            self._sync_automation_test_state(
+                status="VERIFY NOW queued runtime readiness checks in the embedded terminal."
+            )
+            return
+        if target == "switch_builder_workspace":
+            preferred = self._preferred_builder_instance_name()
+            if preferred != "builder-collab":
+                self._sync_automation_test_state(
+                    status="builder-collab is unavailable, so the current workspace stays active.",
+                    ok=False,
+                )
+                return
+            if self._active_instance_name == "builder-collab":
+                self._sync_automation_test_state(status="builder-collab is already active.")
+                return
+            self._on_instance_selected("builder-collab")
+            self._advanced_view.focus_automation_test(
+                note="Builder workspace selected for automation dry runs."
+            )
+            self._sync_automation_test_state(status="Switched to builder-collab for automation testing.")
+            return
+        if target == "queue_dry_run":
+            instance_name = self._preferred_builder_instance_name()
+            try:
+                task = self._queue_builder_task(
+                    template_id="regression_checklist",
+                    target_ref="automation test launcher and approval flow",
+                    instance_name=instance_name,
+                    announce_text=f"Automation dry run queued for {instance_name}",
+                )
+            except Exception as exc:
+                self._sync_automation_test_state(status=f"Queue failed: {exc}", ok=False)
+                self._status_panel.append_syslog(f"automation dry run queue failed: {exc}")
+                return
+            self._advanced_view.focus_automation_test(
+                note=f"Dry run queued: {task['title']} -> {task['output_file_path']}"
+            )
+            return
+        if target == "open_latest_report":
+            path = self._write_automation_report()
+            self._advanced_view.focus_operator_logs(
+                "ALL",
+                note=f"Automation report refreshed: {path}",
+            )
+            self._assistant_view.add_system_message(f"Automation report refreshed: {path}")
+            self._status_panel.append_syslog(f"automation report refreshed: {path}")
+            self._sync_automation_test_state(
+                status=f"Builder report refreshed at {path}",
+                report_path=path,
+            )
+            return
+        if target == "approve_latest_staged_task":
+            try:
+                payload = self._approve_latest_builder_task()
+            except Exception as exc:
+                self._sync_automation_test_state(status=f"Approval failed: {exc}", ok=False)
+                self._status_panel.append_syslog(f"automation approval failed: {exc}")
+                return
+            output_file = str(payload.get("output_file", "") or "").strip()
+            self._assistant_view.add_system_message(f"Approved staged builder output -> {output_file}")
+            self._status_panel.append_syslog(f"automation approval complete: {output_file}")
+            self._set_daily_activity("Approved staged automation test output")
+            self._sync_automation_test_state(
+                status=f"Approved latest staged task -> {output_file}",
+                report_path=_AUTOMATION_REPORT_PATH,
+            )
+            return
+        if target == "run_validation":
+            queued = self._advanced_view.queue_terminal_recipe(
+                [_AUTOMATION_TEST_VALIDATION_COMMAND],
+                label="AUTOMATION TEST VALIDATION",
+                recipe_context={
+                    "kind": "automation_test",
+                    "action": "run_validation",
+                    "changes": "Runs the focused builder validation suite after dry-run review or approval.",
+                },
+            )
+            if queued:
+                self._set_daily_activity("Automation validation queued in App Mgmt terminal")
+                self._status_panel.append_syslog("automation validation queued")
+                self._sync_automation_test_state(
+                    status="Focused automation validation queued in the embedded terminal."
+                )
+            else:
+                self._sync_automation_test_state(
+                    status="Validation could not queue in the embedded terminal.",
+                    ok=False,
+                )
+            return
+        self._sync_automation_test_state(status=f"Automation action unavailable: {action}", ok=False)
 
     def _initialize_embedded_agent(self, agent_id: str) -> tuple[bool, str]:
         aid = (agent_id or "").strip().lower()
@@ -3218,13 +3613,24 @@ class LauncherWindow(QMainWindow):
         """
         Call GET /repair-token/refresh to re-sync the repair token after an API restart.
         Returns the refreshed token string, or empty string on any failure.
-        Only succeeds when called from localhost (API enforces this).
+        Only succeeds when called from localhost with a valid bearer token.
         """
         try:
+            bearer = str(self._api_bearer_token or "").strip()
+            if not bearer and hasattr(self, "_build_local_bearer_token"):
+                try:
+                    bearer = str(self._build_local_bearer_token() or "").strip()
+                except Exception:
+                    bearer = ""
+            if bearer:
+                self._api_bearer_token = bearer
             refresh_url = self._api_base_url() + "/repair-token/refresh"
+            headers = {"Accept": "application/json"}
+            if bearer:
+                headers["Authorization"] = f"Bearer {bearer}"
             req = urllib.request.Request(
                 refresh_url,
-                headers={"Accept": "application/json"},
+                headers=headers,
                 method="GET",
             )
             with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -3686,7 +4092,7 @@ class LauncherWindow(QMainWindow):
             }
         if target == "start_supervised_api":
             return {
-                "label": "SUPERVISED API",
+                "label": "START API",
                 "commands": [],
                 "changes": "Launches the supervised API batch entry point and checks API reachability from the launcher.",
             }
@@ -3808,11 +4214,13 @@ class LauncherWindow(QMainWindow):
             final_guidance = self._windows_ops_guidance(target, ok=started, phase="completed")
             final_summary = detail or ("supervised api started and reachable" if started else "supervised api did not become reachable")
             artifacts = self._windows_ops_artifact_refs(target, self._collect_windows_service_snapshot())
+            event_id = LauncherWindow._default_windows_ops_event_id(target)
             self._record_windows_ops_state(
                 target,
                 final_summary,
                 changes,
                 ok=started,
+                event_id=event_id,
                 phase="completed",
                 next_step=str(final_guidance.get("next_step", "") or ""),
                 fix_target=str(final_guidance.get("fix_target", "") or ""),
@@ -3825,6 +4233,7 @@ class LauncherWindow(QMainWindow):
                 action=target,
                 ok=started,
                 summary=final_summary,
+                event_id=event_id,
                 next_step=str(final_guidance.get("next_step", "") or ""),
                 fix_target=str(final_guidance.get("fix_target", "") or ""),
                 artifacts=artifacts,

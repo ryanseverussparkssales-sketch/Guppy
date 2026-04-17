@@ -6,7 +6,12 @@
   },
   "bindings": {
     "by_model": {},
-    "by_persona": {}
+    "by_persona": {
+      "main_guppy": {
+        "engine": "EDGE TTS",
+        "voice_id": "en-GB-RyanNeural"
+      }
+    }
   },
   "imports": []
 }

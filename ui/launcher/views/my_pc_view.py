@@ -112,7 +112,7 @@ class MyPCView(QWidget):
         layout.addWidget(title)
         layout.addWidget(
             _mono(
-                "Quick help for this Windows PC, your local AI tools, and account sign-in.",
+                "Quick help for this Windows PC, your local AI tools, and connected accounts.",
                 T.DIM,
                 T.FS_SMALL,
             )
@@ -126,10 +126,10 @@ class MyPCView(QWidget):
         desktop_layout = QVBoxLayout(desktop_frame)
         desktop_layout.setContentsMargins(16, 14, 16, 14)
         desktop_layout.setSpacing(8)
-        desktop_layout.addWidget(_mono("WINDOWS ASSISTANT", T.PRIMARY, T.FS_TINY, True))
-        self._pc_install_lbl = _mono("Installed here: checking now", T.DIM, T.FS_SMALL)
-        self._pc_runtime_lbl = _mono("Local AI: checking now", T.DIM, T.FS_SMALL)
-        self._pc_next_lbl = _mono("Suggested next step: checking now", T.DIM, T.FS_SMALL)
+        desktop_layout.addWidget(_mono("THIS PC", T.PRIMARY, T.FS_TINY, True))
+        self._pc_install_lbl = _mono("Ready on this PC: checking now", T.DIM, T.FS_SMALL)
+        self._pc_runtime_lbl = _mono("Local AI health: checking now", T.DIM, T.FS_SMALL)
+        self._pc_next_lbl = _mono("Next step: checking now", T.DIM, T.FS_SMALL)
         self._pc_diag_lbl = _mono("Health notes: checking now", T.DIM, T.FS_TINY)
         for widget in (self._pc_install_lbl, self._pc_runtime_lbl, self._pc_next_lbl, self._pc_diag_lbl):
             desktop_layout.addWidget(widget)
@@ -137,7 +137,7 @@ class MyPCView(QWidget):
         for label, action, accent in [
             ("VERIFY", "verify_runtime", T.PRIMARY),
             ("UPDATE", "update_runtime", T.PRIMARY_DIM),
-            ("SUPERVISED API", "supervised_api", T.SECONDARY),
+            ("START API", "supervised_api", T.SECONDARY),
             ("RESTART", "restart_api", T.ERROR),
             ("REPAIR", "repair", T.PRIMARY),
         ]:
@@ -419,32 +419,33 @@ class MyPCView(QWidget):
             installed_bits.append("desktop packaging")
         if "Supervisor script: ready" in install_raw:
             installed_bits.append("supervised launch")
-        install_text = (
-            "Installed here: "
-            + (", ".join(installed_bits) + " are available." if installed_bits else "Core launcher tools are available.")
+        install_text = "Ready on this PC: " + (
+            ", ".join(installed_bits) + " are available."
+            if installed_bits
+            else "Core launcher tools are available."
         )
 
         if state == "ready":
-            runtime_text = f"Local AI is connected through {live_backend.title()}."
+            runtime_text = f"Local AI health: {live_backend.title()} is healthy and ready on this PC."
             summary = f"{live_backend.title()} is ready on this PC."
         elif state == "unknown":
-            runtime_text = f"Local AI is set to {configured.title()}. I have not confirmed that it is responding yet."
+            runtime_text = f"Local AI health: {configured.title()} is selected, but it still needs a quick Verify check."
             summary = f"{configured.title()} is selected, but it still needs a quick health check."
         else:
-            runtime_text = f"Local AI needs attention. Current choice: {configured.title()}."
+            runtime_text = f"Local AI health: {configured.title()} needs attention before you rely on it."
             summary = f"{configured.title()} needs attention before you rely on it."
 
         next_value = self._line_value(next_raw).lower()
         if "verification passed" in next_value:
-            next_text = "Suggested next step: Everything looks okay. Run Verify again after major model or runtime changes."
+            next_text = "Next step: Everything looks okay. Run Verify again after major model or runtime changes."
         elif "build_executable" in next_value or "package" in next_value:
-            next_text = "Suggested next step: Use Package when you want a fresh desktop build to share."
+            next_text = "Next step: Use Package when you want a fresh desktop build to share."
         elif next_value:
-            next_text = "Suggested next step: " + self._line_value(next_raw)
+            next_text = "Next step: " + self._line_value(next_raw)
         else:
-            next_text = "Suggested next step: Use Verify to check that your local setup is healthy."
+            next_text = "Next step: Use Verify to check that your local setup is healthy."
 
-        diagnostics_text = "Health notes: Logs and repair tools are available if something goes wrong."
+        diagnostics_text = "Health notes: Logs, supervised launch, and repair tools are ready if something goes wrong."
         return summary, install_text, runtime_text, next_text, diagnostics_text
 
     def _friendly_connector_copy(
