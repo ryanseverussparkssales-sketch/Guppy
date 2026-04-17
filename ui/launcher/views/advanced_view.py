@@ -495,7 +495,7 @@ class AdvancedView(QWidget):
             )
         )
         self._automation_summary_lbl = _mono(
-            "Use this flow when you want one guided launcher test pass from start to finish.",
+            "Use this flow when you want one guided launcher test pass with a review bundle at the end.",
             T.DIM,
             T.FS_SMALL,
         )
@@ -506,7 +506,7 @@ class AdvancedView(QWidget):
             "1. VERIFY NOW refreshes launcher and local-runtime readiness.",
             "2. SWITCH TO BUILDER WORKSPACE moves to the preferred builder workspace when it exists.",
             "3. QUEUE DRY RUN creates one small builder draft for review.",
-            "4. OPEN LATEST REPORT refreshes queue counts, draft output, and result paths.",
+            "4. REFRESH EVIDENCE PACK updates the builder report, stress reference, and tester handoff bundle.",
             "5. APPROVE LATEST STAGED TASK only applies reviewed safe output.",
             "6. RUN VALIDATION queues the focused builder check in the embedded terminal.",
         ):
@@ -522,7 +522,7 @@ class AdvancedView(QWidget):
                 ("QUEUE DRY RUN", "queue_dry_run", T.PRIMARY_DIM),
             ],
             [
-                ("OPEN LATEST REPORT", "open_latest_report", T.DIM),
+                ("REFRESH EVIDENCE PACK", "open_latest_report", T.DIM),
                 ("APPROVE LATEST STAGED TASK", "approve_latest_staged_task", T.GREEN),
                 ("RUN VALIDATION", "run_validation", T.PRIMARY),
             ],
@@ -547,9 +547,12 @@ class AdvancedView(QWidget):
         self._automation_staged_lbl = _mono("Latest draft waiting for review: nothing is waiting yet.", T.DIM, T.FS_TINY)
         self._automation_result_lbl = _mono("Latest result: no approved builder output has been recorded yet.", T.DIM, T.FS_TINY)
         self._automation_approval_lbl = _mono("Latest approval: no queued draft is awaiting approval yet.", T.DIM, T.FS_TINY)
-        self._automation_report_lbl = _mono("Latest report: runtime/offhours_builder_report.json", T.DIM, T.FS_TINY)
+        self._automation_report_lbl = _mono("Builder report: runtime/offhours_builder_report.json", T.DIM, T.FS_TINY)
+        self._automation_evidence_lbl = _mono("Evidence pack: runtime/user_test_evidence.md", T.DIM, T.FS_TINY)
+        self._automation_stress_lbl = _mono("Latest stress run: no stress report recorded yet.", T.DIM, T.FS_TINY)
+        self._automation_recent_lbl = _mono("Recent operator notes: no recent launcher notes recorded yet.", T.DIM, T.FS_TINY)
         self._automation_validation_lbl = _mono("Validation command: unavailable", T.PRIMARY_DIM, T.FS_TINY)
-        self._automation_status_lbl = _mono("Automation check flow ready", T.DIM, T.FS_TINY)
+        self._automation_status_lbl = _mono("Automation test lane ready", T.DIM, T.FS_TINY)
         for widget in (
             self._automation_workspace_lbl,
             self._automation_queue_lbl,
@@ -557,6 +560,9 @@ class AdvancedView(QWidget):
             self._automation_result_lbl,
             self._automation_approval_lbl,
             self._automation_report_lbl,
+            self._automation_evidence_lbl,
+            self._automation_stress_lbl,
+            self._automation_recent_lbl,
             self._automation_validation_lbl,
             self._automation_status_lbl,
         ):
@@ -888,6 +894,9 @@ class AdvancedView(QWidget):
         result_path = str(payload.get("result_path", "") or "").strip()
         approval_state = str(payload.get("approval_state", "") or "").strip()
         report_path = str(payload.get("report_path", "") or "runtime/offhours_builder_report.json").strip()
+        evidence_pack_path = str(payload.get("evidence_pack_path", "") or "runtime/user_test_evidence.md").strip()
+        stress_report_path = str(payload.get("stress_report_path", "") or "").strip()
+        recent_events = str(payload.get("recent_events", "") or "").strip()
         validation_command = str(payload.get("validation_command", "") or "").strip()
         status = str(payload.get("status", "") or "").strip()
         self._automation_workspace_lbl.setText(
@@ -905,7 +914,14 @@ class AdvancedView(QWidget):
         self._automation_approval_lbl.setText(
             approval_state or "Latest approval: no staged task is awaiting approval yet."
         )
-        self._automation_report_lbl.setText(f"Latest report: {report_path}")
+        self._automation_report_lbl.setText(f"Builder report: {report_path}")
+        self._automation_evidence_lbl.setText(f"Evidence pack: {evidence_pack_path}")
+        self._automation_stress_lbl.setText(
+            f"Latest stress run: {stress_report_path}" if stress_report_path else "Latest stress run: no stress report recorded yet."
+        )
+        self._automation_recent_lbl.setText(
+            recent_events or "Recent operator notes: no recent launcher notes recorded yet."
+        )
         self._automation_validation_lbl.setText(
             f"Validation command: {validation_command}" if validation_command else "Validation command: unavailable"
         )
@@ -914,7 +930,7 @@ class AdvancedView(QWidget):
 
     def set_automation_status(self, text: str, ok: bool = True) -> None:
         color = T.GREEN if ok else T.ERROR
-        message = (text or "Automation test guide ready").strip() or "Automation test guide ready"
+        message = (text or "Automation test lane ready").strip() or "Automation test lane ready"
         self._automation_status_lbl.setText(message)
         self._automation_status_lbl.setStyleSheet(
             f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"

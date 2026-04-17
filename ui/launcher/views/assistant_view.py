@@ -59,8 +59,8 @@ class AssistantView(QWidget):
         self._starter_meta: dict[str, tuple[str, str, str]] = {}
         self._conversation_history: list[dict[str, str]] = []
         self._empty_state_title_text = "Start with one clear ask"
-        self._empty_state_subtitle_text = "Type a single request in the composer below. Use a starter only if you want a head start."
-        self._empty_state_recipe_text = "Primary action: ask Guppy one thing and press Send."
+        self._empty_state_subtitle_text = "Use the composer below for the next thing you want to move forward. Starters are optional."
+        self._empty_state_recipe_text = "Next step: type one request and press Send."
 
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 14, 16, 12)
@@ -473,8 +473,9 @@ class AssistantView(QWidget):
         if any(item.get("role") in {"user", "assistant"} for item in self._conversation_history):
             return
         title, subtitle, recipe = self._workspace_onboarding_copy(self._workspace_type)
+        starter = self._primary_starter_label(self._workspace_type)
         self.add_assistant_message(
-            f"{title}. {subtitle} {recipe} Start with one short request, and I will help from there."
+            f"{title}. {subtitle} {recipe} Optional starter: {starter}."
         )
 
     def toggle_launcher_panel(self) -> None:
@@ -920,20 +921,20 @@ class AssistantView(QWidget):
     def _workspace_first_run_recipe(workspace_type: str) -> str:
         key = (workspace_type or "user_instance").strip().lower()
         return {
-            "user_instance": "First run: use the composer for one short request, then add a starter if you want help shaping it.",
-            "builder_instance": "First run: start with PLAN NEXT PASS if you want a draft, then refine it in the composer.",
-            "read_only_instance": "First run: start with SOURCE RESEARCH if you want evidence, then sort it in the composer.",
-            "admin_instance": "First run: start with a short status check if you want a quick read, then decide what to do next.",
+            "user_instance": "First run: type one short request, then use MORNING BRIEF only if you want a head start.",
+            "builder_instance": "First run: ask for the next pass, or load PLAN NEXT PASS if you want a draft first.",
+            "read_only_instance": "First run: ask one evidence question, or load SOURCE RESEARCH if you want a starting brief.",
+            "admin_instance": "First run: ask for a short status check, or load OPS CHECK if you want a quick read first.",
         }.get(key, "First run: type one short request, then use a starter only if you want a head start.")
 
     @staticmethod
     def _starter_summary_copy(workspace_type: str) -> str:
         key = (workspace_type or "user_instance").strip().lower()
         return {
-            "user_instance": "Optional starter: MORNING BRIEF if you want a head start.",
-            "builder_instance": "Optional starter: PLAN NEXT PASS if you want a draft faster.",
-            "read_only_instance": "Optional starter: SOURCE RESEARCH if you want evidence first.",
-            "admin_instance": "Optional starter: OPS CHECK if you want a quick read.",
+            "user_instance": "Optional starter if you want one: MORNING BRIEF.",
+            "builder_instance": "Optional starter if you want a draft: PLAN NEXT PASS.",
+            "read_only_instance": "Optional starter if you want evidence first: SOURCE RESEARCH.",
+            "admin_instance": "Optional starter if you want a quick read: OPS CHECK.",
         }.get(key, "Optional starters are here if you want a head start.")
 
     @staticmethod
@@ -941,27 +942,37 @@ class AssistantView(QWidget):
         key = (workspace_type or "user_instance").strip().lower()
         mapping = {
             "user_instance": (
-                "Start the conversation",
-                "Use the message box below for one clear request. A starter is optional if you want a head start.",
-                "Primary action: ask Guppy one thing and press Send.",
+                "Start here",
+                "Use the composer for the next thing you want to move forward. Starters are optional.",
+                "Next step: ask one clear question and press Send.",
             ),
             "builder_instance": (
-                "Start the builder workspace",
-                "Use the message box below for the next step. A starter can give you a faster draft.",
-                "Primary action: ask for the next pass and refine from there.",
+                "Builder workspace ready",
+                "Use the composer for the next pass you want help with. Starters are optional.",
+                "Next step: ask for the next pass or load PLAN NEXT PASS.",
             ),
             "read_only_instance": (
-                "Start the reference workspace",
-                "Use the message box below for one question or evidence check. A starter can help you begin.",
-                "Primary action: ask for evidence first, then sort what matters.",
+                "Reference workspace ready",
+                "Use the composer for one evidence question or source check. Starters are optional.",
+                "Next step: ask for evidence first or load SOURCE RESEARCH.",
             ),
             "admin_instance": (
-                "Start the operations workspace",
-                "Keep the first ask small and clear. Use a starter only if you want a quick read.",
-                "Primary action: ask for a short status check and then decide the next step.",
+                "Operations workspace ready",
+                "Keep the first ask small and clear. Starters are optional.",
+                "Next step: ask for a short status check or load OPS CHECK.",
             ),
         }
         return mapping.get(key, mapping["user_instance"])
+
+    @staticmethod
+    def _primary_starter_label(workspace_type: str) -> str:
+        key = (workspace_type or "user_instance").strip().lower()
+        return {
+            "user_instance": "MORNING BRIEF",
+            "builder_instance": "PLAN NEXT PASS",
+            "read_only_instance": "SOURCE RESEARCH",
+            "admin_instance": "OPS CHECK",
+        }.get(key, "MORNING BRIEF")
 
     @staticmethod
     def _workspace_input_placeholder(workspace_type: str) -> str:

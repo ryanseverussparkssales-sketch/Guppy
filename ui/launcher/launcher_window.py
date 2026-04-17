@@ -3115,7 +3115,7 @@ class LauncherWindow(QMainWindow):
         return {
             str(item.get("name", "")).strip()
             for item in items
-            if isinstance(item, dict) and str(item.get("name", "")).strip()
+            if isinstance(item, dict) and bool(item.get("enabled", True)) and str(item.get("name", "")).strip()
         }
 
     def _preferred_builder_instance_name(self) -> str:
@@ -3124,7 +3124,178 @@ class LauncherWindow(QMainWindow):
             return "builder-collab"
         return self._active_instance_name or "guppy-primary"
 
-    def _automation_test_snapshot(self, *, report_path: Path | None = None, status: str = "") -> dict[str, str]:
+    def _user_test_evidence_path(self) -> Path:
+        return _RUNTIME / "user_test_evidence.json"
+
+    def _user_test_evidence_summary_path(self) -> Path:
+        return _RUNTIME / "user_test_evidence.md"
+
+    @staticmethod
+    def _display_repo_path(path: Path | str | None) -> str:
+        if path is None:
+            return ""
+        target = Path(path) if not isinstance(path, Path) else path
+        try:
+            return str(target.resolve().relative_to(_RUNTIME.parent.resolve())).replace("\\", "/")
+        except Exception:
+            return str(target).replace("\\", "/")
+
+    @staticmethod
+    def _latest_stress_report_path() -> Path | None:
+        candidates: list[Path] = []
+        for folder in (_RUNTIME, _RUNTIME / "stress_reports", _RUNTIME.parent / "tests" / "runtime"):
+            if not folder.exists():
+                continue
+            candidates.extend(folder.glob("stress_report_*.json"))
+        if not candidates:
+            return None
+        return max(candidates, key=lambda path: path.stat().st_mtime)
+
+    def _recent_launcher_event_summaries(self, limit: int = 4) -> list[str]:
+        items = _read_jsonl_tail(_RUNTIME / "launcher_events.jsonl", limit=24)
+        rendered: list[str] = []
+        for item in reversed(items):
+            if not isinstance(item, dict):
+                continue
+            level = LauncherWindow._event_level(item)
+            event = str(item.get("event", "event") or "event").replace("_", " ").strip()
+            detail = (
+                str(item.get("summary", "") or "").strip()
+                or str(item.get("status", "") or "").strip()
+                or str(item.get("action", "") or "").strip()
+                or str(item.get("instance", "") or "").strip()
+                or str(item.get("destination", "") or "").strip()
+                or str(item.get("command", "") or "").strip()
+            )
+            line = f"{level} {event}"
+            if detail:
+                snippet = detail[:88] + ("..." if len(detail) > 88 else "")
+                line += f": {snippet}"
+            rendered.append(line)
+            if len(rendered) >= limit:
+                break
+        return rendered
+
+    @staticmethod
+    def _write_user_test_evidence_summary(summary_path: Path, payload: dict[str, object]) -> str:
+        workspace = payload.get("active_workspace", {}) if isinstance(payload.get("active_workspace"), dict) else {}
+        home = payload.get("home", {}) if isinstance(payload.get("home"), dict) else {}
+        automation = payload.get("automation", {}) if isinstance(payload.get("automation"), dict) else {}
+        windows_ops = payload.get("windows_ops", {}) if isinstance(payload.get("windows_ops"), dict) else {}
+        recent_events = [
+            str(item).strip()
+            for item in payload.get("recent_operator_notes", [])
+            if str(item).strip()
+        ] if isinstance(payload.get("recent_operator_notes"), list) else []
+        lines = [
+            "# User Test Evidence Pack",
+            "",
+            f"Generated: {payload.get('generated_at', '')}",
+            f"Active workspace: {workspace.get('name', payload.get('active_workspace_name', 'unknown'))}",
+            f"Workspace role: {workspace.get('type', 'unknown')}",
+            f"Preferred builder workspace: {payload.get('preferred_builder_workspace', '')}",
+            f"Automation status: {automation.get('status', '')}",
+            f"Builder report: {automation.get('builder_report_path', '')}",
+            f"Evidence JSON: {payload.get('evidence_json_path', '')}",
+            f"Latest stress run: {payload.get('latest_stress_report', '') or 'not recorded'}",
+            "",
+            "## Home",
+            "",
+            f"- Background activity: {home.get('background_event', '')}",
+            f"- Workspace summary: {home.get('workspace_summary', '')}",
+            f"- Runtime facts: {home.get('runtime_facts', '')}",
+            f"- Route facts: {home.get('route_facts', '')}",
+            "",
+            "## Setup & Health",
+            "",
+            f"- Next step: {windows_ops.get('next', '')}",
+            f"- Service status: {windows_ops.get('service', '')}",
+            f"- Release check: {windows_ops.get('gate', '')}",
+            "",
+            "## Recent Operator Notes",
+            "",
+        ]
+        if recent_events:
+            lines.extend([f"- {item}" for item in recent_events])
+        else:
+            lines.append("- No recent launcher notes were recorded.")
+        text = "\n".join(lines).strip() + "\n"
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(text, encoding="utf-8")
+        return text
+
+    def _write_user_test_evidence_pack(
+        self,
+        *,
+        report_path: Path | None = None,
+        status: str = "",
+    ) -> dict[str, str]:
+        snapshot = self._last_instance_snapshot if isinstance(self._last_instance_snapshot, dict) else {}
+        items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
+        active_workspace = next(
+            (
+                item for item in items
+                if isinstance(item, dict) and str(item.get("name", "")).strip() == self._active_instance_name
+            ),
+            {"name": self._active_instance_name or "guppy-primary", "type": "user_instance"},
+        )
+        windows_snapshot_getter = getattr(self._advanced_view, "windows_ops_snapshot", None)
+        windows_snapshot = windows_snapshot_getter() if callable(windows_snapshot_getter) else {}
+        stress_report = self._latest_stress_report_path()
+        builder_report = Path(report_path) if isinstance(report_path, Path) else _AUTOMATION_REPORT_PATH
+        def _label_text(attr_name: str) -> str:
+            widget = getattr(self._assistant_view, attr_name, None)
+            text_getter = getattr(widget, "text", None)
+            if callable(text_getter):
+                try:
+                    return str(text_getter() or "").strip()
+                except Exception:
+                    return ""
+            return ""
+        payload = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "active_workspace_name": self._active_instance_name,
+            "preferred_builder_workspace": self._preferred_builder_instance_name(),
+            "active_workspace": active_workspace if isinstance(active_workspace, dict) else {},
+            "home": {
+                "background_event": _label_text("_background_event"),
+                "workspace_summary": _label_text("_workspace_summary"),
+                "runtime_facts": _label_text("_runtime_facts"),
+                "route_facts": _label_text("_route_facts"),
+                "recovery_summary": _label_text("_recovery_summary"),
+            },
+            "automation": {
+                "status": str(status or getattr(getattr(self._advanced_view, "_automation_status_lbl", None), "text", lambda: "")() or "").strip(),
+                "builder_report_path": self._display_repo_path(builder_report),
+                "validation_command": _AUTOMATION_TEST_VALIDATION_COMMAND,
+            },
+            "windows_ops": windows_snapshot if isinstance(windows_snapshot, dict) else {},
+            "latest_stress_report": self._display_repo_path(stress_report) if stress_report else "",
+            "recent_operator_notes": self._recent_launcher_event_summaries(limit=5),
+        }
+        json_path = self._user_test_evidence_path()
+        summary_path = self._user_test_evidence_summary_path()
+        payload["evidence_json_path"] = self._display_repo_path(json_path)
+        payload["evidence_summary_path"] = self._display_repo_path(summary_path)
+        _write_json(json_path, payload)
+        self._write_user_test_evidence_summary(summary_path, payload)
+        return {
+            "json_path": self._display_repo_path(json_path),
+            "summary_path": self._display_repo_path(summary_path),
+            "stress_report_path": self._display_repo_path(stress_report) if stress_report else "",
+            "recent_events": "Recent operator notes: " + " | ".join(payload["recent_operator_notes"])
+            if payload["recent_operator_notes"] else "Recent operator notes: no recent launcher notes recorded yet.",
+        }
+
+    def _automation_test_snapshot(
+        self,
+        *,
+        report_path: Path | None = None,
+        status: str = "",
+        evidence_pack_path: str = "",
+        stress_report_path: str = "",
+        recent_events: str = "",
+    ) -> dict[str, str]:
         from utils.offhours_builder import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, build_builder_report
 
         report = build_builder_report(queue_path=QUEUE_PATH, results_path=RESULTS_PATH, metrics_path=METRICS_PATH)
@@ -3186,6 +3357,18 @@ class LauncherWindow(QMainWindow):
             approval_state = f"Latest approval: most recent approved output is {latest_result_path}"
         else:
             approval_state = "Latest approval: no staged task is awaiting approval yet."
+        if not evidence_pack_path:
+            evidence_pack_path = self._display_repo_path(self._user_test_evidence_summary_path())
+        if not stress_report_path:
+            latest_stress = self._latest_stress_report_path()
+            stress_report_path = self._display_repo_path(latest_stress) if latest_stress else ""
+        if not recent_events:
+            recent_items = self._recent_launcher_event_summaries(limit=4)
+            recent_events = (
+                "Recent operator notes: " + " | ".join(recent_items)
+                if recent_items else
+                "Recent operator notes: no recent launcher notes recorded yet."
+            )
         return {
             "workspace": workspace_line,
             "queue_counts": (
@@ -3202,13 +3385,30 @@ class LauncherWindow(QMainWindow):
                 else "Latest result: no approved builder output has been recorded yet."
             ),
             "approval_state": approval_state,
-            "report_path": str(report_path or _AUTOMATION_REPORT_PATH),
+            "report_path": self._display_repo_path(report_path or _AUTOMATION_REPORT_PATH),
+            "evidence_pack_path": evidence_pack_path,
+            "stress_report_path": stress_report_path,
+            "recent_events": recent_events,
             "validation_command": _AUTOMATION_TEST_VALIDATION_COMMAND,
-            "status": status or "Automation test guide ready",
+            "status": str(status or "").strip(),
         }
 
-    def _sync_automation_test_state(self, *, status: str = "", ok: bool = True, report_path: Path | None = None) -> None:
-        snapshot = self._automation_test_snapshot(report_path=report_path, status=status)
+    def _sync_automation_test_state(
+        self,
+        *,
+        status: str = "",
+        ok: bool = True,
+        report_path: Path | None = None,
+        persist: bool = False,
+    ) -> None:
+        evidence_bundle = self._write_user_test_evidence_pack(report_path=report_path, status=status) if persist else {}
+        snapshot = self._automation_test_snapshot(
+            report_path=report_path,
+            status=status,
+            evidence_pack_path=str(evidence_bundle.get("summary_path", "") or ""),
+            stress_report_path=str(evidence_bundle.get("stress_report_path", "") or ""),
+            recent_events=str(evidence_bundle.get("recent_events", "") or ""),
+        )
         self._advanced_view.set_automation_snapshot(snapshot)
         if status:
             self._advanced_view.set_automation_status(status, ok=ok)
@@ -3238,6 +3438,7 @@ class LauncherWindow(QMainWindow):
         self._sync_automation_test_state(
             status=f"Queued {task['title']} for dry-run review.",
             report_path=_AUTOMATION_REPORT_PATH,
+            persist=True,
         )
         return task
 
@@ -3308,7 +3509,8 @@ class LauncherWindow(QMainWindow):
             )
             self._on_windows_ops_requested("verify_runtime")
             self._sync_automation_test_state(
-                status="VERIFY NOW queued runtime readiness checks in the embedded terminal."
+                status="VERIFY NOW queued runtime readiness checks in the embedded terminal.",
+                persist=True,
             )
             return
         if target == "switch_builder_workspace":
@@ -3317,16 +3519,17 @@ class LauncherWindow(QMainWindow):
                 self._sync_automation_test_state(
                     status="builder-collab is unavailable, so the current workspace stays active.",
                     ok=False,
+                    persist=True,
                 )
                 return
             if self._active_instance_name == "builder-collab":
-                self._sync_automation_test_state(status="builder-collab is already active.")
+                self._sync_automation_test_state(status="builder-collab is already active.", persist=True)
                 return
             self._on_instance_selected("builder-collab")
             self._advanced_view.focus_automation_test(
                 note="Builder workspace selected for automation dry runs."
             )
-            self._sync_automation_test_state(status="Switched to builder-collab for automation testing.")
+            self._sync_automation_test_state(status="Switched to builder-collab for automation testing.", persist=True)
             return
         if target == "queue_dry_run":
             instance_name = self._preferred_builder_instance_name()
@@ -3338,7 +3541,7 @@ class LauncherWindow(QMainWindow):
                     announce_text=f"Automation dry run queued for {instance_name}",
                 )
             except Exception as exc:
-                self._sync_automation_test_state(status=f"Queue failed: {exc}", ok=False)
+                self._sync_automation_test_state(status=f"Queue failed: {exc}", ok=False, persist=True)
                 self._status_panel.append_syslog(f"automation dry run queue failed: {exc}")
                 return
             self._advanced_view.focus_automation_test(
@@ -3347,22 +3550,28 @@ class LauncherWindow(QMainWindow):
             return
         if target == "open_latest_report":
             path = self._write_automation_report()
+            evidence_bundle = self._write_user_test_evidence_pack(
+                report_path=path,
+                status="Evidence pack refreshed for the guided tester lane.",
+            )
+            summary_path = str(evidence_bundle.get("summary_path", "") or "")
             self._advanced_view.focus_operator_logs(
                 "ALL",
-                note=f"Automation report refreshed: {path}",
+                note=f"Evidence pack refreshed: {summary_path or path}",
             )
-            self._assistant_view.add_system_message(f"Automation report refreshed: {path}")
-            self._status_panel.append_syslog(f"automation report refreshed: {path}")
+            self._assistant_view.add_system_message(f"Evidence pack refreshed: {summary_path or path}")
+            self._status_panel.append_syslog(f"automation evidence refreshed: {summary_path or path}")
             self._sync_automation_test_state(
-                status=f"Builder report refreshed at {path}",
+                status=f"Evidence pack refreshed at {summary_path or path}",
                 report_path=path,
+                persist=True,
             )
             return
         if target == "approve_latest_staged_task":
             try:
                 payload = self._approve_latest_builder_task()
             except Exception as exc:
-                self._sync_automation_test_state(status=f"Approval failed: {exc}", ok=False)
+                self._sync_automation_test_state(status=f"Approval failed: {exc}", ok=False, persist=True)
                 self._status_panel.append_syslog(f"automation approval failed: {exc}")
                 return
             output_file = str(payload.get("output_file", "") or "").strip()
@@ -3372,6 +3581,7 @@ class LauncherWindow(QMainWindow):
             self._sync_automation_test_state(
                 status=f"Approved latest staged task -> {output_file}",
                 report_path=_AUTOMATION_REPORT_PATH,
+                persist=True,
             )
             return
         if target == "run_validation":
@@ -3388,15 +3598,17 @@ class LauncherWindow(QMainWindow):
                 self._set_daily_activity("Automation validation queued in App Mgmt terminal")
                 self._status_panel.append_syslog("automation validation queued")
                 self._sync_automation_test_state(
-                    status="Focused automation validation queued in the embedded terminal."
+                    status="Focused automation validation queued in the embedded terminal.",
+                    persist=True,
                 )
             else:
                 self._sync_automation_test_state(
                     status="Validation could not queue in the embedded terminal.",
                     ok=False,
+                    persist=True,
                 )
             return
-        self._sync_automation_test_state(status=f"Automation action unavailable: {action}", ok=False)
+        self._sync_automation_test_state(status=f"Automation action unavailable: {action}", ok=False, persist=True)
 
     def _initialize_embedded_agent(self, agent_id: str) -> tuple[bool, str]:
         aid = (agent_id or "").strip().lower()

@@ -404,9 +404,21 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Plan the next builder pass", assistant._input.text())
         assistant.ensure_welcome_message()
         self.assertTrue(assistant._conversation_history)
-        self.assertIn("Start the builder workspace", assistant._conversation_history[-1]["content"])
+        self.assertIn("Builder workspace ready", assistant._conversation_history[-1]["content"])
         self.assertIn("next pass", assistant._conversation_history[-1]["content"].lower())
+        self.assertIn("Optional starter: PLAN NEXT PASS.", assistant._conversation_history[-1]["content"])
         self.assertEqual(loaded[-1][0], "morning_brief")
+
+    def test_assistant_daily_workspace_welcome_keeps_one_clear_primary_action(self):
+        assistant = AssistantView()
+        assistant.ensure_welcome_message()
+
+        self.assertTrue(assistant._conversation_history)
+        welcome = assistant._conversation_history[-1]["content"]
+        self.assertIn("Start here.", welcome)
+        self.assertIn("Next step:", welcome)
+        self.assertIn("Optional starter: MORNING BRIEF.", welcome)
+        self.assertNotIn("head start", welcome.lower())
 
     def test_assistant_mic_button_emits_and_updates_state(self):
         assistant = AssistantView()
@@ -796,8 +808,11 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                 "result_path": "Latest result: docs/generated/sample.md",
                 "approval_state": "Latest approval: awaiting approval for Draft regression checklist",
                 "report_path": "runtime/offhours_builder_report.json",
+                "evidence_pack_path": "runtime/user_test_evidence.md",
+                "stress_report_path": "tests/runtime/stress_report_20260417_022711.json",
+                "recent_events": "Recent operator notes: INFO start destination applied | INFO workspace onboarding ready",
                 "validation_command": launcher_window._AUTOMATION_TEST_VALIDATION_COMMAND,
-                "status": "Automation test guide ready",
+                "status": "Automation test lane ready",
             }
         )
 
@@ -806,6 +821,10 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("awaiting approval=1", view._automation_queue_lbl.text())
         self.assertIn("sample.md", view._automation_staged_lbl.text())
         self.assertIn("APPROVE LATEST STAGED TASK", view._automation_action_buttons["approve_latest_staged_task"].text())
+        self.assertIn("REFRESH EVIDENCE PACK", view._automation_action_buttons["open_latest_report"].text())
+        self.assertIn("runtime/user_test_evidence.md", view._automation_evidence_lbl.text())
+        self.assertIn("stress_report_20260417_022711.json", view._automation_stress_lbl.text())
+        self.assertIn("workspace onboarding ready", view._automation_recent_lbl.text().lower())
         self.assertIn(".venv\\Scripts\\python.exe", view._automation_validation_lbl.text())
         self.assertIn("guided launcher test pass", view._automation_summary_lbl.text().lower())
 
@@ -1939,6 +1958,229 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertEqual(dummy._advanced_view.calls, 2)
         self.assertEqual(dummy._my_pc_view.calls, 2)
         self.assertEqual(dummy._tools_view.calls, 1)
+
+    def test_refresh_instance_views_propagates_active_workspace_across_shell_surfaces(self):
+        class _Recorder:
+            def __init__(self, windows_snapshot=None):
+                self.calls = 0
+                self._windows_snapshot = windows_snapshot or {}
+
+            def set_instances(self, _payload):
+                self.calls += 1
+
+            def set_instance_snapshot(self, _payload):
+                self.calls += 1
+
+            def set_connector_inventory(self, _payload):
+                self.calls += 1
+
+            def set_windows_snapshot(self, _payload):
+                self.calls += 1
+
+            def windows_ops_snapshot(self):
+                return dict(self._windows_snapshot)
+
+        class _ToolsRecorder:
+            def __init__(self) -> None:
+                self.active_payloads: list[str] = []
+
+            def set_instance_context(self, active_payload, _snapshot):
+                self.active_payloads.append(str(active_payload.get("name", "")))
+
+        class _AssistantRecorder:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str]] = []
+
+            def set_active_instance(self, name, **kwargs):
+                self.calls.append((str(name), str(kwargs.get("workspace_type", ""))))
+
+        class _TopbarRecorder:
+            def __init__(self) -> None:
+                self.sessions: list[str] = []
+                self.active_sets: list[tuple[list[str], str]] = []
+
+            def set_instances(self, names, active_instance=""):
+                self.active_sets.append((list(names), str(active_instance)))
+
+            def set_session(self, label):
+                self.sessions.append(str(label))
+
+        snapshots = [
+            {
+                "active_instance": "builder-collab",
+                "limits": {"configured": 3, "max_configured": 5, "active_runtime": 1, "max_active_runtime": 2},
+                "instances": [
+                    {"name": "guppy-primary", "type": "user_instance", "description": "Daily", "enabled": True},
+                    {"name": "builder-collab", "type": "builder_instance", "description": "Builder", "enabled": True},
+                    {"name": "ops-watch", "type": "admin_instance", "description": "Ops", "enabled": True},
+                ],
+            },
+            {
+                "active_instance": "ops-watch",
+                "limits": {"configured": 3, "max_configured": 5, "active_runtime": 1, "max_active_runtime": 2},
+                "instances": [
+                    {"name": "guppy-primary", "type": "user_instance", "description": "Daily", "enabled": True},
+                    {"name": "builder-collab", "type": "builder_instance", "description": "Builder", "enabled": True},
+                    {"name": "ops-watch", "type": "admin_instance", "description": "Ops", "enabled": True},
+                ],
+            },
+        ]
+        snapshot_index = {"value": 0}
+
+        def _current_snapshot(force=False):
+            del force
+            return snapshots[snapshot_index["value"]]
+
+        sync_payloads: list[str] = []
+        dummy = type("RefreshActiveDummy", (), {})()
+        dummy._fetch_instance_snapshot = _current_snapshot
+        dummy._fetch_connector_inventory = lambda force=False: [{"id": "youtube", "label": "YouTube", "auth_state": "optional"}]
+        dummy._last_instance_snapshot = {}
+        dummy._last_instance_view_signature = ""
+        dummy._last_connector_view_signature = ""
+        dummy._last_tools_context_signature = ""
+        dummy._last_windows_snapshot_signature = ""
+        dummy._instance_manager_view = _Recorder()
+        dummy._advanced_view = _Recorder(windows_snapshot={"runtime": "ready"})
+        dummy._my_pc_view = _Recorder()
+        dummy._tools_view = _ToolsRecorder()
+        dummy._assistant_view = _AssistantRecorder()
+        dummy._topbar = _TopbarRecorder()
+        dummy._instance_histories = {}
+        dummy._active_instance_name = "guppy-primary"
+        dummy._request_in_flight = False
+        dummy._apply_instance_switch = lambda *_args, **_kwargs: None
+        dummy._sync_right_tray = lambda payload: sync_payloads.append(str(payload.get("name", "")))
+        dummy._sync_automation_test_state = lambda *_args, **_kwargs: None
+        dummy._workspace_role_label = launcher_window.LauncherWindow._workspace_role_label
+        dummy._on_instance_logs_requested = lambda *_args, **_kwargs: None
+        dummy._payload_signature = launcher_window.LauncherWindow._payload_signature
+
+        launcher_window.LauncherWindow._refresh_instance_views(dummy)
+        snapshot_index["value"] = 1
+        launcher_window.LauncherWindow._refresh_instance_views(dummy, force=True)
+
+        self.assertEqual(dummy._assistant_view.calls[0], ("builder-collab", "builder_instance"))
+        self.assertEqual(dummy._assistant_view.calls[-1], ("ops-watch", "admin_instance"))
+        self.assertEqual(dummy._tools_view.active_payloads, ["builder-collab", "ops-watch"])
+        self.assertEqual(sync_payloads, ["builder-collab", "ops-watch"])
+        self.assertIn("Builder collaborator workspace", dummy._topbar.sessions[0])
+        self.assertIn("Operations workspace", dummy._topbar.sessions[-1])
+        self.assertEqual(dummy._topbar.active_sets[-1][1], "ops-watch")
+
+    def test_write_user_test_evidence_pack_captures_stress_workspace_and_recent_notes(self):
+        with tempfile.TemporaryDirectory() as td:
+            runtime_dir = Path(td)
+            old_runtime = launcher_window._RUNTIME
+            launcher_window._RUNTIME = runtime_dir
+            try:
+                (runtime_dir / "launcher_events.jsonl").write_text(
+                    json.dumps({"event": "workspace_onboarding_ready", "instance": "builder-collab"}) + "\n"
+                    + json.dumps({"event": "windows_ops_completed", "summary": "verify_runtime passed"}) + "\n",
+                    encoding="utf-8",
+                )
+                stress_report = runtime_dir / "stress_report_20260417_022711.json"
+                stress_report.write_text(json.dumps({"ok": True}), encoding="utf-8")
+
+                class _Label:
+                    def __init__(self, text: str) -> None:
+                        self._text = text
+
+                    def text(self) -> str:
+                        return self._text
+
+                class _AdvancedStub:
+                    _automation_status_lbl = _Label("Automation test lane ready")
+
+                    @staticmethod
+                    def windows_ops_snapshot() -> dict[str, str]:
+                        return {
+                            "next": "Next step: run validation after review.",
+                            "service": "Recent service action: verify_runtime | OK",
+                            "gate": "Release check: clear",
+                        }
+
+                class _AssistantStub:
+                    _background_event = _Label("Latest activity: Evidence pack refreshed")
+                    _workspace_summary = _Label("Active workspace: Builder collaborator workspace.")
+                    _runtime_facts = _Label("Ready now: Standard profile, GUPPY model.")
+                    _route_facts = _Label("Next reply: builder review.")
+                    _recovery_summary = _Label("System health: stable")
+
+                class _LauncherStub:
+                    pass
+
+                stub = _LauncherStub()
+                stub._last_instance_snapshot = {
+                    "instances": [
+                        {
+                            "name": "builder-collab",
+                            "type": "builder_instance",
+                            "description": "Planning partner",
+                        }
+                    ]
+                }
+                stub._active_instance_name = "builder-collab"
+                stub._advanced_view = _AdvancedStub()
+                stub._assistant_view = _AssistantStub()
+                stub._preferred_builder_instance_name = lambda: "builder-collab"
+                stub._user_test_evidence_path = launcher_window.LauncherWindow._user_test_evidence_path.__get__(stub, _LauncherStub)
+                stub._user_test_evidence_summary_path = launcher_window.LauncherWindow._user_test_evidence_summary_path.__get__(stub, _LauncherStub)
+                stub._display_repo_path = launcher_window.LauncherWindow._display_repo_path
+                stub._latest_stress_report_path = launcher_window.LauncherWindow._latest_stress_report_path
+                stub._recent_launcher_event_summaries = launcher_window.LauncherWindow._recent_launcher_event_summaries.__get__(stub, _LauncherStub)
+                stub._write_user_test_evidence_summary = launcher_window.LauncherWindow._write_user_test_evidence_summary
+
+                bundle = launcher_window.LauncherWindow._write_user_test_evidence_pack(
+                    stub,
+                    report_path=runtime_dir / "offhours_builder_report.json",
+                    status="Evidence pack refreshed for the guided tester lane.",
+                )
+
+                evidence_json = json.loads((runtime_dir / "user_test_evidence.json").read_text(encoding="utf-8"))
+                evidence_md = (runtime_dir / "user_test_evidence.md").read_text(encoding="utf-8")
+
+                self.assertTrue(bundle["summary_path"].endswith("user_test_evidence.md"))
+                self.assertTrue(bundle["stress_report_path"].endswith("stress_report_20260417_022711.json"))
+                self.assertEqual(evidence_json["active_workspace_name"], "builder-collab")
+                self.assertIn("stress_report_20260417_022711.json", evidence_json["latest_stress_report"])
+                self.assertIn("workspace onboarding ready", evidence_md.lower())
+                self.assertIn("Active workspace: builder-collab", evidence_md)
+            finally:
+                launcher_window._RUNTIME = old_runtime
+
+    def test_preferred_builder_workspace_skips_disabled_builder_instance(self):
+        dummy = type("BuilderPrefDummy", (), {})()
+        dummy._last_instance_snapshot = {
+            "instances": [
+                {"name": "guppy-primary", "enabled": True, "type": "user_instance"},
+                {"name": "builder-collab", "enabled": False, "type": "builder_instance"},
+            ]
+        }
+        dummy._active_instance_name = "guppy-primary"
+        dummy._available_instance_names = launcher_window.LauncherWindow._available_instance_names.__get__(dummy, type(dummy))
+
+        preferred = launcher_window.LauncherWindow._preferred_builder_instance_name(dummy)
+
+        self.assertEqual(preferred, "guppy-primary")
+
+    def test_automation_snapshot_does_not_reapply_ready_status_when_no_status_is_passed(self):
+        dummy = type("AutomationSnapshotDummy", (), {})()
+        dummy._active_instance_name = "guppy-primary"
+        dummy._last_instance_snapshot = {
+            "instances": [
+                {"name": "guppy-primary", "enabled": True, "type": "user_instance"},
+            ]
+        }
+        dummy._preferred_builder_instance_name = lambda: "guppy-primary"
+        dummy._display_repo_path = launcher_window.LauncherWindow._display_repo_path
+        dummy._latest_stress_report_path = lambda: None
+        dummy._recent_launcher_event_summaries = lambda limit=4: []
+        dummy._user_test_evidence_summary_path = lambda: Path("runtime/user_test_evidence.md")
+
+        snapshot = launcher_window.LauncherWindow._automation_test_snapshot(dummy)
+
+        self.assertEqual(snapshot["status"], "")
 
     def test_apply_start_destination_opens_guided_automation_flow(self):
         class _AdvancedStub:

@@ -1811,6 +1811,26 @@ Use this format for the next roadmap update:
 
 ### 2026-04-16
 
+- Changed: ran the tonight pre-flight against the live launcher entrypoints, completed the guided tester lane end to end, and fixed one last user-facing status regression in the automation workspace switch step.
+- Changed:
+  - The regular desktop launcher and `bin\launch_automation_test.bat` both reached `guppy_launcher.py` successfully, and the automation start destination logged cleanly from the live launcher process.
+  - `Setup & Health` now keeps the "builder-collab is unavailable" warning visible instead of letting the periodic automation snapshot immediately overwrite it with the default ready state.
+  - The guided tester lane was exercised through runtime verify, docs-only dry-run queueing, staged approval, evidence-pack refresh, and focused validation queueing; the resulting reviewer artifact landed at `docs/generated/automation-test-launcher-and-approval-flow_regression_checklist.md`.
+- Verified: `.venv\Scripts\python.exe -m pytest tests\smoke\test_launcher_interactions_smoke.py -q`, `.venv\Scripts\python.exe -m pytest tests\unit\test_offhours_builder.py tests\unit\test_instance_controls.py -q`, live `automation-test` launcher entrypoint logs, live `Test Launch.bat` launcher entrypoint logs, and a completed `VERIFY NOW` pass that wrote fresh servicing receipt/summary artifacts.
+- Follow-up: after tonight's session, decide whether the disabled builder workspace should stay intentionally unavailable by default or whether user-test machines should enable `builder-collab` ahead of the next guided automation pass.
+
+### 2026-04-16
+
+- Changed: finished the four-part release-candidate batch for user testing by tightening the guided tester lane, adding a reusable user-test evidence pack, broadening shell-level mixed-workspace validation, and calming the Home first-run language.
+- Changed:
+  - `Setup & Health` automation testing now ends in an evidence bundle instead of just a builder report: the lane surfaces the evidence-pack path, latest stress reference, and recent launcher/operator notes alongside the existing queue, approval, and validation state.
+  - `Home` now uses shorter calmer onboarding copy, keeps the primary action centered on the composer, and turns the first welcome message into one clear next step plus one role-aware optional starter.
+  - Launcher shell smoke coverage now proves active-workspace propagation across mixed daily/builder/ops workspace snapshots instead of only checking role-local view copy.
+- Verified: `.venv\Scripts\python.exe -m pytest tests\unit\test_launch_cli.py -q` and `.venv\Scripts\python.exe -m pytest tests\smoke\test_launcher_interactions_smoke.py -q`.
+- Follow-up: use the next live user session to judge whether the new evidence bundle is sufficient on its own for post-test review or whether it still needs a one-click export/share surface above the current App Mgmt panel.
+
+### 2026-04-16
+
 - Changed: pushed the next M2 tranche across the remaining `R2.1` reviewer handoff work, workspace-create polish, and the first May 22 Home calm-start pass.
 - Changed:
   - `R2.1` handoff now reads as a reviewer bundle in App Mgmt and the written release summary: the dry-run report, receipt, and summary now carry an explicit review order instead of forcing operators to infer it.
