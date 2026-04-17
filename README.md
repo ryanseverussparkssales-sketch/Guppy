@@ -32,13 +32,56 @@ Legacy specialist surfaces remain available only behind `GUPPY_ENABLE_LEGACY_SUR
 
 VS Code tasks in this workspace also cover the main launch flows.
 
+## Doc Ownership Contract
+
+`docs/PROJECT_BRIEF.md` is the only status owner.
+
+`README.md` is architecture/setup/operations reference only.
+
+Use `ROADMAP.md` for the dated execution log and handoff notes.
+
+## Build Truth Path
+
+Use `tools/dev_workflow.py` as the canonical local and CI command surface.
+
+```powershell
+# Use the repo virtualenv or activate it first.
+.venv\Scripts\python.exe tools/dev_workflow.py dev-check --guard-scope delta
+.venv\Scripts\python.exe tools/dev_workflow.py test-fast
+.venv\Scripts\python.exe tools/dev_workflow.py test-default
+.venv\Scripts\python.exe tools/dev_workflow.py test-smoke
+.venv\Scripts\python.exe tools/dev_workflow.py release-check
+```
+
+- `dev-check` runs the build guardrails and audits.
+- `test-fast` runs the unit-focused fast path.
+- `test-default` runs the default `tests/unit` + `tests/integration` suite.
+- `test-smoke` runs launcher/runtime/security smoke coverage.
+- `release-check` bundles release-oriented validation and writes a JSON receipt plus a short text summary under `.tmp/dev-workflow/reports/`.
+
+The command entrypoint keeps temp, cache, and pytest scratch data inside `.tmp/dev-workflow/` so local runs and CI do not depend on machine-global temp locations.
+
+## Architecture Seams
+
+The active refactor path now has a small typed seam layer under `src/guppy/`:
+
+- `src/guppy/launcher_application/` holds launcher-facing intents, state contracts, connector-facing launcher services, and the shared workflow catalog.
+- `src/guppy/workspace_governance/` holds workspace, connector inventory, and governance normalization helpers.
+- `src/guppy/runtime_application/` holds runtime and startup-readiness contracts.
+
+New launcher-facing behavior should prefer these seams over adding more direct UI imports into runtime or `utils/` internals. App Mgmt workflow recipes should come from `src/guppy/launcher_application/workflows.py`, not inline view literals.
+
 ## Verification
 
 ### Useful Checks
 
 ```powershell
-# Use the repo virtualenv or activate it first; system Python may not have pytest installed.
-.venv\Scripts\python.exe -m pytest
+# Canonical workflow commands
+.venv\Scripts\python.exe tools/dev_workflow.py dev-check --guard-scope baseline
+.venv\Scripts\python.exe tools/dev_workflow.py test-default
+.venv\Scripts\python.exe tools/dev_workflow.py test-smoke
+
+# Targeted/manual checks
 .venv\Scripts\python.exe tests/integration/test_ptt.py
 .venv\Scripts\python.exe tests/smoke/smoke_api.py
 .venv\Scripts\python.exe tools/verify_ollama_runtime.py
@@ -53,6 +96,9 @@ VS Code tasks in this workspace also cover the main launch flows.
 - Auth behavior: `src/guppy/api/auth.py`
 - Routing behavior: `src/guppy/inference/router.py` plus router fragments
 - Tool surface: `guppy_core/tool_registry.py`, `guppy_core/tool_runner.py`
+- Live architecture map: `docs/LIVE_ARCHITECTURE.md`
+- Build and CI truth path: `docs/BUILD_TRUTH_PATH.md`
+- Legacy quarantine rules: `docs/LEGACY_SURFACES.md`
 - Current active work and handoff notes: `ROADMAP.md`
 
 ### Router Scorecard Review (6A)

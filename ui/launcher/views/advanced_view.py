@@ -12,7 +12,6 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from uuid import uuid4
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -28,10 +27,28 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.guppy.launcher_application.terminal_recipes import (
+    TERMINAL_RECIPE_MARKER,
+    apply_terminal_recipe_marker,
+    build_tracked_terminal_recipe,
+)
+from src.guppy.launcher_application.workflow_panel import (
+    build_workflow_loaded_state,
+    build_workflow_panel_state,
+    build_workflow_queued_state,
+)
+from src.guppy.launcher_application.windows_ops_presenter import (
+    apply_windows_ops_feedback,
+    artifact_display_path,
+    build_windows_ops_panel_state,
+    build_windows_gate_followup_line,
+    build_windows_handoff_line,
+)
+from src.guppy.launcher_application.workflows import list_workflow_specs
+
 from .. import tokens as T
 
 _ROOT = Path(__file__).resolve().parent.parent.parent.parent
-_TERMINAL_RECIPE_MARKER = "__GUPPY_RECIPE__|"
 
 try:
     from utils.runtime_profile import load_app_settings
@@ -41,60 +58,6 @@ except Exception:
 
     def load_app_settings() -> dict[str, object]:
         return {}
-
-_WORKFLOW_RECIPES: list[dict[str, object]] = [
-    {
-        "id": "morning_boot",
-        "title": "MORNING BOOT",
-        "summary": "Start the day with the pilot gate and the fast canary checks.",
-        "commands": [
-            "python tools/pilot_exit_check.py --allow-limited-go",
-            "python -m pytest -q tests/test_pilot_exit_decision_canary.py",
-            "python tools/run_triage_fault_canary.py",
-        ],
-    },
-    {
-        "id": "acceptance_snapshot",
-        "title": "ACCEPTANCE SNAPSHOT",
-        "summary": "Run the signed evidence sequence after major functionality, auth, or security changes.",
-        "commands": [
-            "python -m pytest tests/unit/test_security_hardening.py tests/smoke/test_launcher_interactions_smoke.py -W error::DeprecationWarning",
-            "python -m pytest tests/smoke/test_runtime_smoke.py -v",
-            "python tools/check_architecture_boundaries.py",
-            "python tools/check_new_module_line_cap.py",
-            "python tools/check_wrapper_integrity.py",
-            "python tools/check_core_surface_integrity.py",
-            "python tools/check_doc_ownership.py",
-            "python tools/verify_logging_health.py --emit-probe --require-fresh-core",
-        ],
-    },
-    {
-        "id": "midday_stability",
-        "title": "MIDDAY STABILITY",
-        "summary": "Refresh telemetry and local-model health when behavior starts to drift.",
-        "commands": [
-            "python tools/verify_logging_health.py --emit-probe --require-fresh-core",
-            "python tools/verify_ollama_runtime.py --prompt ok",
-        ],
-    },
-    {
-        "id": "evening_close",
-        "title": "EVENING CLOSE",
-        "summary": "Re-check pilot readiness and write the day-end triage summary.",
-        "commands": [
-            "python tools/pilot_exit_check.py --allow-limited-go",
-            "python tools/generate_triage_summary.py",
-        ],
-    },
-    {
-        "id": "overnight_low_compute",
-        "title": "OVERNIGHT LOW-COMPUTE",
-        "summary": "Queue the lower-cost unattended verification loop.",
-        "commands": [
-            "python tools/run_overnight_low_compute.py --cycles 3 --interval-minutes 180",
-        ],
-    },
-]
 
 
 def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = False) -> QLabel:
@@ -138,15 +101,6 @@ def _clean_guidance_text(text: str) -> str:
     for old, new in replacements:
         cleaned = cleaned.replace(old, new)
     return " ".join(cleaned.split())
-
-
-def _pipe_fields(text: str) -> dict[str, str]:
-    fields: dict[str, str] = {}
-    for segment in [part.strip() for part in str(text or "").split("|") if part.strip()]:
-        if ":" in segment:
-            label, value = segment.split(":", 1)
-            fields[label.strip().lower()] = value.strip()
-    return fields
 
 
 class AdvancedView(QWidget):
@@ -345,6 +299,7 @@ class AdvancedView(QWidget):
         self._windows_gate_lbl = _mono("", T.TEXT, T.FS_SMALL)
         self._windows_gate_fix_lbl = _mono("", T.PRIMARY_DIM, T.FS_SMALL)
         self._windows_handoff_lbl = _mono("", T.PRIMARY_DIM, T.FS_SMALL)
+        self._windows_detail_buttons: list[QPushButton] = []
         windows_actions = QHBoxLayout()
         for label, action, accent in [
             ("VERIFY", "verify_runtime", T.PRIMARY),
@@ -363,6 +318,8 @@ class AdvancedView(QWidget):
             )
             btn.clicked.connect(lambda _=False, a=action: self.windows_ops_requested.emit(a))
             windows_actions.addWidget(btn)
+            if action in {"update_runtime", "package_desktop", "release_dry_run", "restart_runtime"}:
+                self._windows_detail_buttons.append(btn)
         windows_actions.addStretch()
         windows_ops_layout.addLayout(windows_actions)
         for widget in (
@@ -592,8 +549,8 @@ class AdvancedView(QWidget):
             f"QComboBox {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
             f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
         )
-        for recipe in _WORKFLOW_RECIPES:
-            self._workflow_cb.addItem(str(recipe.get("title", "WORKFLOW")), str(recipe.get("id", "")))
+        for recipe in list_workflow_specs(category="workflow_loop"):
+            self._workflow_cb.addItem(recipe.title, recipe.workflow_id)
         self._workflow_cb.currentIndexChanged.connect(self._sync_workflow_recipe)
         workflow_row.addWidget(self._workflow_cb, stretch=1)
 
@@ -759,8 +716,12 @@ class AdvancedView(QWidget):
         self._detail_widgets.extend(
             [
                 self._daily_route_lbl,
+                self._daily_recovery_lbl,
+                self._instances_lbl,
+                self._voice_lbl,
                 self._route_health_lbl,
                 self._resource_lbl,
+                self._last_recovery_lbl,
                 self._windows_paths_lbl,
                 self._windows_update_lbl,
                 self._windows_diagnostics_lbl,
@@ -792,6 +753,8 @@ class AdvancedView(QWidget):
             frame.setVisible(self._details_visible)
         for widget in self._detail_widgets:
             widget.setVisible(self._details_visible)
+        for button in self._windows_detail_buttons:
+            button.setVisible(self._details_visible)
         self._details_btn.setText("HIDE DETAILS" if self._details_visible else "SHOW DETAILS")
 
     def append_log(self, line: str) -> None:
@@ -1276,6 +1239,10 @@ class AdvancedView(QWidget):
             self._connector_action_buttons["connect"].setText("SIGN IN")
             self._connector_action_buttons["reconnect"].setText("SIGN IN AGAIN")
             self._connector_action_buttons["disconnect"].setText("REMOVE SIGN-IN")
+            if auth_state == "missing":
+                self._connector_next_step_lbl.setText(
+                    f"Next step: add the downloaded {connector_label.lower()} credentials JSON on this PC before browser sign-in can start."
+                )
         elif auth_kind in {"provider_secret", "oauth_secret"}:
             self._connector_action_buttons["verify"].setText("CHECK SETUP")
             self._connector_action_buttons["connect"].setText("SAVE DETAILS")
@@ -1295,6 +1262,8 @@ class AdvancedView(QWidget):
             if auth_kind == "api_key" and action_name in {"connect", "reconnect"}:
                 button.setVisible(False)
             elif auth_kind == "provider_secret" and action_name == "reconnect":
+                button.setVisible(False)
+            elif auth_kind == "oauth_file_token" and auth_state == "missing" and action_name in {"connect", "reconnect"}:
                 button.setVisible(False)
             else:
                 button.setVisible(True)
@@ -1363,93 +1332,6 @@ class AdvancedView(QWidget):
         if not candidates:
             return None
         return max(candidates, key=lambda path: path.stat().st_mtime)
-
-    @staticmethod
-    def _artifact_display_path(path: str) -> str:
-        raw = str(path or "").strip()
-        if not raw:
-            return ""
-        target = Path(raw)
-        try:
-            return str(target.resolve().relative_to(_ROOT)).replace("\\", "/")
-        except Exception:
-            return raw.replace("\\", "/")
-
-    @classmethod
-    def _windows_handoff_line(
-        cls,
-        artifacts: list[dict[str, object]] | None,
-        *,
-        receipt_path: str = "",
-        summary_path: str = "",
-        review_order: list[str] | None = None,
-    ) -> str:
-        rendered: list[str] = []
-        receipt = cls._artifact_display_path(receipt_path)
-        summary = cls._artifact_display_path(summary_path)
-        review_items = [str(item).strip() for item in (review_order or []) if str(item).strip()]
-        if review_items:
-            rendered.append(f"review order={' -> '.join(review_items)}")
-        if receipt:
-            rendered.append(f"receipt={receipt}")
-        if summary:
-            rendered.append(f"summary={summary}")
-        for item in artifacts or []:
-            if not isinstance(item, dict):
-                continue
-            label = str(item.get("label", "") or item.get("id", "") or "artifact").strip()
-            path = cls._artifact_display_path(str(item.get("path", "") or ""))
-            if not path:
-                continue
-            rendered.append(f"{label}={path}")
-        if not rendered:
-            return (
-                "Files to share: run RELEASE DRY RUN first, then share the dry-run report, receipt, and summary in that order."
-            )
-        return "Files to share: " + " | ".join(rendered[:4])
-
-    @staticmethod
-    def _release_gate_is_green(gate_summary: str) -> bool:
-        return str(gate_summary or "").strip().upper().startswith("PASS")
-
-    @classmethod
-    def _windows_gate_followup_line(
-        cls,
-        gate_summary: str,
-        gate_recommendations: list[str] | None,
-        gate_recommendation_details: list[dict[str, object]] | None,
-    ) -> str:
-        rendered_recommendations = [str(item).strip() for item in (gate_recommendations or []) if str(item).strip()]
-        rendered_recommendation_details = [item for item in (gate_recommendation_details or []) if isinstance(item, dict)]
-        primary_gate_fix = rendered_recommendation_details[0] if rendered_recommendation_details else {}
-        gate_ok = cls._release_gate_is_green(gate_summary)
-        prefix = "Review next" if gate_ok else "Fix first" if str(gate_summary or "").strip() else "Release follow-up"
-        target_label = "Review" if gate_ok else "Fix in"
-        body = (
-            (
-                str(primary_gate_fix.get("text", "") or "").strip()
-                + (
-                    f" | {target_label}: {str(primary_gate_fix.get('fix_target', '') or '').strip()}"
-                    if str(primary_gate_fix.get("fix_target", "") or "").strip()
-                    else ""
-                )
-                + (
-                    f" | Doc: {str(primary_gate_fix.get('docs_hint', '') or '').strip()}"
-                    if str(primary_gate_fix.get("docs_hint", "") or "").strip()
-                    else ""
-                )
-                + (
-                    f" | Cmd: {str(primary_gate_fix.get('entry_point', '') or '').strip()}"
-                    if str(primary_gate_fix.get("entry_point", "") or "").strip()
-                    else ""
-                )
-            )
-            if primary_gate_fix
-            else " | ".join(rendered_recommendations[:2])
-            if rendered_recommendations
-            else "no release-check recommendations recorded yet."
-        )
-        return f"{prefix}: {body}"
 
     def _build_windows_ops_snapshot(self) -> dict[str, str]:
         runtime_dir = _ROOT / "runtime"
@@ -1549,62 +1431,35 @@ class AdvancedView(QWidget):
                 if gate_summary
                 else "no dry-run result recorded yet."
             ),
-            "gate_fix": self._windows_gate_followup_line(
+            "gate_fix": build_windows_gate_followup_line(
                 gate_summary,
                 gate_recommendations,
                 gate_recommendation_details,
             ),
-            "handoff": self._windows_handoff_line(
+            "handoff": build_windows_handoff_line(
                 artifacts,
                 receipt_path=receipt_path,
                 summary_path=summary_path,
                 review_order=review_order,
+                root=_ROOT,
             ),
         }
 
     def _refresh_windows_ops_labels(self) -> None:
-        install_raw = str(self._windows_ops.get("install", "") or "")
-        runtime_raw = str(self._windows_ops.get("runtime", "") or "")
-        next_raw = str(self._windows_ops.get("next", "") or "")
-        service_raw = str(self._windows_ops.get("service", "") or "")
-        change_raw = str(self._windows_ops.get("changes", "") or "")
-        gate_raw = str(self._windows_ops.get("gate", "") or "")
-        gate_fix_raw = str(self._windows_ops.get("gate_fix", "") or "")
-        handoff_raw = str(self._windows_ops.get("handoff", "") or "")
-        install_bits = []
-        if "Ollama CLI: found" in install_raw:
-            install_bits.append("Ollama")
-        if "Lemonade CLI: found" in install_raw:
-            install_bits.append("Lemonade")
-        if "Supervisor script: ready" in install_raw:
-            install_bits.append("supervised launch")
-        if "Packager: ready" in install_raw:
-            install_bits.append("desktop packaging")
-        runtime_fields = _pipe_fields(runtime_raw)
-        configured = runtime_fields.get("local ai runtime", "local ai")
-        live_backend = runtime_fields.get("live backend", configured)
-        state = runtime_fields.get("status", "unknown").lower()
-
-        self._windows_install_lbl.setText(
-            "Ready on this PC: " + (", ".join(install_bits) if install_bits else "Core launcher tools found.")
-        )
-        if state == "ready":
-            self._windows_runtime_lbl.setText(f"Local AI health: {live_backend.title()} is connected and ready.")
-        elif state == "unknown":
-            self._windows_runtime_lbl.setText(f"Local AI health: {configured.title()} is selected, but it has not been confirmed yet.")
-        else:
-            self._windows_runtime_lbl.setText(f"Local AI health: {configured.title()} needs attention.")
-        self._windows_paths_lbl.setText("Saved data: runtime, config, and settings are available on this PC.")
-        self._windows_repair_lbl.setText("Repair tip: Use Repair if sign-in, startup, or local runtime checks fail.")
-        self._windows_update_lbl.setText("Update path: Update refreshes dependencies, then runs the built-in post-update checks.")
-        self._windows_diagnostics_lbl.setText("Diagnostics: launcher logs and the latest diagnostic bundle are available for troubleshooting.")
-        self._windows_entry_lbl.setText("Useful actions: Package makes a shareable desktop build, and Start API safely restarts the background service.")
-        self._windows_next_lbl.setText((next_raw or "Next step: unavailable").replace("Recommended next step:", "Next step:"))
-        self._windows_service_lbl.setText(service_raw or "Recent service action: unavailable")
-        self._windows_change_lbl.setText(change_raw or "Recent changes: unavailable")
-        self._windows_gate_lbl.setText(gate_raw or "Release check: unavailable")
-        self._windows_gate_fix_lbl.setText(gate_fix_raw or "Release follow-up: unavailable")
-        self._windows_handoff_lbl.setText(handoff_raw or "Files to share: unavailable")
+        state = build_windows_ops_panel_state(self._windows_ops)
+        self._windows_install_lbl.setText(state.install_text)
+        self._windows_runtime_lbl.setText(state.runtime_text)
+        self._windows_paths_lbl.setText(state.paths_text)
+        self._windows_repair_lbl.setText(state.repair_text)
+        self._windows_update_lbl.setText(state.update_text)
+        self._windows_diagnostics_lbl.setText(state.diagnostics_text)
+        self._windows_entry_lbl.setText(state.entry_text)
+        self._windows_next_lbl.setText(state.next_text)
+        self._windows_service_lbl.setText(state.service_text)
+        self._windows_change_lbl.setText(state.changes_text)
+        self._windows_gate_lbl.setText(state.gate_text)
+        self._windows_gate_fix_lbl.setText(state.gate_followup_text)
+        self._windows_handoff_lbl.setText(state.handoff_text)
 
     def refresh_windows_ops_snapshot(self) -> None:
         runtime_line = self._windows_ops.get("runtime", "")
@@ -1636,34 +1491,26 @@ class AdvancedView(QWidget):
         gate_recommendation_details: list[dict[str, object]] | None = None,
         review_order: list[str] | None = None,
     ) -> None:
-        self._windows_ops["service"] = (
-            f"Recent service action: {action} | {'OK' if ok else 'CHECK'} | {summary}"
-        )
-        self._windows_ops["changes"] = f"Recent changes: {changes}"
-        self._windows_ops["gate"] = "Release check: " + (
-            str(gate_summary or "").strip() + (f" | {str(gate_detail or '').strip()}" if str(gate_detail or "").strip() else "")
-            if str(gate_summary or "").strip()
-            else "no dry-run result recorded yet."
-        )
-        self._windows_ops["gate_fix"] = self._windows_gate_followup_line(
-            str(gate_summary or "").strip(),
-            gate_recommendations,
-            gate_recommendation_details,
-        )
-        self._windows_ops["handoff"] = self._windows_handoff_line(
-            artifacts,
+        self._windows_ops = apply_windows_ops_feedback(
+            self._windows_ops,
+            action=action,
+            summary=summary,
+            changes=changes,
+            ok=ok,
+            next_step=next_step,
+            fix_target=fix_target,
+            docs_hint=docs_hint,
+            entry_point=entry_point,
+            artifacts=artifacts,
             receipt_path=receipt_path,
             summary_path=summary_path,
+            gate_summary=gate_summary,
+            gate_detail=gate_detail,
+            gate_recommendations=gate_recommendations,
+            gate_recommendation_details=gate_recommendation_details,
             review_order=review_order,
+            root=_ROOT,
         )
-        if next_step:
-            self._windows_ops["next"] = (
-                "Next step: "
-                + next_step
-                + (f" | Fix in: {fix_target}" if fix_target else "")
-                + (f" | Doc: {docs_hint}" if docs_hint else "")
-                + (f" | Command: {entry_point}" if entry_point else "")
-            )
         self._refresh_windows_ops_labels()
 
     def focus_operator_logs(self, log_filter: str = "ALL", note: str = "") -> None:
@@ -1704,20 +1551,6 @@ class AdvancedView(QWidget):
     ) -> bool:
         return self._run_terminal_commands(commands, label=label, recipe_context=recipe_context)
 
-    def _workflow_recipe(self) -> dict[str, object]:
-        recipe_id = str(self._workflow_cb.currentData() or "")
-        return next(
-            (item for item in _WORKFLOW_RECIPES if str(item.get("id", "")) == recipe_id),
-            _WORKFLOW_RECIPES[0] if _WORKFLOW_RECIPES else {},
-        )
-
-    def _workflow_commands(self) -> list[str]:
-        recipe = self._workflow_recipe()
-        commands = recipe.get("commands", [])
-        if not isinstance(commands, list):
-            return []
-        return [str(item).strip() for item in commands if str(item).strip()]
-
     def _set_workflow_status(self, text: str, ok: bool = True) -> None:
         color = T.GREEN if ok else T.ERROR
         self._workflow_status_lbl.setText(text)
@@ -1735,174 +1568,51 @@ class AdvancedView(QWidget):
     def _set_workflow_evidence(self, text: str) -> None:
         self._workflow_evidence_lbl.setText(f"Evidence: {text}")
 
+    def _apply_workflow_panel_state(self, state) -> None:
+        self._workflow_summary_lbl.setText(state.summary_text or "No workflow summary available.")
+        self._workflow_steps_lbl.setText(state.steps_text)
+        self._workflow_next_step_lbl.setText(state.next_step_text)
+        self._workflow_outcome_lbl.setText(state.outcome_text)
+        self._workflow_outcome_lbl.setStyleSheet(
+            f"color: {T.PRIMARY_DIM if state.status_ok else T.ERROR}; "
+            f"font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        self._workflow_evidence_lbl.setText(state.evidence_text)
+        self._set_workflow_status(state.status_text, ok=state.status_ok)
+
     def _sync_workflow_recipe(self) -> None:
-        recipe = self._workflow_recipe()
-        commands = self._workflow_commands()
-        summary = str(recipe.get("summary", "") or "").strip()
-        self._workflow_summary_lbl.setText(summary or "No workflow summary available.")
-        if commands:
-            rendered = "  |  ".join(f"{idx + 1}. {cmd}" for idx, cmd in enumerate(commands))
-            self._workflow_steps_lbl.setText(rendered)
-            self._workflow_next_step_lbl.setText(
-                f"Next step: load the first command for a guided start, or run all {len(commands)} commands in the embedded terminal."
-            )
-            self._set_workflow_outcome(f"{str(recipe.get('title', 'WORKFLOW'))} is ready with {len(commands)} command(s).")
-            self._set_workflow_evidence(
-                f"{len(commands)} command(s) ready | shell status: {self._terminal_status_lbl.text().lower()} | operator logs will mirror warnings and failures."
-            )
-        else:
-            self._workflow_steps_lbl.setText("No commands configured for this workflow.")
-            self._workflow_next_step_lbl.setText("Next step: choose a workflow with at least one command.")
-            self._set_workflow_outcome("No runnable commands are configured for this workflow.", ok=False)
-            self._set_workflow_evidence("No runnable commands are available for this workflow.")
+        state = build_workflow_panel_state(
+            str(self._workflow_cb.currentData() or ""),
+            terminal_status=self._terminal_status_lbl.text(),
+        )
+        self._apply_workflow_panel_state(state)
 
     def _load_workflow_recipe(self) -> None:
-        recipe = self._workflow_recipe()
-        commands = self._workflow_commands()
-        if not commands:
-            self._set_workflow_status("Workflow recipe is empty", ok=False)
-            self._set_workflow_outcome("Nothing was loaded because this workflow has no commands.", ok=False)
+        state = build_workflow_loaded_state(str(self._workflow_cb.currentData() or ""))
+        if not state.has_commands:
+            self._apply_workflow_panel_state(state)
             return
-        title = str(recipe.get("title", "WORKFLOW")).strip() or "WORKFLOW"
-        self._terminal_input.setText(commands[0])
-        self._append_terminal_output(f"[workflow] {title} loaded ({len(commands)} commands)")
-        for idx, cmd in enumerate(commands, start=1):
+        self._terminal_input.setText(state.first_command)
+        self._append_terminal_output(f"[workflow] {state.title} loaded ({len(state.commands)} commands)")
+        for idx, cmd in enumerate(state.commands, start=1):
             self._append_terminal_output(f"[workflow:{idx}] {cmd}")
         self._terminal_input.setFocus()
-        self._set_workflow_status(f"Loaded {title} into the terminal input", ok=True)
-        self._set_workflow_outcome(f"Loaded the first command for {title}. Review it before you run the rest.")
-        self._workflow_next_step_lbl.setText(
-            f"Next step: review the first command, then press RUN or continue through the remaining {len(commands) - 1} command(s)."
-        )
-        self._set_workflow_evidence(
-            f"{title} loaded | first command is in the terminal input | {max(0, len(commands) - 1)} command(s) remain after this guided step."
-        )
-
-    @staticmethod
-    def _recipe_marker(*parts: object) -> str:
-        cleaned = [str(part).replace("|", "/").strip() for part in parts]
-        return _TERMINAL_RECIPE_MARKER + "|".join(cleaned)
-
-    def _build_tracked_recipe_commands(
-        self,
-        commands: list[str],
-        *,
-        label: str,
-        recipe_context: dict[str, object],
-    ) -> tuple[str, list[str]]:
-        recipe_id = f"recipe-{uuid4().hex[:10]}"
-        cleaned = [str(item).strip() for item in commands if str(item).strip()]
-        context = dict(recipe_context)
-        context.update(
-            {
-                "id": recipe_id,
-                "label": label,
-                "commands": cleaned,
-                "steps_total": len(cleaned),
-                "steps_completed": 0,
-                "step_results": [],
-            }
-        )
-        self._terminal_recipes[recipe_id] = context
-        wrapped: list[str] = [
-            f'Write-Output "{self._recipe_marker("start", recipe_id, len(cleaned), label)}"',
-            "$global:GuppyRecipeStop = 0",
-        ]
-        for idx, command in enumerate(cleaned, start=1):
-            escaped = command.replace("'", "''")
-            wrapped.append(
-                "if ($global:GuppyRecipeStop -ne 0) "
-                "{ "
-                f'Write-Output "{self._recipe_marker("step", recipe_id, idx, "skipped")}"'
-                " } else { "
-                f"Invoke-Expression '{escaped}'; "
-                "$code = if ($LASTEXITCODE -ne $null) { [int]$LASTEXITCODE } elseif ($?) { 0 } else { 1 }; "
-                f'Write-Output "{self._recipe_marker("step", recipe_id, idx)}|$code"; '
-                "if ($code -ne 0) { $global:GuppyRecipeStop = $code }"
-                " }"
-            )
-        wrapped.append(f'Write-Output "{self._recipe_marker("end", recipe_id)}|$global:GuppyRecipeStop"')
-        wrapped.append("Remove-Variable GuppyRecipeStop -Scope Global -ErrorAction SilentlyContinue")
-        return recipe_id, wrapped
+        self._apply_workflow_panel_state(state)
 
     def _handle_terminal_recipe_marker(self, line: str) -> bool:
-        if not str(line).startswith(_TERMINAL_RECIPE_MARKER):
+        result = apply_terminal_recipe_marker(
+            line,
+            self._terminal_recipes,
+            shell_pid=self._terminal_process.pid if self._terminal_process is not None else None,
+            shell_alive=self._terminal_process is not None and self._terminal_process.poll() is None,
+        )
+        if not result.consumed:
             return False
-        payload = str(line)[len(_TERMINAL_RECIPE_MARKER):]
-        parts = payload.split("|")
-        if len(parts) < 2:
-            return True
-        marker_type = str(parts[0]).strip().lower()
-        recipe_id = str(parts[1]).strip()
-        recipe = self._terminal_recipes.get(recipe_id, {})
-        if marker_type == "start":
-            label = str(recipe.get("label", parts[3] if len(parts) > 3 else "recipe") or "recipe")
-            steps_total = int(parts[2]) if len(parts) > 2 and str(parts[2]).isdigit() else int(recipe.get("steps_total", 0) or 0)
-            recipe["steps_total"] = steps_total
-            recipe["steps_completed"] = 0
-            self._terminal_recipes[recipe_id] = recipe
-            self._terminal_status_lbl.setText(f"Shell running {label.lower()}")
-            return True
-        if marker_type == "step":
-            idx = int(parts[2]) if len(parts) > 2 and str(parts[2]).isdigit() else 0
-            result = str(parts[3]).strip().lower() if len(parts) > 3 else ""
-            code = 0 if result == "skipped" else int(parts[4]) if len(parts) > 4 and str(parts[4]).lstrip("-").isdigit() else int(parts[3]) if len(parts) > 3 and str(parts[3]).lstrip("-").isdigit() else 0
-            step_results = recipe.get("step_results", [])
-            if not isinstance(step_results, list):
-                step_results = []
-            command_list = recipe.get("commands", [])
-            command_text = str(command_list[idx - 1]) if isinstance(command_list, list) and 0 < idx <= len(command_list) else ""
-            step_results.append(
-                {
-                    "index": idx,
-                    "exit_code": code,
-                    "ok": result != "skipped" and code == 0,
-                    "skipped": result == "skipped",
-                    "command": command_text,
-                }
-            )
-            recipe["step_results"] = step_results
-            recipe["steps_completed"] = len(step_results)
-            self._terminal_recipes[recipe_id] = recipe
-            return True
-        if marker_type == "end":
-            final_code = int(parts[2]) if len(parts) > 2 and str(parts[2]).lstrip("-").isdigit() else 0
-            step_results = recipe.get("step_results", [])
-            if not isinstance(step_results, list):
-                step_results = []
-            total = int(recipe.get("steps_total", len(step_results)) or len(step_results))
-            completed = len([item for item in step_results if isinstance(item, dict) and not bool(item.get("skipped", False))])
-            failed_steps = [
-                item for item in step_results
-                if isinstance(item, dict) and not bool(item.get("ok", False)) and not bool(item.get("skipped", False))
-            ]
-            ok = final_code == 0 and not failed_steps and completed == total
-            label = str(recipe.get("label", "recipe") or "recipe")
-            summary = (
-                f"{label} completed {completed}/{total} step(s) successfully."
-                if ok
-                else f"{label} stopped after {completed}/{total} successful step(s)."
-            )
-            if failed_steps:
-                failed = failed_steps[0]
-                summary += f" Failed step {int(failed.get('index', 0) or 0)}: {str(failed.get('command', '') or '').strip()}"
-            payload_out = {
-                **recipe,
-                "id": recipe_id,
-                "ok": ok,
-                "final_exit_code": final_code,
-                "summary": summary,
-                "steps_completed": completed,
-                "steps_total": total,
-                "failed_steps": failed_steps,
-            }
-            if self._terminal_process is not None and self._terminal_process.poll() is None:
-                self._terminal_status_lbl.setText(f"Shell ready [pid={self._terminal_process.pid}]")
-            else:
-                self._terminal_status_lbl.setText("Shell idle")
-            self._terminal_recipes.pop(recipe_id, None)
-            self.terminal_recipe_finished.emit(payload_out)
-            return True
+        self._terminal_recipes = result.recipes
+        if result.status_text:
+            self._terminal_status_lbl.setText(result.status_text)
+        if result.completed_payload is not None:
+            self.terminal_recipe_finished.emit(result.completed_payload)
         return True
 
     def _run_terminal_commands(
@@ -1929,7 +1639,9 @@ class AdvancedView(QWidget):
             return False
         rendered_commands = cleaned
         if isinstance(recipe_context, dict):
-            _recipe_id, rendered_commands = self._build_tracked_recipe_commands(cleaned, label=label, recipe_context=recipe_context)
+            plan = build_tracked_terminal_recipe(cleaned, label=label, recipe_context=recipe_context)
+            self._terminal_recipes[plan.recipe_id] = plan.context
+            rendered_commands = list(plan.rendered_commands)
         self._append_terminal_output(f"[workflow] running {label} ({len(cleaned)} commands)")
         try:
             for idx, command in enumerate(cleaned, start=1):
@@ -1939,10 +1651,8 @@ class AdvancedView(QWidget):
             proc.stdin.flush()
             self._terminal_status_lbl.setText(f"Shell running {label.lower()}")
             self._terminal_focus_pending = True
-            self._set_workflow_outcome(f"{label} queued {len(cleaned)} command(s) in the embedded terminal.")
-            self._set_workflow_evidence(
-                f"{label} queued {len(cleaned)} command(s) | watch embedded terminal output and operator logs for pass/fail evidence."
-            )
+            if recipe_context and str(recipe_context.get("kind", "") or "").strip().lower() == "workflow_loop":
+                self._apply_workflow_panel_state(build_workflow_queued_state(str(recipe_context.get("workflow_id", "") or "")))
             return True
         except Exception as exc:
             self._append_terminal_output(f"[launcher] workflow run failed: {exc}")
@@ -1952,14 +1662,13 @@ class AdvancedView(QWidget):
             return False
 
     def _run_workflow_recipe(self) -> None:
-        recipe = self._workflow_recipe()
-        title = str(recipe.get("title", "WORKFLOW")).strip() or "WORKFLOW"
-        commands = self._workflow_commands()
-        if self._run_terminal_commands(commands, label=title):
-            self._set_workflow_status(f"Queued {title} in the embedded terminal", ok=True)
-            self._workflow_next_step_lbl.setText(
-                f"Next step: watch the embedded terminal and operator logs while {len(commands)} command(s) run."
-            )
+        state = build_workflow_queued_state(str(self._workflow_cb.currentData() or ""))
+        if self._run_terminal_commands(
+            list(state.commands),
+            label=state.title,
+            recipe_context={"kind": "workflow_loop", "workflow_id": state.workflow_id},
+        ):
+            self._apply_workflow_panel_state(state)
 
     def _append_terminal_output(self, text: str) -> None:
         current = self._terminal_output.toPlainText().splitlines()
@@ -2171,13 +1880,13 @@ class AdvancedView(QWidget):
                     bits.append(f"ref={event_id}")
                 if fix_target:
                     bits.append(f"fix={fix_target}")
-                receipt_path = self._artifact_display_path(str(item.get("release_receipt", "") or ""))
-                summary_path = self._artifact_display_path(str(item.get("release_summary", "") or ""))
+                receipt_path = artifact_display_path(str(item.get("release_receipt", "") or ""), root=_ROOT)
+                summary_path = artifact_display_path(str(item.get("release_summary", "") or ""), root=_ROOT)
                 artifacts = [row for row in item.get("artifacts", []) if isinstance(row, dict)] if isinstance(item.get("artifacts"), list) else []
                 artifact_refs = []
                 for artifact in artifacts[:3]:
                     label = str(artifact.get("id", "") or artifact.get("label", "") or "artifact").strip()
-                    path = self._artifact_display_path(str(artifact.get("path", "") or ""))
+                    path = artifact_display_path(str(artifact.get("path", "") or ""), root=_ROOT)
                     if label and path:
                         artifact_refs.append(f"{label}={path}")
                 detail = " | ".join(bits)

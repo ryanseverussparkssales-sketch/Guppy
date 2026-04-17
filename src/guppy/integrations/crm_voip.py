@@ -21,7 +21,7 @@ from typing import Any, Dict
 from urllib.parse import urlparse
 
 from src.guppy.paths import RUNTIME_DIR
-from utils.connector_manager import read_machine_secret
+from src.guppy.workspace_governance import read_machine_secret
 from utils.session_logger import rotate_jsonl_file
 
 INTEGRATION_LOG = RUNTIME_DIR / "integration_events.jsonl"

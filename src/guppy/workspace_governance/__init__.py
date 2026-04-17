@@ -1,0 +1,93 @@
+"""Workspace governance seam contracts and connector helpers."""
+
+from .connector_service import (
+    build_connector_action_request,
+    build_connector_action_result,
+    build_connector_inventory,
+    build_workspace_governance_snapshot,
+    build_workspace_summary,
+    summarize_connector_readiness,
+)
+from .connector_status import (
+    build_connector_guidance,
+    build_connector_status,
+    token_path_for_gmail_account,
+)
+from .connector_metadata import (
+    connector_action_for_tool,
+    connector_catalog,
+    connector_id_for_tool,
+    connector_spec,
+    list_connector_ids,
+    provider_environment_fields,
+    provider_metadata,
+    provider_spec,
+    secret_field_meta,
+    validate_secret_value,
+)
+from .machine_auth import (
+    clear_machine_secret,
+    keyring_key,
+    merge_secret_sources,
+    read_machine_secret,
+    secret_source,
+    secret_status,
+    write_machine_secret,
+)
+from .provider_status import (
+    build_crm_status,
+    build_provider_guidance,
+    build_provider_row,
+    build_voip_status,
+    select_account_row,
+    select_provider_row,
+    summarize_verify_checks,
+)
+from .contracts import (
+    ConnectorActionRequest,
+    ConnectorActionResult,
+    ConnectorInventoryItem,
+    WorkspaceGovernanceSnapshot,
+    WorkspaceSummary,
+)
+
+__all__ = [
+    "ConnectorActionRequest",
+    "ConnectorActionResult",
+    "ConnectorInventoryItem",
+    "WorkspaceGovernanceSnapshot",
+    "WorkspaceSummary",
+    "connector_action_for_tool",
+    "connector_catalog",
+    "connector_id_for_tool",
+    "connector_spec",
+    "build_connector_action_request",
+    "build_connector_action_result",
+    "build_connector_guidance",
+    "build_connector_inventory",
+    "build_connector_status",
+    "build_workspace_governance_snapshot",
+    "build_workspace_summary",
+    "list_connector_ids",
+    "provider_environment_fields",
+    "provider_metadata",
+    "provider_spec",
+    "secret_field_meta",
+    "summarize_connector_readiness",
+    "validate_secret_value",
+    "keyring_key",
+    "read_machine_secret",
+    "write_machine_secret",
+    "clear_machine_secret",
+    "secret_source",
+    "merge_secret_sources",
+    "secret_status",
+    "token_path_for_gmail_account",
+    "build_crm_status",
+    "build_provider_guidance",
+    "build_provider_row",
+    "build_voip_status",
+    "select_account_row",
+    "select_provider_row",
+    "summarize_verify_checks",
+]

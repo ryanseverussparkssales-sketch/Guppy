@@ -106,27 +106,43 @@ What is live in the M2 launcher shell right now:
 
 1. Keep entrypoint wrappers thin; move logic under src/guppy/.
 2. Prefer launcher modules over adding features to legacy surfaces.
-3. Keep changed `src/guppy` modules below line cap guard limits (CI).
+3. Treat `src/guppy/`, `ui/`, and `utils/` as active live-code roots for build guardrails; new drift should land through typed seams, not deeper direct cross-layer imports.
 4. Record milestone changes in ROADMAP handoff log.
+5. Prefer `src/guppy/launcher_application/`, `src/guppy/workspace_governance/`, and `src/guppy/runtime_application/` when introducing new launcher-facing contracts, normalization helpers, or shared workflow definitions.
 
 ## CI Guardrails
 
-1. `tools/check_new_module_line_cap.py` enforces a line cap on changed Python modules under `src/guppy/`.
-2. `tools/check_wrapper_integrity.py` enforces thin wrapper and shim shape for launcher/hub plus migrated root compatibility files.
-3. `tools/check_architecture_boundaries.py` blocks legacy/root and cross-domain imports on changed `src/guppy` files.
-4. All checks run in `.github/workflows/quality-gates.yml`.
+1. `tools/dev_workflow.py` is the canonical command entrypoint for local and CI workflows: `dev-check`, `test-fast`, `test-default`, `test-smoke`, and `release-check`.
+2. `tools/check_new_module_line_cap.py` enforces the live-code line cap across `src/guppy/`, `ui/`, and `utils/`, with explicit transitional waivers pinned to current hotspot sizes.
+3. `tools/check_architecture_boundaries.py` blocks legacy-surface imports and new UI/runtime-governance coupling outside the narrow launcher transition waivers.
+4. `.github/workflows/quality-gates.yml` now maps CI into three lanes: `guardrails`, `default-tests`, and `product-smoke`, all through `tools/dev_workflow.py`.
+5. `release-check` writes a machine-readable receipt and short text summary under `.tmp/dev-workflow/reports/`.
+6. Pytest cache now defaults to `.tmp/pytest-cache`, and the canonical workflow entrypoint also pins temp/cache scratch directories inside `.tmp/dev-workflow/`.
+7. Shared launcher/App Mgmt workflow recipes now belong in `src/guppy/launcher_application/workflows.py`; build docs and future runtime-facing consumers should reuse that catalog instead of duplicating commands.
+
+## Live Architecture and Docs
+
+1. `docs/LIVE_ARCHITECTURE.md` is the concise map for live domains, allowed dependency flow, and transitional launcher guardrails.
+2. `docs/BUILD_TRUTH_PATH.md` is the concise build/CI workflow reference.
+3. `docs/LEGACY_SURFACES.md` records what is compatibility-only and should not regain product ownership.
+4. The seam contracts in `src/guppy/launcher_application/`, `src/guppy/workspace_governance/`, and `src/guppy/runtime_application/` are now the preferred source for launcher-facing typed state and normalization behavior.
+5. `README.md`, `docs/PROJECT_BRIEF.md`, and `ROADMAP.md` remain the active truth set; older planning/history docs are background context only.
 
 ## Test Layout
 
-1. `tests/unit/` is the default fast regression suite.
-2. `tests/integration/` holds runtime or hardware-adjacent tests; interactive PTT smoke is explicitly kept out of default pytest.
-3. `tests/smoke/` contains both pytest-collected smoke coverage and standalone/manual smoke-stress scripts, so it should not be described as entirely outside the default pytest run.
+1. `test-fast` runs the unit-focused fast path.
+2. `test-default` runs the default `tests/unit` + `tests/integration` suite, with interactive PTT still excluded from default pytest.
+3. `test-smoke` runs launcher/runtime/security smoke coverage through the canonical workflow entrypoint.
+4. `tests/smoke/` still contains both pytest-collected smoke coverage and standalone/manual smoke-stress scripts, so it should not be described as entirely outside the default pytest story.
 
 ## Where To Look
 
 1. Roadmap and handoff: ROADMAP.md
-2. Setup and architecture details: README.md
-3. Measurable targets: docs/GOALS.md
-4. Daily operator runbook: docs/DAILY_WORKFLOW.md
-5. Local LLM plan: docs/LOCAL_LLM_IMPLEMENTATION_PLAN.md
-6. Local LLM benchmark spec: docs/LOCAL_LLM_BENCHMARK_SPEC.md
+2. Setup and operator reference: README.md
+3. Live architecture map: docs/LIVE_ARCHITECTURE.md
+4. Build and CI truth path: docs/BUILD_TRUTH_PATH.md
+5. Legacy compatibility quarantine: docs/LEGACY_SURFACES.md
+6. Measurable targets: docs/GOALS.md
+7. Daily operator runbook: docs/DAILY_WORKFLOW.md
+8. Local LLM plan: docs/LOCAL_LLM_IMPLEMENTATION_PLAN.md
+9. Local LLM benchmark spec: docs/LOCAL_LLM_BENCHMARK_SPEC.md

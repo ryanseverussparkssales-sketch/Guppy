@@ -65,6 +65,7 @@ class StatusPanel(QFrame):
         self._tool_buttons: dict[str, QPushButton] = {}
         self._space_buttons: dict[str, QPushButton] = {}
         self._last_activity = "Tray ready"
+        self._extras_visible = False
         self.setFixedWidth(T.STATUS_W)
         self.setObjectName("status_panel")
         self.setStyleSheet(
@@ -78,12 +79,24 @@ class StatusPanel(QFrame):
         outer.setContentsMargins(12, 16, 12, 12)
         outer.setSpacing(10)
 
+        title_row = QHBoxLayout()
         title = QLabel("TRAY")
         title.setStyleSheet(
             f"color: {T.INK}; font-family: '{T.FF_HEAD}';"
             f"font-size: {T.FS_TITLE + 1}pt; font-weight: bold;"
         )
-        outer.addWidget(title)
+        title_row.addWidget(title)
+        title_row.addStretch()
+        self._extras_btn = QPushButton("SHOW MORE")
+        self._extras_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._extras_btn.setStyleSheet(
+            f"QPushButton {{ background: rgba(255,250,243,0.92); color: {T.DIM}; border: 1px solid rgba(205,181,154,0.30);"
+            f" border-radius: 14px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton:hover {{ border-color: rgba(255,107,61,0.46); color: {T.PRIMARY}; background: #ffffff; }}"
+        )
+        self._extras_btn.clicked.connect(self._toggle_extras)
+        title_row.addWidget(self._extras_btn)
+        outer.addLayout(title_row)
 
         self._workspace_lbl = _mono("WORKSPACE / GUPPY-PRIMARY", T.TEXT, T.FS_TINY, True)
         self._tray_status_lbl = _mono("CHAT READY", T.GREEN, T.FS_TINY, True)
@@ -125,10 +138,15 @@ class StatusPanel(QFrame):
             grid.addWidget(btn, index // 3, index % 3)
         tools_layout.addLayout(grid)
 
-        self._tool_hint_lbl = _mono("Tap to prime Home.", T.DIM, T.FS_TINY)
+        self._tool_hint_lbl = _mono("Quick actions live here.", T.DIM, T.FS_TINY)
         self._tool_hint_lbl.setWordWrap(True)
         tools_layout.addWidget(self._tool_hint_lbl)
         outer.addWidget(tools_frame)
+
+        self._extras_host = QWidget()
+        extras_layout = QVBoxLayout(self._extras_host)
+        extras_layout.setContentsMargins(0, 0, 0, 0)
+        extras_layout.setSpacing(10)
 
         spaces_frame = QFrame()
         spaces_frame.setObjectName("tray_spaces")
@@ -149,7 +167,7 @@ class StatusPanel(QFrame):
         spaces_head.addWidget(_mono("OUTLOOK / CAL / RSS", T.DIM, T.FS_TINY))
         spaces_layout.addLayout(spaces_head)
 
-        self._spaces_summary_lbl = _mono("Pin Outlook, calendar, RSS, or custom slots.", T.DIM, T.FS_TINY)
+        self._spaces_summary_lbl = _mono("Pin a small set of follow-up slots when you need them.", T.DIM, T.FS_TINY)
         self._spaces_summary_lbl.setWordWrap(True)
         spaces_layout.addWidget(self._spaces_summary_lbl)
 
@@ -167,7 +185,7 @@ class StatusPanel(QFrame):
             self._space_buttons[slot_key] = btn
             slots_grid.addWidget(btn, index // 2, index % 2)
         spaces_layout.addLayout(slots_grid)
-        outer.addWidget(spaces_frame)
+        extras_layout.addWidget(spaces_frame)
 
         media_frame = QFrame()
         media_frame.setObjectName("media_dock")
@@ -203,11 +221,7 @@ class StatusPanel(QFrame):
             f"color: white; font-family: '{T.FF_HEAD}'; font-size: 15pt; font-weight: bold;"
         )
         art_layout.addWidget(self._media_title_lbl)
-        self._media_subtitle_lbl = _mono(
-            "Drop in Spotify, an APK, or a lightweight player.",
-            "#fff7f2",
-            T.FS_SMALL,
-        )
+        self._media_subtitle_lbl = _mono("Add Spotify or a lightweight player when you want it.", "#fff7f2", T.FS_SMALL)
         self._media_subtitle_lbl.setWordWrap(True)
         art_layout.addWidget(self._media_subtitle_lbl)
         art_gesture = QLabel("// art / sound / flow")
@@ -233,7 +247,9 @@ class StatusPanel(QFrame):
             )
             controls.addWidget(btn)
         media_layout.addLayout(controls)
-        outer.addWidget(media_frame)
+        extras_layout.addWidget(media_frame)
+        self._extras_host.setVisible(False)
+        outer.addWidget(self._extras_host)
         outer.addStretch()
 
     @staticmethod
@@ -265,6 +281,11 @@ class StatusPanel(QFrame):
         workspace_name = (name or "guppy-primary").strip().upper()
         label = _workspace_kind_label(workspace_type)
         self._workspace_lbl.setText(f"WORKSPACE / {workspace_name} / {label}")
+
+    def _toggle_extras(self) -> None:
+        self._extras_visible = not self._extras_visible
+        self._extras_host.setVisible(self._extras_visible)
+        self._extras_btn.setText("HIDE MORE" if self._extras_visible else "SHOW MORE")
 
     def set_tool_states(self, states: dict[str, str]) -> None:
         for tool_key, button in self._tool_buttons.items():

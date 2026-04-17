@@ -239,6 +239,31 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertEqual(visible_fields[0][1].text(), "API Key")
         self.assertIn("Paste the YouTube Data API key", visible_fields[0][3].text())
 
+    def test_my_pc_view_hides_calendar_sign_in_until_credentials_file_exists(self):
+        view = MyPCView()
+        view.set_connector_inventory(
+            [
+                {
+                    "id": "calendar",
+                    "label": "Calendar",
+                    "auth_kind": "oauth_file_token",
+                    "auth_state": "missing",
+                    "auth_detail": "Calendar credentials file is missing for this host.",
+                    "next_step": "Add the credentials JSON on this PC, then sign in.",
+                    "actions_supported": ["verify", "connect", "disconnect"],
+                    "secret_fields": [],
+                    "providers": [],
+                    "accounts": [{"id": "primary", "label": "Primary calendar"}],
+                }
+            ]
+        )
+
+        self.assertIn("browser sign-in", view._account_status_lbl.text().lower())
+        self.assertIn("credentials file", view._account_detail_lbl.text().lower())
+        self.assertIn("credentials json", view._account_step_lbl.text().lower())
+        self.assertFalse(view._connect_btn.isVisible())
+        self.assertFalse(view._verify_btn.isHidden())
+
     def test_local_llm_view_loads_repo_artifacts_without_touching_home(self):
         view = LocalLLMView()
         view.refresh()
@@ -610,6 +635,13 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             [{"timestamp": "2026-04-14T00:00:00+00:00", "role": "assistant", "message": "hello"}],
         )
 
+        self.assertTrue(view._governance_frame.isHidden())
+        self.assertTrue(view._connectors_frame.isHidden())
+        view._governance_toggle_btn.click()
+        self.assertFalse(view._governance_frame.isHidden())
+        view._connector_toggle_btn.click()
+        self.assertFalse(view._connectors_frame.isHidden())
+
         self.assertIn("Configured workspaces: 2 / 5", view._summary_lbl.text())
         self.assertIn("Roles:", view._summary_lbl.text())
         self.assertIn("Live workspaces: 1 / 2", view._limits_lbl.text())
@@ -740,6 +772,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("CONFIG CAP REACHED", view._limits_lbl.text())
         self.assertIn("COLLABORATOR CAP REACHED", view._limits_lbl.text())
         self.assertEqual(view._tool_cards["read_file"]._hint_btn.text(), "PRIME HOME")
+        self.assertTrue(view._tool_cards["write_file"]._scope_lbl.isHidden())
         self.assertIn("not available in builder-collab", view._tool_cards["write_file"]._scope_lbl.text().lower())
         self.assertTrue(view._tool_cards["write_file"]._guard_lbl.isHidden())
         self.assertTrue(view._tool_cards["query_instance"]._policy_lbl.isHidden())
@@ -1838,6 +1871,17 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertTrue(panel._tool_buttons["read_file"].isEnabled())
         self.assertFalse(panel._tool_buttons["write_file"].isEnabled())
 
+    def test_status_panel_hides_extra_slots_until_requested(self):
+        panel = StatusPanel()
+
+        self.assertTrue(panel._extras_host.isHidden())
+        self.assertEqual(panel._extras_btn.text(), "SHOW MORE")
+
+        panel._extras_btn.click()
+
+        self.assertFalse(panel._extras_host.isHidden())
+        self.assertEqual(panel._extras_btn.text(), "HIDE MORE")
+
     def test_chat_timeout_for_local_diagnostic_turns_is_extended(self):
         self.assertGreaterEqual(
             launcher_window.LauncherWindow._chat_timeout_for_request("auto", "Let's run a local diagnostic"),
@@ -2067,6 +2111,129 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Builder collaborator workspace", dummy._topbar.sessions[0])
         self.assertIn("Operations workspace", dummy._topbar.sessions[-1])
         self.assertEqual(dummy._topbar.active_sets[-1][1], "ops-watch")
+
+    def test_bootstrap_instance_switcher_defers_heavy_workspace_hydration(self):
+        class _Recorder:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def set_instances(self, _payload) -> None:
+                self.calls += 1
+
+            def set_instance_snapshot(self, _payload) -> None:
+                self.calls += 1
+
+            def windows_ops_snapshot(self) -> dict[str, str]:
+                return {"runtime": "ready"}
+
+        class _MyPCRecorder:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def set_windows_snapshot(self, _payload) -> None:
+                self.calls += 1
+
+        class _AssistantRecorder:
+            def __init__(self) -> None:
+                self.calls = 0
+                self.welcomes = 0
+
+            def set_active_instance(self, *_args, **_kwargs) -> None:
+                self.calls += 1
+
+            def ensure_welcome_message(self) -> None:
+                self.welcomes += 1
+
+        class _TopbarRecorder:
+            def __init__(self) -> None:
+                self.calls: list[tuple[list[str], str]] = []
+
+            def set_instances(self, names, active_instance="") -> None:
+                self.calls.append((list(names), str(active_instance)))
+
+        class _ToolsRecorder:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def set_instance_context(self, *_args, **_kwargs) -> None:
+                self.calls += 1
+
+        snapshot_flags: list[bool] = []
+        connector_fetches: list[bool] = []
+        refresh_calls: list[bool] = []
+        scheduled: list[tuple[int, object]] = []
+        sync_payloads: list[str] = []
+        dummy = type("BootstrapDummy", (), {})()
+        dummy._instance_histories = {}
+        dummy._active_instance_name = "guppy-primary"
+        dummy._instance_snapshot_ttl_s = 6.0
+        dummy._bootstrap_instance_refresh_pending = False
+        dummy._bootstrap_instance_refresh_complete = False
+        dummy._last_instance_snapshot = {}
+        dummy._instance_snapshot_expires_at = 0.0
+        dummy._last_connector_inventory_snapshot = []
+        dummy._connector_inventory_expires_at = 0.0
+        dummy._connector_inventory_ttl_s = 15.0
+        dummy._instance_manager_view = _Recorder()
+        dummy._advanced_view = _Recorder()
+        dummy._my_pc_view = _MyPCRecorder()
+        dummy._assistant_view = _AssistantRecorder()
+        dummy._topbar = _TopbarRecorder()
+        dummy._tools_view = _ToolsRecorder()
+        dummy._rotate_chat_session = lambda *_args, **_kwargs: None
+        dummy._set_daily_activity = lambda *_args, **_kwargs: None
+        dummy._sync_right_tray = lambda payload: sync_payloads.append(str(payload.get("name", "")))
+        dummy._on_instance_logs_requested = lambda *_args, **_kwargs: None
+        dummy._refresh_instance_views = lambda *args, **kwargs: refresh_calls.append(bool(kwargs.get("force")))
+        dummy._fetch_connector_inventory = lambda force=False: connector_fetches.append(bool(force)) or []
+        dummy._load_instance_catalog = lambda snapshot=None: (["guppy-primary"], "guppy-primary")
+
+        def _local_snapshot(*, include_workspace_details: bool = True):
+            snapshot_flags.append(include_workspace_details)
+            return {
+                "active_instance": "guppy-primary",
+                "instances": [
+                    {
+                        "name": "guppy-primary",
+                        "type": "user_instance",
+                        "description": "Primary workspace",
+                        "mode": "auto",
+                        "persona": "guppy",
+                        "voice": "default",
+                        "last_message": "",
+                    }
+                ],
+            }
+
+        dummy._local_instance_snapshot = _local_snapshot
+        dummy._complete_bootstrap_instance_switcher = launcher_window.LauncherWindow._complete_bootstrap_instance_switcher.__get__(dummy, type(dummy))
+
+        old_single_shot = launcher_window.QTimer.singleShot
+        old_connector_inventory = launcher_window.connector_inventory
+        launcher_window.QTimer.singleShot = lambda delay, callback: scheduled.append((delay, callback))
+        launcher_window.connector_inventory = lambda: []
+        try:
+            launcher_window.LauncherWindow._bootstrap_instance_switcher(dummy)
+
+            self.assertEqual(snapshot_flags, [False])
+            self.assertEqual(connector_fetches, [])
+            self.assertEqual(dummy._tools_view.calls, 0)
+            self.assertEqual(sync_payloads, ["guppy-primary"])
+            self.assertTrue(dummy._bootstrap_instance_refresh_pending)
+            self.assertFalse(dummy._bootstrap_instance_refresh_complete)
+            self.assertEqual(len(scheduled), 1)
+            self.assertEqual(scheduled[0][0], 0)
+
+            scheduled[0][1]()
+
+            self.assertEqual(refresh_calls, [False])
+            self.assertFalse(dummy._bootstrap_instance_refresh_pending)
+            self.assertTrue(dummy._bootstrap_instance_refresh_complete)
+            self.assertEqual(len(scheduled), 2)
+            self.assertEqual(scheduled[1][0], 150)
+        finally:
+            launcher_window.QTimer.singleShot = old_single_shot
+            launcher_window.connector_inventory = old_connector_inventory
 
     def test_write_user_test_evidence_pack_captures_stress_workspace_and_recent_notes(self):
         with tempfile.TemporaryDirectory() as td:

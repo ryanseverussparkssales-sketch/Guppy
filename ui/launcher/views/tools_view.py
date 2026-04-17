@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -278,6 +279,7 @@ class _ToolCard(QFrame):
 
     def set_details_visible(self, visible: bool) -> None:
         self._details_visible = bool(visible)
+        self._scope_lbl.setVisible(self._details_visible)
         self._policy_lbl.setVisible(self._details_visible)
         self._guard_lbl.setVisible(self._details_visible)
 
@@ -423,6 +425,7 @@ class ToolsView(QWidget):
         self._instance_name = "guppy-primary"
         self._instance_type = "user_instance"
         self._details_visible = False
+        self._tool_card_order: list[str] = []
         self._limits: dict[str, int] = {
             "configured": 1,
             "max_configured": 5,
@@ -463,7 +466,7 @@ class ToolsView(QWidget):
         layout.addLayout(title_row)
         layout.addWidget(
             _mono(
-                "See which tools this workspace can use. For the quickest path, launch from the tray and continue in Home.",
+                "Use the tray for the fastest path. Open a tool card when you need a little more context.",
                 T.DIM,
                 T.FS_SMALL,
             )
@@ -474,14 +477,14 @@ class ToolsView(QWidget):
         layout.addWidget(self._context_lbl)
         layout.addWidget(self._limits_lbl)
         self._boundary_lbl = _mono(
-            "Use the tray for quick tools. Open App Management for setup, recovery, diagnostics, and logs.",
+            "Open App Management for setup, recovery, and logs.",
             T.DIM,
             T.FS_SMALL,
         )
         self._boundary_lbl.setWordWrap(True)
         layout.addWidget(self._boundary_lbl)
         self._execution_lbl = _mono(
-            "Want to know why something is unavailable? Show details to see permission and sign-in checks.",
+            "Show details only when you want permission and sign-in checks.",
             T.DIM,
             T.FS_SMALL,
         )
@@ -535,15 +538,15 @@ class ToolsView(QWidget):
         layout.addWidget(self._builder_panel)
 
         self._cards_host = QWidget()
-        self._cards_layout = QVBoxLayout(self._cards_host)
+        self._cards_layout = QGridLayout(self._cards_host)
         self._cards_layout.setContentsMargins(0, 0, 0, 0)
-        self._cards_layout.setSpacing(12)
+        self._cards_layout.setHorizontalSpacing(12)
+        self._cards_layout.setVerticalSpacing(12)
         for tool in _INSTANCE_TOOL_CATALOG:
             card = _ToolCard(tool)
             card.hint_requested.connect(self.tool_hint_requested.emit)
             self._tool_cards[card.tool_key] = card
-            self._cards_layout.addWidget(card)
-        self._cards_layout.addStretch()
+            self._tool_card_order.append(card.tool_key)
         self._cards_host.setVisible(True)
         layout.addWidget(self._cards_host)
 
@@ -606,8 +609,9 @@ class ToolsView(QWidget):
     def _apply_filters(self) -> None:
         category = self._filter_cb.currentText().strip().upper()
         query = self._search.text().strip().lower()
-        visible_cards = 0
-        for card in self._tool_cards.values():
+        visible_keys: list[str] = []
+        for key in self._tool_card_order:
+            card = self._tool_cards[key]
             matches_query = not query or query in card.search_blob
             matches_category = (
                 category == "ALL"
@@ -617,7 +621,18 @@ class ToolsView(QWidget):
             visible = matches_query and matches_category
             card.setVisible(visible)
             if visible:
-                visible_cards += 1
+                visible_keys.append(key)
+
+        while self._cards_layout.count():
+            item = self._cards_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(self._cards_host)
+
+        for index, key in enumerate(visible_keys):
+            self._cards_layout.addWidget(self._tool_cards[key], index // 2, index % 2)
+
+        visible_cards = len(visible_keys)
         self._empty_state_lbl.setVisible(visible_cards == 0)
         self._cards_host.setVisible(visible_cards > 0)
 

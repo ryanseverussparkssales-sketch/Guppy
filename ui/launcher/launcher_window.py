@@ -19,6 +19,58 @@ from pathlib import Path
 import urllib.error
 import urllib.request
 
+from src.guppy.launcher_application import (
+    LauncherStateSnapshot,
+    WindowsOpsExecutionKind,
+    advance_windows_ops_chain,
+    beta_release_dry_run_report_path,
+    build_launcher_state_snapshot,
+    build_windows_ops_descriptor,
+    build_windows_ops_feedback_kwargs,
+    build_windows_ops_plan,
+    build_windows_ops_state_payload,
+    collect_windows_service_snapshot,
+    connector_action_http_payload,
+    connector_action_record,
+    connector_action_status_label,
+    default_windows_ops_event_id,
+    enabled_workspace_names,
+    execute_connector_action,
+    execute_guided_connector_setup,
+    fetch_connector_inventory,
+    fetch_workspace_connector_inventory,
+    normalize_windows_gate_details,
+    normalize_windows_ops_artifacts,
+    release_dry_run_gate_details,
+    release_review_order,
+    repo_python_path,
+    resolve_active_instance_payload,
+    save_workspace_connector_binding,
+    run_repo_python,
+    snapshot_file_signature,
+    start_windows_ops_chain,
+    summarize_release_dry_run_report,
+    summarize_windows_recipe_result,
+    windows_ops_artifact_refs,
+    windows_ops_chain_changes,
+    windows_ops_guidance,
+    windows_service_snapshot_changes,
+    write_windows_release_receipt,
+    write_windows_release_summary,
+)
+from src.guppy.runtime_application import (
+    RuntimeHealthSnapshot,
+    build_runtime_health_snapshot,
+    build_runtime_health_view_payload,
+    fetch_startup_readiness,
+    summarize_startup_readiness,
+)
+from src.guppy.workspace_governance import (
+    build_connector_action_request,
+    build_connector_action_result,
+    build_connector_inventory,
+)
+
 try:
     from src.guppy.api.auth import create_access_token as _create_access_token
     _API_AUTH_HELPER = True
@@ -121,39 +173,7 @@ except Exception:
         del instance_name, policy_entry, config_path
         return None
 
-try:
-    from utils.connector_manager import (
-        connector_inventory,
-        run_connector_action,
-        save_workspace_connector_binding,
-        workspace_connector_inventory,
-    )
-    _CONNECTOR_MANAGER_BACKEND = True
-except Exception:
-    _CONNECTOR_MANAGER_BACKEND = False
-
-    def connector_inventory():
-        return []
-
-    def workspace_connector_inventory(workspace_name: str, *, config_path=None):
-        del workspace_name, config_path
-        return []
-
-    def save_workspace_connector_binding(workspace_name: str, connector_id: str, payload: dict, *, config_path=None):
-        del workspace_name, connector_id, payload, config_path
-        return None
-
-    def run_connector_action(
-        connector_id: str,
-        action: str,
-        *,
-        provider: str = "",
-        account_id: str = "",
-        secret_key: str = "",
-        secret_value: str = "",
-    ):
-        del connector_id, action, provider, account_id, secret_key, secret_value
-        return {"ok": False, "summary": "connector manager unavailable", "status": {}}
+_CONNECTOR_MANAGER_BACKEND = connector_backend_available()
 
 try:
     from src.guppy.voice.voice import GuppyVoice
@@ -221,6 +241,7 @@ def _is_valid_repair_token(token: str) -> bool:
 
 class LauncherWindow(QMainWindow):
     assistant_event_queued = Signal()
+    connector_action_event_queued = Signal()
 
     _MAX_DEFERRED_SYSLOG_PER_TICK = 24
     _MAX_ASSISTANT_EVENTS_PER_TICK = 12
@@ -266,6 +287,7 @@ class LauncherWindow(QMainWindow):
         self._embedded_online: set[str] = set()
         self._assistant_events: SimpleQueue[tuple[str, str, int]] = SimpleQueue()
         self._recovery_events: SimpleQueue[dict[str, object]] = SimpleQueue()
+        self._connector_action_events: SimpleQueue[dict[str, object]] = SimpleQueue()
         self._active_windows_ops_chain: dict[str, object] | None = None
         self._last_instance_snapshot: dict[str, object] = {}
         self._instance_snapshot_expires_at = 0.0
@@ -275,6 +297,10 @@ class LauncherWindow(QMainWindow):
         self._last_connector_view_signature = ""
         self._last_tools_context_signature = ""
         self._last_windows_snapshot_signature = ""
+        self._launcher_state_snapshot = LauncherStateSnapshot.empty()
+        self._runtime_health_snapshot = RuntimeHealthSnapshot()
+        self._bootstrap_instance_refresh_pending = False
+        self._bootstrap_instance_refresh_complete = False
         self._instance_snapshot_ttl_s = float(os.environ.get("GUPPY_INSTANCE_SNAPSHOT_TTL_S", "6.0"))
         self._connector_inventory_ttl_s = float(os.environ.get("GUPPY_CONNECTOR_INVENTORY_TTL_S", "15.0"))
         self._scaffold_created: dict[str, Path] = {}
@@ -399,6 +425,7 @@ class LauncherWindow(QMainWindow):
         self._assistant_view.cancel_requested.connect(self._on_cancel_assistant_request)
         self._assistant_view.mic_requested.connect(self._on_mic_requested)
         self.assistant_event_queued.connect(self._drain_assistant_events)
+        self.connector_action_event_queued.connect(self._drain_connector_action_events)
         self._assistant_view.chat_context_changed.connect(self._on_chat_context_changed)
         self._assistant_view.launcher_summary_changed.connect(self._topbar.set_launcher_summary)
         self._instance_manager_view.refresh_requested.connect(self._on_instance_manager_refresh)
@@ -832,18 +859,22 @@ class LauncherWindow(QMainWindow):
             f"Recovery: {'stable' if guppy_online else 'needs attention'}",
             ok=guppy_online,
         )
+        runtime_health = build_runtime_health_snapshot(
+            api_status,
+            gs,
+            voice_tts_backend=str(data.get("voice_engine", "edge") or "edge"),
+            voice_stt_backend=str(gs.get("stt_backend", "unknown") or "unknown"),
+        )
+        self._runtime_health_snapshot = runtime_health
         self._models_view.set_status_snapshot(api_status)
         self._runtime_view.set_status_snapshot(api_status)
         self._advanced_view.set_status_snapshot(
-            {
-                "status": data.get("status", "healthy"),
-                "startup_readiness": api_status.get("startup_readiness", gs.get("startup_readiness", {})) if isinstance(api_status, dict) else gs.get("startup_readiness", {}),
-                "voice_tts_backend": data.get("voice_engine", "edge"),
-                "voice_stt_backend": gs.get("stt_backend", "unknown"),
-                "voice_binding": voice_summary,
-                "route_evidence": self._assistant_view._route_facts.text(),
-                "resource_envelope": gs.get("resource_envelope", {}),
-            }
+            build_runtime_health_view_payload(
+                runtime_health,
+                status=str(data.get("status", "healthy") or "healthy"),
+                voice_binding=voice_summary,
+                route_evidence=self._assistant_view._route_facts.text(),
+            )
         )
         windows_snapshot = self._advanced_view.windows_ops_snapshot()
         windows_snapshot_signature = self._payload_signature(windows_snapshot)
@@ -854,7 +885,7 @@ class LauncherWindow(QMainWindow):
         self._sync_recovery_outcome()
         # Avoid competing with an active chat turn for the periodic instance refresh.
         # The next idle poll will resync the workspace snapshot.
-        if not self._request_in_flight:
+        if not self._request_in_flight and self._bootstrap_instance_refresh_complete:
             self._refresh_instance_views(load_logs=False)
         if not self._startup_logged_first_poll:
             self._startup_logged_first_poll = True
@@ -1028,7 +1059,26 @@ class LauncherWindow(QMainWindow):
     def _instance_state_path(self) -> Path:
         return _RUNTIME / "instance_state.json"
 
-    def _local_instance_snapshot(self) -> dict:
+    @staticmethod
+    def _default_governance_snapshot(instance_type: str) -> dict[str, object]:
+        kind = str(instance_type or "user_instance").strip().lower() or "user_instance"
+        capabilities = {
+            "user_instance": {"read": True, "write": True, "execute": True, "network": True},
+            "builder_instance": {"read": True, "write": True, "execute": False, "network": True},
+            "read_only_instance": {"read": True, "write": False, "execute": False, "network": False},
+            "admin_instance": {"read": True, "write": True, "execute": True, "network": True},
+        }.get(kind, {"read": True, "write": True, "execute": True, "network": True})
+        return {
+            "auth_mode": "runtime_default",
+            "tool_allow": [],
+            "tool_block": [],
+            "endpoint_allow": [],
+            "endpoint_block": [],
+            "policy_note": "",
+            "capabilities": capabilities,
+        }
+
+    def _local_instance_snapshot(self, *, include_workspace_details: bool = True) -> dict:
         config = _read_json(self._instances_config_path())
         state = _read_json(self._instance_state_path())
         items: list[dict[str, object]] = []
@@ -1043,8 +1093,27 @@ class LauncherWindow(QMainWindow):
             if not name:
                 continue
             instance_type = str(item.get("type", "user_instance") or "user_instance")
-            governance = resolve_instance_permissions(name, instance_type)
             runtime = state_items.get(name, {}) if isinstance(state_items, dict) else {}
+            governance = self._default_governance_snapshot(instance_type)
+            connectors: list[dict[str, object]] = []
+            if include_workspace_details:
+                resolved = resolve_instance_permissions(name, instance_type)
+                if isinstance(resolved, dict) and resolved:
+                    governance = {
+                        "auth_mode": str(resolved.get("_auth_mode", "runtime_default") or "runtime_default"),
+                        "tool_allow": list(resolved.get("_tool_allow", [])),
+                        "tool_block": list(resolved.get("_tool_block", [])),
+                        "endpoint_allow": list(resolved.get("_endpoint_allow", [])),
+                        "endpoint_block": list(resolved.get("_endpoint_block", [])),
+                        "policy_note": str(resolved.get("_policy_note", "") or ""),
+                        "capabilities": {
+                            "read": bool(resolved.get("read", False)),
+                            "write": bool(resolved.get("write", False)),
+                            "execute": bool(resolved.get("execute", False)),
+                            "network": bool(resolved.get("network", False)),
+                        },
+                    }
+                connectors = fetch_workspace_connector_inventory(name)
             items.append(
                 {
                     "name": name,
@@ -1060,21 +1129,8 @@ class LauncherWindow(QMainWindow):
                     "last_updated": runtime.get("last_updated"),
                     "message_count": int(runtime.get("message_count", 0) or 0),
                     "model_currently_using": str(runtime.get("model_currently_using", item.get("mode", "auto")) or "auto"),
-                    "governance": {
-                        "auth_mode": str(governance.get("_auth_mode", "runtime_default") or "runtime_default"),
-                        "tool_allow": list(governance.get("_tool_allow", [])),
-                        "tool_block": list(governance.get("_tool_block", [])),
-                        "endpoint_allow": list(governance.get("_endpoint_allow", [])),
-                        "endpoint_block": list(governance.get("_endpoint_block", [])),
-                        "policy_note": str(governance.get("_policy_note", "") or ""),
-                        "capabilities": {
-                            "read": bool(governance.get("read", False)),
-                            "write": bool(governance.get("write", False)),
-                            "execute": bool(governance.get("execute", False)),
-                            "network": bool(governance.get("network", False)),
-                        },
-                    },
-                    "connectors": workspace_connector_inventory(name),
+                    "governance": governance,
+                    "connectors": connectors,
                 }
             )
         if not items:
@@ -1093,16 +1149,8 @@ class LauncherWindow(QMainWindow):
                     "last_updated": None,
                     "message_count": 0,
                     "model_currently_using": "auto",
-                    "governance": {
-                        "auth_mode": "runtime_default",
-                        "tool_allow": [],
-                        "tool_block": [],
-                        "endpoint_allow": [],
-                        "endpoint_block": [],
-                        "policy_note": "",
-                        "capabilities": {"read": True, "write": True, "execute": True, "network": True},
-                    },
-                    "connectors": workspace_connector_inventory("guppy-primary"),
+                    "governance": self._default_governance_snapshot("user_instance"),
+                    "connectors": fetch_workspace_connector_inventory("guppy-primary") if include_workspace_details else [],
                 }
             ]
             active = "guppy-primary"
@@ -1160,7 +1208,7 @@ class LauncherWindow(QMainWindow):
             rows = payload.get("connectors", []) if isinstance(payload, dict) else []
             snapshot = [item for item in rows if isinstance(item, dict)]
         except Exception:
-            snapshot = [item for item in connector_inventory() if isinstance(item, dict)]
+            snapshot = [item.raw for item in fetch_connector_inventory()]
         self._last_connector_inventory_snapshot = list(snapshot)
         self._connector_inventory_expires_at = now + max(3.0, self._connector_inventory_ttl_s)
         return snapshot
@@ -1178,8 +1226,8 @@ class LauncherWindow(QMainWindow):
                 history.append({"role": role, "content": message})
         return history
 
-    def _load_instance_catalog(self) -> tuple[list[str], str]:
-        snapshot = self._local_instance_snapshot()
+    def _load_instance_catalog(self, snapshot: dict | None = None) -> tuple[list[str], str]:
+        snapshot = snapshot if isinstance(snapshot, dict) and snapshot else self._local_instance_snapshot(include_workspace_details=False)
         if not isinstance(snapshot, dict) or not snapshot.get("instances"):
             snapshot = self._fetch_instance_snapshot(force=True)
         active = str(snapshot.get("active_instance", "")).strip()
@@ -1202,6 +1250,13 @@ class LauncherWindow(QMainWindow):
         snapshot = self._fetch_instance_snapshot(force=force)
         self._last_instance_snapshot = snapshot
         connector_inventory_snapshot = self._fetch_connector_inventory(force=force)
+        typed_connector_inventory = build_connector_inventory(connector_inventory_snapshot)
+        self._launcher_state_snapshot = self._build_launcher_state_snapshot(
+            snapshot,
+            typed_connector_inventory,
+            self._advanced_view.windows_ops_snapshot(),
+            self._runtime_health_snapshot,
+        )
         instance_view_signature = self._payload_signature(snapshot)
         connector_view_signature = self._payload_signature(connector_inventory_snapshot)
         if force or instance_view_signature != self._last_instance_view_signature:
@@ -1213,11 +1268,7 @@ class LauncherWindow(QMainWindow):
             self._my_pc_view.set_connector_inventory(connector_inventory_snapshot)
             self._last_connector_view_signature = connector_view_signature
         items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
-        enabled_names = [
-            str(item.get("name", "")).strip()
-            for item in items
-            if isinstance(item, dict) and bool(item.get("enabled", True)) and str(item.get("name", "")).strip()
-        ]
+        enabled_names = enabled_workspace_names(snapshot) or [item.name for item in self._launcher_state_snapshot.workspaces if item.name]
         active = str(snapshot.get("active_instance", "")).strip() or self._active_instance_name or "guppy-primary"
         if active not in enabled_names:
             enabled_names = enabled_names or [active]
@@ -1229,14 +1280,7 @@ class LauncherWindow(QMainWindow):
         if active != self._active_instance_name and not self._request_in_flight:
             self._apply_instance_switch(active, announce=False)
         self._topbar.set_instances(enabled_names, active_instance=active)
-        active_payload = next(
-            (
-                item
-                for item in items
-                if isinstance(item, dict) and str(item.get("name", "")).strip() == active
-            ),
-            {"name": active, "type": "user_instance"},
-        )
+        active_payload = resolve_active_instance_payload(snapshot, active)
         if isinstance(active_payload, dict):
             tools_context_signature = self._payload_signature(
                 {
@@ -1268,6 +1312,21 @@ class LauncherWindow(QMainWindow):
             self._on_instance_logs_requested(active, quiet=True)
         self._sync_automation_test_state()
 
+    def _build_launcher_state_snapshot(
+        self,
+        snapshot: dict,
+        typed_connector_inventory,
+        windows_snapshot: dict[str, str],
+        runtime_health: RuntimeHealthSnapshot | None = None,
+    ) -> LauncherStateSnapshot:
+        return build_launcher_state_snapshot(
+            snapshot,
+            typed_connector_inventory if _CONNECTOR_MANAGER_BACKEND else (),
+            windows_snapshot if isinstance(windows_snapshot, dict) else {},
+            active_view="home",
+            runtime_health=runtime_health,
+        )
+
     def _apply_instance_switch(self, target: str, *, announce: bool = True) -> None:
         if not target:
             return
@@ -1282,15 +1341,7 @@ class LauncherWindow(QMainWindow):
             self._instance_histories[target] = history
         self._assistant_view.restore_history(history)
         snapshot = self._last_instance_snapshot if isinstance(self._last_instance_snapshot, dict) else {}
-        items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
-        active_payload = next(
-            (
-                item
-                for item in items
-                if isinstance(item, dict) and str(item.get("name", "")).strip() == target
-            ),
-            {"name": target, "type": "user_instance"},
-        )
+        active_payload = resolve_active_instance_payload(snapshot, target)
         self._assistant_view.set_active_instance(
             target,
             workspace_type=str(active_payload.get("type", "user_instance") or "user_instance"),
@@ -1316,29 +1367,18 @@ class LauncherWindow(QMainWindow):
         self._sync_automation_test_state()
 
     def _bootstrap_instance_switcher(self) -> None:
-        snapshot = self._local_instance_snapshot()
-        names, active = self._load_instance_catalog()
+        snapshot = self._local_instance_snapshot(include_workspace_details=False)
+        names, active = self._load_instance_catalog(snapshot=snapshot)
         self._instance_histories = {}
         self._active_instance_name = active
         self._last_instance_snapshot = snapshot
-        self._instance_snapshot_expires_at = time.monotonic() + max(2.0, self._instance_snapshot_ttl_s)
+        self._instance_snapshot_expires_at = time.monotonic() + 0.75
         self._topbar.set_instances(names, active_instance=active)
         self._rotate_chat_session("instance_bootstrap", instance=active)
         self._instance_manager_view.set_instances(snapshot)
         self._advanced_view.set_instance_snapshot(snapshot)
-        connector_inventory_snapshot = self._fetch_connector_inventory(force=True)
-        self._advanced_view.set_connector_inventory(connector_inventory_snapshot)
-        self._my_pc_view.set_connector_inventory(connector_inventory_snapshot)
         self._my_pc_view.set_windows_snapshot(self._advanced_view.windows_ops_snapshot())
-        items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
-        active_payload = next(
-            (
-                item
-                for item in items
-                if isinstance(item, dict) and str(item.get("name", "")).strip() == active
-            ),
-            {"name": active, "type": "user_instance"},
-        )
+        active_payload = resolve_active_instance_payload(snapshot, active)
         if isinstance(active_payload, dict):
             self._assistant_view.set_active_instance(
                 active,
@@ -1350,12 +1390,26 @@ class LauncherWindow(QMainWindow):
                 last_message=str(active_payload.get("last_message", "") or ""),
             )
             self._assistant_view.ensure_welcome_message()
-            self._tools_view.set_instance_context(active_payload, snapshot)
             self._sync_right_tray(active_payload)
         self._set_daily_activity(f"Active workspace: {active}")
-        self._sync_automation_test_state()
-        QTimer.singleShot(0, self._refresh_instance_views)
-        QTimer.singleShot(250, lambda target=active: self._on_instance_logs_requested(target, quiet=True))
+        self._bootstrap_instance_refresh_pending = True
+        self._bootstrap_instance_refresh_complete = False
+        QTimer.singleShot(0, self._complete_bootstrap_instance_switcher)
+
+    def _complete_bootstrap_instance_switcher(self) -> None:
+        if not self._bootstrap_instance_refresh_pending:
+            return
+        self._bootstrap_instance_refresh_pending = False
+        active = self._active_instance_name
+        try:
+            self._last_instance_snapshot = self._local_instance_snapshot(include_workspace_details=True)
+            self._instance_snapshot_expires_at = time.monotonic() + max(2.0, self._instance_snapshot_ttl_s)
+            self._last_connector_inventory_snapshot = [item.raw for item in fetch_connector_inventory()]
+            self._connector_inventory_expires_at = time.monotonic() + max(3.0, self._connector_inventory_ttl_s)
+            self._refresh_instance_views(force=False)
+        finally:
+            self._bootstrap_instance_refresh_complete = True
+        QTimer.singleShot(150, lambda target=active: self._on_instance_logs_requested(target, quiet=True))
 
     def _snapshot_active_instance_history(self) -> None:
         if not self._active_instance_name:
@@ -1535,47 +1589,55 @@ class LauncherWindow(QMainWindow):
         self._log_launcher_event("workspace_connector_binding_saved", instance=name, connector=connector_id)
         self._refresh_instance_views(load_logs=False, force=True)
 
-    def _run_connector_action_request(self, payload: dict, *, refresh_after: bool = True) -> dict:
+    def _perform_connector_action_request(self, payload: dict) -> dict:
         connector_id = str(payload.get("connector", "")).strip().lower()
         action = str(payload.get("action", "")).strip().lower()
         if not connector_id or not action:
             return {}
-        body = {
-            "provider": str(payload.get("provider", "") or "").strip().lower(),
-            "account_id": str(payload.get("account_id", "") or "").strip().lower(),
-            "secret_key": str(payload.get("secret_key", "") or "").strip(),
-            "secret_value": str(payload.get("secret_value", "") or "").strip(),
-        }
+        request = build_connector_action_request(
+            connector_id,
+            action,
+            provider=str(payload.get("provider", "") or "").strip().lower(),
+            account_id=str(payload.get("account_id", "") or "").strip().lower(),
+            secret_key=str(payload.get("secret_key", "") or "").strip(),
+            secret_value=str(payload.get("secret_value", "") or "").strip(),
+            workspace_name=str(self._active_instance_name or "").strip(),
+        )
         try:
             result = self._http_json(
                 f"/connectors/{connector_id}/{action}",
                 method="POST",
-                payload=body,
+                payload=connector_action_http_payload(request),
                 timeout=6.0,
                 retry_auth_on_401=True,
                 auth_retry_reason="connector_action",
             )
+            typed_result = build_connector_action_result(
+                {
+                    **(result if isinstance(result, dict) else {}),
+                    "connector": connector_id,
+                    "action": action,
+                }
+            )
         except Exception as e:
             if not _CONNECTOR_MANAGER_BACKEND:
                 self._advanced_view.append_log(f"connector action failed: {e}")
-                return
-            result = run_connector_action(
-                connector_id,
-                action,
-                provider=body["provider"],
-                account_id=body["account_id"],
-                secret_key=body["secret_key"],
-                secret_value=body["secret_value"],
-            )
-        summary = str(result.get("summary", "") or "").strip() or f"{connector_id} {action} completed"
-        ok = bool(result.get("ok", False))
-        next_step = str(result.get("next_step", "") or "").strip()
-        result_code = str(result.get("result_code", "") or "").strip()
-        fix_target = str(result.get("fix_target", "") or "").strip()
-        history = result.get("history", {}) if isinstance(result.get("history"), dict) else {}
-        action_record = history.get("last_action_record", {}) if isinstance(history.get("last_action_record"), dict) else {}
-        event_id = str(action_record.get("event_id", history.get("last_event_id", "")) or "").strip()
-        status = result.get("status", {}) if isinstance(result.get("status"), dict) else {}
+                return {}
+            typed_result = execute_connector_action(request)
+        return connector_action_record(request, typed_result)
+
+    def _apply_connector_action_feedback(self, record: dict, *, refresh_after: bool = True) -> dict:
+        if not isinstance(record, dict) or not record:
+            return {}
+        connector_id = str(record.get("connector", "") or "").strip().lower()
+        action = str(record.get("action", "") or "").strip().lower()
+        ok = bool(record.get("ok", False))
+        summary = str(record.get("summary", "") or "").strip()
+        next_step = str(record.get("next_step", "") or "").strip()
+        result_code = str(record.get("result_code", "") or "").strip()
+        fix_target = str(record.get("fix_target", "") or "").strip()
+        event_id = str(record.get("event_id", "") or "").strip()
+        status = record.get("status", {}) if isinstance(record.get("status"), dict) else {}
         self._advanced_view.append_log(summary)
         if next_step:
             self._advanced_view.append_log("next step: " + next_step + (f" | fix in: {fix_target}" if fix_target else ""))
@@ -1591,10 +1653,10 @@ class LauncherWindow(QMainWindow):
             action=action,
             ok=ok,
             summary=summary,
-            provider=body["provider"],
-            account_id=body["account_id"],
+            provider=str(record.get("provider", "") or "").strip().lower(),
+            account_id=str(record.get("account_id", "") or "").strip().lower(),
             event_id=event_id,
-            integration_event=str(action_record.get("integration_event", "") or ""),
+            integration_event=str(record.get("integration_event", "") or "").strip(),
             auth_state=str(status.get("auth_state", "") or ""),
             result_code=result_code,
             next_step=next_step,
@@ -1602,52 +1664,88 @@ class LauncherWindow(QMainWindow):
         )
         if refresh_after:
             self._refresh_instance_views(load_logs=False, force=True)
-        return result
+        return record
+
+    def _run_connector_action_request(self, payload: dict, *, refresh_after: bool = True) -> dict:
+        record = self._perform_connector_action_request(payload)
+        return self._apply_connector_action_feedback(record, refresh_after=refresh_after)
+
+    def _start_connector_action_async(self, payload: dict, *, refresh_after: bool = True) -> None:
+        connector_id = str(payload.get("connector", "") or "").strip().lower()
+        action = str(payload.get("action", "") or "").strip().lower()
+        if not connector_id or not action:
+            return
+        action_label = connector_action_status_label(action)
+        self._my_pc_view.set_account_result(action_label, ok=True)
+        self._advanced_view.append_log(f"{connector_id} {action} requested")
+        self._status_panel.append_syslog(f"{connector_id} {action} requested")
+
+        def _worker() -> None:
+            record = self._perform_connector_action_request(payload)
+            self._connector_action_events.put({"kind": "single", "record": record, "refresh_after": refresh_after})
+            emitter = getattr(self, "connector_action_event_queued", None)
+            if emitter is not None and hasattr(emitter, "emit"):
+                emitter.emit()
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _start_connector_guided_link_async(self, payload: dict) -> None:
+        connector_id = str(payload.get("connector", "") or "").strip().lower()
+        provider = str(payload.get("provider", "") or "").strip().lower()
+        account_id = str(payload.get("account_id", "") or "").strip().lower()
+        secrets = [item for item in payload.get("secrets", []) if isinstance(item, dict)]
+        verify_after = bool(payload.get("verify_after", True))
+        self._my_pc_view.set_account_result("Saving details and checking the connection...", ok=True)
+        self._advanced_view.append_log(f"{connector_id} guided setup requested")
+        self._status_panel.append_syslog(f"{connector_id} guided setup requested")
+
+        def _worker() -> None:
+            records = execute_guided_connector_setup(
+                connector_id=connector_id,
+                provider=provider,
+                account_id=account_id,
+                secrets=secrets,
+                verify_after=verify_after,
+                performer=self._perform_connector_action_request,
+            )
+            self._connector_action_events.put({"kind": "batch", "records": records, "refresh_after": True})
+            emitter = getattr(self, "connector_action_event_queued", None)
+            if emitter is not None and hasattr(emitter, "emit"):
+                emitter.emit()
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _drain_connector_action_events(self) -> None:
+        while True:
+            try:
+                payload = self._connector_action_events.get_nowait()
+            except Empty:
+                break
+            kind = str(payload.get("kind", "single") or "single").strip().lower()
+            if kind == "batch":
+                records = [item for item in payload.get("records", []) if isinstance(item, dict)]
+                for index, record in enumerate(records):
+                    self._apply_connector_action_feedback(
+                        record,
+                        refresh_after=bool(payload.get("refresh_after", False)) and index == len(records) - 1,
+                    )
+            else:
+                record = payload.get("record", {}) if isinstance(payload.get("record"), dict) else {}
+                self._apply_connector_action_feedback(record, refresh_after=bool(payload.get("refresh_after", False)))
 
     def _on_connector_action_requested(self, payload: dict) -> None:
-        self._run_connector_action_request(payload, refresh_after=True)
+        self._start_connector_action_async(payload, refresh_after=True)
 
     def _on_connector_guided_link_requested(self, payload: dict) -> None:
         connector_id = str(payload.get("connector", "")).strip().lower()
         if not connector_id:
             self._my_pc_view.set_account_result("Choose a connector before saving details.", ok=False)
             return
-        provider = str(payload.get("provider", "") or "").strip().lower()
-        account_id = str(payload.get("account_id", "") or "").strip().lower()
         secrets = [item for item in payload.get("secrets", []) if isinstance(item, dict)]
-        verify_after = bool(payload.get("verify_after", True))
         if not secrets:
             self._my_pc_view.set_account_result("Add an API key or account details before saving.", ok=False)
             return
-        last_result: dict = {}
-        for idx, item in enumerate(secrets):
-            last_result = self._run_connector_action_request(
-                {
-                    "connector": connector_id,
-                    "action": "connect",
-                    "provider": provider,
-                    "account_id": account_id,
-                    "secret_key": str(item.get("secret_key", "") or "").strip(),
-                    "secret_value": str(item.get("secret_value", "") or "").strip(),
-                },
-                refresh_after=False,
-            )
-            if not bool(last_result.get("ok", False)):
-                self._refresh_instance_views(load_logs=False, force=True)
-                return
-        if verify_after:
-            self._run_connector_action_request(
-                {
-                    "connector": connector_id,
-                    "action": "verify",
-                    "provider": provider,
-                    "account_id": account_id,
-                    "secret_key": "",
-                    "secret_value": "",
-                },
-                refresh_after=False,
-            )
-        self._refresh_instance_views(load_logs=False, force=True)
+        self._start_connector_guided_link_async(payload)
 
     def _on_instance_delete_requested(self, name: str) -> None:
         target = (name or "").strip()
@@ -1727,420 +1825,68 @@ class LauncherWindow(QMainWindow):
 
     @staticmethod
     def _default_windows_ops_event_id(action: str) -> str:
-        slug = re.sub(r"[^a-z0-9]+", "-", str(action or "").strip().lower()).strip("-") or "windows-ops"
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-        return f"{slug}-{timestamp}"
+        return default_windows_ops_event_id(action)
 
     @staticmethod
     def _beta_release_dry_run_report_path() -> Path:
-        return _RUNTIME / "beta_release_dry_run_report.json"
+        return beta_release_dry_run_report_path(_RUNTIME)
 
     @staticmethod
     def _windows_ops_chain_steps(action: str) -> list[str]:
-        normalized = str(action or "").strip().lower()
-        if normalized == "restart_runtime":
-            return ["restart_daemon", "warmup", "audit_runtime"]
-        if normalized == "repair_runtime":
-            return ["health_snapshot", "warmup", "audit_runtime"]
-        return []
+        descriptor = build_windows_ops_descriptor(action)
+        return [step.name for step in descriptor.chain_steps if str(step.name).strip()]
 
     @staticmethod
     def _windows_ops_chain_changes(action: str) -> str:
-        normalized = str(action or "").strip().lower()
-        if normalized == "restart_runtime":
-            return "Restarted the daemon, then refreshed warmup and runtime-audit evidence."
-        if normalized == "repair_runtime":
-            return "Captured a fresh health snapshot, then reran warmup and runtime-audit evidence."
-        return ""
+        return windows_ops_chain_changes(action)
 
     @staticmethod
     def _repo_python_path() -> Path:
-        candidates = [
-            _RUNTIME.parent / ".venv" / "Scripts" / "python.exe",
-            _RUNTIME.parent / ".venv" / "bin" / "python",
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-        return Path(sys.executable)
+        return repo_python_path(_RUNTIME, fallback_executable=sys.executable)
 
     @staticmethod
     def _run_repo_python(args: list[str], *, timeout_s: float = 45.0) -> str:
-        python_path = LauncherWindow._repo_python_path()
-        try:
-            proc = subprocess.run(
-                [str(python_path), *args],
-                cwd=str(_RUNTIME.parent),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout_s,
-            )
-        except Exception as exc:
-            return f"error:{exc}"
-        text = (proc.stdout or "").strip() or (proc.stderr or "").strip()
-        if proc.returncode != 0:
-            return f"error:{text or proc.returncode}"
-        return text
+        return run_repo_python(
+            _RUNTIME,
+            args,
+            timeout_s=timeout_s,
+            fallback_executable=sys.executable,
+        )
 
     @staticmethod
     def _snapshot_file_signature(path: Path | None) -> dict[str, object]:
-        target = path if isinstance(path, Path) else None
-        if target is None or not target.exists():
-            return {"path": str(target) if target is not None else "", "exists": False, "mtime": "", "size": 0}
-        stat = target.stat()
-        return {
-            "path": str(target),
-            "exists": True,
-            "mtime": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
-            "size": int(stat.st_size),
-        }
+        return snapshot_file_signature(path)
 
     @staticmethod
     def _latest_runtime_artifact(*patterns: str) -> Path | None:
-        candidates: list[Path] = []
-        for pattern in patterns:
-            candidates.extend(_RUNTIME.glob(pattern))
-        if not candidates:
-            return None
-        return max(candidates, key=lambda path: path.stat().st_mtime)
+        return latest_runtime_artifact(_RUNTIME, *patterns)
 
     @staticmethod
     def _preferred_package_output() -> Path:
-        repo_root = _RUNTIME.parent
-        for candidate in (
-            repo_root / "dist" / "Guppy" / "Guppy.exe",
-            repo_root / "dist" / "Guppy.exe",
-            repo_root / "dist" / "Guppy",
-        ):
-            if candidate.exists():
-                return candidate
-        return repo_root / "dist" / "Guppy.exe"
+        return preferred_package_output(_RUNTIME)
 
     @staticmethod
     def _collect_windows_service_snapshot() -> dict[str, object]:
-        return {
-            "python_path": str(LauncherWindow._repo_python_path()),
-            "python_version": LauncherWindow._run_repo_python(["--version"], timeout_s=15.0),
-            "pip_version": LauncherWindow._run_repo_python(["-m", "pip", "--version"], timeout_s=25.0),
-            "challenger_snapshot": LauncherWindow._snapshot_file_signature(_RUNTIME / "runtime_challenger_snapshot.json"),
-            "diagnostics_bundle": LauncherWindow._snapshot_file_signature(
-                LauncherWindow._latest_runtime_artifact("diagnostics_bundle_*.json", "diagnostics_*.json")
-            ),
-            "pilot_exit_report": LauncherWindow._snapshot_file_signature(_RUNTIME / "pilot_exit_report.json"),
-            "beta_policy_report": LauncherWindow._snapshot_file_signature(_RUNTIME / "beta_policy_report.json"),
-            "beta_release_dry_run_report": LauncherWindow._snapshot_file_signature(_RUNTIME / "beta_release_dry_run_report.json"),
-            "package_output": LauncherWindow._snapshot_file_signature(LauncherWindow._preferred_package_output()),
-        }
+        return collect_windows_service_snapshot(_RUNTIME, fallback_executable=sys.executable)
 
     @staticmethod
     def _windows_service_snapshot_changes(before: dict[str, object], after: dict[str, object]) -> str:
-        if not isinstance(before, dict) or not isinstance(after, dict):
-            return ""
-        bits: list[str] = []
-        before_pip = str(before.get("pip_version", "") or "").strip()
-        after_pip = str(after.get("pip_version", "") or "").strip()
-        if before_pip and after_pip and before_pip != after_pip:
-            bits.append(f"pip changed: {before_pip} -> {after_pip}")
-        before_python = str(before.get("python_version", "") or "").strip()
-        after_python = str(after.get("python_version", "") or "").strip()
-        if before_python and after_python and before_python != after_python:
-            bits.append(f"python changed: {before_python} -> {after_python}")
-        for key, label in (
-            ("challenger_snapshot", "challenger snapshot refreshed"),
-            ("diagnostics_bundle", "diagnostics bundle refreshed"),
-            ("pilot_exit_report", "pilot exit report refreshed"),
-            ("beta_policy_report", "beta policy report refreshed"),
-            ("beta_release_dry_run_report", "beta release dry-run report refreshed"),
-            ("package_output", "desktop package refreshed"),
-        ):
-            previous = before.get(key, {})
-            current = after.get(key, {})
-            if not isinstance(previous, dict) or not isinstance(current, dict):
-                continue
-            if bool(current.get("exists")) and (
-                str(previous.get("path", "") or "").strip() != str(current.get("path", "") or "").strip()
-                or str(previous.get("mtime", "") or "").strip() != str(current.get("mtime", "") or "").strip()
-                or int(previous.get("size", 0) or 0) != int(current.get("size", 0) or 0)
-            ):
-                bits.append(label)
-        if not bits:
-            return "No file-backed servicing delta was detected beyond command completion."
-        return " | ".join(bits)
+        return windows_service_snapshot_changes(before, after)
 
     @staticmethod
     def _windows_ops_artifact_refs(action: str, snapshot: dict[str, object]) -> list[dict[str, object]]:
-        if not isinstance(snapshot, dict):
-            return []
-        normalized = str(action or "").strip().lower()
-        requested: list[tuple[str, str, str]] = []
-        if normalized in {"verify_runtime", "update_runtime", "repair_runtime", "restart_runtime"}:
-            requested.extend(
-                [
-                    ("diagnostics_bundle", "diagnostics", "diagnostics bundle"),
-                    ("challenger_snapshot", "challenger", "challenger snapshot"),
-                    ("pilot_exit_report", "pilot_exit", "pilot exit report"),
-                ]
-            )
-        if normalized == "package_desktop":
-            requested.extend(
-                [
-                    ("package_output", "package", "desktop package"),
-                    ("beta_policy_report", "beta_policy", "beta policy report"),
-                    ("diagnostics_bundle", "diagnostics", "diagnostics bundle"),
-                ]
-            )
-        if normalized == "release_dry_run":
-            requested.extend(
-                [
-                    ("beta_release_dry_run_report", "release_dry_run", "release dry-run report"),
-                    ("pilot_exit_report", "pilot_exit", "pilot exit report"),
-                    ("beta_policy_report", "beta_policy", "beta policy report"),
-                ]
-            )
-        if normalized == "start_supervised_api":
-            requested.append(("diagnostics_bundle", "diagnostics", "diagnostics bundle"))
-        seen: set[str] = set()
-        artifacts: list[dict[str, object]] = []
-        for key, artifact_id, label in requested:
-            if key in seen:
-                continue
-            seen.add(key)
-            item = snapshot.get(key, {})
-            if not isinstance(item, dict) or not bool(item.get("exists")):
-                continue
-            path = str(item.get("path", "") or "").strip()
-            if not path:
-                continue
-            artifacts.append(
-                {
-                    "id": artifact_id,
-                    "label": label,
-                    "path": path,
-                    "mtime": str(item.get("mtime", "") or "").strip(),
-                    "size": int(item.get("size", 0) or 0),
-                }
-            )
-        return artifacts
+        return windows_ops_artifact_refs(action, snapshot)
 
     @staticmethod
     def _summarize_release_dry_run_report(report: dict[str, object]) -> dict[str, object]:
-        if not isinstance(report, dict):
-            return {}
-        checks = [item for item in report.get("checks", []) if isinstance(item, dict)] if isinstance(report.get("checks"), list) else []
-        required_files = [item for item in report.get("required_files", []) if isinstance(item, dict)] if isinstance(report.get("required_files"), list) else []
-        passed_checks = sum(1 for item in checks if bool(item.get("ok", False)))
-        total_checks = len(checks)
-        failed_checks = [
-            str(item.get("name", "") or "check").strip()
-            for item in checks
-            if not bool(item.get("ok", False))
-        ]
-        missing_files = [
-            str(item.get("path", "") or "").strip()
-            for item in required_files
-            if not bool(item.get("exists", False))
-        ]
-        ok = bool(report.get("ok", False))
-        status = "PASS" if ok else "FAIL"
-        summary_bits = [status]
-        if total_checks:
-            summary_bits.append(f"checks {passed_checks}/{total_checks}")
-        if required_files:
-            summary_bits.append("required files OK" if not missing_files else f"missing files {len(missing_files)}")
-        detail_bits: list[str] = []
-        if failed_checks:
-            detail_bits.append("failed checks: " + ", ".join(failed_checks[:3]))
-        if missing_files:
-            rendered_missing = ", ".join(Path(path).name or path for path in missing_files[:3])
-            detail_bits.append("missing: " + rendered_missing)
-        if not detail_bits and ok:
-            detail_bits.append("all dry-run checks passed and required handoff files are present")
-        recommendations: list[str] = []
-        recommendation_details: list[dict[str, str]] = []
-        if "beta_policy" in failed_checks:
-            text = "Fix the beta policy gate first by rerunning verify_beta_package_policy and reviewing the allowlist/policy docs."
-            recommendations.append(text)
-            recommendation_details.append(
-                {
-                    "text": text,
-                    "fix_target": "config/beta_tool_allowlist.txt / docs/REMOTE_BETA_EXE_POLICY.md",
-                    "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "python tools/verify_beta_package_policy.py",
-                }
-            )
-        if "pilot_gate" in failed_checks:
-            text = "Fix the pilot gate next by reviewing pilot_exit_check failures and rerunning the release dry-run."
-            recommendations.append(text)
-            recommendation_details.append(
-                {
-                    "text": text,
-                    "fix_target": "tools/pilot_exit_check.py / runtime/pilot_exit_report.json",
-                    "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "python tools/pilot_exit_check.py --allow-limited-go",
-                }
-            )
-        for path in missing_files:
-            target = Path(path).name or path
-            text = f"Restore the required handoff file {target} before the next release dry-run."
-            recommendations.append(text)
-            recommendation_details.append(
-                {
-                    "text": text,
-                    "fix_target": str(path),
-                    "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": str(path),
-                }
-            )
-        if not recommendations and ok:
-            text = "Release gate is green; review the dry-run report, receipt, and summary in that order, then package or hand off the bundle."
-            recommendations.append(text)
-            recommendation_details.append(
-                {
-                    "text": text,
-                    "fix_target": "runtime/beta_release_dry_run_report.json -> runtime/windows_release_receipt.json -> runtime/windows_release_summary.md",
-                    "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "python tools/beta_release_dry_run.py",
-                }
-            )
-        check_results = [
-            {
-                "name": str(item.get("name", "") or "check").strip(),
-                "ok": bool(item.get("ok", False)),
-                "returncode": int(item.get("returncode", 0) or 0),
-            }
-            for item in checks
-        ]
-        required_file_results = [
-            {
-                "path": str(item.get("path", "") or "").strip(),
-                "exists": bool(item.get("exists", False)),
-            }
-            for item in required_files
-        ]
-        return {
-            "ok": ok,
-            "summary": " | ".join(summary_bits),
-            "detail": " | ".join(detail_bits),
-            "passed_checks": passed_checks,
-            "total_checks": total_checks,
-            "failed_checks": failed_checks,
-            "missing_files": missing_files,
-            "checks": check_results,
-            "required_files": required_file_results,
-            "recommendations": recommendations[:4],
-            "recommendation_details": recommendation_details[:4],
-        }
+        return summarize_release_dry_run_report(report)
 
     def _release_dry_run_gate_details(self) -> dict[str, object]:
-        path = self._beta_release_dry_run_report_path()
-        if not path.exists():
-            return {}
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-        details = self._summarize_release_dry_run_report(payload if isinstance(payload, dict) else {})
-        if not details:
-            return {}
-        return {
-            **details,
-            "path": str(path),
-        }
+        return release_dry_run_gate_details(_RUNTIME)
 
     @staticmethod
     def _write_windows_release_summary(summary_path: Path, payload: dict[str, object]) -> str:
-        release_gate = payload.get("release_gate", {}) if isinstance(payload.get("release_gate"), dict) else {}
-        operator_guidance = payload.get("operator_guidance", {}) if isinstance(payload.get("operator_guidance"), dict) else {}
-        artifacts = [item for item in payload.get("artifacts", []) if isinstance(item, dict)] if isinstance(payload.get("artifacts"), list) else []
-        recommendations = [str(item).strip() for item in release_gate.get("recommendations", []) if str(item).strip()] if isinstance(release_gate.get("recommendations"), list) else []
-        recommendation_details = [item for item in release_gate.get("recommendation_details", []) if isinstance(item, dict)] if isinstance(release_gate.get("recommendation_details"), list) else []
-        lines = [
-            "# Windows Release Summary",
-            "",
-            f"- Timestamp: {str(payload.get('timestamp', '') or '').strip()}",
-            f"- Ref: {str(payload.get('event_id', '') or '').strip()}",
-            f"- Stage: {str(payload.get('release_stage', '') or '').strip()}",
-            f"- Action: {str(payload.get('action', '') or '').strip()}",
-            f"- Result: {'PASS' if bool(payload.get('ok', False)) else 'FAIL'}",
-            f"- Summary: {str(payload.get('summary', '') or '').strip()}",
-        ]
-        lines = [line for line in lines if not line.endswith(": ")]
-        changes = str(payload.get("changes", "") or "").strip()
-        if changes:
-            lines.append(f"- What changed: {changes}")
-        gate_summary = str(release_gate.get("summary", "") or "").strip()
-        gate_detail = str(release_gate.get("detail", "") or "").strip()
-        if gate_summary:
-            lines.extend(["", "## Release Gate", "", f"- Verdict: {gate_summary}"])
-            if gate_detail:
-                lines.append(f"- Detail: {gate_detail}")
-            passed = release_gate.get("passed_checks")
-            total = release_gate.get("total_checks")
-            if passed is not None and total is not None:
-                lines.append(f"- Checks: {int(passed or 0)}/{int(total or 0)} passed")
-        review_order = (
-            [str(item).strip() for item in payload.get("review_order", []) if str(item).strip()]
-            if isinstance(payload.get("review_order"), list)
-            else []
-        )
-        if review_order:
-            lines.extend(["", "## Review Order", ""])
-            for index, item in enumerate(review_order, start=1):
-                lines.append(f"{index}. {item}")
-        if recommendation_details or recommendations:
-            gate_ok = gate_summary.upper().startswith("PASS")
-            section_title = "## Next Review Step" if gate_ok else "## Fix-First"
-            target_label = "Review" if gate_ok else "Fix in"
-            lines.extend(["", section_title, ""])
-            if recommendation_details:
-                for item in recommendation_details[:3]:
-                    text = str(item.get("text", "") or "").strip()
-                    if not text:
-                        continue
-                    lines.append(f"- {text}")
-                    fix_target = str(item.get("fix_target", "") or "").strip()
-                    docs_hint = str(item.get("docs_hint", "") or "").strip()
-                    entry_point = str(item.get("entry_point", "") or "").strip()
-                    if fix_target:
-                        lines.append(f"  {target_label}: {fix_target}")
-                    if docs_hint:
-                        lines.append(f"  Doc: {docs_hint}")
-                    if entry_point:
-                        lines.append(f"  Cmd: {entry_point}")
-            else:
-                for text in recommendations[:3]:
-                    lines.append(f"- {text}")
-        if artifacts:
-            lines.extend(["", "## Artifacts", ""])
-            for item in artifacts[:6]:
-                label = str(item.get("label", "") or item.get("id", "") or "artifact").strip()
-                path = str(item.get("path", "") or "").strip()
-                if label and path:
-                    suffix_bits: list[str] = []
-                    updated = str(item.get("mtime", "") or "").strip()
-                    size = int(item.get("size", 0) or 0)
-                    if updated:
-                        suffix_bits.append(f"updated {updated}")
-                    if size > 0:
-                        suffix_bits.append(f"{size} B")
-                    suffix = f" ({', '.join(suffix_bits)})" if suffix_bits else ""
-                    lines.append(f"- {label}: {path}{suffix}")
-        next_step = str(operator_guidance.get("next_step", "") or "").strip()
-        if next_step:
-            lines.extend(["", "## Operator Guidance", "", f"- Next step: {next_step}"])
-            fix_target = str(operator_guidance.get("fix_target", "") or "").strip()
-            docs_hint = str(operator_guidance.get("docs_hint", "") or "").strip()
-            entry_point = str(operator_guidance.get("entry_point", "") or "").strip()
-            if fix_target:
-                lines.append(f"- Fix target: {fix_target}")
-            if docs_hint:
-                lines.append(f"- Doc: {docs_hint}")
-            if entry_point:
-                lines.append(f"- Command: {entry_point}")
-        summary_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
-        return str(summary_path)
+        return write_windows_release_summary(summary_path, payload)
 
     def _write_windows_release_receipt(
         self,
@@ -2170,266 +1916,43 @@ class LauncherWindow(QMainWindow):
         gate_recommendations: list[str] | None = None,
         gate_recommendation_details: list[dict[str, object]] | None = None,
     ) -> str:
-        receipt_path = self._windows_release_receipt_path()
-        summary_path = self._windows_release_summary_path()
-        artifact_payload = [
-            {
-                "id": str(item.get("id", "") or "").strip(),
-                "label": str(item.get("label", "") or "").strip(),
-                "path": str(item.get("path", "") or "").strip(),
-                "mtime": str(item.get("mtime", "") or "").strip(),
-                "size": int(item.get("size", 0) or 0),
-            }
-            for item in (artifacts or [])
-            if isinstance(item, dict) and str(item.get("path", "") or "").strip()
-        ]
-        release_stage = "servicing"
-        normalized = str(action or "").strip().lower()
-        if normalized == "package_desktop":
-            release_stage = "package"
-        elif normalized == "release_dry_run":
-            release_stage = "release_gate"
-        elif normalized in {"verify_runtime", "update_runtime"}:
-            release_stage = "verification"
-        elif normalized == "start_supervised_api":
-            release_stage = "supervision"
-        payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "release_stage": release_stage,
-            "action": normalized,
-            "ok": bool(ok),
-            "phase": str(phase or "completed").strip().lower() or "completed",
-            "summary": str(summary or "").strip(),
-            "changes": str(changes or "").strip(),
-            "event_id": str(event_id or "").strip(),
-            "steps_completed": int(steps_completed or 0) if steps_completed is not None else None,
-            "steps_total": int(steps_total or 0) if steps_total is not None else None,
-            "commands": [str(item).strip() for item in (commands or []) if str(item).strip()],
-            "artifacts": artifact_payload,
-            "operator_guidance": {
-                "next_step": str(next_step or "").strip(),
-                "fix_target": str(fix_target or "").strip(),
-                "docs_hint": str(docs_hint or "").strip(),
-                "entry_point": str(entry_point or "").strip(),
-            },
-            "release_gate": {
-                "summary": str(gate_summary or "").strip(),
-                "detail": str(gate_detail or "").strip(),
-                "passed_checks": int(gate_passed_checks or 0) if gate_passed_checks is not None else None,
-                "total_checks": int(gate_total_checks or 0) if gate_total_checks is not None else None,
-                "failed_checks": [str(item).strip() for item in (gate_failed_checks or []) if str(item).strip()],
-                "missing_files": [str(item).strip() for item in (gate_missing_files or []) if str(item).strip()],
-                "checks": [
-                    {
-                        "name": str(item.get("name", "") or "").strip(),
-                        "ok": bool(item.get("ok", False)),
-                        "returncode": int(item.get("returncode", 0) or 0),
-                    }
-                    for item in (gate_checks or [])
-                    if isinstance(item, dict) and str(item.get("name", "") or "").strip()
-                ],
-                "required_files": [
-                    {
-                        "path": str(item.get("path", "") or "").strip(),
-                        "exists": bool(item.get("exists", False)),
-                    }
-                    for item in (gate_required_files or [])
-                    if isinstance(item, dict) and str(item.get("path", "") or "").strip()
-                ],
-                "recommendations": [str(item).strip() for item in (gate_recommendations or []) if str(item).strip()],
-                "recommendation_details": [
-                    {
-                        "text": str(item.get("text", "") or "").strip(),
-                        "fix_target": str(item.get("fix_target", "") or "").strip(),
-                        "docs_hint": str(item.get("docs_hint", "") or "").strip(),
-                        "entry_point": str(item.get("entry_point", "") or "").strip(),
-                    }
-                    for item in (gate_recommendation_details or [])
-                    if isinstance(item, dict) and str(item.get("text", "") or "").strip()
-                ],
-            },
-            "paths": {
-                "state_path": str(self._windows_ops_state_path()),
-                "receipt_path": str(receipt_path),
-                "summary_path": str(summary_path),
-            },
-        }
-        if normalized == "release_dry_run":
-            payload["review_order"] = [
-                "runtime/beta_release_dry_run_report.json",
-                "runtime/windows_release_receipt.json",
-                "runtime/windows_release_summary.md",
-            ]
-        _write_json(receipt_path, payload)
-        self._write_windows_release_summary(summary_path, payload)
-        return str(receipt_path)
+        return write_windows_release_receipt(
+            self._windows_ops_state_path(),
+            self._windows_release_receipt_path(),
+            self._windows_release_summary_path(),
+            action,
+            summary,
+            changes,
+            ok=ok,
+            commands=commands,
+            event_id=event_id,
+            steps_completed=steps_completed,
+            steps_total=steps_total,
+            phase=phase,
+            next_step=next_step,
+            fix_target=fix_target,
+            docs_hint=docs_hint,
+            entry_point=entry_point,
+            artifacts=artifacts,
+            gate_summary=gate_summary,
+            gate_detail=gate_detail,
+            gate_checks=gate_checks,
+            gate_required_files=gate_required_files,
+            gate_failed_checks=gate_failed_checks,
+            gate_missing_files=gate_missing_files,
+            gate_passed_checks=gate_passed_checks,
+            gate_total_checks=gate_total_checks,
+            gate_recommendations=gate_recommendations,
+            gate_recommendation_details=gate_recommendation_details,
+        )
 
     @staticmethod
     def _windows_ops_guidance(action: str, *, ok: bool, phase: str = "completed") -> dict[str, str]:
-        normalized = str(action or "").strip().lower()
-        lifecycle_phase = str(phase or "completed").strip().lower() or "completed"
-        if lifecycle_phase == "queued":
-            if normalized in {"verify_runtime", "update_runtime", "package_desktop", "release_dry_run"}:
-                return {
-                    "next_step": "Watch the App Mgmt terminal for completion evidence and wait for the servicing ref to appear.",
-                    "fix_target": "App Mgmt > Windows Ops",
-                    "docs_hint": "docs/PACKAGING.md" if normalized in {"package_desktop", "release_dry_run"} else "docs/TROUBLESHOOTING.md",
-                    "entry_point": (
-                        "python tools/beta_release_dry_run.py"
-                        if normalized == "release_dry_run"
-                        else "bin\\build_executable.bat --no-clean --ci"
-                        if normalized == "package_desktop"
-                        else "python src/guppy/cli/launch.py launcher"
-                    ),
-                }
-            if normalized == "start_supervised_api":
-                return {
-                    "next_step": "Wait for the supervised API reachability check to finish, then verify the runtime if you need full post-start evidence.",
-                    "fix_target": "bin/launch_api_supervised.bat",
-                    "docs_hint": "docs/SUPERVISION_WINDOWS.md",
-                    "entry_point": "bin/launch_api_supervised.bat",
-                }
-            if normalized in {"restart_runtime", "repair_runtime"}:
-                return {
-                    "next_step": "Wait for the queued recovery chain to finish, then review the final servicing summary before you retry anything.",
-                    "fix_target": "App Mgmt > Windows Ops",
-                    "docs_hint": "docs/SUPERVISION_WINDOWS.md",
-                    "entry_point": "bin/launch_api_supervised.bat",
-                }
-        if ok:
-            if normalized == "verify_runtime":
-                return {
-                    "next_step": "Runtime verification passed. If you need a fresh desktop build, run bin\\build_executable.bat --no-clean next.",
-                    "fix_target": "bin\\build_executable.bat",
-                    "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "bin\\build_executable.bat --no-clean",
-                }
-            if normalized == "update_runtime":
-                return {
-                    "next_step": "Update postflight passed. Re-run VERIFY after major runtime changes, or package with bin\\build_executable.bat --no-clean.",
-                    "fix_target": "bin\\build_executable.bat",
-                    "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "bin\\build_executable.bat --no-clean",
-                }
-            if normalized == "package_desktop":
-                return {
-                    "next_step": "Desktop packaging passed. Share the build from dist or rerun VERIFY before broader rollout if runtime changed again.",
-                    "fix_target": "dist/Guppy or dist/Guppy.exe",
-                    "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "bin\\build_executable.bat --no-clean --ci",
-                }
-            if normalized == "release_dry_run":
-                return {
-                    "next_step": "Release dry-run passed. Review the dry-run report, receipt, and summary in that order, then package or hand off the reviewer bundle.",
-                    "fix_target": "runtime/beta_release_dry_run_report.json",
-                    "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "python tools/beta_release_dry_run.py",
-                }
-            if normalized == "start_supervised_api":
-                return {
-                    "next_step": "Supervised API launch passed. Run VERIFY next if you want fresh runtime evidence from inside App Mgmt.",
-                    "fix_target": "bin/launch_api_supervised.bat",
-                    "docs_hint": "docs/SUPERVISION_WINDOWS.md",
-                    "entry_point": "bin/launch_api_supervised.bat",
-                }
-            if normalized == "restart_runtime":
-                return {
-                    "next_step": "Restart completed. If the API still looks stale, run REPAIR next; otherwise keep working.",
-                    "fix_target": "App Mgmt > Windows Ops",
-                    "docs_hint": "docs/SUPERVISION_WINDOWS.md",
-                    "entry_point": "bin/launch_api_supervised.bat",
-                }
-            if normalized == "repair_runtime":
-                return {
-                    "next_step": "Repair completed. Re-run VERIFY when you want a fresh health read, then package or relaunch as needed.",
-                    "fix_target": "App Mgmt VERIFY + bin\\build_executable.bat",
-                    "docs_hint": "docs/TROUBLESHOOTING.md",
-                    "entry_point": "python src/guppy/cli/launch.py launcher",
-                }
-        else:
-            if normalized == "verify_runtime":
-                return {
-                    "next_step": "Run REPAIR next. If dependency or build checks are the problem, run UPDATE before you retry VERIFY.",
-                    "fix_target": "App Mgmt REPAIR / UPDATE",
-                    "docs_hint": "docs/TROUBLESHOOTING.md",
-                    "entry_point": "python src/guppy/cli/launch.py launcher",
-                }
-            if normalized == "update_runtime":
-                return {
-                    "next_step": "Open the terminal evidence, fix requirements or packaging entry points, then rerun UPDATE.",
-                    "fix_target": "requirements.txt / requirements-optional.txt / bin\\build_executable.bat",
-                    "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "bin\\build_executable.bat --no-clean",
-                }
-            if normalized == "package_desktop":
-                return {
-                    "next_step": "Open the packaging evidence, fix the build script or missing assets, then rerun PACKAGE.",
-                    "fix_target": "bin\\build_executable.bat / bin\\Guppy.spec / docs/PACKAGING.md",
-                    "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "bin\\build_executable.bat --no-clean --ci",
-                }
-            if normalized == "release_dry_run":
-                return {
-                    "next_step": "Open the dry-run evidence, fix the failing gate or missing handoff file, then rerun RELEASE DRY RUN.",
-                    "fix_target": "tools/beta_release_dry_run.py / tools/pilot_exit_check.py / docs/REMOTE_BETA_EXE_POLICY.md",
-                    "docs_hint": "docs/PACKAGING.md",
-                    "entry_point": "python tools/beta_release_dry_run.py",
-                }
-            if normalized == "start_supervised_api":
-                return {
-                    "next_step": "Check the supervised launch script and API startup prerequisites, then rerun START API or fall back to REPAIR.",
-                    "fix_target": "bin/launch_api_supervised.bat / guppy_api.py",
-                    "docs_hint": "docs/SUPERVISION_WINDOWS.md",
-                    "entry_point": "bin/launch_api_supervised.bat",
-                }
-            if normalized == "restart_runtime":
-                return {
-                    "next_step": "Check the supervised API entry point, then rerun RESTART or fall back to REPAIR.",
-                    "fix_target": "bin/launch_api_supervised.bat",
-                    "docs_hint": "docs/SUPERVISION_WINDOWS.md",
-                    "entry_point": "bin/launch_api_supervised.bat",
-                }
-            if normalized == "repair_runtime":
-                return {
-                    "next_step": "Inspect launcher logs and supervision guidance before retrying repair so you fix the underlying packaging or runtime fault first.",
-                    "fix_target": "runtime/launcher_events.jsonl / docs/SUPERVISION_WINDOWS.md",
-                    "docs_hint": "docs/SUPERVISION_WINDOWS.md",
-                    "entry_point": "bin/launch_api_supervised.bat",
-                }
-        return {
-            "next_step": "Review the latest servicing evidence before taking the next installer or repair action.",
-            "fix_target": "App Mgmt > Windows Ops",
-            "docs_hint": "docs/TROUBLESHOOTING.md",
-            "entry_point": "python src/guppy/cli/launch.py launcher",
-        }
+        return windows_ops_guidance(action, ok=ok, phase=phase)
 
     @staticmethod
     def _summarize_windows_recipe_result(payload: dict[str, object]) -> tuple[str, str]:
-        label = str(payload.get("label", "WINDOWS OPS") or "WINDOWS OPS").strip()
-        steps_total = int(payload.get("steps_total", 0) or 0)
-        steps_completed = int(payload.get("steps_completed", 0) or 0)
-        failed_steps = [item for item in payload.get("failed_steps", []) if isinstance(item, dict)] if isinstance(payload.get("failed_steps"), list) else []
-        ok = bool(payload.get("ok", False))
-        summary = (
-            f"{label} completed {steps_completed}/{steps_total} servicing step(s)."
-            if ok
-            else f"{label} stopped after {steps_completed}/{steps_total} successful servicing step(s)."
-        )
-        if failed_steps:
-            failed = failed_steps[0]
-            summary += f" Failed step {int(failed.get('index', 0) or 0)}."
-        changes = str(payload.get("changes", "") or "").strip()
-        if failed_steps:
-            failed = failed_steps[0]
-            command = str(failed.get("command", "") or "").strip()
-            changes = (
-                f"{changes} Failed command: {command}."
-                if changes and command
-                else f"Failed command: {command}."
-                if command
-                else changes or "A servicing step failed before the recipe completed."
-            )
-        return summary, changes
+        return summarize_windows_recipe_result(payload)
 
     def _record_windows_ops_state(
         self,
@@ -2459,17 +1982,7 @@ class LauncherWindow(QMainWindow):
         gate_recommendations: list[str] | None = None,
         gate_recommendation_details: list[dict[str, object]] | None = None,
     ) -> None:
-        artifact_payload = [
-            {
-                "id": str(item.get("id", "") or "").strip(),
-                "label": str(item.get("label", "") or "").strip(),
-                "path": str(item.get("path", "") or "").strip(),
-                "mtime": str(item.get("mtime", "") or "").strip(),
-                "size": int(item.get("size", 0) or 0),
-            }
-            for item in (artifacts or [])
-            if isinstance(item, dict) and str(item.get("path", "") or "").strip()
-        ]
+        artifact_payload = normalize_windows_ops_artifacts(artifacts)
         release_receipt = ""
         release_summary = ""
         normalized_phase = str(phase or "completed").strip().lower() or "completed"
@@ -2504,86 +2017,39 @@ class LauncherWindow(QMainWindow):
                 gate_recommendation_details=gate_recommendation_details,
             )
             release_summary = str(self._windows_release_summary_path())
-        payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "action": str(action or "").strip().lower(),
-            "ok": bool(ok),
-            "summary": str(summary or "").strip(),
-            "changes": str(changes or "").strip(),
-            "commands": [str(item).strip() for item in (commands or []) if str(item).strip()],
-            "event_id": resolved_event_id,
-            "steps_completed": int(steps_completed or 0) if steps_completed is not None else None,
-            "steps_total": int(steps_total or 0) if steps_total is not None else None,
-            "phase": str(phase or "completed").strip().lower() or "completed",
-            "next_step": str(next_step or "").strip(),
-            "fix_target": str(fix_target or "").strip(),
-            "docs_hint": str(docs_hint or "").strip(),
-            "entry_point": str(entry_point or "").strip(),
-            "artifacts": artifact_payload,
-            "release_receipt": release_receipt,
-            "release_summary": release_summary,
-            "gate_summary": str(gate_summary or "").strip(),
-            "gate_detail": str(gate_detail or "").strip(),
-            "gate_failed_checks": [str(item).strip() for item in (gate_failed_checks or []) if str(item).strip()],
-            "gate_missing_files": [str(item).strip() for item in (gate_missing_files or []) if str(item).strip()],
-            "gate_passed_checks": int(gate_passed_checks or 0) if gate_passed_checks is not None else None,
-            "gate_total_checks": int(gate_total_checks or 0) if gate_total_checks is not None else None,
-            "gate_recommendations": [str(item).strip() for item in (gate_recommendations or []) if str(item).strip()],
-            "gate_recommendation_details": [
-                {
-                    "text": str(item.get("text", "") or "").strip(),
-                    "fix_target": str(item.get("fix_target", "") or "").strip(),
-                    "docs_hint": str(item.get("docs_hint", "") or "").strip(),
-                    "entry_point": str(item.get("entry_point", "") or "").strip(),
-                }
-                for item in (gate_recommendation_details or [])
-                if isinstance(item, dict) and str(item.get("text", "") or "").strip()
-            ],
-        }
+        payload = build_windows_ops_state_payload(
+            action=action,
+            ok=ok,
+            summary=summary,
+            changes=changes,
+            commands=commands,
+            event_id=resolved_event_id,
+            steps_completed=steps_completed,
+            steps_total=steps_total,
+            phase=normalized_phase,
+            next_step=next_step,
+            fix_target=fix_target,
+            docs_hint=docs_hint,
+            entry_point=entry_point,
+            artifacts=artifact_payload,
+            release_receipt=release_receipt,
+            release_summary=release_summary,
+            gate_summary=gate_summary,
+            gate_detail=gate_detail,
+            gate_failed_checks=gate_failed_checks,
+            gate_missing_files=gate_missing_files,
+            gate_passed_checks=gate_passed_checks,
+            gate_total_checks=gate_total_checks,
+            gate_recommendations=gate_recommendations,
+            gate_recommendation_details=gate_recommendation_details,
+        )
         _write_json(self._windows_ops_state_path(), payload)
+        feedback = build_windows_ops_feedback_kwargs(payload, review_order=release_review_order(action))
         self._advanced_view.set_windows_ops_feedback(
             str(action or "").strip().lower(),
-            str(summary or "").strip() + (
-                f" | Ref: {str(event_id or '').strip()}" if str(event_id or "").strip() else ""
-            ),
-            (
-                str(changes or "").strip()
-                + (
-                    f" | Steps: {int(steps_completed or 0)}/{int(steps_total or 0)}"
-                    if steps_completed is not None and steps_total is not None
-                    else ""
-                )
-            ),
-            ok=bool(ok),
-            next_step=str(next_step or "").strip(),
-            fix_target=str(fix_target or "").strip(),
-            docs_hint=str(docs_hint or "").strip(),
-            entry_point=str(entry_point or "").strip(),
-            artifacts=artifact_payload,
-            receipt_path=release_receipt,
-            summary_path=release_summary,
-            gate_summary=str(gate_summary or "").strip(),
-            gate_detail=str(gate_detail or "").strip(),
-            gate_recommendations=[str(item).strip() for item in (gate_recommendations or []) if str(item).strip()],
-            gate_recommendation_details=[
-                {
-                    "text": str(item.get("text", "") or "").strip(),
-                    "fix_target": str(item.get("fix_target", "") or "").strip(),
-                    "docs_hint": str(item.get("docs_hint", "") or "").strip(),
-                    "entry_point": str(item.get("entry_point", "") or "").strip(),
-                }
-                for item in (gate_recommendation_details or [])
-                if isinstance(item, dict) and str(item.get("text", "") or "").strip()
-            ],
-            review_order=(
-                [
-                    "runtime/beta_release_dry_run_report.json",
-                    "runtime/windows_release_receipt.json",
-                    "runtime/windows_release_summary.md",
-                ]
-                if str(action or "").strip().lower() == "release_dry_run"
-                else []
-            ),
+            str(feedback.pop("summary", "") or ""),
+            str(feedback.pop("changes", "") or ""),
+            **feedback,
         )
         my_pc_view = getattr(self, "_my_pc_view", None)
         advanced_view = getattr(self, "_advanced_view", None)
@@ -2594,61 +2060,36 @@ class LauncherWindow(QMainWindow):
     def _start_windows_ops_chain(self, action: str) -> None:
         normalized = str(action or "").strip().lower()
         steps = self._windows_ops_chain_steps(normalized)
-        self._active_windows_ops_chain = {
-            "action": normalized,
-            "expected_steps": steps,
-            "results": [],
-            "changes": self._windows_ops_chain_changes(normalized),
-        } if steps else None
+        self._active_windows_ops_chain = start_windows_ops_chain(
+            normalized,
+            steps,
+            self._windows_ops_chain_changes(normalized),
+        )
 
     def _update_windows_ops_chain(self, action: str, *, ok: bool, summary: str) -> bool:
-        chain = self._active_windows_ops_chain
-        if not isinstance(chain, dict):
+        result = advance_windows_ops_chain(
+            self._active_windows_ops_chain,
+            action,
+            ok=ok,
+            summary=summary,
+        )
+        if not result.matched:
             return False
-        normalized_action = str(action or "").strip().lower()
-        expected = [str(item) for item in chain.get("expected_steps", []) if str(item).strip()]
-        if normalized_action not in expected:
-            return False
-        results = chain.get("results", [])
-        if not isinstance(results, list):
-            results = []
-        results.append({"action": normalized_action, "ok": bool(ok), "summary": str(summary or "").strip()})
-        chain["results"] = results
-        self._active_windows_ops_chain = chain
-        if len(results) < len(expected):
+        self._active_windows_ops_chain = result.next_chain
+        if not result.completed:
             return True
-        parent_action = str(chain.get("action", normalized_action) or normalized_action)
-        parent_label = parent_action.replace("_", " ")
-        overall_ok = all(bool(item.get("ok", False)) for item in results if isinstance(item, dict))
-        rendered = " | ".join(
-            f"{str(item.get('action', 'step') or 'step')}={'OK' if bool(item.get('ok', False)) else 'FAIL'}"
-            for item in results
-            if isinstance(item, dict)
-        )
-        summary_text = f"{parent_label} completed | {rendered}"
-        change_text = str(chain.get("changes", "") or "").strip()
-        guidance = self._windows_ops_guidance(parent_action, ok=overall_ok, phase="completed")
-        final_detail = next(
-            (
-                str(item.get("summary", "") or "").strip()
-                for item in reversed(results)
-                if isinstance(item, dict) and str(item.get("summary", "") or "").strip()
-            ),
-            "",
-        )
-        if final_detail:
-            change_text = f"{change_text} Last result: {final_detail}" if change_text else f"Last result: {final_detail}"
-        post_snapshot = self._collect_windows_service_snapshot()
-        artifacts = self._windows_ops_artifact_refs(parent_action, post_snapshot)
+        parent_action = result.parent_action
+        guidance = self._windows_ops_guidance(parent_action, ok=result.overall_ok, phase="completed")
+        artifacts = self._windows_ops_artifact_refs(parent_action, self._collect_windows_service_snapshot())
         event_id = LauncherWindow._default_windows_ops_event_id(parent_action)
         self._record_windows_ops_state(
             parent_action,
-            summary_text,
-            change_text,
-            ok=overall_ok,
+            result.summary_text,
+            result.change_text,
+            ok=result.overall_ok,
             event_id=event_id,
-            steps_completed=len(results),
-            steps_total=len(expected),
+            steps_completed=result.steps_completed,
+            steps_total=result.steps_total,
             phase="completed",
             next_step=str(guidance.get("next_step", "") or ""),
             fix_target=str(guidance.get("fix_target", "") or ""),
@@ -2659,10 +2100,10 @@ class LauncherWindow(QMainWindow):
         self._log_launcher_event(
             "windows_ops_completed",
             action=parent_action,
-            ok=overall_ok,
-            steps_completed=len(results),
-            steps_total=len(expected),
-            summary=summary_text,
+            ok=result.overall_ok,
+            steps_completed=result.steps_completed,
+            steps_total=result.steps_total,
+            summary=result.summary_text,
             event_id=event_id,
             next_step=str(guidance.get("next_step", "") or ""),
             fix_target=str(guidance.get("fix_target", "") or ""),
@@ -2684,19 +2125,21 @@ class LauncherWindow(QMainWindow):
         post_snapshot = self._collect_windows_service_snapshot()
         dynamic_changes = self._windows_service_snapshot_changes(pre_snapshot, post_snapshot)
         artifacts = self._windows_ops_artifact_refs(action, post_snapshot)
-        gate_details = self._release_dry_run_gate_details() if action == "release_dry_run" else {}
+        gate_details = normalize_windows_gate_details(
+            self._release_dry_run_gate_details() if action == "release_dry_run" else {}
+        )
         if dynamic_changes:
             changes = f"{changes} | {dynamic_changes}" if changes else dynamic_changes
         gate_summary = str(gate_details.get("summary", "") or "").strip()
         gate_detail = str(gate_details.get("detail", "") or "").strip()
-        gate_checks = [item for item in gate_details.get("checks", []) if isinstance(item, dict)] if isinstance(gate_details.get("checks"), list) else []
-        gate_required_files = [item for item in gate_details.get("required_files", []) if isinstance(item, dict)] if isinstance(gate_details.get("required_files"), list) else []
-        gate_failed_checks = [str(item).strip() for item in gate_details.get("failed_checks", []) if str(item).strip()] if isinstance(gate_details.get("failed_checks"), list) else []
-        gate_missing_files = [str(item).strip() for item in gate_details.get("missing_files", []) if str(item).strip()] if isinstance(gate_details.get("missing_files"), list) else []
+        gate_checks = [item for item in gate_details.get("checks", []) if isinstance(item, dict)]
+        gate_required_files = [item for item in gate_details.get("required_files", []) if isinstance(item, dict)]
+        gate_failed_checks = [str(item).strip() for item in gate_details.get("failed_checks", []) if str(item).strip()]
+        gate_missing_files = [str(item).strip() for item in gate_details.get("missing_files", []) if str(item).strip()]
         gate_passed_checks = int(gate_details.get("passed_checks", 0) or 0) if gate_details.get("passed_checks") is not None else None
         gate_total_checks = int(gate_details.get("total_checks", 0) or 0) if gate_details.get("total_checks") is not None else None
-        gate_recommendations = [str(item).strip() for item in gate_details.get("recommendations", []) if str(item).strip()] if isinstance(gate_details.get("recommendations"), list) else []
-        gate_recommendation_details = [item for item in gate_details.get("recommendation_details", []) if isinstance(item, dict)] if isinstance(gate_details.get("recommendation_details"), list) else []
+        gate_recommendations = [str(item).strip() for item in gate_details.get("recommendations", []) if str(item).strip()]
+        gate_recommendation_details = [item for item in gate_details.get("recommendation_details", []) if isinstance(item, dict)]
         if gate_detail:
             changes = f"{changes} | {gate_detail}" if changes else gate_detail
         ok = bool(payload.get("ok", False))
@@ -3871,31 +3314,7 @@ class LauncherWindow(QMainWindow):
     # ── Recovery helpers (direct — no API dependency) ─────────────────────────
     @staticmethod
     def _summarize_startup_readiness(snapshot: dict[str, object] | None) -> str:
-        if not isinstance(snapshot, dict):
-            return ""
-        overall = str(snapshot.get("overall", "") or "").strip().upper()
-        checks = snapshot.get("checks", {})
-        local_runtime = checks.get("local_runtime", {}) if isinstance(checks, dict) else {}
-        local_state = str(local_runtime.get("state", "") or "").strip().upper()
-        chat_ready = bool(local_runtime.get("chat_ready", False))
-        chat_state = str(local_runtime.get("chat_state", "") or "").strip().upper()
-        chat_detail = str(local_runtime.get("chat_detail", "") or "").strip()
-        parts: list[str] = []
-        if overall:
-            parts.append(f"startup {overall.lower()}")
-        if local_state:
-            parts.append(f"local runtime {local_state.lower()}")
-        if chat_ready:
-            parts.append("chat ready")
-        elif chat_state:
-            parts.append(f"chat {chat_state.lower()}")
-        if chat_detail:
-            parts.append(chat_detail)
-        deduped: list[str] = []
-        for part in parts:
-            if part and part not in deduped:
-                deduped.append(part)
-        return " | ".join(deduped)
+        return summarize_startup_readiness(snapshot)
 
     def _startup_readiness_status(
         self,
@@ -3903,36 +3322,12 @@ class LauncherWindow(QMainWindow):
         *,
         deep: bool = False,
     ) -> tuple[str, str, dict[str, object]]:
-        path = "/startup/check?deep=true" if deep else "/startup/check"
-        try:
-            payload = self._http_json(
-                path,
-                method="GET",
-                timeout=timeout,
-                retry_auth_on_401=True,
-                auth_retry_reason="startup_check",
-            )
-            snapshot = payload if isinstance(payload, dict) else {}
-            return "reachable", self._summarize_startup_readiness(snapshot), snapshot
-        except Exception as e:
-            detail = str(e)
-            if "404" in detail:
-                try:
-                    fallback = self._http_json(
-                        "/status",
-                        method="GET",
-                        timeout=timeout,
-                        retry_auth_on_401=True,
-                        auth_retry_reason="startup_check_status_fallback",
-                    )
-                    startup = fallback.get("startup_readiness", {}) if isinstance(fallback, dict) else {}
-                    snapshot = startup if isinstance(startup, dict) else {}
-                    return "reachable", self._summarize_startup_readiness(snapshot), snapshot
-                except Exception as fallback_error:
-                    detail = str(fallback_error)
-            if self._is_unauthorized_error(detail):
-                return "auth_failed", detail, {}
-            return "unreachable", detail, {}
+        return fetch_startup_readiness(
+            self._http_json,
+            timeout=timeout,
+            deep=deep,
+            unauthorized_error=self._is_unauthorized_error,
+        )
 
     def _api_reachable(self, timeout: float = 1.5) -> bool:
         state, _detail = self._api_reachability_status(timeout=timeout)
@@ -4260,67 +3655,7 @@ class LauncherWindow(QMainWindow):
 
     @staticmethod
     def _windows_ops_plan(action: str) -> dict[str, object]:
-        target = (action or "").strip().lower()
-        python_bin = ".venv\\Scripts\\python.exe"
-        if target == "verify_runtime":
-            return {
-                "label": "WINDOWS VERIFY",
-                "commands": [
-                    f"{python_bin} tools/verify_ollama_runtime.py --prompt ok",
-                    f"{python_bin} tools/verify_runtime_challengers.py",
-                    f"{python_bin} tools/verify_logging_health.py --emit-probe --require-fresh-core",
-                ],
-                "changes": "Refreshes local-runtime readiness, challenger availability, and logging-health evidence in one pass.",
-            }
-        if target == "update_runtime":
-            return {
-                "label": "WINDOWS UPDATE",
-                "commands": [
-                    f"{python_bin} -m pip install --upgrade pip setuptools wheel",
-                    f"{python_bin} -m pip install -r requirements.txt",
-                    f"{python_bin} -m pip install -r requirements-optional.txt",
-                    f"{python_bin} tools/validate_build_checks.py",
-                    f"{python_bin} tools/verify_ollama_runtime.py --prompt ok",
-                    f"{python_bin} tools/verify_runtime_challengers.py",
-                ],
-                "changes": "Refreshes the launcher Python toolchain plus base and optional runtime dependencies, then runs post-update validation.",
-            }
-        if target == "package_desktop":
-            return {
-                "label": "WINDOWS PACKAGE",
-                "commands": [
-                    "cmd /c bin\\build_executable.bat --no-clean --ci",
-                    f"{python_bin} tools/verify_beta_package_policy.py",
-                ],
-                "changes": "Builds a desktop package through the supported batch entry point, then runs beta package policy verification.",
-            }
-        if target == "release_dry_run":
-            return {
-                "label": "WINDOWS RELEASE DRY RUN",
-                "commands": [
-                    f"{python_bin} tools/beta_release_dry_run.py",
-                ],
-                "changes": "Runs the beta release dry-run gate and writes a release-facing report that can travel with the servicing receipt.",
-            }
-        if target == "start_supervised_api":
-            return {
-                "label": "START API",
-                "commands": [],
-                "changes": "Launches the supervised API batch entry point and checks API reachability from the launcher.",
-            }
-        if target == "restart_runtime":
-            return {
-                "label": "WINDOWS RESTART",
-                "commands": [],
-                "changes": "Restarts the daemon, then re-runs warmup and runtime audit checks automatically.",
-            }
-        if target == "repair_runtime":
-            return {
-                "label": "WINDOWS REPAIR",
-                "commands": [],
-                "changes": "Captures a health snapshot, refreshes startup state, and re-runs the runtime audit automatically.",
-            }
-        return {"label": "", "commands": [], "changes": ""}
+        return build_windows_ops_plan(action)
 
     @staticmethod
     def _windows_ops_recipe(action: str) -> tuple[str, list[str]]:
@@ -4328,12 +3663,13 @@ class LauncherWindow(QMainWindow):
         return str(plan.get("label", "") or ""), [str(item) for item in plan.get("commands", []) if str(item).strip()]
 
     def _on_windows_ops_requested(self, action: str) -> None:
-        target = (action or "").strip().lower()
+        descriptor = build_windows_ops_descriptor(action)
+        target = descriptor.action
         plan = self._windows_ops_plan(target)
-        label = str(plan.get("label", "") or "").strip()
-        changes = str(plan.get("changes", "") or "").strip()
-        if target in {"verify_runtime", "update_runtime", "package_desktop", "release_dry_run"}:
-            label, commands = self._windows_ops_recipe(target)
+        label = str(descriptor.label or plan.get("label", "") or "").strip()
+        changes = str(descriptor.changes or plan.get("changes", "") or "").strip()
+        if descriptor.execution_kind == WindowsOpsExecutionKind.TERMINAL_RECIPE:
+            commands = list(descriptor.commands)
             if not commands:
                 self._status_panel.append_syslog(f"windows ops unavailable: {action}")
                 return
@@ -4349,9 +3685,9 @@ class LauncherWindow(QMainWindow):
                 },
             )
             if queued:
-                summary = f"{label.title()} queued in App Mgmt terminal"
+                summary = str(descriptor.request_summary or f"{label.title()} queued in App Mgmt terminal")
                 self._set_daily_activity(summary)
-                self._status_panel.append_syslog(f"{label.lower()} queued")
+                self._status_panel.append_syslog(str(descriptor.syslog_message or f"{label.lower()} queued"))
                 self._record_windows_ops_state(
                     target,
                     summary,
@@ -4397,10 +3733,10 @@ class LauncherWindow(QMainWindow):
                     fix_target=str(failed_guidance.get("fix_target", "") or ""),
                 )
             return
-        if target == "start_supervised_api":
+        if descriptor.execution_kind == WindowsOpsExecutionKind.SUBPROCESS and target == "start_supervised_api":
             guidance = self._windows_ops_guidance(target, ok=True, phase="queued")
-            summary = "Supervised API launch requested from App Mgmt"
-            self._status_panel.append_syslog("supervised api requested")
+            summary = str(descriptor.request_summary or "Supervised API launch requested from App Mgmt")
+            self._status_panel.append_syslog(str(descriptor.syslog_message or "supervised api requested"))
             self._set_daily_activity(summary)
             self._record_windows_ops_state(
                 target,
@@ -4456,9 +3792,9 @@ class LauncherWindow(QMainWindow):
             self._advanced_view.append_log(final_summary)
             self._set_daily_activity(final_summary)
             return
-        if target == "restart_runtime":
-            summary = "Windows restart queued: restart daemon -> warmup -> audit"
-            self._status_panel.append_syslog("windows restart requested")
+        if descriptor.execution_kind == WindowsOpsExecutionKind.RECOVERY_CHAIN and target in {"restart_runtime", "repair_runtime"}:
+            summary = str(descriptor.request_summary or f"{label.title()} queued")
+            self._status_panel.append_syslog(str(descriptor.syslog_message or f"{label.lower()} requested"))
             self._set_daily_activity(summary)
             self._start_windows_ops_chain(target)
             guidance = self._windows_ops_guidance(target, ok=True, phase="queued")
@@ -4468,7 +3804,7 @@ class LauncherWindow(QMainWindow):
                 changes,
                 ok=True,
                 steps_completed=0,
-                steps_total=len(self._windows_ops_chain_steps(target)),
+                steps_total=len(descriptor.chain_steps),
                 phase="queued",
                 next_step=str(guidance.get("next_step", "") or ""),
                 fix_target=str(guidance.get("fix_target", "") or ""),
@@ -4482,39 +3818,11 @@ class LauncherWindow(QMainWindow):
                 next_step=str(guidance.get("next_step", "") or ""),
                 fix_target=str(guidance.get("fix_target", "") or ""),
             )
-            self._on_recovery_requested("restart_daemon")
-            QTimer.singleShot(650, lambda: self._on_recovery_requested("warmup"))
-            QTimer.singleShot(1400, lambda: self._on_recovery_requested("audit_runtime"))
-            return
-        if target == "repair_runtime":
-            summary = "Windows repair queued: snapshot -> warmup -> audit"
-            self._status_panel.append_syslog("windows repair requested")
-            self._set_daily_activity(summary)
-            self._start_windows_ops_chain(target)
-            guidance = self._windows_ops_guidance(target, ok=True, phase="queued")
-            self._record_windows_ops_state(
-                target,
-                summary,
-                changes,
-                ok=True,
-                steps_completed=0,
-                steps_total=len(self._windows_ops_chain_steps(target)),
-                phase="queued",
-                next_step=str(guidance.get("next_step", "") or ""),
-                fix_target=str(guidance.get("fix_target", "") or ""),
-                docs_hint=str(guidance.get("docs_hint", "") or ""),
-                entry_point=str(guidance.get("entry_point", "") or ""),
-            )
-            self._log_launcher_event(
-                "windows_ops_action",
-                action=target,
-                queued=True,
-                next_step=str(guidance.get("next_step", "") or ""),
-                fix_target=str(guidance.get("fix_target", "") or ""),
-            )
-            self._on_recovery_requested("health_snapshot")
-            QTimer.singleShot(250, lambda: self._on_recovery_requested("warmup"))
-            QTimer.singleShot(1000, lambda: self._on_recovery_requested("audit_runtime"))
+            for step in descriptor.chain_steps:
+                if step.delay_ms <= 0:
+                    self._on_recovery_requested(step.name)
+                else:
+                    QTimer.singleShot(step.delay_ms, lambda recovery_action=step.name: self._on_recovery_requested(recovery_action))
             return
         self._status_panel.append_syslog(f"windows ops unavailable: {action}")
 

@@ -481,8 +481,10 @@ class MyPCView(QWidget):
             elif auth_state == "partial":
                 detail = f"{label} is almost ready, but browser sign-in still needs to finish."
             else:
-                detail = f"Sign in once in the browser to let Guppy use {label.lower()} here."
-            if len(accounts) > 1:
+                detail = f"{label} still needs the downloaded Google credentials file on this PC before browser sign-in can start."
+            if auth_state == "missing":
+                step = f"Add the {label.lower()} credentials JSON on this PC, then come back here to sign in."
+            elif len(accounts) > 1:
                 step = f"Choose the {label} account you want to use, then click Sign In."
             else:
                 step = f"Click Sign In to connect {label} on this PC."
@@ -561,6 +563,7 @@ class MyPCView(QWidget):
 
         connector_label = str(item.get("label", "Connector") or "Connector")
         auth_kind = str(item.get("auth_kind", "unknown") or "unknown").strip().lower()
+        auth_state = str(item.get("auth_state", "missing") or "missing").strip().lower()
         self._current_auth_kind = auth_kind
         self._refresh_connector_card_styles()
 
@@ -621,7 +624,11 @@ class MyPCView(QWidget):
             self._verify_btn.setText("CHECK")
             self._disconnect_btn.setText("REMOVE")
 
-        show_connect = "connect" in supports and auth_kind not in {"api_key", "provider_secret"}
+        show_connect = (
+            "connect" in supports
+            and auth_kind not in {"api_key", "provider_secret"}
+            and not (auth_kind == "oauth_file_token" and auth_state == "missing")
+        )
         self._connect_btn.setVisible(show_connect)
         self._connect_btn.setEnabled(show_connect)
         self._save_btn.setVisible(has_secret_flow)

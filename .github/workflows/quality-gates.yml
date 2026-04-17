@@ -27,44 +27,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
-      - name: Module line-cap guard
-        env:
-          GUPPY_GUARD_SCOPE: ${{ matrix.guard_scope }}
+      - name: Canonical guardrails
         run: |
-          python tools/check_new_module_line_cap.py
+          python tools/dev_workflow.py dev-check --guard-scope ${{ matrix.guard_scope }}
 
-      - name: Architecture boundary guard
-        env:
-          GUPPY_GUARD_SCOPE: ${{ matrix.guard_scope }}
-        run: |
-          python tools/check_architecture_boundaries.py
-
-      - name: Runtime artifact hygiene guard
-        if: matrix.guard_scope == 'delta'
-        env:
-          GUPPY_GUARD_SCOPE: ${{ matrix.guard_scope }}
-        run: |
-          python tools/check_runtime_artifact_hygiene.py
-
-      - name: Wrapper integrity guard
-        run: |
-          python tools/check_wrapper_integrity.py
-
-      - name: Core surface integrity guard
-        run: |
-          python tools/check_core_surface_integrity.py
-
-      - name: Doc ownership guard
-        run: |
-          python tools/check_doc_ownership.py
-
-      - name: Tool schema audit
-        run: |
-          python tools/audit_tool_schemas.py
-
-  tests:
+  default-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: guardrails
@@ -82,20 +51,32 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
-      - name: Runtime smoke tests
+      - name: Canonical default suite
         run: |
-          python -m unittest tests.test_runtime_smoke
+          python tools/dev_workflow.py test-default
 
-      - name: Reminder workflow tests
-        run: |
-          python -m unittest tests.test_reminder_workflow
+  product-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: default-tests
 
-      - name: Launcher interaction smoke tests
-        run: |
-          python -m pytest tests/test_launcher_interactions_smoke.py -q
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Security hardening tests
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
         run: |
-          python -m pytest tests/test_security_hardening.py -q
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Canonical smoke suite
+        run: |
+          python tools/dev_workflow.py test-smoke

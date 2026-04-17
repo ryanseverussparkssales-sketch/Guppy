@@ -1,24 +1,107 @@
-"""Fail CI if changed Python modules exceed a line cap.
+"""Fail CI if active live Python modules exceed the transitional line cap.
 
-This guard is intentionally scoped to changed files in the current commit range.
-Large transitional modules can be explicitly waived until they are split.
+Coverage now includes the main live-code roots: ``src/guppy/``, ``ui/``, and
+``utils/``. Existing oversized hotspot modules are temporarily waived, but each
+waiver is pinned to the current observed file size so the module cannot keep
+growing while the strangler refactor lands.
 """
 from __future__ import annotations
 
 import os
 import subprocess
-import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LINE_CAP = int(os.environ.get("GUPPY_MODULE_LINE_CAP", "700"))
 GUARD_SCOPE = (os.environ.get("GUPPY_GUARD_SCOPE", "delta") or "delta").strip().lower()
 
-WAIVED_PATHS: set[str] = set()
-
 ENFORCED_PREFIXES = (
     "src/guppy/",
+    "ui/",
+    "utils/",
 )
+
+
+@dataclass(frozen=True)
+class Waiver:
+    max_lines: int
+    rationale: str
+
+
+# Transitional waivers are intentionally narrow and temporary. Each path keeps a
+# rationale here so baseline enforcement can start now without hiding where the
+# current strangler work still needs to land.
+WAIVED_PATHS: dict[str, Waiver] = {
+    "src/guppy/api/server_runtime_snapshot.py": Waiver(
+        max_lines=3881,
+        rationale="Runtime snapshot hotspot still awaits runtime-application extraction.",
+    ),
+    "src/guppy/daemon/daemon.py": Waiver(
+        max_lines=1483,
+        rationale="Daemon orchestration remains monolithic pending bounded service splits.",
+    ),
+    "src/guppy/merlin/core.py": Waiver(
+        max_lines=1115,
+        rationale="Legacy specialist runtime remains in transition and is not part of this tranche.",
+    ),
+    "src/guppy/memory/memory.py": Waiver(
+        max_lines=944,
+        rationale="Memory service still exceeds the cap until dedicated persistence/service seams land.",
+    ),
+    "src/guppy/api/services_realtime.py": Waiver(
+        max_lines=902,
+        rationale="Realtime API service still bundles too many behaviors pending runtime decomposition.",
+    ),
+    "src/guppy/api/server_runtime.py": Waiver(
+        max_lines=771,
+        rationale="Runtime startup orchestration is still being strangled out of the API shell.",
+    ),
+    "src/guppy/debug/console.py": Waiver(
+        max_lines=717,
+        rationale="Debug console remains oversized but out of scope for the current build tranche.",
+    ),
+    "src/guppy/voice/voice.py": Waiver(
+        max_lines=704,
+        rationale="Voice orchestration still needs a later service split and broader device validation.",
+    ),
+    "ui/launcher/launcher_window.py": Waiver(
+        max_lines=5036,
+        rationale="Launcher shell remains the largest active hotspot until launcher-application extraction lands.",
+    ),
+    "ui/launcher/views/advanced_view.py": Waiver(
+        max_lines=2238,
+        rationale="App Mgmt still embeds workflow and health orchestration pending spec-backed presenters.",
+    ),
+    "ui/launcher/views/models_view.py": Waiver(
+        max_lines=1135,
+        rationale="Models still mixes state orchestration and rendering until view-model seams land.",
+    ),
+    "ui/launcher/views/instance_manager_view.py": Waiver(
+        max_lines=1077,
+        rationale="Workspace manager still bundles governance and render logic pending shared snapshots.",
+    ),
+    "ui/launcher/views/assistant_view.py": Waiver(
+        max_lines=1004,
+        rationale="Home/chat view still carries orchestration that should move into launcher presenters.",
+    ),
+    "ui/launcher/views/voices_view.py": Waiver(
+        max_lines=902,
+        rationale="Voice management remains oversized until experience-config services feed the UI.",
+    ),
+    "ui/launcher/views/settings_view.py": Waiver(
+        max_lines=743,
+        rationale="Settings remains transitional while configuration ownership moves out of the UI layer.",
+    ),
+    "utils/connector_manager.py": Waiver(
+        max_lines=1838,
+        rationale="Connector governance/action execution still lives in one module pending service breakup.",
+    ),
+    "utils/personalization_config.py": Waiver(
+        max_lines=845,
+        rationale="Experience-config persistence remains oversized until dedicated config services exist.",
+    ),
+}
 
 
 def _all_enforced_python_files() -> list[Path]:
@@ -27,9 +110,9 @@ def _all_enforced_python_files() -> list[Path]:
         base = ROOT / prefix
         if not base.exists():
             continue
-        for p in base.rglob("*.py"):
-            if p.is_file():
-                files.append(p.relative_to(ROOT))
+        for path in base.rglob("*.py"):
+            if path.is_file():
+                files.append(path.relative_to(ROOT))
     return files
 
 
@@ -38,11 +121,9 @@ def _run_git(args: list[str]) -> str:
 
 
 def _changed_python_files() -> list[Path]:
-    # Prefer the last commit delta (simple and deterministic for CI push/PR runs).
     try:
         raw = _run_git(["diff", "--name-status", "--diff-filter=AM", "HEAD~1", "HEAD"])
     except Exception:
-        # Fallback for shallow/single-commit contexts.
         raw = ""
 
     changed: list[Path] = []
@@ -53,14 +134,13 @@ def _changed_python_files() -> list[Path]:
         _, rel = parts
         if not rel.endswith(".py"):
             continue
-        p = Path(rel)
-        if p.exists():
-            changed.append(p)
+        path = Path(rel)
+        if path.exists():
+            changed.append(path)
 
     if changed:
         return changed
 
-    # Final fallback: if no commit baseline is available, inspect changed files staged in git status.
     try:
         raw = _run_git(["status", "--porcelain"])
     except Exception:
@@ -71,9 +151,9 @@ def _changed_python_files() -> list[Path]:
             continue
         rel = line[3:]
         if rel.endswith(".py"):
-            p = Path(rel)
-            if p.exists():
-                changed.append(p)
+            path = Path(rel)
+            if path.exists():
+                changed.append(path)
     return changed
 
 
@@ -83,31 +163,54 @@ def _candidate_python_files() -> list[Path]:
     return _changed_python_files()
 
 
+def _is_enforced(rel_posix: str) -> bool:
+    return any(rel_posix.startswith(prefix) for prefix in ENFORCED_PREFIXES)
+
+
 def main() -> int:
     if GUARD_SCOPE not in {"delta", "baseline"}:
         print(f"line-cap check failed: invalid GUPPY_GUARD_SCOPE={GUARD_SCOPE!r}")
         print("Allowed values: delta, baseline")
         return 1
 
-    offenders: list[tuple[str, int]] = []
+    offenders: list[str] = []
+    waived_notes: list[str] = []
     for rel_path in _candidate_python_files():
         rel_posix = rel_path.as_posix()
-        if not rel_posix.startswith(ENFORCED_PREFIXES):
+        if not _is_enforced(rel_posix):
             continue
-        if rel_posix in WAIVED_PATHS:
-            continue
+
         line_count = len(rel_path.read_text(encoding="utf-8", errors="replace").splitlines())
+        waiver = WAIVED_PATHS.get(rel_posix)
+
+        if waiver is not None:
+            if line_count > waiver.max_lines:
+                offenders.append(
+                    f"{rel_posix}: {line_count} lines exceeds transitional waiver cap "
+                    f"{waiver.max_lines} ({waiver.rationale})"
+                )
+            elif GUARD_SCOPE == "baseline":
+                waived_notes.append(
+                    f"{rel_posix}: waived at {line_count}/{waiver.max_lines} lines "
+                    f"({waiver.rationale})"
+                )
+            continue
+
         if line_count > LINE_CAP:
-            offenders.append((rel_posix, line_count))
+            offenders.append(f"{rel_posix}: {line_count} lines exceeds cap {LINE_CAP}")
 
     if offenders:
         print(f"line-cap check failed (scope={GUARD_SCOPE}, cap={LINE_CAP} lines):")
-        for path, count in offenders:
-            print(f" - {path}: {count}")
+        for item in offenders:
+            print(f" - {item}")
         print("Split these modules or add a temporary explicit waiver with rationale.")
         return 1
 
     print(f"line-cap check passed (scope={GUARD_SCOPE}, cap={LINE_CAP} lines)")
+    if waived_notes:
+        print("transitional baseline waivers:")
+        for item in waived_notes:
+            print(f" - {item}")
     return 0
 
 

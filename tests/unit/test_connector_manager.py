@@ -1,11 +1,27 @@
 from __future__ import annotations
 
-import tempfile
+import shutil
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
+from uuid import uuid4
 
 from utils import connector_bindings, connector_manager
+
+
+_TEST_TEMP_ROOT = Path(".tmp/dev-workflow/unittest-temp")
+
+
+@contextmanager
+def _workspace_tempdir():
+    _TEST_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+    path = _TEST_TEMP_ROOT / f"case-{uuid4().hex[:10]}"
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        yield str(path)
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 class ConnectorManagerTests(unittest.TestCase):
@@ -23,7 +39,7 @@ class ConnectorManagerTests(unittest.TestCase):
         self.assertIn("field_details", first)
 
     def test_workspace_binding_round_trip_persists_fields(self):
-        with tempfile.TemporaryDirectory() as td:
+        with _workspace_tempdir() as td:
             config_path = Path(td) / "connector_bindings.json"
             connector_manager.save_workspace_connector_binding(
                 "builder-collab",
@@ -68,7 +84,7 @@ class ConnectorManagerTests(unittest.TestCase):
         self.assertTrue(context["binding_inherited"])
 
     def test_connector_action_block_is_enforced(self):
-        with tempfile.TemporaryDirectory() as td:
+        with _workspace_tempdir() as td:
             config_path = Path(td) / "connector_bindings.json"
             connector_manager.save_workspace_connector_binding(
                 "builder-collab",
@@ -88,7 +104,7 @@ class ConnectorManagerTests(unittest.TestCase):
             self.assertEqual(context["reason_code"], "connector_action_blocked")
 
     def test_invalid_provider_is_rejected(self):
-        with tempfile.TemporaryDirectory() as td:
+        with _workspace_tempdir() as td:
             config_path = Path(td) / "connector_bindings.json"
             connector_manager.save_workspace_connector_binding(
                 "ops-workspace",
@@ -108,7 +124,7 @@ class ConnectorManagerTests(unittest.TestCase):
             self.assertEqual(context["reason_code"], "connector_provider_unconfigured")
 
     def test_missing_host_auth_is_reported(self):
-        with tempfile.TemporaryDirectory() as td:
+        with _workspace_tempdir() as td:
             config_path = Path(td) / "connector_bindings.json"
             connector_manager.save_workspace_connector_binding(
                 "ops-workspace",
@@ -127,11 +143,42 @@ class ConnectorManagerTests(unittest.TestCase):
             self.assertFalse(allowed)
             self.assertEqual(context["reason_code"], "connector_host_auth_missing")
 
+    def test_gmail_account_binding_must_exist_on_host_inventory(self):
+        with _workspace_tempdir() as td:
+            config_path = Path(td) / "connector_bindings.json"
+            connector_manager.save_workspace_connector_binding(
+                "builder-collab",
+                "gmail",
+                {
+                    "enabled": True,
+                    "account_id": "sales",
+                },
+                config_path=config_path,
+            )
+            with patch(
+                "utils.connector_manager.connector_status",
+                return_value={
+                    "id": "gmail",
+                    "label": "Gmail",
+                    "auth_state": "ready",
+                    "auth_detail": "Gmail credentials and token are present.",
+                    "accounts": [{"id": "main", "label": "Main"}],
+                    "providers": [],
+                },
+            ):
+                allowed, _reason, context = connector_manager.evaluate_workspace_connector_policy(
+                    "send_email",
+                    "builder-collab",
+                    config_path=config_path,
+                )
+            self.assertFalse(allowed)
+            self.assertEqual(context["reason_code"], "connector_account_unavailable")
+
     def test_verify_action_records_history(self):
         old_runtime_dir = connector_manager._RUNTIME_DIR
         old_state_path = connector_manager._CONNECTOR_STATE_PATH
         old_events_path = connector_manager._INTEGRATION_EVENTS_PATH
-        with tempfile.TemporaryDirectory() as td:
+        with _workspace_tempdir() as td:
             runtime_dir = Path(td)
             connector_manager._RUNTIME_DIR = runtime_dir
             connector_manager._CONNECTOR_STATE_PATH = runtime_dir / "connector_state.json"
@@ -183,7 +230,7 @@ class ConnectorManagerTests(unittest.TestCase):
         def fake_secret(key: str, *, fallback: str | None = None) -> str:
             return secrets.get(key, fallback or "")
 
-        with tempfile.TemporaryDirectory() as td:
+        with _workspace_tempdir() as td:
             runtime_dir = Path(td)
             connector_manager._RUNTIME_DIR = runtime_dir
             connector_manager._CONNECTOR_STATE_PATH = runtime_dir / "connector_state.json"
@@ -207,13 +254,13 @@ class ConnectorManagerTests(unittest.TestCase):
         old_runtime_dir = connector_manager._RUNTIME_DIR
         old_state_path = connector_manager._CONNECTOR_STATE_PATH
         old_events_path = connector_manager._INTEGRATION_EVENTS_PATH
-        with tempfile.TemporaryDirectory() as td:
+        with _workspace_tempdir() as td:
             runtime_dir = Path(td)
             connector_manager._RUNTIME_DIR = runtime_dir
             connector_manager._CONNECTOR_STATE_PATH = runtime_dir / "connector_state.json"
             connector_manager._INTEGRATION_EVENTS_PATH = runtime_dir / "integration_events.jsonl"
             try:
-                with patch("media_tools.gmail_unread_count", return_value=(-1, "[Errno 2] No such file or directory: ''")):
+                with patch("src.guppy.tools.media.gmail_unread_count", return_value=(-1, "[Errno 2] No such file or directory: ''")):
                     result = connector_manager.run_connector_action("gmail", "connect")
                 self.assertFalse(result["ok"])
                 self.assertIn("No such file or directory", result["summary"])

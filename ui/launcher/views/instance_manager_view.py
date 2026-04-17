@@ -15,6 +15,25 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.guppy.launcher_application.instance_manager_presenter import (
+    build_connector_binding_editor_state,
+    build_connector_binding_feedback,
+    build_governance_editor_state,
+    build_instance_manager_state,
+    connector_history_line,
+    parse_policy_lines,
+    role_preset,
+    selector_label,
+    workspace_collaboration_hint,
+    workspace_default_purpose,
+    workspace_example_names,
+    workspace_first_run_recipe,
+    workspace_recent_context,
+    workspace_reentry_hint,
+    workspace_role_label,
+    workspace_role_summary,
+    workspace_saved_context,
+)
 from .. import tokens as T
 
 
@@ -28,103 +47,39 @@ def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = Fa
 
 
 def _workspace_role_label(workspace_type: str) -> str:
-    key = (workspace_type or "user_instance").strip().lower()
-    return {
-        "user_instance": "Daily assistant",
-        "builder_instance": "Builder collaborator",
-        "read_only_instance": "Read-only reference",
-        "admin_instance": "Operations workspace",
-    }.get(key, key.replace("_", " ").strip().title() or "Workspace")
+    return workspace_role_label(workspace_type)
 
 
 def _workspace_default_purpose(workspace_type: str) -> str:
-    key = (workspace_type or "user_instance").strip().lower()
-    return {
-        "user_instance": "General help, recurring work, and quick tasks.",
-        "builder_instance": "Planning, reviews, and low-risk builder collaboration.",
-        "read_only_instance": "Safe research, source review, and reference work without writes.",
-        "admin_instance": "Recovery, diagnostics, and guarded changes.",
-    }.get(key, "Task-focused context for this workspace.")
+    return workspace_default_purpose(workspace_type)
 
 
 def _workspace_collaboration_hint(workspace_type: str) -> str:
-    key = (workspace_type or "user_instance").strip().lower()
-    return {
-        "user_instance": "Best for recurring daily work and live conversation.",
-        "builder_instance": "Best for reviews, plans, and low-risk builder collaboration.",
-        "read_only_instance": "Best for source checking and safe reference work.",
-        "admin_instance": "Best for recovery, diagnostics, and guarded operational steps.",
-    }.get(key, "Best for focused work in its saved context.")
+    return workspace_collaboration_hint(workspace_type)
 
 
 def _workspace_reentry_hint(workspace_type: str) -> str:
-    key = (workspace_type or "user_instance").strip().lower()
-    return {
-        "user_instance": "Return here for repeated daily requests, follow-ups, and quick decisions.",
-        "builder_instance": "Return here for planning passes, review loops, and low-risk drafting.",
-        "read_only_instance": "Return here for source checks, comparisons, and reference-safe inspection.",
-        "admin_instance": "Return here for servicing, diagnostics, and guarded operator actions.",
-    }.get(key, "Return here when you want this workspace's saved context and purpose.")
+    return workspace_reentry_hint(workspace_type)
 
 
 def _workspace_first_run_recipe(workspace_type: str) -> str:
-    key = (workspace_type or "user_instance").strip().lower()
-    return {
-        "user_instance": "First run: use MORNING BRIEF for priorities, then keep the workspace on daily follow-ups.",
-        "builder_instance": "First run: open PLAN NEXT PASS, then use BUILDER REVIEW to catch regressions early.",
-        "read_only_instance": "First run: open SOURCE RESEARCH, then SOURCE TRIAGE to organize evidence safely.",
-        "admin_instance": "First run: open OPS CHECK, then VERIFY or REPAIR only after the evidence is clear.",
-    }.get(key, "First run: use the starter that best matches the workspace's saved purpose.")
+    return workspace_first_run_recipe(workspace_type)
 
 
 def _workspace_example_names(workspace_type: str) -> str:
-    key = (workspace_type or "user_instance").strip().lower()
-    return {
-        "user_instance": "Good names: daily-desk | inbox-desk | project-rhythm",
-        "builder_instance": "Good names: builder-collab | release-review | docs-pass",
-        "read_only_instance": "Good names: reference-desk | source-check | partner-brief",
-        "admin_instance": "Good names: ops-console | recovery-desk | servicing-check",
-    }.get(key, "Good names: pick one that matches the saved purpose.")
+    return workspace_example_names(workspace_type)
 
 
 def _workspace_saved_context(payload: dict[str, object]) -> str:
-    mode = str(payload.get("mode", "auto") or "auto").strip().upper()
-    persona = str(payload.get("persona", "guppy") or "guppy").strip().upper()
-    voice = str(payload.get("voice", "default") or "default").strip().upper()
-    return f"Saved context: {mode} mode | {persona} persona | {voice} voice"
+    return workspace_saved_context(payload)
 
 
 def _workspace_recent_context(payload: dict[str, object]) -> str:
-    last_message = str(payload.get("last_message", "") or "").strip()
-    if not last_message:
-        return "Recent context: no recent thread is pinned yet."
-    snippet = last_message[:120] + ("..." if len(last_message) > 120 else "")
-    return f"Recent context: {snippet}"
+    return workspace_recent_context(payload)
 
 
 def _workspace_role_summary(items: list[dict[str, object]]) -> str:
-    counts = {
-        "daily": 0,
-        "builder": 0,
-        "reference": 0,
-        "ops": 0,
-    }
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        key = str(item.get("type", "user_instance") or "user_instance").strip().lower()
-        if key == "builder_instance":
-            counts["builder"] += 1
-        elif key == "read_only_instance":
-            counts["reference"] += 1
-        elif key == "admin_instance":
-            counts["ops"] += 1
-        else:
-            counts["daily"] += 1
-    return (
-        f"Daily {counts['daily']} | Builder {counts['builder']} | "
-        f"Reference {counts['reference']} | Ops {counts['ops']}"
-    )
+    return workspace_role_summary(items)
 
 
 class _InstanceCard(QFrame):
@@ -214,6 +169,8 @@ class InstanceManagerView(QWidget):
         self._governance_by_name: dict[str, dict[str, object]] = {}
         self._connectors_by_name: dict[str, dict[str, dict[str, object]]] = {}
         self._last_role_preset_type = "user_instance"
+        self._governance_visible = False
+        self._connector_bindings_visible = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -322,9 +279,24 @@ class InstanceManagerView(QWidget):
         form_layout.addLayout(row3)
         layout.addWidget(form)
 
-        governance = QFrame()
-        governance.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
-        governance_layout = QVBoxLayout(governance)
+        collapse_row = QHBoxLayout()
+        collapse_row.setSpacing(8)
+        self._governance_toggle_btn = QPushButton("SHOW ACCESS RULES")
+        self._connector_toggle_btn = QPushButton("SHOW CONNECTOR RULES")
+        for button in (self._governance_toggle_btn, self._connector_toggle_btn):
+            button.setStyleSheet(
+                f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER};"
+                f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+                f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; }}"
+            )
+        collapse_row.addWidget(self._governance_toggle_btn)
+        collapse_row.addWidget(self._connector_toggle_btn)
+        collapse_row.addStretch()
+        layout.addLayout(collapse_row)
+
+        self._governance_frame = QFrame()
+        self._governance_frame.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
+        governance_layout = QVBoxLayout(self._governance_frame)
         governance_layout.setContentsMargins(14, 12, 14, 12)
         governance_layout.setSpacing(8)
         governance_layout.addWidget(_mono("ACCESS + SAFETY", T.PRIMARY, T.FS_TINY, True))
@@ -398,11 +370,12 @@ class InstanceManagerView(QWidget):
         )
         gov_actions.addWidget(self._governance_save_btn)
         governance_layout.addLayout(gov_actions)
-        layout.addWidget(governance)
+        self._governance_frame.setVisible(False)
+        layout.addWidget(self._governance_frame)
 
-        connectors = QFrame()
-        connectors.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
-        connectors_layout = QVBoxLayout(connectors)
+        self._connectors_frame = QFrame()
+        self._connectors_frame.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
+        connectors_layout = QVBoxLayout(self._connectors_frame)
         connectors_layout.setContentsMargins(14, 12, 14, 12)
         connectors_layout.setSpacing(8)
         connectors_layout.addWidget(_mono("CONNECTOR BINDINGS", T.PRIMARY, T.FS_TINY, True))
@@ -497,7 +470,8 @@ class InstanceManagerView(QWidget):
         )
         connector_actions.addWidget(self._connector_save_btn)
         connectors_layout.addLayout(connector_actions)
-        layout.addWidget(connectors)
+        self._connectors_frame.setVisible(False)
+        layout.addWidget(self._connectors_frame)
 
         self._summary_lbl = _mono("No workspace data loaded", T.DIM, T.FS_TINY)
         layout.addWidget(self._summary_lbl)
@@ -553,6 +527,8 @@ class InstanceManagerView(QWidget):
         self._connector_provider.currentIndexChanged.connect(self._refresh_connector_binding_feedback)
         self._connector_account.currentIndexChanged.connect(self._refresh_connector_binding_feedback)
         self._connector_enabled.stateChanged.connect(self._refresh_connector_binding_feedback)
+        self._governance_toggle_btn.clicked.connect(self._toggle_governance_section)
+        self._connector_toggle_btn.clicked.connect(self._toggle_connector_bindings_section)
         self._governance_save_btn.clicked.connect(self._emit_governance_save)
         self._connector_save_btn.clicked.connect(self._emit_connector_binding_save)
         self._save_btn = save_btn
@@ -572,77 +548,40 @@ class InstanceManagerView(QWidget):
             }
         )
 
+    def _toggle_governance_section(self) -> None:
+        self._governance_visible = not self._governance_visible
+        self._governance_frame.setVisible(self._governance_visible)
+        self._governance_toggle_btn.setText("HIDE ACCESS RULES" if self._governance_visible else "SHOW ACCESS RULES")
+
+    def _toggle_connector_bindings_section(self) -> None:
+        self._connector_bindings_visible = not self._connector_bindings_visible
+        self._connectors_frame.setVisible(self._connector_bindings_visible)
+        self._connector_toggle_btn.setText(
+            "HIDE CONNECTOR RULES" if self._connector_bindings_visible else "SHOW CONNECTOR RULES"
+        )
+
     @staticmethod
     def _parse_policy_lines(text: str) -> list[str]:
-        seen: set[str] = set()
-        lines: list[str] = []
-        for raw in str(text or "").splitlines():
-            value = raw.strip()
-            if not value:
-                continue
-            lowered = value.lower()
-            if lowered in seen:
-                continue
-            seen.add(lowered)
-            lines.append(lowered)
-        return lines
+        return parse_policy_lines(text)
 
     @staticmethod
     def _selector_label(item: dict[str, object], *, fallback: str) -> str:
-        label = str(item.get("label", item.get("id", fallback)) or fallback).strip() or fallback
-        auth_state = str(item.get("auth_state", "") or "").strip().upper()
-        if auth_state:
-            label += f" [{auth_state}]"
-        return label
+        return selector_label(item, fallback=fallback)
 
     @staticmethod
     def _history_line(payload: dict[str, object]) -> str:
-        last_action = str(payload.get("last_action", "") or "").strip()
-        last_action_at = str(payload.get("last_action_at", "") or "").strip()
-        last_result = str(payload.get("last_result", "") or "").strip()
-        if not last_action:
-            return "Connector history: no verify/connect activity has been recorded yet."
-        summary = f"Connector history: last {last_action}"
-        if last_action_at:
-            summary += f" @ {last_action_at}"
-        if last_result:
-            summary += f" | {last_result}"
-        return summary
+        return connector_history_line(payload)
 
     @staticmethod
     def _role_preset(workspace_type: str) -> dict[str, str]:
-        key = (workspace_type or "user_instance").strip().lower()
-        presets = {
-            "user_instance": {
-                "name_placeholder": "daily-desk",
-                "description_placeholder": "Daily tasks, follow-ups, and recurring requests",
-                "mode": "auto",
-                "summary": "Preset: daily workspace defaults favor recurring conversation, quick follow-ups, and calm starter flows.",
-                "recipe": "First run: use MORNING BRIEF for priorities, then continue with daily follow-ups.",
-            },
-            "builder_instance": {
-                "name_placeholder": "builder-collab",
-                "description_placeholder": "Planning, review loops, and low-risk drafting",
-                "mode": "code",
-                "summary": "Preset: builder workspace defaults favor review passes, planning, and low-risk drafting.",
-                "recipe": "First run: open PLAN NEXT PASS, then use BUILDER REVIEW on the draft.",
-            },
-            "read_only_instance": {
-                "name_placeholder": "reference-desk",
-                "description_placeholder": "Source checking, comparisons, and safe reference work",
-                "mode": "local",
-                "summary": "Preset: reference workspace defaults favor safe inspection, comparisons, and evidence-first research.",
-                "recipe": "First run: open SOURCE RESEARCH, then SOURCE TRIAGE to sort the evidence.",
-            },
-            "admin_instance": {
-                "name_placeholder": "ops-console",
-                "description_placeholder": "Recovery, diagnostics, servicing, and guarded operator work",
-                "mode": "auto",
-                "summary": "Preset: ops workspace defaults favor diagnostics, recovery, and guarded operator actions.",
-                "recipe": "First run: open OPS CHECK, then VERIFY or REPAIR after checking evidence.",
-            },
+        preset = role_preset(workspace_type)
+        return {
+            "name_placeholder": preset.name_placeholder,
+            "description_placeholder": preset.description_placeholder,
+            "mode": preset.mode,
+            "summary": preset.summary,
+            "recipe": preset.recipe,
         }
-        return presets.get(key, presets["user_instance"])
 
     def _apply_role_preset(self, workspace_type: str) -> None:
         preset = self._role_preset(workspace_type)
@@ -663,22 +602,15 @@ class InstanceManagerView(QWidget):
         self._last_role_preset_type = (workspace_type or "user_instance").strip().lower() or "user_instance"
 
     def _load_governance_editor(self, workspace_name: str) -> None:
-        target = str(workspace_name or "").strip()
-        policy = self._governance_by_name.get(target, {})
-        auth_mode = str(policy.get("auth_mode", "runtime_default") or "runtime_default")
-        auth_index = max(0, self._governance_auth_mode.findText(auth_mode))
+        state = build_governance_editor_state(workspace_name, self._governance_by_name)
+        auth_index = max(0, self._governance_auth_mode.findText(state.auth_mode))
         self._governance_auth_mode.setCurrentIndex(auth_index)
-        self._governance_note.setText(str(policy.get("policy_note", "") or ""))
-        self._tool_allow.setPlainText("\n".join(str(item) for item in policy.get("tool_allow", []) if str(item).strip()))
-        self._tool_block.setPlainText("\n".join(str(item) for item in policy.get("tool_block", []) if str(item).strip()))
-        self._endpoint_allow.setPlainText("\n".join(str(item) for item in policy.get("endpoint_allow", []) if str(item).strip()))
-        self._endpoint_block.setPlainText("\n".join(str(item) for item in policy.get("endpoint_block", []) if str(item).strip()))
-        capabilities = policy.get("capabilities", {}) if isinstance(policy.get("capabilities"), dict) else {}
-        self._governance_status.setText(
-            f"Editing {target or 'workspace'} | auth mode={auth_mode} | "
-            f"caps r/w/x/n={int(bool(capabilities.get('read', False)))}/{int(bool(capabilities.get('write', False)))}/"
-            f"{int(bool(capabilities.get('execute', False)))}/{int(bool(capabilities.get('network', False)))}"
-        )
+        self._governance_note.setText(state.policy_note)
+        self._tool_allow.setPlainText(state.tool_allow_text)
+        self._tool_block.setPlainText(state.tool_block_text)
+        self._endpoint_allow.setPlainText(state.endpoint_allow_text)
+        self._endpoint_block.setPlainText(state.endpoint_block_text)
+        self._governance_status.setText(state.status_text)
 
     def _emit_governance_save(self) -> None:
         target = self._governance_workspace.currentText().strip()
@@ -701,95 +633,54 @@ class InstanceManagerView(QWidget):
 
     def _load_connector_binding_editor(self, _value: str) -> None:
         workspace_name = self._connector_workspace.currentText().strip()
-        connector_map = self._connectors_by_name.get(workspace_name, {})
-        current_connector = self._connector_id.currentText().strip().lower()
-        connector_ids = list(connector_map.keys()) or ["gmail", "calendar", "spotify", "youtube", "crm", "voip"]
+        state = build_connector_binding_editor_state(
+            workspace_name,
+            self._connector_id.currentText().strip().lower(),
+            self._connectors_by_name,
+        )
         self._connector_id.blockSignals(True)
         self._connector_id.clear()
-        for connector_id in connector_ids:
+        for connector_id in state.connector_ids:
             self._connector_id.addItem(connector_id)
-        idx = self._connector_id.findText(current_connector)
+        idx = self._connector_id.findText(state.selected_connector_id)
         self._connector_id.setCurrentIndex(max(0, idx))
         self._connector_id.blockSignals(False)
-        connector_id = self._connector_id.currentText().strip().lower()
-        connector_payload = connector_map.get(connector_id, {})
-        binding = connector_payload.get("binding", {}) if isinstance(connector_payload.get("binding"), dict) else {}
-        self._connector_enabled.setChecked(bool(binding.get("enabled", False)))
-        provider_rows = [row for row in connector_payload.get("providers", []) if isinstance(row, dict)] if isinstance(connector_payload.get("providers"), list) else []
-        account_rows = [row for row in connector_payload.get("accounts", []) if isinstance(row, dict)] if isinstance(connector_payload.get("accounts"), list) else []
-        saved_provider = str(binding.get("provider", "") or "").strip().lower()
-        saved_account = str(binding.get("account_id", "") or "").strip().lower()
+        self._connector_enabled.setChecked(state.enabled)
         self._connector_provider.blockSignals(True)
         self._connector_provider.clear()
-        self._connector_provider.addItem("(no provider)", "")
-        for row in provider_rows:
-            self._connector_provider.addItem(self._selector_label(row, fallback="provider"), str(row.get("id", "")))
-        if saved_provider and self._connector_provider.findData(saved_provider) < 0:
-            self._connector_provider.addItem(f"{saved_provider} [SAVED / UNAVAILABLE]", saved_provider)
-        provider_idx = self._connector_provider.findData(saved_provider)
+        for option in state.provider_options:
+            self._connector_provider.addItem(option.label, option.value)
+        provider_idx = self._connector_provider.findData(state.selected_provider)
         self._connector_provider.setCurrentIndex(0 if provider_idx < 0 else provider_idx)
         self._connector_provider.blockSignals(False)
         self._connector_account.blockSignals(True)
         self._connector_account.clear()
-        self._connector_account.addItem("(no account)", "")
-        for row in account_rows:
-            self._connector_account.addItem(self._selector_label(row, fallback="account"), str(row.get("id", "")))
-        if saved_account and self._connector_account.findData(saved_account) < 0:
-            self._connector_account.addItem(f"{saved_account} [SAVED / UNAVAILABLE]", saved_account)
-        account_idx = self._connector_account.findData(saved_account)
+        for option in state.account_options:
+            self._connector_account.addItem(option.label, option.value)
+        account_idx = self._connector_account.findData(state.selected_account)
         self._connector_account.setCurrentIndex(0 if account_idx < 0 else account_idx)
         self._connector_account.blockSignals(False)
-        self._connector_action_allow.setPlainText(
-            "\n".join(str(item) for item in binding.get("action_allow", []) if str(item).strip())
-        )
-        self._connector_action_block.setPlainText(
-            "\n".join(str(item) for item in binding.get("action_block", []) if str(item).strip())
-        )
-        self._connector_endpoint_allow.setPlainText(
-            "\n".join(str(item) for item in binding.get("endpoint_allow", []) if str(item).strip())
-        )
-        self._connector_endpoint_block.setPlainText(
-            "\n".join(str(item) for item in binding.get("endpoint_block", []) if str(item).strip())
-        )
-        self._connector_note.setText(str(binding.get("note", "") or ""))
-        auth_state = str(connector_payload.get("auth_state", "unknown") or "unknown")
-        auth_mode = str(connector_payload.get("workspace_auth_mode", "runtime_default") or "runtime_default")
-        source = str(connector_payload.get("source", "none") or "none")
-        self._connector_status.setText(
-            f"Editing {workspace_name or 'workspace'} / {connector_id or 'connector'} | auth={auth_state} | "
-            f"source={source} | workspace auth mode={auth_mode}"
-        )
-        self._refresh_connector_binding_feedback()
+        self._connector_action_allow.setPlainText(state.action_allow_text)
+        self._connector_action_block.setPlainText(state.action_block_text)
+        self._connector_endpoint_allow.setPlainText(state.endpoint_allow_text)
+        self._connector_endpoint_block.setPlainText(state.endpoint_block_text)
+        self._connector_note.setText(state.note)
+        self._connector_status.setText(state.status_text)
+        self._connector_validation.setText(state.validation_text)
+        self._connector_history.setText(state.history_text)
 
     def _refresh_connector_binding_feedback(self, *_args) -> None:
         workspace_name = self._connector_workspace.currentText().strip()
         connector_id = self._connector_id.currentText().strip().lower()
         connector_payload = self._connectors_by_name.get(workspace_name, {}).get(connector_id, {})
-        validation = connector_payload.get("binding_validation", {}) if isinstance(connector_payload.get("binding_validation"), dict) else {}
-        provider_rows = [row for row in connector_payload.get("providers", []) if isinstance(row, dict)] if isinstance(connector_payload.get("providers"), list) else []
-        account_rows = [row for row in connector_payload.get("accounts", []) if isinstance(row, dict)] if isinstance(connector_payload.get("accounts"), list) else []
-        selected_provider = str(self._connector_provider.currentData() or "").strip().lower()
-        selected_account = str(self._connector_account.currentData() or "").strip().lower()
-        provider_payload = next((row for row in provider_rows if str(row.get("id", "")).strip().lower() == selected_provider), {})
-        account_payload = next((row for row in account_rows if str(row.get("id", "")).strip().lower() == selected_account), {})
-        validation_bits: list[str] = []
-        if not self._connector_enabled.isChecked():
-            validation_bits.append("Workspace binding is currently disabled.")
-        if provider_payload:
-            validation_bits.append(str(provider_payload.get("auth_detail", "") or "").strip())
-        elif provider_rows:
-            validation_bits.append("Choose a provider from the machine inventory before saving.")
-        if account_payload:
-            validation_bits.append(str(account_payload.get("auth_detail", "") or "").strip())
-        elif account_rows:
-            validation_bits.append("Choose an available account from the machine inventory before saving.")
-        validation_bits.append(str(validation.get("message", "") or "").strip())
-        self._connector_validation.setText(
-            "Validation: " + " | ".join(bit for bit in validation_bits if bit)
+        validation_text, history_text = build_connector_binding_feedback(
+            connector_payload,
+            enabled=self._connector_enabled.isChecked(),
+            selected_provider=str(self._connector_provider.currentData() or "").strip().lower(),
+            selected_account=str(self._connector_account.currentData() or "").strip().lower(),
         )
-        self._connector_history.setText(
-            self._history_line(connector_payload.get("history", {}) if isinstance(connector_payload.get("history"), dict) else {})
-        )
+        self._connector_validation.setText(validation_text)
+        self._connector_history.setText(history_text)
 
     def _emit_connector_binding_save(self) -> None:
         workspace_name = self._connector_workspace.currentText().strip()
@@ -884,130 +775,55 @@ class InstanceManagerView(QWidget):
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
-
-        instances = payload.get("instances", []) if isinstance(payload, dict) else []
-        active_instance = str(payload.get("active_instance", "")).strip() if isinstance(payload, dict) else ""
-        warnings = payload.get("warnings", []) if isinstance(payload, dict) else []
-        items = instances if isinstance(instances, list) else []
-        ordered_names = [
-            str(item.get("name", "")).strip()
-            for item in items
-            if isinstance(item, dict) and str(item.get("name", "")).strip()
-        ]
-        self._known_names = set(ordered_names)
-        previous_target = self._governance_workspace.currentText().strip()
-        previous_connector_workspace = self._connector_workspace.currentText().strip()
-        previous_connector_id = self._connector_id.currentText().strip().lower()
-        governance_map: dict[str, dict[str, object]] = {}
-        connector_map: dict[str, dict[str, dict[str, object]]] = {}
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name", "")).strip()
-            if not name:
-                continue
-            governance = item.get("governance", {}) if isinstance(item.get("governance"), dict) else {}
-            governance_map[name] = {
-                **governance,
-                "instance_type": str(item.get("type", "user_instance") or "user_instance"),
-            }
-            connector_rows = item.get("connectors", []) if isinstance(item.get("connectors"), list) else []
-            workspace_auth_mode = str(governance.get("auth_mode", "runtime_default") or "runtime_default")
-            connector_map[name] = {
-                str(row.get("id", "")).strip().lower(): {
-                    **row,
-                    "workspace_auth_mode": workspace_auth_mode,
-                }
-                for row in connector_rows
-                if isinstance(row, dict) and str(row.get("id", "")).strip()
-            }
-        self._governance_by_name = governance_map
-        self._connectors_by_name = connector_map
+        state = build_instance_manager_state(
+            payload,
+            previous_governance_workspace=self._governance_workspace.currentText().strip(),
+            previous_connector_workspace=self._connector_workspace.currentText().strip(),
+            previous_connector_id=self._connector_id.currentText().strip().lower(),
+        )
+        self._known_names = set(state.ordered_names)
+        self._governance_by_name = state.governance_map
+        self._connectors_by_name = state.connector_map
         self._governance_workspace.blockSignals(True)
         self._governance_workspace.clear()
-        for name in ordered_names:
+        for name in state.ordered_names:
             self._governance_workspace.addItem(name)
-        target = previous_target or active_instance or (ordered_names[0] if ordered_names else "")
-        if target:
-            idx = self._governance_workspace.findText(target)
+        if state.governance_target:
+            idx = self._governance_workspace.findText(state.governance_target)
             self._governance_workspace.setCurrentIndex(max(0, idx))
         self._governance_workspace.blockSignals(False)
         self._load_governance_editor(self._governance_workspace.currentText())
 
         self._connector_workspace.blockSignals(True)
         self._connector_workspace.clear()
-        for name in ordered_names:
+        for name in state.ordered_names:
             self._connector_workspace.addItem(name)
-        connector_target_workspace = previous_connector_workspace or active_instance or (ordered_names[0] if ordered_names else "")
-        if connector_target_workspace:
-            idx = self._connector_workspace.findText(connector_target_workspace)
+        if state.connector_target_workspace:
+            idx = self._connector_workspace.findText(state.connector_target_workspace)
             self._connector_workspace.setCurrentIndex(max(0, idx))
         self._connector_workspace.blockSignals(False)
-        connector_rows = self._connectors_by_name.get(self._connector_workspace.currentText().strip(), {})
         self._connector_id.blockSignals(True)
         self._connector_id.clear()
-        for connector_id in connector_rows.keys():
+        for connector_id in state.connector_ids:
             self._connector_id.addItem(connector_id)
-        if self._connector_id.count() == 0:
-            for connector_id in ("gmail", "calendar", "spotify", "youtube", "crm", "voip"):
-                self._connector_id.addItem(connector_id)
-        connector_idx = self._connector_id.findText(previous_connector_id)
+        connector_idx = self._connector_id.findText(state.connector_target_id)
         self._connector_id.setCurrentIndex(max(0, connector_idx))
         self._connector_id.blockSignals(False)
         self._load_connector_binding_editor("")
 
-        limits = payload.get("limits", {}) if isinstance(payload, dict) else {}
-        if isinstance(limits, dict):
-            self._configured = int(limits.get("configured", len(items)) or len(items))
-            self._max_configured = int(limits.get("max_configured", 5) or 5)
-            self._active_runtime = int(limits.get("active_runtime", 0) or 0)
-            self._max_active_runtime = int(limits.get("max_active_runtime", 2) or 2)
-        else:
-            self._configured = len(items)
-            self._max_configured = 5
-            self._active_runtime = sum(
-                1
-                for item in items
-                if isinstance(item, dict) and str(item.get("status", "idle")).strip().lower() in {"active", "running", "busy"}
-            )
-            self._max_active_runtime = 2
-
-        self._summary_lbl.setText(
-            f"Configured workspaces: {self._configured} / {self._max_configured} | Active workspace: {active_instance or '-'}"
-            + (f" | Roles: {_workspace_role_summary(items)}" if items else "")
-            + (f" | Warnings: {len(warnings)}" if isinstance(warnings, list) and warnings else "")
-        )
-        limits_text = f"Live workspaces: {self._active_runtime} / {self._max_active_runtime}"
-        if self._configured >= self._max_configured:
-            limits_text += " | workspace cap reached"
-        if self._active_runtime >= self._max_active_runtime:
-            limits_text += " | collaborator cap reached"
-        self._limits_lbl.setText(limits_text)
-        self._role_mix_lbl.setText("Role mix: " + _workspace_role_summary(items))
-        active_payload = next(
-            (
-                item
-                for item in items
-                if isinstance(item, dict) and str(item.get("name", "")).strip() == active_instance
-            ),
-            {},
-        )
-        active_type = str(active_payload.get("type", "user_instance") or "user_instance")
-        active_purpose = str(active_payload.get("description", "") or _workspace_default_purpose(active_type)).strip()
-        self._collab_lbl.setText(
-            f"Active workspace fit: {_workspace_role_label(active_type)}. {active_purpose} | {_workspace_collaboration_hint(active_type)}"
-            if active_instance
-            else "Pick a workspace to see its saved purpose and collaboration fit."
-        )
-        self._recurring_lbl.setText(
-            f"Recurring context: {_workspace_saved_context(active_payload)} | {_workspace_reentry_hint(active_type)} | {_workspace_recent_context(active_payload)}"
-            if active_instance
-            else "Pick a workspace to see its saved mode/persona/voice rhythm and recent thread cues."
-        )
-        self._empty_state_lbl.setVisible(not bool(items))
-        if not items:
+        self._configured = state.configured
+        self._max_configured = state.max_configured
+        self._active_runtime = state.active_runtime
+        self._max_active_runtime = state.max_active_runtime
+        self._summary_lbl.setText(state.summary_text)
+        self._limits_lbl.setText(state.limits_text)
+        self._role_mix_lbl.setText(state.role_mix_text)
+        self._collab_lbl.setText(state.collaboration_text)
+        self._recurring_lbl.setText(state.recurring_text)
+        self._empty_state_lbl.setVisible(state.show_empty_state)
+        if state.show_empty_state:
             empty_card = QLabel(
-                "No workspaces yet.\n\nStart with Daily for recurring help, Builder for reviews and planning, Reference for evidence-first checks, or Ops for guarded recovery work."
+                state.empty_state_text
             )
             empty_card.setWordWrap(True)
             empty_card.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -1017,10 +833,8 @@ class InstanceManagerView(QWidget):
             )
             self._cards_layout.addWidget(empty_card)
 
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            card = _InstanceCard(item, str(item.get("name", "")).strip() == active_instance)
+        for item in state.items:
+            card = _InstanceCard(item, str(item.get("name", "")).strip() == state.active_instance)
             card.activate_requested.connect(self.activate_requested.emit)
             card.delete_requested.connect(self.delete_requested.emit)
             card.logs_requested.connect(self.logs_requested.emit)
