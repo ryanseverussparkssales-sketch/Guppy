@@ -41,6 +41,9 @@ ENV/
 *.sqlite
 *.sqlite3
 guppy_memory.db
+chroma_db/
+entities.json
+mempalace.yaml
 
 # Logs
 *.log
@@ -80,6 +83,7 @@ runtime/canary/*.md
 runtime/hub_analysis_cache.json
 runtime/router_tuning_patch.env
 runtime/stress_report_*.json
+runtime/stress_reports/*.json
 runtime/lifecycle_*_report.json
 runtime/_validate_write_test.tmp
 runtime/diagnostics_bundle_*.json
@@ -89,6 +93,12 @@ runtime/__pycache__/
 
 # Local tool/operator settings
 .claude/settings.local.json
+
+# Local secrets and auth artifacts
+gmail_credentials*.json
+*credentials*.json
+*token*.json
+*token*.txt
 
 # Temporary files
 *.tmp

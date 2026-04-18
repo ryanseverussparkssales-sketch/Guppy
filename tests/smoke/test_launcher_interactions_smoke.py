@@ -16,10 +16,12 @@ try:
     from ui.launcher.views.assistant_view import AssistantView
     from ui.launcher.views.advanced_view import AdvancedView
     from ui.launcher.views.instance_manager_view import InstanceManagerView
+    from ui.launcher.views.library_view import LibraryView
     from ui.launcher.views.local_llm_view import LocalLLMView
     from ui.launcher.views.my_pc_view import MyPCView
     from ui.launcher.views.models_view import ModelsView
     from ui.launcher.views.runtime_routing_view import RuntimeRoutingView
+    from ui.launcher.views import library_view as library_view_module
     from ui.launcher.views import models_view as models_view_module
     from ui.launcher.views import settings_view as settings_view_module
     from ui.launcher.views.tools_view import ToolsView
@@ -336,7 +338,8 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("WORKSPACE", assistant._instance_chip.text())
         self.assertIn("GUPPY LIVE", assistant._background_chip.text())
         self.assertIn("Active agent switched to GUPPY", assistant._background_event.text())
-        self.assertIn("Active agent switched to GUPPY", assistant._hero_subtitle.text())
+        self.assertIn("Starters are optional.", assistant._hero_subtitle.text())
+        self.assertNotIn("Active agent switched to GUPPY", assistant._hero_subtitle.text())
         self.assertIn("Active workspace:", assistant._workspace_summary.text())
         self.assertIn("Planning partner for review loops.", assistant._workspace_summary.text())
         self.assertIn("Saved context:", assistant._workspace_summary.text())
@@ -407,7 +410,8 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertEqual(assistant.selected_mode(), "code")
         self.assertIn("missing tests first", assistant._input.text())
         self.assertIn("Starter loaded: BUILDER REVIEW", assistant._background_event.text())
-        self.assertIn("Starter loaded: BUILDER REVIEW", assistant._hero_subtitle.text())
+        self.assertIn("Starters are optional.", assistant._hero_subtitle.text())
+        self.assertNotIn("Starter loaded: BUILDER REVIEW", assistant._hero_subtitle.text())
         self.assertIn("BUILDER REVIEW is ready", assistant._starter_summary.text())
         self.assertEqual(loaded[-1][0], "builder_review")
 
@@ -459,6 +463,139 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
 
         assistant.set_mic_capture_state(False)
         self.assertEqual(assistant._mic_btn.text(), "●")
+
+    def test_assistant_saved_reply_context_refreshes_from_latest_reply_and_can_swap(self):
+        assistant = AssistantView()
+        refresh_calls: list[tuple[str, bool]] = []
+        focused_titles: list[str] = []
+        assistant.active_context_refresh_requested.connect(
+            lambda text, as_artifact: refresh_calls.append((text, as_artifact))
+        )
+        assistant.active_context_focus_requested.connect(focused_titles.append)
+
+        assistant.add_assistant_message("Latest answer from this turn.")
+        assistant.set_active_context_items(
+            [
+                {
+                    "title": "Release review",
+                    "kind": "note",
+                    "detail": "Saved from the latest assistant reply in builder-collab",
+                    "origin": "assistant_reply",
+                    "source_label": "Saved reply note",
+                },
+                {"title": "review-notes.md", "kind": "study", "detail": "C:/repo/docs/review-notes.md"},
+            ]
+        )
+
+        self.assertFalse(assistant._active_context_refresh_btn.isHidden())
+        self.assertFalse(assistant._active_context_swap_btn.isHidden())
+
+        assistant._active_context_refresh_btn.click()
+        assistant._active_context_swap_btn.click()
+
+        self.assertEqual(refresh_calls, [("Latest answer from this turn.", False)])
+        self.assertEqual(focused_titles, ["review-notes.md"])
+
+    def test_assistant_saved_output_context_refreshes_from_latest_reply_as_artifact(self):
+        assistant = AssistantView()
+        refresh_calls: list[tuple[str, bool]] = []
+        assistant.active_context_refresh_requested.connect(
+            lambda text, as_artifact: refresh_calls.append((text, as_artifact))
+        )
+
+        assistant.add_assistant_message("Latest artifact content.")
+        assistant.set_active_context_items(
+            [
+                {
+                    "title": "Release review artifact",
+                    "kind": "artifact",
+                    "detail": "Checklist and validation notes ready for the next pass.",
+                    "origin": "assistant_reply_artifact",
+                    "source_label": "Saved reply artifact",
+                },
+                {"title": "release-bundle.zip", "kind": "artifact", "detail": "C:/tmp/release-bundle.zip"},
+            ]
+        )
+
+        self.assertFalse(assistant._active_context_refresh_btn.isHidden())
+        assistant._active_context_refresh_btn.click()
+        self.assertEqual(refresh_calls, [("Latest artifact content.", True)])
+
+    def test_active_context_refresh_routing_uses_reply_or_artifact_save_paths(self):
+        class _WorkflowStub:
+            def __init__(self) -> None:
+                self.reply_saved_calls: list[tuple[str, bool]] = []
+                self.artifact_saved_calls: list[tuple[str, bool]] = []
+
+            def handle_reply_saved(self, content: str, *, attach_next: bool = False) -> None:
+                self.reply_saved_calls.append((content, attach_next))
+
+            def handle_reply_artifact_saved(self, content: str, *, attach_now: bool = False) -> None:
+                self.artifact_saved_calls.append((content, attach_now))
+
+        workflow = _WorkflowStub()
+        dummy = type("ActiveContextRefreshDummy", (), {})()
+        dummy._ensure_library_workflow = lambda: workflow
+
+        launcher_window.LauncherWindow._on_active_context_refresh_requested(
+            dummy,
+            "Latest answer from this turn.",
+            False,
+        )
+        launcher_window.LauncherWindow._on_active_context_refresh_requested(
+            dummy,
+            "Latest artifact content.",
+            True,
+        )
+
+        self.assertEqual(workflow.reply_saved_calls, [("Latest answer from this turn.", True)])
+        self.assertEqual(workflow.artifact_saved_calls, [("Latest artifact content.", True)])
+
+    def test_library_view_picker_actions_fill_root_and_artifact_paths(self):
+        view = LibraryView()
+        view._root_label.clear()
+        view._root_path.clear()
+        view._artifact_path.clear()
+
+        old_root_picker = library_view_module.QFileDialog.getExistingDirectory
+        old_file_picker = library_view_module.QFileDialog.getOpenFileName
+        try:
+            library_view_module.QFileDialog.getExistingDirectory = (
+                lambda *_args, **_kwargs: "C:/Users/Ryan/Documents/Study"
+            )
+            library_view_module.QFileDialog.getOpenFileName = (
+                lambda *_args, **_kwargs: ("C:/Users/Ryan/Documents/Study/checklist.md", "")
+            )
+            view._root_browse_btn.click()
+            view._artifact_browse_btn.click()
+        finally:
+            library_view_module.QFileDialog.getExistingDirectory = old_root_picker
+            library_view_module.QFileDialog.getOpenFileName = old_file_picker
+
+        self.assertEqual(view._root_path.text(), "C:/Users/Ryan/Documents/Study")
+        self.assertEqual(view._root_label.text(), "Study")
+        self.assertEqual(view._artifact_path.text(), "C:/Users/Ryan/Documents/Study/checklist.md")
+
+    def test_library_view_edit_cancel_buttons_restore_note_and_artifact_inputs(self):
+        view = LibraryView()
+
+        view._begin_note_edit(17, "Review packet", "Validation notes")
+        self.assertEqual(view._note_save_btn.text(), "UPDATE NOTE")
+        self.assertFalse(view._note_cancel_btn.isHidden())
+        view._note_cancel_btn.click()
+        self.assertEqual(view._note_save_btn.text(), "PIN NOTE")
+        self.assertTrue(view._note_cancel_btn.isHidden())
+        self.assertEqual(view._note_title.text(), "")
+        self.assertEqual(view._note_summary.text(), "")
+
+        view._begin_artifact_edit(21, "Release bundle", "C:/tmp/release.zip")
+        self.assertEqual(view._artifact_save_btn.text(), "UPDATE ARTIFACT")
+        self.assertFalse(view._artifact_cancel_btn.isHidden())
+        view._artifact_cancel_btn.click()
+        self.assertEqual(view._artifact_save_btn.text(), "SAVE ARTIFACT")
+        self.assertTrue(view._artifact_cancel_btn.isHidden())
+        self.assertEqual(view._artifact_title.text(), "")
+        self.assertEqual(view._artifact_path.text(), "")
 
     def test_instance_manager_view_renders_snapshot_and_logs(self):
         view = InstanceManagerView()

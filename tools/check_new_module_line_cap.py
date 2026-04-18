@@ -66,24 +66,28 @@ WAIVED_PATHS: dict[str, Waiver] = {
         rationale="Voice orchestration still needs a later service split and broader device validation.",
     ),
     "ui/launcher/launcher_window.py": Waiver(
-        max_lines=5036,
-        rationale="Launcher shell remains the largest active hotspot until launcher-application extraction lands.",
+        max_lines=3685,
+        rationale="Launcher shell hotspot; Library, workspace activation/mutation/refresh, connector workflow, shell-status, and current reply-to-library continuity seams are extracted, but broader composition still needs follow-on cuts before the cap can drop further.",
     ),
     "ui/launcher/views/advanced_view.py": Waiver(
-        max_lines=2238,
-        rationale="App Mgmt still embeds workflow and health orchestration pending spec-backed presenters.",
+        max_lines=1175,
+        rationale="App Mgmt is smaller after terminal/workflow and connector panel extractions, but it still carries broader operator-surface composition pending more presenter seams.",
     ),
     "ui/launcher/views/models_view.py": Waiver(
-        max_lines=1135,
-        rationale="Models still mixes state orchestration and rendering until view-model seams land.",
+        max_lines=1080,
+        rationale="Models remains transitional after runtime-library extraction; route/runtime configuration and view composition still need another seam pass.",
     ),
     "ui/launcher/views/instance_manager_view.py": Waiver(
         max_lines=1077,
         rationale="Workspace manager still bundles governance and render logic pending shared snapshots.",
     ),
     "ui/launcher/views/assistant_view.py": Waiver(
-        max_lines=1004,
-        rationale="Home/chat view still carries orchestration that should move into launcher presenters.",
+        max_lines=1390,
+        rationale="Home/chat carries active context, starter, and transcript orchestration while assistant-context seams are still being extracted.",
+    ),
+    "ui/launcher/views/library_view.py": Waiver(
+        max_lines=750,
+        rationale="Library is newly promoted to an active workspace surface and still bundles browse/edit/render behavior pending deeper presenter extraction.",
     ),
     "ui/launcher/views/voices_view.py": Waiver(
         max_lines=902,
@@ -94,8 +98,8 @@ WAIVED_PATHS: dict[str, Waiver] = {
         rationale="Settings remains transitional while configuration ownership moves out of the UI layer.",
     ),
     "utils/connector_manager.py": Waiver(
-        max_lines=1838,
-        rationale="Connector governance/action execution still lives in one module pending service breakup.",
+        max_lines=900,
+        rationale="Connector manager now delegates to workspace_governance seams; cap tightened to observed size plus 20-line margin.",
     ),
     "utils/personalization_config.py": Waiver(
         max_lines=845,
