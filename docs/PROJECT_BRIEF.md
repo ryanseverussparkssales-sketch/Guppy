@@ -185,6 +185,14 @@ Apply `docs/PRODUCT_FEATURE_FILTER.md` to every tranche before expanding scope. 
    Repo/doc alignment pass closed the current subtitle contract gap: smoke assertions now validate activity text in the context bar while keeping the hero subtitle role-aware, local Gmail credential JSON files were moved out of repo root to the user-home credential path, root-only local artifacts were quarantined under `C:\Users\Ryan\Guppy_Quarantine\2026-04-18_root_sweep`, and `dev-check --guard-scope baseline` plus the targeted launcher smoke subset were re-run.
 28. April 18, 2026
    Home, Library, and shell wording moved through a visible UX tranche: Library now spells out approved-root boundaries, active root state, and why `USE IN CHAT` matters; Home now presents attached Library sources as clearer current-source context with calmer composer guidance; and the shell now emphasizes the daily path with `HOME`, `WORKSPACES`, `LIBRARY`, `SETTINGS`, `MY PC`, and `LOCAL LLM` language while baseline and targeted smoke stayed green after a small helper extraction pulled `library_view.py` back under its transitional cap.
+29. April 18, 2026
+   `daemon.py` no longer imports `utils.runtime_profile` directly; `get_runtime_envelope_config` is now exposed from `src/guppy/experience_config/services.py` and `daemon.py` uses the seam. The inline 10-line try/except fallback block was removed, shrinking the waived line count from 1483 to 1473.
+30. April 18, 2026
+   `src/guppy/hub/app.py` no longer imports `utils.runtime_profile` directly; `apply_runtime_profile`, `load_runtime_settings` (aliased as `load_app_settings`), and `recommend_runtime_profile` are all consumed from the `experience_config.services` seam. The `apply_runtime_profile` convenience function was added to the seam as the composition of `load_runtime_settings` + `apply_runtime_settings_to_env`.
+31. April 18, 2026
+   `src/guppy/launcher_application/builder_workflow.py` was created as a thin seam wrapper around `utils.offhours_builder`. All four inline lazy `from utils.offhours_builder import ...` calls in `launcher_window.py` now go through the seam. The wrapper includes full no-op fallbacks so the launcher remains functional when the offhours backend is absent.
+32. April 18, 2026
+   Architecture boundary guard and all 309 unit + integration tests stayed green across all three closures above. `settings_view.py` cap risk flagged in the original triage was a false alarm — the file already had a waiver at 743 lines with 48 lines of actual headroom.
 
 ## Current Gaps
 

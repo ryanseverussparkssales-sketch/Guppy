@@ -46,17 +46,7 @@ except Exception:
     def log_operational_event(*_args, **_kwargs):
         return
 
-try:
-    from utils.runtime_profile import get_runtime_envelope_config
-except Exception:
-    def get_runtime_envelope_config(profile: str | None = None) -> Dict[str, Any]:
-        active = (profile or os.environ.get("GUPPY_RUNTIME_PROFILE", "standard") or "standard").strip().lower()
-        return {
-            "profile": active,
-            "cpu_max_pct": float(os.environ.get("GUPPY_ENVELOPE_CPU_MAX_PCT", "80")),
-            "ram_max_pct": float(os.environ.get("GUPPY_ENVELOPE_RAM_MAX_PCT", "88")),
-            "check_interval_s": int(os.environ.get("GUPPY_ENVELOPE_CHECK_S", "60")),
-        }
+from src.guppy.experience_config.services import get_runtime_envelope_config
 
 try:
     from win11toast import toast as win11_toast

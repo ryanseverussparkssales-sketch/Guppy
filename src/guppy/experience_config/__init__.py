@@ -8,8 +8,10 @@ from .contracts import PersonalizationState
 from .presenter import build_persona_options, voice_binding_summary, voice_option_choices
 from .services import (
     apply_runtime_settings_to_env,
+    apply_runtime_profile,
     configured_local_runtime_backend,
     ensure_personalization_scaffold,
+    get_runtime_envelope_config,
     list_model_ids,
     list_persona_choices,
     load_persona_config,
@@ -33,9 +35,11 @@ from .services import (
 __all__ = [
     "PersonalizationState",
     "apply_runtime_settings_to_env",
+    "apply_runtime_profile",
     "build_persona_options",
     "configured_local_runtime_backend",
     "ensure_personalization_scaffold",
+    "get_runtime_envelope_config",
     "list_model_ids",
     "list_persona_choices",
     "load_persona_config",

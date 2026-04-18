@@ -89,9 +89,13 @@ except Exception as exc:
     logger.warning(f"env_bootstrap failed (env vars may be missing): {exc}")
 
 
-try:
-    from utils.runtime_profile import apply_runtime_profile, load_app_settings, recommend_runtime_profile
+from src.guppy.experience_config.services import (
+    apply_runtime_profile,
+    load_runtime_settings as load_app_settings,
+    recommend_runtime_profile,
+)
 
+try:
     APP_SETTINGS = apply_runtime_profile()
 except Exception as exc:
     logger.error(f"runtime_profile load failed - using hard-coded defaults: {exc}")
@@ -100,12 +104,6 @@ except Exception as exc:
         "enable_daemon": os.environ.get("GUPPY_ENABLE_DAEMON", "1").strip().lower()
         in {"1", "true", "yes", "on"},
     }
-
-    def load_app_settings():
-        return dict(APP_SETTINGS)
-
-    def recommend_runtime_profile():
-        return {"profile": APP_SETTINGS.get("runtime_profile", "standard"), "reasons": []}
 
 
 logger.setLevel(logging.INFO)

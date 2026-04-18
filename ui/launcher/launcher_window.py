@@ -2223,7 +2223,7 @@ class LauncherWindow(QMainWindow):
         stress_report_path: str = "",
         recent_events: str = "",
     ) -> dict[str, str]:
-        from utils.offhours_builder import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, build_builder_report
+        from src.guppy.launcher_application.builder_workflow import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, build_builder_report
 
         report = build_builder_report(queue_path=QUEUE_PATH, results_path=RESULTS_PATH, metrics_path=METRICS_PATH)
         queue_payload = read_json_dict(QUEUE_PATH)
@@ -2348,7 +2348,7 @@ class LauncherWindow(QMainWindow):
         instance_name: str,
         announce_text: str,
     ) -> dict[str, object]:
-        from utils.offhours_builder import enqueue_builder_task, render_builder_task
+        from src.guppy.launcher_application.builder_workflow import enqueue_builder_task, render_builder_task
 
         task = render_builder_task(
             template_id,
@@ -2370,7 +2370,7 @@ class LauncherWindow(QMainWindow):
         return task
 
     def _write_automation_report(self) -> Path:
-        from utils.offhours_builder import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, build_builder_report
+        from src.guppy.launcher_application.builder_workflow import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, build_builder_report
 
         report = build_builder_report(queue_path=QUEUE_PATH, results_path=RESULTS_PATH, metrics_path=METRICS_PATH)
         payload = {
@@ -2384,7 +2384,7 @@ class LauncherWindow(QMainWindow):
         return _AUTOMATION_REPORT_PATH
 
     def _approve_latest_builder_task(self) -> dict[str, object]:
-        from utils.offhours_builder import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, approve_builder_task
+        from src.guppy.launcher_application.builder_workflow import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, approve_builder_task
 
         queue_payload = read_json_dict(QUEUE_PATH)
         tasks = [

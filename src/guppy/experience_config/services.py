@@ -247,3 +247,32 @@ def validate_voice_bindings(payload: dict[str, Any]) -> list[str]:
 def resolve_voice_binding(*, persona_id: str = "", model_id: str = "", voice_bindings: dict | None = None) -> dict[str, str]:
     resolved = _resolve_voice_binding(persona_id=persona_id, model_id=model_id, voice_bindings=voice_bindings)
     return resolved if isinstance(resolved, dict) else {"engine": "EDGE TTS", "voice_id": "en-GB-RyanNeural", "source": "default"}
+
+
+try:
+    from utils.runtime_profile import get_runtime_envelope_config as _get_runtime_envelope_config
+
+    _RUNTIME_ENVELOPE_BACKEND = True
+except Exception:
+    _RUNTIME_ENVELOPE_BACKEND = False
+
+    def _get_runtime_envelope_config(profile: str | None = None) -> dict[str, Any]:  # type: ignore[misc]
+        active = (profile or os.environ.get("GUPPY_RUNTIME_PROFILE", "standard") or "standard").strip().lower()
+        return {
+            "profile": active,
+            "cpu_max_pct": float(os.environ.get("GUPPY_ENVELOPE_CPU_MAX_PCT", "80")),
+            "ram_max_pct": float(os.environ.get("GUPPY_ENVELOPE_RAM_MAX_PCT", "88")),
+            "check_interval_s": int(os.environ.get("GUPPY_ENVELOPE_CHECK_S", "60")),
+        }
+
+
+def get_runtime_envelope_config(profile: str | None = None) -> dict[str, Any]:
+    """Return runtime envelope limits for the given profile."""
+    config = _get_runtime_envelope_config(profile)
+    return config if isinstance(config, dict) else {"profile": "standard"}
+
+
+def apply_runtime_profile() -> dict[str, Any]:
+    """Load runtime settings and apply them to env. Returns the merged settings dict."""
+    settings = load_runtime_settings()
+    return apply_runtime_settings_to_env(settings)
