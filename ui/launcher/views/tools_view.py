@@ -1,10 +1,10 @@
 """
 ui/launcher/views/tools_view.py
-AGENT TOOLS tab - instance-scoped capability catalog with clear boundaries.
+TOOLS tab - workspace-scoped actions, file helpers, and capability notes.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -18,28 +18,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.guppy.workspace_governance import (
+    auth_mode_label,
+    check_instance_tool_permission,
+    required_capability_for_tool,
+)
 from ..components import BuilderTaskPanel
 from .. import tokens as T
-
-try:
-    from utils.instance_capabilities import auth_mode_label, check_instance_tool_permission, required_capability_for_tool
-except ImportError:
-    def auth_mode_label(mode: str) -> str:
-        return str(mode or "runtime default").strip() or "runtime default"
-
-    def required_capability_for_tool(tool_name: str) -> str:
-        del tool_name
-        return "execute"
-
-    def check_instance_tool_permission(
-        tool_name: str,
-        *,
-        instance_name: str | None = None,
-        instance_type: str | None = None,
-        config_path=None,
-    ) -> tuple[bool, str, dict]:
-        del tool_name, instance_name, instance_type, config_path
-        return False, "policy unavailable", {}
 
 
 _INSTANCE_TOOL_CATALOG: list[dict[str, object]] = [
@@ -426,6 +411,7 @@ class ToolsView(QWidget):
         self._instance_type = "user_instance"
         self._details_visible = False
         self._tool_card_order: list[str] = []
+        self._scroll: QScrollArea | None = None
         self._limits: dict[str, int] = {
             "configured": 1,
             "max_configured": 5,
@@ -438,8 +424,11 @@ class ToolsView(QWidget):
         outer.setSpacing(0)
 
         scroll = QScrollArea()
+        self._scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        scroll.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
         content = QWidget()
@@ -448,7 +437,7 @@ class ToolsView(QWidget):
         layout.setContentsMargins(28, 20, 28, 20)
         layout.setSpacing(18)
 
-        title = QLabel("Workspace Tools")
+        title = QLabel("Tools")
         title.setStyleSheet(
             f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: 26pt; font-weight: 900;"
         )
@@ -466,7 +455,7 @@ class ToolsView(QWidget):
         layout.addLayout(title_row)
         layout.addWidget(
             _mono(
-                "Use the tray for the fastest path. Open a tool card when you need a little more context.",
+                "Use the workspace drawer for the fastest path. Open a tool card when you need file help, study support, coding support, or connector context.",
                 T.DIM,
                 T.FS_SMALL,
             )
@@ -477,7 +466,7 @@ class ToolsView(QWidget):
         layout.addWidget(self._context_lbl)
         layout.addWidget(self._limits_lbl)
         self._boundary_lbl = _mono(
-            "Open App Management for setup, recovery, and logs.",
+            "Open Settings for setup, recovery, and logs. Stay here when you want task-level actions for the active workspace.",
             T.DIM,
             T.FS_SMALL,
         )
@@ -519,13 +508,13 @@ class ToolsView(QWidget):
         banner_layout.addWidget(_mono("BOUNDARY", T.PRIMARY, T.FS_TINY, True))
         banner_layout.addWidget(
             _mono(
-                "The tray is the fast path. This page stays useful when you want builder context or deeper access notes.",
+                "The workspace drawer is the fast path. This page stays useful when you want richer task context, workspace-safe file actions, or deeper access notes.",
                 T.DIM,
                 T.FS_SMALL,
             )
         )
         self._tray_notice_lbl = _mono(
-            "Use tray icons for common actions. Show details when you want the longer access explanation.",
+            "Use the workspace drawer for common moves. Show details when you want the longer access explanation.",
             T.DIM,
             T.FS_SMALL,
         )
@@ -536,6 +525,7 @@ class ToolsView(QWidget):
         self._builder_panel = BuilderTaskPanel()
         self._builder_panel.queue_requested.connect(self.builder_task_requested.emit)
         layout.addWidget(self._builder_panel)
+        self._register_scroll_proxy(self._builder_panel)
 
         self._cards_host = QWidget()
         self._cards_layout = QGridLayout(self._cards_host)
@@ -547,8 +537,10 @@ class ToolsView(QWidget):
             card.hint_requested.connect(self.tool_hint_requested.emit)
             self._tool_cards[card.tool_key] = card
             self._tool_card_order.append(card.tool_key)
+            self._register_scroll_proxy(card)
         self._cards_host.setVisible(True)
         layout.addWidget(self._cards_host)
+        self._register_scroll_proxy(self._cards_host)
 
         self._empty_state_lbl = _mono(
             "No tools match this filter yet. Clear the search or choose another category to keep working.",
@@ -560,10 +552,40 @@ class ToolsView(QWidget):
         layout.addWidget(self._empty_state_lbl)
 
         layout.addStretch()
+        self._register_scroll_proxy(content)
         scroll.setWidget(content)
         outer.addWidget(scroll)
         self.set_instance_context({}, {})
         self._sync_detail_visibility()
+
+    def eventFilter(self, watched: object, event: object) -> bool:
+        if (
+            self._scroll is not None
+            and isinstance(watched, QWidget)
+            and isinstance(event, QEvent)
+            and event.type() == QEvent.Type.Wheel
+            and not isinstance(watched, (QComboBox, QLineEdit))
+        ):
+            bar = self._scroll.verticalScrollBar()
+            if bar.maximum() > 0:
+                wheel_event = event
+                pixel_delta = wheel_event.pixelDelta().y()
+                if pixel_delta:
+                    delta = pixel_delta
+                else:
+                    steps = wheel_event.angleDelta().y() / 120.0
+                    delta = int(steps * max(36, bar.singleStep()))
+                if delta:
+                    bar.setValue(bar.value() - delta)
+                    wheel_event.accept()
+                    return True
+        return super().eventFilter(watched, event)
+
+    def _register_scroll_proxy(self, widget: QWidget) -> None:
+        widget.installEventFilter(self)
+        for child in widget.findChildren(QWidget):
+            if not isinstance(child, (QComboBox, QLineEdit)):
+                child.installEventFilter(self)
 
     def set_instance_context(self, instance: dict[str, object], snapshot: dict[str, object] | None = None) -> None:
         name = str(instance.get("name", self._instance_name) or self._instance_name).strip() or "guppy-primary"
@@ -589,10 +611,10 @@ class ToolsView(QWidget):
             limits_text += " | COLLABORATOR CAP REACHED"
         self._limits_lbl.setText(limits_text)
         self._boundary_lbl.setText(
-            f"Use the tray for quick tools in {name}. Open App Management for setup, recovery, diagnostics, and logs."
+            f"Use the workspace drawer for fast moves in {name}. Open Settings for setup, recovery, diagnostics, and logs."
         )
         self._tray_notice_lbl.setText(
-            f"{name} can launch quick tools from the tray. This page keeps builder context and optional access detail."
+            f"{name} can launch common actions from the workspace drawer. This page keeps richer task context and optional access detail."
         )
         self._execution_lbl.setText(
             f"{name} can only use tools that match its workspace role and sign-in state. Show details for the exact rules."

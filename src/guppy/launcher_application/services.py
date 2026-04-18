@@ -33,6 +33,13 @@ def connector_backend_available() -> bool:
     return _CONNECTOR_BACKEND_AVAILABLE
 
 
+def is_valid_repair_token(token: str) -> bool:
+    """Return True if token is a non-empty lowercase-hex string no longer than 256 chars."""
+    if not token or len(token) > 256:
+        return False
+    return all(ch in "0123456789abcdef" for ch in token.lower())
+
+
 def fetch_connector_inventory() -> tuple[ConnectorInventoryItem, ...]:
     if not _CONNECTOR_BACKEND_AVAILABLE:
         return ()

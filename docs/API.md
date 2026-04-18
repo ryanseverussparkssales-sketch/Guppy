@@ -2,7 +2,7 @@
 
 Canonical implementation lives in `src/guppy/api/server.py`, which now exposes the public FastAPI surface backed by `src/guppy/api/server_runtime.py`, imported route modules, and shared service/context layers.
 Auth helpers live in `src/guppy/api/auth.py`.
-`guppy_api.py` remains the root launch shim. `compat_shims/guppy_api_auth.py` remains only as a fallback compatibility shim.
+`guppy_api.py` remains the root launch shim. Canonical auth/runtime code lives under `src/guppy/api/*`.
 
 ## Base URL
 

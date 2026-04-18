@@ -17,20 +17,22 @@ from PySide6.QtWidgets import (
 
 from src.guppy.launcher_application.instance_manager_presenter import (
     build_connector_binding_editor_state,
-    build_connector_binding_feedback,
+    build_connector_binding_save_request,
     build_governance_editor_state,
     build_instance_manager_state,
+    build_save_affordance_state,
+    build_section_toggle_state,
+    build_selector_state,
+    build_workspace_activity_log_text,
+    build_workspace_create_copy,
+    build_workspace_create_form_state,
+    build_workspace_create_request,
+    build_connector_binding_feedback,
+    build_governance_save_request,
+    build_workspace_editors_state,
     connector_history_line,
-    parse_policy_lines,
-    role_preset,
     selector_label,
-    workspace_collaboration_hint,
-    workspace_default_purpose,
-    workspace_example_names,
-    workspace_first_run_recipe,
     workspace_recent_context,
-    workspace_reentry_hint,
-    workspace_role_label,
     workspace_role_summary,
     workspace_saved_context,
 )
@@ -44,31 +46,6 @@ def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = Fa
         + ("font-weight: bold;" if bold else "")
     )
     return label
-
-
-def _workspace_role_label(workspace_type: str) -> str:
-    return workspace_role_label(workspace_type)
-
-
-def _workspace_default_purpose(workspace_type: str) -> str:
-    return workspace_default_purpose(workspace_type)
-
-
-def _workspace_collaboration_hint(workspace_type: str) -> str:
-    return workspace_collaboration_hint(workspace_type)
-
-
-def _workspace_reentry_hint(workspace_type: str) -> str:
-    return workspace_reentry_hint(workspace_type)
-
-
-def _workspace_first_run_recipe(workspace_type: str) -> str:
-    return workspace_first_run_recipe(workspace_type)
-
-
-def _workspace_example_names(workspace_type: str) -> str:
-    return workspace_example_names(workspace_type)
-
 
 def _workspace_saved_context(payload: dict[str, object]) -> str:
     return workspace_saved_context(payload)
@@ -107,8 +84,9 @@ class _InstanceCard(QFrame):
         )
         header.addWidget(name_lbl)
         workspace_type = str(payload.get("type", "user_instance") or "user_instance")
+        workspace_copy = build_workspace_create_copy(workspace_type)
         header.addSpacing(8)
-        header.addWidget(_mono(_workspace_role_label(workspace_type).upper(), T.DIM, T.FS_TINY, True))
+        header.addWidget(_mono(workspace_copy.role_label.upper(), T.DIM, T.FS_TINY, True))
         header.addStretch()
         status = str(payload.get("status", "idle") or "idle").upper()
         header.addWidget(_mono(status, T.GREEN if status in {"ACTIVE", "RUNNING"} else T.DIM, T.FS_TINY, True))
@@ -121,14 +99,14 @@ class _InstanceCard(QFrame):
             f"Mode: {str(payload.get('mode', 'auto')).upper()}",
             f"Persona: {str(payload.get('persona', 'guppy')).upper()}",
             f"Voice: {str(payload.get('voice', 'default')).upper()}",
-            f"Role: {_workspace_role_label(workspace_type)}",
+            f"Role: {workspace_copy.role_label}",
         ]
         description = str(payload.get("description", "")).strip()
-        details.append(f"Purpose: {description or _workspace_default_purpose(workspace_type)}")
-        details.append(f"Fit: {_workspace_collaboration_hint(workspace_type)}")
-        details.append(_workspace_first_run_recipe(workspace_type))
+        details.append(f"Purpose: {description or workspace_copy.default_purpose}")
+        details.append(f"Fit: {workspace_copy.collaboration_hint}")
+        details.append(workspace_copy.first_run_recipe)
         details.append(_workspace_saved_context(payload))
-        details.append(f"Return here for: {_workspace_reentry_hint(workspace_type)}")
+        details.append(f"Return here for: {workspace_copy.reentry_hint}")
         details.append(_workspace_recent_context(payload))
         for line in details:
             root.addWidget(_mono(line, T.DIM, T.FS_TINY))
@@ -168,9 +146,9 @@ class InstanceManagerView(QWidget):
         self._max_active_runtime = 2
         self._governance_by_name: dict[str, dict[str, object]] = {}
         self._connectors_by_name: dict[str, dict[str, dict[str, object]]] = {}
-        self._last_role_preset_type = "user_instance"
         self._governance_visible = False
         self._connector_bindings_visible = False
+        self._last_role_copy = build_workspace_create_copy("user_instance")
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -193,20 +171,20 @@ class InstanceManagerView(QWidget):
         layout.addWidget(title)
         layout.addWidget(
             _mono(
-                "Choose the right workspace for the task. Workspaces keep purpose, persona, voice, and recent context together.",
+                "Choose the right workspace for the task. Workspaces keep purpose, memory, persona, voice, and recent context together.",
                 T.DIM,
                 T.FS_SMALL,
             )
         )
         guide = _mono(
-            "Daily = everyday help | Builder = review and planning | Read-only = safe reference | Ops = recovery and diagnostics",
+            "Daily = everyday help | Builder = study and coding support | Read-only = safe reference | Ops = recovery and diagnostics",
             T.DIM,
             T.FS_TINY,
         )
         guide.setWordWrap(True)
         layout.addWidget(guide)
 
-        self._status_lbl = _mono("Ready to review and edit saved workspaces.", T.DIM, T.FS_TINY)
+        self._status_lbl = _mono("Ready to review saved workspaces, defaults, and workspace memory.", T.DIM, T.FS_TINY)
         layout.addWidget(self._status_lbl)
 
         form = QFrame()
@@ -214,14 +192,14 @@ class InstanceManagerView(QWidget):
         form_layout = QVBoxLayout(form)
         form_layout.setContentsMargins(14, 12, 14, 12)
         form_layout.setSpacing(8)
-        form_layout.addWidget(_mono("WORKSPACE DETAILS", T.PRIMARY, T.FS_TINY, True))
+        form_layout.addWidget(_mono("WORKSPACE SETUP", T.PRIMARY, T.FS_TINY, True))
         self._preset_lbl = _mono("Preset: daily workspace defaults are ready.", T.DIM, T.FS_TINY)
         self._preset_lbl.setWordWrap(True)
         form_layout.addWidget(self._preset_lbl)
         self._recipe_lbl = _mono("First run: use MORNING BRIEF to get the workspace moving.", T.DIM, T.FS_TINY)
         self._recipe_lbl.setWordWrap(True)
         form_layout.addWidget(self._recipe_lbl)
-        self._examples_lbl = _mono(_workspace_example_names("user_instance"), T.DIM, T.FS_TINY)
+        self._examples_lbl = _mono(build_workspace_create_copy("user_instance").example_names, T.DIM, T.FS_TINY)
         self._examples_lbl.setWordWrap(True)
         form_layout.addWidget(self._examples_lbl)
 
@@ -536,33 +514,36 @@ class InstanceManagerView(QWidget):
         self._sync_save_affordance()
 
     def _emit_create(self) -> None:
-        self.create_requested.emit(
-            {
-                "name": self._name.text().strip(),
-                "description": self._description.text().strip(),
-                "mode": self._mode.currentText().strip(),
-                "persona": str(self._persona.currentData() or self._persona.currentText()).strip(),
-                "voice": str(self._voice.currentData() or self._voice.currentText()).strip(),
-                "type": self._type.currentText().strip(),
-                "enabled": self._enabled.isChecked(),
-            }
+        request = build_workspace_create_request(
+            name=self._name.text(),
+            description=self._description.text(),
+            mode=self._mode.currentText(),
+            persona=str(self._persona.currentData() or self._persona.currentText()),
+            voice=str(self._voice.currentData() or self._voice.currentText()),
+            workspace_type=self._type.currentText(),
+            enabled=self._enabled.isChecked(),
         )
+        self.create_requested.emit(request.as_payload())
 
     def _toggle_governance_section(self) -> None:
-        self._governance_visible = not self._governance_visible
-        self._governance_frame.setVisible(self._governance_visible)
-        self._governance_toggle_btn.setText("HIDE ACCESS RULES" if self._governance_visible else "SHOW ACCESS RULES")
+        state = build_section_toggle_state(
+            not self._governance_visible,
+            show_label="SHOW ACCESS RULES",
+            hide_label="HIDE ACCESS RULES",
+        )
+        self._governance_visible = state.visible
+        self._governance_frame.setVisible(state.visible)
+        self._governance_toggle_btn.setText(state.button_label)
 
     def _toggle_connector_bindings_section(self) -> None:
-        self._connector_bindings_visible = not self._connector_bindings_visible
-        self._connectors_frame.setVisible(self._connector_bindings_visible)
-        self._connector_toggle_btn.setText(
-            "HIDE CONNECTOR RULES" if self._connector_bindings_visible else "SHOW CONNECTOR RULES"
+        state = build_section_toggle_state(
+            not self._connector_bindings_visible,
+            show_label="SHOW CONNECTOR RULES",
+            hide_label="HIDE CONNECTOR RULES",
         )
-
-    @staticmethod
-    def _parse_policy_lines(text: str) -> list[str]:
-        return parse_policy_lines(text)
+        self._connector_bindings_visible = state.visible
+        self._connectors_frame.setVisible(state.visible)
+        self._connector_toggle_btn.setText(state.button_label)
 
     @staticmethod
     def _selector_label(item: dict[str, object], *, fallback: str) -> str:
@@ -572,37 +553,39 @@ class InstanceManagerView(QWidget):
     def _history_line(payload: dict[str, object]) -> str:
         return connector_history_line(payload)
 
-    @staticmethod
-    def _role_preset(workspace_type: str) -> dict[str, str]:
-        preset = role_preset(workspace_type)
-        return {
-            "name_placeholder": preset.name_placeholder,
-            "description_placeholder": preset.description_placeholder,
-            "mode": preset.mode,
-            "summary": preset.summary,
-            "recipe": preset.recipe,
-        }
-
     def _apply_role_preset(self, workspace_type: str) -> None:
-        preset = self._role_preset(workspace_type)
-        previous_preset = self._role_preset(self._last_role_preset_type)
-        self._name.setPlaceholderText(preset["name_placeholder"])
-        self._description.setPlaceholderText(preset["description_placeholder"])
-        self._preset_lbl.setText(preset["summary"])
-        self._recipe_lbl.setText(preset.get("recipe", _workspace_first_run_recipe(workspace_type)))
-        self._examples_lbl.setText(_workspace_example_names(workspace_type))
-        current_description = self._description.text().strip()
-        if not current_description or current_description == previous_preset["description_placeholder"]:
-            self._description.setText(preset["description_placeholder"])
-        current_mode = self._mode.currentText().strip().lower()
-        if not current_mode or current_mode == previous_preset["mode"]:
-            idx = self._mode.findText(preset["mode"])
+        form_state = build_workspace_create_form_state(
+            workspace_type=workspace_type,
+            current_description=self._description.text(),
+            current_mode=self._mode.currentText(),
+            previous_copy=self._last_role_copy,
+        )
+        copy = form_state.copy
+        self._name.setPlaceholderText(copy.name_placeholder)
+        self._description.setPlaceholderText(copy.description_placeholder)
+        self._preset_lbl.setText(copy.preset_summary)
+        self._recipe_lbl.setText(copy.first_run_recipe)
+        self._examples_lbl.setText(copy.example_names)
+        if form_state.description_value is not None:
+            self._description.setText(form_state.description_value)
+        if form_state.mode_value is not None:
+            idx = self._mode.findText(form_state.mode_value)
             if idx >= 0:
                 self._mode.setCurrentIndex(idx)
-        self._last_role_preset_type = (workspace_type or "user_instance").strip().lower() or "user_instance"
+        self._last_role_copy = copy
 
-    def _load_governance_editor(self, workspace_name: str) -> None:
-        state = build_governance_editor_state(workspace_name, self._governance_by_name)
+    @staticmethod
+    def _apply_selector(combo: QComboBox, state) -> None:
+        combo.blockSignals(True)
+        combo.clear()
+        for option in state.options:
+            combo.addItem(option)
+        if state.selected_value:
+            idx = combo.findText(state.selected_value)
+            combo.setCurrentIndex(max(0, idx))
+        combo.blockSignals(False)
+
+    def _apply_governance_editor_state(self, state) -> None:
         auth_index = max(0, self._governance_auth_mode.findText(state.auth_mode))
         self._governance_auth_mode.setCurrentIndex(auth_index)
         self._governance_note.setText(state.policy_note)
@@ -612,39 +595,11 @@ class InstanceManagerView(QWidget):
         self._endpoint_block.setPlainText(state.endpoint_block_text)
         self._governance_status.setText(state.status_text)
 
-    def _emit_governance_save(self) -> None:
-        target = self._governance_workspace.currentText().strip()
-        if not target:
-            self.set_governance_status("Choose a workspace before saving governance.", ok=False)
-            return
-        policy = self._governance_by_name.get(target, {})
-        self.governance_save_requested.emit(
-            {
-                "name": target,
-                "instance_type": str(policy.get("instance_type", "user_instance") or "user_instance"),
-                "auth_mode": self._governance_auth_mode.currentText().strip(),
-                "tool_allow": self._parse_policy_lines(self._tool_allow.toPlainText()),
-                "tool_block": self._parse_policy_lines(self._tool_block.toPlainText()),
-                "endpoint_allow": self._parse_policy_lines(self._endpoint_allow.toPlainText()),
-                "endpoint_block": self._parse_policy_lines(self._endpoint_block.toPlainText()),
-                "policy_note": self._governance_note.text().strip(),
-            }
+    def _apply_connector_editor_state(self, state) -> None:
+        self._apply_selector(
+            self._connector_id,
+            build_selector_state(state.connector_ids, state.selected_connector_id),
         )
-
-    def _load_connector_binding_editor(self, _value: str) -> None:
-        workspace_name = self._connector_workspace.currentText().strip()
-        state = build_connector_binding_editor_state(
-            workspace_name,
-            self._connector_id.currentText().strip().lower(),
-            self._connectors_by_name,
-        )
-        self._connector_id.blockSignals(True)
-        self._connector_id.clear()
-        for connector_id in state.connector_ids:
-            self._connector_id.addItem(connector_id)
-        idx = self._connector_id.findText(state.selected_connector_id)
-        self._connector_id.setCurrentIndex(max(0, idx))
-        self._connector_id.blockSignals(False)
         self._connector_enabled.setChecked(state.enabled)
         self._connector_provider.blockSignals(True)
         self._connector_provider.clear()
@@ -669,6 +624,36 @@ class InstanceManagerView(QWidget):
         self._connector_validation.setText(state.validation_text)
         self._connector_history.setText(state.history_text)
 
+    def _load_governance_editor(self, workspace_name: str) -> None:
+        state = build_governance_editor_state(workspace_name, self._governance_by_name)
+        self._apply_governance_editor_state(state)
+
+    def _emit_governance_save(self) -> None:
+        target = self._governance_workspace.currentText().strip()
+        request, error = build_governance_save_request(
+            target=target,
+            policy=self._governance_by_name.get(target, {}),
+            auth_mode=self._governance_auth_mode.currentText(),
+            tool_allow_text=self._tool_allow.toPlainText(),
+            tool_block_text=self._tool_block.toPlainText(),
+            endpoint_allow_text=self._endpoint_allow.toPlainText(),
+            endpoint_block_text=self._endpoint_block.toPlainText(),
+            policy_note=self._governance_note.text(),
+        )
+        if request is None:
+            self.set_governance_status(error, ok=False)
+            return
+        self.governance_save_requested.emit(request.as_payload())
+
+    def _load_connector_binding_editor(self, _value: str) -> None:
+        workspace_name = self._connector_workspace.currentText().strip()
+        state = build_connector_binding_editor_state(
+            workspace_name,
+            self._connector_id.currentText().strip().lower(),
+            self._connectors_by_name,
+        )
+        self._apply_connector_editor_state(state)
+
     def _refresh_connector_binding_feedback(self, *_args) -> None:
         workspace_name = self._connector_workspace.currentText().strip()
         connector_id = self._connector_id.currentText().strip().lower()
@@ -683,25 +668,22 @@ class InstanceManagerView(QWidget):
         self._connector_history.setText(history_text)
 
     def _emit_connector_binding_save(self) -> None:
-        workspace_name = self._connector_workspace.currentText().strip()
-        connector_id = self._connector_id.currentText().strip().lower()
-        if not workspace_name or not connector_id:
-            self.set_connector_binding_status("Choose a workspace and connector before saving.", ok=False)
-            return
-        self.connector_binding_save_requested.emit(
-            {
-                "name": workspace_name,
-                "connector": connector_id,
-                "enabled": self._connector_enabled.isChecked(),
-                "account_id": str(self._connector_account.currentData() or "").strip().lower(),
-                "provider": str(self._connector_provider.currentData() or "").strip().lower(),
-                "action_allow": self._parse_policy_lines(self._connector_action_allow.toPlainText()),
-                "action_block": self._parse_policy_lines(self._connector_action_block.toPlainText()),
-                "endpoint_allow": self._parse_policy_lines(self._connector_endpoint_allow.toPlainText()),
-                "endpoint_block": self._parse_policy_lines(self._connector_endpoint_block.toPlainText()),
-                "note": self._connector_note.text().strip(),
-            }
+        request, error = build_connector_binding_save_request(
+            workspace_name=self._connector_workspace.currentText(),
+            connector_id=self._connector_id.currentText(),
+            enabled=self._connector_enabled.isChecked(),
+            account_id=str(self._connector_account.currentData() or ""),
+            provider=str(self._connector_provider.currentData() or ""),
+            action_allow_text=self._connector_action_allow.toPlainText(),
+            action_block_text=self._connector_action_block.toPlainText(),
+            endpoint_allow_text=self._connector_endpoint_allow.toPlainText(),
+            endpoint_block_text=self._connector_endpoint_block.toPlainText(),
+            note=self._connector_note.text(),
         )
+        if request is None:
+            self.set_connector_binding_status(error, ok=False)
+            return
+        self.connector_binding_save_requested.emit(request.as_payload())
 
     def set_persona_options(self, options: list[tuple[str, str]], selected: str | None = None) -> None:
         target = str(selected or self._persona.currentData() or self._persona.currentText()).strip().lower()
@@ -738,12 +720,15 @@ class InstanceManagerView(QWidget):
         self._voice.blockSignals(False)
 
     def _sync_save_affordance(self) -> None:
-        candidate = self._name.text().strip()
-        is_new_name = bool(candidate) and candidate not in self._known_names
-        at_limit = self._configured >= self._max_configured
-        self._save_btn.setEnabled(not (at_limit and is_new_name))
-        if at_limit and is_new_name:
-            self._status_lbl.setText("Workspace limit reached (5 / 5). Update an existing workspace or delete one first.")
+        state = build_save_affordance_state(
+            candidate_name=self._name.text(),
+            known_names=self._known_names,
+            configured=self._configured,
+            max_configured=self._max_configured,
+        )
+        self._save_btn.setEnabled(state.enabled)
+        if state.warning_text:
+            self._status_lbl.setText(state.warning_text)
             self._status_lbl.setStyleSheet(
                 f"color: {T.ERROR}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
             )
@@ -781,35 +766,15 @@ class InstanceManagerView(QWidget):
             previous_connector_workspace=self._connector_workspace.currentText().strip(),
             previous_connector_id=self._connector_id.currentText().strip().lower(),
         )
+        editors_state = build_workspace_editors_state(state)
         self._known_names = set(state.ordered_names)
         self._governance_by_name = state.governance_map
         self._connectors_by_name = state.connector_map
-        self._governance_workspace.blockSignals(True)
-        self._governance_workspace.clear()
-        for name in state.ordered_names:
-            self._governance_workspace.addItem(name)
-        if state.governance_target:
-            idx = self._governance_workspace.findText(state.governance_target)
-            self._governance_workspace.setCurrentIndex(max(0, idx))
-        self._governance_workspace.blockSignals(False)
-        self._load_governance_editor(self._governance_workspace.currentText())
+        self._apply_selector(self._governance_workspace, editors_state.governance_workspace)
+        self._apply_governance_editor_state(editors_state.governance_editor)
 
-        self._connector_workspace.blockSignals(True)
-        self._connector_workspace.clear()
-        for name in state.ordered_names:
-            self._connector_workspace.addItem(name)
-        if state.connector_target_workspace:
-            idx = self._connector_workspace.findText(state.connector_target_workspace)
-            self._connector_workspace.setCurrentIndex(max(0, idx))
-        self._connector_workspace.blockSignals(False)
-        self._connector_id.blockSignals(True)
-        self._connector_id.clear()
-        for connector_id in state.connector_ids:
-            self._connector_id.addItem(connector_id)
-        connector_idx = self._connector_id.findText(state.connector_target_id)
-        self._connector_id.setCurrentIndex(max(0, connector_idx))
-        self._connector_id.blockSignals(False)
-        self._load_connector_binding_editor("")
+        self._apply_selector(self._connector_workspace, editors_state.connector_workspace)
+        self._apply_connector_editor_state(editors_state.connector_editor)
 
         self._configured = state.configured
         self._max_configured = state.max_configured
@@ -844,15 +809,4 @@ class InstanceManagerView(QWidget):
         self._sync_save_affordance()
 
     def set_logs(self, instance_name: str, entries: list[dict[str, object]]) -> None:
-        lines: list[str] = []
-        for item in entries:
-            if not isinstance(item, dict):
-                continue
-            timestamp = str(item.get("timestamp", "")).replace("T", " ").replace("+00:00", "Z")
-            role = str(item.get("role", "event")).upper()
-            message = str(item.get("message", item.get("response", ""))).strip()
-            if message:
-                lines.append(f"[{timestamp}] {role}: {message}")
-        self._logs.setPlainText(
-            "\n".join(lines) if lines else f"No recent conversation or ops activity yet for workspace {instance_name}"
-        )
+        self._logs.setPlainText(build_workspace_activity_log_text(instance_name, entries))

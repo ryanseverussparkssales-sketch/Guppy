@@ -16,22 +16,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.guppy.workspace_governance import secret_field_meta
 from .. import tokens as T
-
-try:
-    from utils.connector_manager import secret_field_meta
-except Exception:
-    def secret_field_meta(secret_key: str) -> dict[str, Any]:
-        normalized = str(secret_key or "").strip().upper()
-        return {
-            "key": normalized,
-            "label": normalized.replace("_", " ").title(),
-            "placeholder": "",
-            "input_hint": "",
-            "validation_hint": "",
-            "kind": "token",
-            "masked": True,
-        }
 
 
 def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = False) -> QLabel:
@@ -105,14 +91,14 @@ class MyPCView(QWidget):
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(20)
 
-        title = QLabel("MY PC")
+        title = QLabel("Device & Accounts")
         title.setStyleSheet(
             f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: 30pt; font-weight: 900; letter-spacing: -1px;"
         )
         layout.addWidget(title)
         layout.addWidget(
             _mono(
-                "Quick help for this Windows PC, your local AI tools, and connected accounts.",
+                "Manage this Windows device, your local AI runtime, and the accounts Guppy can use here.",
                 T.DIM,
                 T.FS_SMALL,
             )

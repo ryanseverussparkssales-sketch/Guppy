@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from src.guppy.runtime_application import (
+    build_local_bearer_token,
     build_runtime_health_snapshot,
     build_runtime_health_view_payload,
     fetch_startup_readiness,
@@ -65,6 +66,23 @@ def test_fetch_startup_readiness_reports_auth_failed_when_checker_matches() -> N
     assert state == "auth_failed"
     assert "401 unauthorized" in detail
     assert snapshot == {}
+
+
+def test_build_local_bearer_token_prefers_environment_token() -> None:
+    token, token_source = build_local_bearer_token(env={"GUPPY_API_BEARER_TOKEN": " env-token "})
+
+    assert token == "env-token"
+    assert token_source == "env_bearer_token"
+
+
+def test_build_local_bearer_token_uses_runtime_jwt_helper_when_available() -> None:
+    token, token_source = build_local_bearer_token(
+        env={},
+        create_token=lambda claims: f"token-for-{claims['sub']}",
+    )
+
+    assert token == "token-for-launcher_local"
+    assert token_source == "jwt_helper"
 
 
 def test_build_runtime_health_snapshot_preserves_startup_precedence_and_view_payload() -> None:

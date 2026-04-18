@@ -149,7 +149,7 @@ Handled by current build:
 2. Save any key persona/provider/voice changes from launcher settings.
 3. Run one final pilot gate before stopping active work.
   - Command: python tools/pilot_exit_check.py --allow-limited-go
-4. Record blockers for next day in roadmap handoff section.
+4. Record blockers for next day in the handoff section of `docs/PROJECT_BRIEF.md`.
 
 Handled by current build:
 
@@ -269,8 +269,10 @@ Run this before shipping any remote beta executable.
   - Command: python tools/verify_beta_package_policy.py
 3. Confirm pilot gate status for beta window.
   - Command: python tools/pilot_exit_check.py --allow-limited-go
-4. Run one-command beta release dry-run.
-  - Command: python tools/beta_release_dry_run.py
+4. Run the canonical release preflight, then emit the beta reviewer bundle.
+  - Commands: python tools/dev_workflow.py release-check
+  - Then: python tools/beta_release_dry_run.py
+  - Launcher path: App Mgmt `RELEASE DRY RUN` runs the same sequence.
 
 Artifacts:
 

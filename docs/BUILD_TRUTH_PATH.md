@@ -77,6 +77,8 @@ This matters locally because the current Windows environment has shown machine-g
 
 `release-check` is the canonical release-lane bundle for local validation, release prep, and future release workflow reuse.
 
+The doc-ownership guard within `dev-check` expects one active status source: `docs/PROJECT_BRIEF.md`. Root `ROADMAP.md` is a compatibility pointer only.
+
 The CI lanes intentionally stop short of running `release-check` on every PR. PR validation should prove guardrails, default tests, and smoke coverage; release packaging and handoff artifacts remain a separate gate.
 
 ## Release Outputs
@@ -90,3 +92,46 @@ Default output location:
 
 1. `.tmp/dev-workflow/reports/release-check-receipt.json`
 2. `.tmp/dev-workflow/reports/release-check-summary.txt`
+
+## Release Gate Criteria
+
+A release is **READY** when all of the following pass. A reviewer bundle must carry evidence of each gate before a handoff is accepted.
+
+### Automated gates (non-negotiable — CI must be green)
+
+1. `python tools/dev_workflow.py dev-check --guard-scope baseline`
+   All guardrails green: architecture boundaries clean, no module exceeds its line-cap waiver, runtime artifact hygiene passes, doc ownership passes.
+
+2. `python tools/dev_workflow.py test-default`
+   All unit and integration tests pass with no skips counted as passing.
+
+3. `python tools/dev_workflow.py test-smoke`
+   Launcher interaction, runtime, and security hardening smoke suites all green.
+
+4. `python tools/dev_workflow.py release-check`
+   Dry-run receipt written, all gate keys present and marked green, `Ref` field is stable and matches the reviewer bundle, `Next Review Step` field reads `READY` or carries an explicit open-gate note — never blank.
+
+### Manual gates (required before reviewer handoff)
+
+1. **Second-machine repeatability**
+   `release-check` runs cleanly on at least one machine that did not run development for this release lane. Receipt timestamp must be from that machine run, not the dev machine.
+
+2. **Reviewer bundle consistency**
+   Receipt `Ref`, evidence timestamps, and `Next Review Step` state are consistent across App Mgmt display, the release summary text, and the packaging/troubleshooting docs. No orphaned refs.
+
+3. **No open `FIXME` / `HACK` in release scope**
+   No `FIXME` or `HACK` comments exist in files modified in this release lane. `TODO` comments must each have an associated tracking note.
+
+4. **Waiver drift check**
+   No module in `WAIVED_PATHS` in `tools/check_new_module_line_cap.py` has grown since the last release. If a waiver needs raising, that must be a separate reviewed commit with a rationale update.
+
+### Out of scope for R2.x (explicitly deferred)
+
+- Real-device voice coverage across all engines and hardware (P4 scope, June).
+- Ollama vs. Lemonade default-promotion decision (P5 scope, July).
+- Clean-machine Windows installer automated CI stage (still manual until P6).
+
+### Failure protocol
+
+If any automated gate fails: fix the root cause and re-run from gate 1. Do not ship with a suppressed gate.
+If a manual gate cannot be met: document the specific gap in the reviewer bundle under `Open Gates`, get explicit reviewer sign-off on the gap, and track it as a P0 item for the next lane.

@@ -183,6 +183,8 @@ Apply `docs/PRODUCT_FEATURE_FILTER.md` to every tranche before expanding scope. 
    Attached Library sources now support a lightweight focus path on Home: users can promote one attached source to the front of the active context without clearing and rebuilding it, and composer/starter guidance now tracks that focused source as the current emphasis.
 27. April 18, 2026
    Repo/doc alignment pass closed the current subtitle contract gap: smoke assertions now validate activity text in the context bar while keeping the hero subtitle role-aware, local Gmail credential JSON files were moved out of repo root to the user-home credential path, root-only local artifacts were quarantined under `C:\Users\Ryan\Guppy_Quarantine\2026-04-18_root_sweep`, and `dev-check --guard-scope baseline` plus the targeted launcher smoke subset were re-run.
+28. April 18, 2026
+   Home, Library, and shell wording moved through a visible UX tranche: Library now spells out approved-root boundaries, active root state, and why `USE IN CHAT` matters; Home now presents attached Library sources as clearer current-source context with calmer composer guidance; and the shell now emphasizes the daily path with `HOME`, `WORKSPACES`, `LIBRARY`, `SETTINGS`, `MY PC`, and `LOCAL LLM` language while baseline and targeted smoke stayed green after a small helper extraction pulled `library_view.py` back under its transitional cap.
 
 ## Current Gaps
 

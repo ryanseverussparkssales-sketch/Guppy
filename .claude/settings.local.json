@@ -50,7 +50,11 @@
       "Bash(python tools/verify_ollama_runtime.py)",
       "Bash(python3 -c \"import sys,json; [print\\(json.loads\\(l\\).get\\('message',''\\)\\) for l in sys.stdin if l.strip\\(\\)]\")",
       "Bash(python3 -c \"import sys,json; [print\\(json.dumps\\(json.loads\\(l\\), indent=2\\)\\) for l in sys.stdin if l.strip\\(\\)]\")",
-      "Read(//c/Users/Users/Ryan/Guppy/src/guppy/api/**)"
+      "Read(//c/Users/Users/Ryan/Guppy/src/guppy/api/**)",
+      "Bash(xargs wc *)",
+      "Bash(python -m py_compile /c/Users/Ryan/Guppy/src/guppy/launcher_application/__init__.py)",
+      "Bash(python tools/dev_workflow.py dev-check --guard-scope baseline)",
+      "Bash(python tools/dev_workflow.py test-fast)"
     ]
   }
 }

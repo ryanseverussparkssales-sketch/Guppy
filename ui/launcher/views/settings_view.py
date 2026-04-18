@@ -25,30 +25,22 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.guppy.experience_config import (
+    apply_runtime_settings_to_env as apply_settings_to_env,
+    ensure_personalization_scaffold,
+    list_model_ids,
+    load_persona_config_with_diagnostics,
+    load_provider_registry,
+    load_runtime_settings as load_app_settings,
+    personalization_backend_available,
+    recommend_runtime_profile,
+    runtime_settings_backend_available,
+    save_persona_config,
+    save_runtime_settings as save_app_settings,
+    validate_persona_config,
+)
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
-
-try:
-    from utils.runtime_profile import (
-        apply_settings_to_env,
-        load_app_settings,
-        recommend_runtime_profile,
-        save_app_settings,
-    )
-    _PROFILE_BACKEND = True
-except Exception:
-    _PROFILE_BACKEND = False
-
-    def load_app_settings():
-        return {}
-
-    def recommend_runtime_profile():
-        return {"profile": "standard"}
-
-    def save_app_settings(_payload):
-        return None
-
-    def apply_settings_to_env(_payload):
-        return None
+_PROFILE_BACKEND = runtime_settings_backend_available()
 
 _DEFAULT_PERSONA_CONFIG: dict[str, Any] = {
     "version": 1,
@@ -88,37 +80,7 @@ _DEFAULT_PERSONA_CONFIG: dict[str, Any] = {
     },
 }
 
-try:
-    from utils.personalization_config import (
-        ensure_personalization_scaffold,
-        list_model_ids,
-        load_persona_config_with_diagnostics,
-        load_provider_registry,
-        save_persona_config,
-        validate_persona_config,
-    )
-    _PERSONALIZATION_BACKEND = True
-except Exception:
-    _PERSONALIZATION_BACKEND = False
-
-    def ensure_personalization_scaffold():
-        return {}
-
-    def list_model_ids(_provider_registry=None, include_local: bool = True):
-        del _provider_registry, include_local
-        return list(_MODEL_BINDING_OPTIONS)
-
-    def load_persona_config_with_diagnostics():
-        return json.loads(json.dumps(_DEFAULT_PERSONA_CONFIG)), []
-
-    def load_provider_registry():
-        return {}
-
-    def save_persona_config(_payload):
-        return None
-
-    def validate_persona_config(_payload):
-        return []
+_PERSONALIZATION_BACKEND = personalization_backend_available()
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _TONE_OPTIONS = ["butler", "coach", "mentor", "analyst", "friendly"]
@@ -192,23 +154,18 @@ class SettingsView(QWidget):
         self._cb_profile.addItems(["LIGHT", "STANDARD", "POWER"])
         self._cb_mode = QComboBox()
         self._cb_mode.addItems(list(LAUNCHER_MODES_DISPLAY))
-        self._cb_surface = QComboBox()
-        self._cb_surface.addItems(["GUPPY"])
 
         row = QHBoxLayout()
         row.addWidget(self._cb_profile)
         row.addWidget(self._cb_mode)
-        row.addWidget(self._cb_surface)
         runtime_layout.addLayout(row)
 
         self._t_daemon = _Toggle("Daemon Background Execution")
         self._t_voice = _Toggle("Voice Synthesis Feedback")
         self._t_wake = _Toggle("Active Wake-Word Detection")
-        self._t_adv = _Toggle("Show Advanced Surfaces")
         self._t_daemon.setChecked(True)
         self._t_voice.setChecked(True)
-        self._t_adv.setChecked(True)
-        for toggle in [self._t_daemon, self._t_voice, self._t_wake, self._t_adv]:
+        for toggle in [self._t_daemon, self._t_voice, self._t_wake]:
             runtime_layout.addWidget(toggle)
 
         self._hw_lbl = QLabel("Hardware: detecting...")
@@ -351,11 +308,9 @@ class SettingsView(QWidget):
             modes = {"auto": 0, "claude": 1, "ollama": 2, "local": 3, "code": 4, "teaching": 5}
             self._cb_profile.setCurrentIndex(profiles.get(settings.get("runtime_profile", "standard"), 1))
             self._cb_mode.setCurrentIndex(modes.get(settings.get("default_mode", "auto"), 0))
-            self._cb_surface.setCurrentIndex(0)
             self._t_daemon.setChecked(bool(settings.get("enable_daemon", True)))
             self._t_voice.setChecked(bool(settings.get("enable_voice", True)))
             self._t_wake.setChecked(bool(settings.get("wake_word_default", False)))
-            self._t_adv.setChecked(bool(settings.get("show_advanced_surfaces", True)))
             saved_at = str(settings.get("_saved_at", "")).strip()
             if saved_at:
                 self._last_mod_lbl.setText(f"Last saved: {saved_at}")
@@ -666,16 +621,13 @@ class SettingsView(QWidget):
     def _save(self) -> None:
         profile_map = {0: "light", 1: "standard", 2: "power"}
         mode_map = {0: "auto", 1: "claude", 2: "ollama", 3: "local", 4: "code", 5: "teaching"}
-        surface_map = {0: "guppy"}
         ts = time.strftime("%Y-%m-%d %H:%M:%S")
         payload = {
             "runtime_profile": profile_map.get(self._cb_profile.currentIndex(), "standard"),
             "default_mode": mode_map.get(self._cb_mode.currentIndex(), "auto"),
-            "default_surface": surface_map.get(self._cb_surface.currentIndex(), "guppy"),
             "enable_daemon": self._t_daemon.is_checked,
             "enable_voice": self._t_voice.is_checked,
             "wake_word_default": self._t_wake.is_checked,
-            "show_advanced_surfaces": self._t_adv.is_checked,
             "_saved_at": ts,
         }
 

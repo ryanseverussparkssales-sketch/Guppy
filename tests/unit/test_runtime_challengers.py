@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
 from src.guppy.local_llm.runtime_challengers import HostRuntimeFacts, probe_runtime_challengers
 
@@ -36,7 +35,6 @@ class RuntimeChallengerProbeTests(unittest.TestCase):
             manifest,
             host=host,
             which_fn=fake_which,
-            repo_root=Path(r"C:\Repo"),
         )
         self.assertEqual(payload["recommended_next"]["benchmark_first"], "llama.cpp")
         self.assertEqual(payload["recommended_next"]["integration_first"], "lemonade")
@@ -48,7 +46,7 @@ class RuntimeChallengerProbeTests(unittest.TestCase):
         self.assertEqual(rows["vllm-rocm"]["host_fit"], "research")
         self.assertFalse(rows["llama.cpp"]["installed"])
 
-    def test_probe_marks_lemonade_vendor_repo_when_present(self) -> None:
+    def test_probe_marks_lemonade_as_external_openai_compatible_runtime(self) -> None:
         manifest = {"runtime": {"runtime_challengers": [{"id": "lemonade"}]}}
         host = HostRuntimeFacts(platform_system="Windows", gpu_names=("AMD Radeon(TM) Graphics",))
 
@@ -56,11 +54,10 @@ class RuntimeChallengerProbeTests(unittest.TestCase):
             manifest,
             host=host,
             which_fn=lambda _: None,
-            repo_root=Path(r"c:\Users\Ryan\Guppy"),
         )
         row = payload["challengers"][0]
-        self.assertTrue(row["vendor_repo_present"])
-        self.assertTrue(row["vendor_repo_path"].endswith("vendor\\lemonade"))
+        self.assertEqual(row["integration_surface"], "external_openai_compatible_runtime")
+        self.assertIn("/chat/completions", row["integration_contract"])
 
 
 if __name__ == "__main__":

@@ -70,7 +70,7 @@ def test_windows_ops_guidance_and_recipe_summary_cover_common_paths() -> None:
         }
     )
 
-    assert queued["entry_point"] == "python tools/beta_release_dry_run.py"
+    assert queued["entry_point"] == "python tools/dev_workflow.py release-check"
     assert "Inspect launcher logs" in failed["next_step"]
     assert summary == "WINDOWS VERIFY stopped after 2/3 successful servicing step(s). Failed step 3."
     assert changes == "Runtime checks refreshed. Failed command: python tools/verify_runtime_challengers.py."

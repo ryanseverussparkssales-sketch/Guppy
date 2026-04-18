@@ -9,7 +9,7 @@ For the common Windows packaging flow, start in App Mgmt before you drop to a te
   - `UPDATE` for dependency refresh plus postflight validation
   - `PACKAGE` for `bin/build_executable.bat --no-clean --ci` plus beta package-policy verification
 - App Mgmt `WINDOWS INSTALL / UPDATE / DIAGNOSTICS` also owns the release-evidence handoff for dry-run review:
-  - `RELEASE DRY RUN` runs the beta release gate and writes `runtime/beta_release_dry_run_report.json`
+  - `RELEASE DRY RUN` now runs the canonical `tools/dev_workflow.py release-check` preflight first, then the beta release gate that writes `runtime/beta_release_dry_run_report.json`
   - completed servicing runs write `runtime/windows_release_receipt.json`
   - the launcher also writes a readable `runtime/windows_release_summary.md` companion summary for operator handoff
   - the summary mirrors the live UI wording: `What changed`, `Release Gate`, `Fix-First`, `Artifacts`, and `Operator Guidance`
@@ -73,6 +73,7 @@ Run this before treating a build as a beta or pilot candidate:
 python tools/pilot_exit_check.py --allow-limited-go
 python tools/validate_live_lifecycle.py --mode dry
 python tools/verify_beta_package_policy.py
+python tools/dev_workflow.py release-check
 python tools/beta_release_dry_run.py
 ```
 
@@ -96,15 +97,16 @@ before running the dry run and policy verification.
 Use this when you need a reviewer-ready bundle from App Mgmt `WINDOWS INSTALL / UPDATE / DIAGNOSTICS`.
 
 1. Open App Mgmt and run `RELEASE DRY RUN`.
-2. Review the bundle in this order:
+2. Let the embedded terminal finish the canonical `release-check` preflight before you treat the reviewer bundle as current.
+3. Review the bundle in this order:
    - `runtime/beta_release_dry_run_report.json`
    - `runtime/windows_release_receipt.json`
    - `runtime/windows_release_summary.md`
-3. Read the dry-run report first. It is the gate result, not the human summary.
-4. If the run completed, check `runtime/windows_release_receipt.json` for the stable operator-facing reference, step counts, and the current release status.
-5. Open `runtime/windows_release_summary.md` for the human-readable handoff. That file mirrors the launcher wording, includes the stable `Ref`, and is the copy another reviewer should read last.
-6. If the summary says `Next Review Step`, follow the `Review`, `Doc`, and `Cmd` lines to hand off or package the current bundle.
-7. If the summary says `Fix-First`, follow the `Fix in`, `Doc`, and `Cmd` lines before rerunning the dry run.
+4. Read the dry-run report first. It is the gate result, not the human summary.
+5. If the run completed, check `runtime/windows_release_receipt.json` for the stable operator-facing reference, step counts, and the current release status.
+6. Open `runtime/windows_release_summary.md` for the human-readable handoff. That file mirrors the launcher wording, includes the stable `Ref`, and is the copy another reviewer should read last.
+7. If the summary says `Next Review Step`, follow the `Review`, `Doc`, and `Cmd` lines to hand off or package the current bundle.
+8. If the summary says `Fix-First`, follow the `Fix in`, `Doc`, and `Cmd` lines before rerunning the dry run.
 
 What to share with another reviewer:
 
@@ -129,7 +131,7 @@ Operator handoff checklist:
 - Share the dry-run report, receipt, and summary together in that order when the gate is green instead of paraphrasing the result.
 - If the summary says `Fix-First`, hand off the `Fix in`, `Doc`, and `Cmd` lines exactly before anyone retries the lane.
 
-If any of those files are missing or stale, rerun `python tools/beta_release_dry_run.py` from the terminal or use App Mgmt `RELEASE DRY RUN` again so the docs and launcher stay aligned.
+If any of those files are missing or stale, rerun `python tools/dev_workflow.py release-check` and then `python tools/beta_release_dry_run.py`, or use App Mgmt `RELEASE DRY RUN` again so the docs and launcher stay aligned.
 
 ---
 

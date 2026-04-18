@@ -7,10 +7,10 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from src.guppy.paths import RUNTIME_DIR
+from src.guppy.paths import MEMPALACE_DIR
 import requests
 
-DEFAULT_PALACE_PATH = RUNTIME_DIR / "local_memory" / "palace"
+DEFAULT_PALACE_PATH = MEMPALACE_DIR
 EMBED_MODEL = "nomic-embed-text"
 DB_FILENAME = "mempalace_drawers.sqlite3"
 

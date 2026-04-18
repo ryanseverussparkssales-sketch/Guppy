@@ -1,17 +1,36 @@
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+from uuid import uuid4
+
 from src.guppy.workspace_governance import (
+    auth_mode_label,
     build_connector_action_request,
     build_connector_action_result,
     build_connector_inventory,
     build_workspace_governance_snapshot,
     build_workspace_summary,
+    check_instance_tool_permission,
     connector_id_for_tool,
+    instance_policy_backend_available,
     provider_environment_fields,
     provider_metadata,
+    required_capability_for_tool,
+    resolve_instance_permissions,
     secret_field_meta,
+    set_instance_tool_permission_policy,
     summarize_connector_readiness,
 )
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def _repo_tmp_dir(label: str) -> Path:
+    path = ROOT / ".tmp" / "pytest-local" / f"{label}-{uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def test_workspace_summary_normalizes_status_and_label_fallbacks() -> None:
@@ -171,3 +190,21 @@ def test_connector_id_for_tool_keeps_gmail_prefix_shortcut() -> None:
     assert connector_id_for_tool("gmail_archive_thread") == "gmail"
     assert connector_id_for_tool("crm_upsert_contact") == "crm"
     assert connector_id_for_tool("unknown_tool") == ""
+
+
+def test_workspace_governance_exports_policy_helpers() -> None:
+    assert auth_mode_label("runtime_default") == "runtime default"
+    assert required_capability_for_tool("read_file") == "read"
+    assert isinstance(instance_policy_backend_available(), bool)
+    allowed, reason, details = check_instance_tool_permission("read_file", instance_type="user_instance")
+    assert isinstance(allowed, bool)
+    assert isinstance(reason, str)
+    assert isinstance(details, dict)
+    assert isinstance(resolve_instance_permissions(instance_type="user_instance"), dict)
+    tmp_dir = _repo_tmp_dir("workspace-governance")
+    try:
+        config_path = tmp_dir / "tool_permissions.json"
+        saved_path = set_instance_tool_permission_policy("builder-collab", {"read": True}, config_path=config_path)
+        assert saved_path == config_path
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)

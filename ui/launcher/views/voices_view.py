@@ -26,6 +26,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.guppy.experience_config import (
+    ensure_personalization_scaffold,
+    list_model_ids,
+    list_persona_choices,
+    load_persona_config,
+    load_provider_registry,
+    load_voice_bindings,
+    personalization_backend_available,
+    save_voice_bindings,
+    validate_voice_bindings,
+)
 from .. import tokens as T
 
 try:
@@ -33,33 +44,7 @@ try:
 except Exception:
     GuppyVoice = None  # type: ignore[assignment]
 
-try:
-    from utils.personalization_config import (
-        ensure_personalization_scaffold,
-        list_model_ids,
-        list_persona_choices,
-        load_voice_bindings,
-        load_persona_config,
-        load_provider_registry,
-        save_voice_bindings,
-        validate_voice_bindings,
-    )
-    _VOICE_BINDINGS_BACKEND = True
-except Exception:
-    _VOICE_BINDINGS_BACKEND = False
-
-    def list_model_ids(_provider_registry=None, include_local: bool = True):
-        del _provider_registry, include_local
-        return list(_MODEL_OPTIONS)
-
-    def list_persona_choices(_persona_config=None):
-        return [{"id": "guppy", "name": "Guppy", "label": "Guppy [GLOBAL]"}]
-
-    def load_persona_config():
-        return {}
-
-    def load_provider_registry():
-        return {}
+_VOICE_BINDINGS_BACKEND = personalization_backend_available()
 
 # ── Voice catalogues ──────────────────────────────────────────────────────────
 

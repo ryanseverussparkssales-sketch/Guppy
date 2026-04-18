@@ -83,34 +83,7 @@ RULES = (
 
 # Transitional waivers stay file-local and rule-local so new drift shows up
 # immediately instead of hiding behind a coarse directory exemption.
-TRANSITIONAL_WAIVERS: dict[str, dict[str, str]] = {
-    "src/guppy/apps/guppy_surface_app.py": {
-        "legacy-compat-surface-import": "Compatibility entrypoint still forwards into a quarantined legacy surface until that launcher alias is fully retired.",
-    },
-    "ui/launcher/launcher_window.py": {
-        "ui-runtime-api-import": "Launcher shell still reaches API auth bootstrap directly pending launcher-application services.",
-        "ui-governance-import": "Launcher shell still coordinates governance and connector state pending shared snapshots.",
-        "ui-experience-config-import": "Launcher shell still hydrates persona/profile state pending experience-config services.",
-    },
-    "ui/launcher/views/advanced_view.py": {
-        "ui-experience-config-import": "App Mgmt still reads runtime profile settings directly pending workflow/config presenters.",
-    },
-    "ui/launcher/views/models_view.py": {
-        "ui-experience-config-import": "Models still reads/saves runtime and provider configuration directly pending typed view models.",
-    },
-    "ui/launcher/views/my_pc_view.py": {
-        "ui-governance-import": "Windows ops view still reads connector metadata directly pending connector inventory DTOs.",
-    },
-    "ui/launcher/views/settings_view.py": {
-        "ui-experience-config-import": "Settings remains the transitional editor for experience config until services are extracted.",
-    },
-    "ui/launcher/views/tools_view.py": {
-        "ui-governance-import": "Agent Tools still reads workspace capability policy directly pending governance snapshots.",
-    },
-    "ui/launcher/views/voices_view.py": {
-        "ui-experience-config-import": "Voices still binds persona/voice configuration directly pending experience-config services.",
-    },
-}
+TRANSITIONAL_WAIVERS: dict[str, dict[str, str]] = {}
 
 
 def _run_git(args: list[str]) -> str:

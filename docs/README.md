@@ -5,7 +5,11 @@ This folder is the canonical source for active operational and product-facing re
 ## Canonical Docs
 
 - `docs/PROJECT_BRIEF.md`
-  - Current product surface, runtime scope, live features, and current gaps.
+  - Single active status, roadmap, checkpoint, and handoff document.
+- `docs/GUPPY_PRODUCT_NORTH_STAR.md`
+  - Product north star, scope boundary, and “what Guppy is / is not” definition.
+- `docs/PRODUCT_FEATURE_FILTER.md`
+  - Ruthless keep/cut/demote/defer filter for roadmap and feature decisions.
 - `docs/API.md`
   - Active API surface, instance governance payload shape, and canonical implementation ownership.
 - `docs/TROUBLESHOOTING.md`
@@ -34,9 +38,10 @@ These files remain useful for context, but they are not the canonical source of 
 
 ## Reading Order
 
-1. Start with `docs/PROJECT_BRIEF.md` for current product state.
-2. Use `documentation/README.md` for technical architecture and security truth.
-3. Use `docs/API.md`, `docs/TROUBLESHOOTING.md`, `docs/VOICE.md`, and `docs/PACKAGING.md` for active operational work.
+1. Start with `docs/PROJECT_BRIEF.md` for current product state, active roadmap, and handoff notes.
+2. Read `docs/GUPPY_PRODUCT_NORTH_STAR.md` and `docs/PRODUCT_FEATURE_FILTER.md` before proposing major product or UI scope.
+3. Use `documentation/README.md` for technical architecture and security truth.
+4. Use `docs/API.md`, `docs/TROUBLESHOOTING.md`, `docs/VOICE.md`, and `docs/PACKAGING.md` for active operational work.
 4. Treat archived M2, migration, generated, and other archive docs as supporting history only.
 
 ## Canonicality Rule

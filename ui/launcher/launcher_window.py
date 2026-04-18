@@ -19,12 +19,19 @@ from pathlib import Path
 import urllib.error
 import urllib.request
 
+import src.guppy.launcher_application as launcher_app
 from src.guppy.launcher_application import (
     LauncherStateSnapshot,
+    LibraryWorkflowController,
     WindowsOpsExecutionKind,
     advance_windows_ops_chain,
+    apply_connector_action_feedback,
+    apply_library_payload,
+    apply_workspace_instance_switch,
     beta_release_dry_run_report_path,
+    bootstrap_workspace_instance_switcher,
     build_launcher_state_snapshot,
+    build_library_chat_submission,
     build_windows_ops_descriptor,
     build_windows_ops_feedback_kwargs,
     build_windows_ops_plan,
@@ -33,49 +40,83 @@ from src.guppy.launcher_application import (
     connector_action_http_payload,
     connector_action_record,
     connector_action_status_label,
+    complete_bootstrap_workspace_instance_switcher,
+    drain_connector_action_events,
     default_windows_ops_event_id,
+    connector_backend_available,
+    delete_workspace_instance,
     enabled_workspace_names,
     execute_connector_action,
     execute_guided_connector_setup,
     fetch_connector_inventory,
     fetch_workspace_connector_inventory,
+    handle_connector_action_request,
+    handle_connector_guided_link_request,
+    load_workspace_instance_logs,
     normalize_windows_gate_details,
     normalize_windows_ops_artifacts,
+    perform_connector_action_request,
+    refresh_workspace_instance_views,
     release_dry_run_gate_details,
     release_review_order,
     repo_python_path,
     resolve_active_instance_payload,
     save_workspace_connector_binding,
+    save_instance_connector_binding,
+    save_instance_governance,
     run_repo_python,
+    run_connector_action_request,
+    save_workspace_instance,
     snapshot_file_signature,
+    select_workspace_instance,
+    start_connector_action_async,
+    start_connector_guided_link_async,
     start_windows_ops_chain,
     summarize_release_dry_run_report,
+    compose_library_aware_message,
+    set_daily_activity,
+    sync_right_tray,
     summarize_windows_recipe_result,
+    sync_assistant_library_context,
+    update_route_preview,
     windows_ops_artifact_refs,
     windows_ops_chain_changes,
     windows_ops_guidance,
     windows_service_snapshot_changes,
+    workspace_default_purpose,
+    workspace_role_label,
     write_windows_release_receipt,
     write_windows_release_summary,
 )
+from src.guppy.experience_config import (
+    PersonalizationState,
+    build_persona_options,
+    ensure_personalization_scaffold,
+    list_persona_choices,
+    load_persona_config,
+    load_voice_bindings,
+    personalization_backend_available,
+    resolve_voice_binding,
+    voice_binding_summary,
+    voice_option_choices,
+)
 from src.guppy.runtime_application import (
     RuntimeHealthSnapshot,
+    build_local_bearer_token,
     build_runtime_health_snapshot,
     build_runtime_health_view_payload,
     fetch_startup_readiness,
+    route_evidence_summary,
     summarize_startup_readiness,
 )
 from src.guppy.workspace_governance import (
+    instance_policy_backend_available,
     build_connector_action_request,
     build_connector_action_result,
     build_connector_inventory,
+    resolve_instance_permissions,
+    set_instance_tool_permission_policy,
 )
-
-try:
-    from src.guppy.api.auth import create_access_token as _create_access_token
-    _API_AUTH_HELPER = True
-except Exception:
-    _API_AUTH_HELPER = False
 
 try:
     from utils import secret_store as _secret_store
@@ -84,11 +125,7 @@ except Exception:
     _secret_store = None  # type: ignore[assignment]
     _SECRET_STORE_AVAILABLE = False
 
-try:
-    from utils.safe_io import read_json_dict, read_jsonl_tail as _safe_jsonl_tail
-    _SAFE_IO = True
-except Exception:
-    _SAFE_IO = False
+from utils.safe_io import append_jsonl, read_json_dict, read_jsonl_tail, write_json_atomic
 
 from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import (
@@ -108,6 +145,7 @@ from .components import Sidebar, TopBar, StatusPanel
 from .views import (
     AssistantView,
     InstanceManagerView,
+    LibraryView,
     ToolsView,
     SettingsView,
     AdvancedView,
@@ -118,30 +156,7 @@ from .views import (
     VoicesView,
 )
 
-try:
-    from utils.personalization_config import (
-        ensure_personalization_scaffold,
-        list_persona_choices,
-        load_persona_config,
-        load_voice_bindings,
-        resolve_voice_binding,
-    )
-    _PERSONALIZATION_BOOTSTRAP_AVAILABLE = True
-except Exception:
-    _PERSONALIZATION_BOOTSTRAP_AVAILABLE = False
-
-    def list_persona_choices(_persona_config=None):
-        return [{"id": "guppy", "name": "Guppy", "label": "Guppy [GLOBAL]"}]
-
-    def load_persona_config():
-        return {}
-
-    def load_voice_bindings():
-        return {}
-
-    def resolve_voice_binding(*, persona_id: str = "", model_id: str = "", voice_bindings: dict | None = None):
-        del persona_id, model_id, voice_bindings
-        return {"engine": "EDGE TTS", "voice_id": "en-GB-RyanNeural", "source": "default"}
+_PERSONALIZATION_BOOTSTRAP_AVAILABLE = personalization_backend_available()
 
 try:
     from utils.instance_logger import append_instance_log, read_instance_log_tail
@@ -155,23 +170,7 @@ except Exception:
     def read_instance_log_tail(*_args, **_kwargs):
         return []
 
-try:
-    from utils.instance_capabilities import resolve_instance_permissions, set_instance_tool_permission_policy
-    _INSTANCE_GOVERNANCE_BACKEND = True
-except Exception:
-    _INSTANCE_GOVERNANCE_BACKEND = False
-
-    def resolve_instance_permissions(
-        instance_name: str | None = None,
-        instance_type: str | None = None,
-        config_path=None,
-    ):
-        del instance_name, instance_type, config_path
-        return {}
-
-    def set_instance_tool_permission_policy(instance_name: str, policy_entry: dict, *, config_path=None):
-        del instance_name, policy_entry, config_path
-        return None
+_INSTANCE_GOVERNANCE_BACKEND = instance_policy_backend_available()
 
 _CONNECTOR_MANAGER_BACKEND = connector_backend_available()
 
@@ -191,53 +190,17 @@ _AUTOMATION_TEST_VALIDATION_COMMAND = (
 _AUTOMATION_REPORT_PATH = _RUNTIME / "offhours_builder_report.json"
 _START_DESTINATION_TO_TAB = {
     "home": 0,
-    "tools": 2,
-    "appmgmt": 3,
-    "automation-test": 3,
+    "library": 2,
+    "tools": 3,
+    "appmgmt": 4,
+    "automation-test": 4,
 }
-
-
-def _read_json(path: Path) -> dict:
-    if _SAFE_IO:
-        return read_json_dict(path)
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
 
 
 def _write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
-
-def _read_jsonl_tail(path: Path, limit: int = 50) -> list[dict]:
-    if _SAFE_IO:
-        return _safe_jsonl_tail(path, limit)
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except Exception:
-        return []
-    out: list[dict] = []
-    for line in lines[-limit:]:
-        txt = line.strip()
-        if not txt:
-            continue
-        try:
-            obj = json.loads(txt)
-            if isinstance(obj, dict):
-                out.append(obj)
-        except Exception:
-            continue
-    return out
-
-
-def _is_valid_repair_token(token: str) -> bool:
-    """Return True if *token* is a non-empty hex string no longer than 256 chars."""
-    if not token or len(token) > 256:
-        return False
-    return all(ch in "0123456789abcdef" for ch in token.lower())
-
+    if not write_json_atomic(path, payload):
+        raise OSError(f"Atomic write failed for {path}")
 
 class LauncherWindow(QMainWindow):
     assistant_event_queued = Signal()
@@ -259,14 +222,14 @@ class LauncherWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Guppy AI  //  COMMAND_INTERFACE")
+        self.setWindowTitle("Guppy AI  //  WORKSPACE_ASSISTANT")
         self.setMinimumSize(1120, 720)
         self.setStyleSheet(SHEET)
         self._last_command = ""
         self._last_recovery_signature = ""
         self._startup_logged_first_poll = False
         self._startup_first_poll_ok = False
-        self._startup_budget_ms = int(os.environ.get("GUPPY_STARTUP_PHASE_WARN_MS", "750"))
+        self._startup_budget_ms = int(os.environ.get("GUPPY_STARTUP_PHASE_WARN_MS", "3000"))
         self._startup_phase_started: dict[str, float] = {"window_init": time.monotonic()}
         self._startup_phase_durations_ms: dict[str, int] = {}
         self._startup_over_budget: list[str] = []
@@ -295,6 +258,7 @@ class LauncherWindow(QMainWindow):
         self._connector_inventory_expires_at = 0.0
         self._last_instance_view_signature = ""
         self._last_connector_view_signature = ""
+        self._last_library_context_signature = ""
         self._last_tools_context_signature = ""
         self._last_windows_snapshot_signature = ""
         self._launcher_state_snapshot = LauncherStateSnapshot.empty()
@@ -305,6 +269,7 @@ class LauncherWindow(QMainWindow):
         self._connector_inventory_ttl_s = float(os.environ.get("GUPPY_CONNECTOR_INVENTORY_TTL_S", "15.0"))
         self._scaffold_created: dict[str, Path] = {}
         self._deferred_syslog: SimpleQueue[str] = SimpleQueue()
+        self._active_library_context_items: list[dict[str, str]] = []
         self._status_poll_timer: QTimer | None = None
         self._launcher_voice = None
         self._mic_capture_active = False
@@ -357,6 +322,7 @@ class LauncherWindow(QMainWindow):
         self._stack = QStackedWidget(self)
         self._assistant_view  = AssistantView(self)
         self._instance_manager_view = InstanceManagerView(self)
+        self._library_view    = LibraryView(self)
         self._tools_view      = ToolsView(self)
         self._advanced_view   = AdvancedView(self)
         self._my_pc_view      = MyPCView(self)
@@ -370,6 +336,7 @@ class LauncherWindow(QMainWindow):
         for view in [
             self._assistant_view,
             self._instance_manager_view,
+            self._library_view,
             self._tools_view,
             self._advanced_view,
             self._my_pc_view,
@@ -390,6 +357,18 @@ class LauncherWindow(QMainWindow):
 
         self._status_panel = StatusPanel(self)
         body.addWidget(self._status_panel)
+        self._library_workflow = LibraryWorkflowController(
+            assistant_view=self._assistant_view,
+            status_panel=self._status_panel,
+            get_active_items=lambda: list(self._active_library_context_items),
+            set_active_items=lambda items: setattr(self, "_active_library_context_items", list(items)),
+            get_active_instance_name=lambda: self._active_instance_name,
+            get_library_view=lambda: getattr(self, "_library_view", None),
+            refresh_library_surface=self._refresh_library_surface,
+            on_tab_change=self._on_tab_change,
+            set_daily_activity=self._set_daily_activity,
+            log_launcher_event=self._log_launcher_event,
+        )
 
         root.addLayout(body, stretch=1)
 
@@ -424,10 +403,26 @@ class LauncherWindow(QMainWindow):
         self._assistant_view.starter_requested.connect(self._on_home_starter_requested)
         self._assistant_view.cancel_requested.connect(self._on_cancel_assistant_request)
         self._assistant_view.mic_requested.connect(self._on_mic_requested)
+        self._assistant_view.assistant_reply_library_requested.connect(self._on_assistant_reply_library_requested)
+        self._assistant_view.assistant_reply_artifact_requested.connect(self._on_assistant_reply_artifact_requested)
+        self._assistant_view.latest_saved_output_attach_requested.connect(self._on_latest_saved_output_attached)
+        self._assistant_view.latest_saved_output_library_requested.connect(self._on_library_context_opened)
+        self._assistant_view.active_context_refresh_requested.connect(self._on_active_context_refresh_requested)
+        self._assistant_view.active_context_clear_requested.connect(self._on_library_context_cleared)
+        self._assistant_view.active_context_focus_requested.connect(self._on_library_context_focused)
+        self._assistant_view.active_context_library_requested.connect(self._on_library_context_opened)
+        self._assistant_view.active_context_remove_requested.connect(self._on_library_context_removed)
         self.assistant_event_queued.connect(self._drain_assistant_events)
         self.connector_action_event_queued.connect(self._drain_connector_action_events)
         self._assistant_view.chat_context_changed.connect(self._on_chat_context_changed)
         self._assistant_view.launcher_summary_changed.connect(self._topbar.set_launcher_summary)
+        self._library_view.context_requested.connect(self._on_library_context_requested)
+        self._library_view.approved_root_requested.connect(self._on_library_root_requested)
+        self._library_view.note_requested.connect(self._on_library_note_requested)
+        self._library_view.note_updated.connect(self._on_library_note_updated)
+        self._library_view.artifact_requested.connect(self._on_library_artifact_requested)
+        self._library_view.artifact_updated.connect(self._on_library_artifact_updated)
+        self._library_view.library_item_delete_requested.connect(self._on_library_item_deleted)
         self._instance_manager_view.refresh_requested.connect(self._on_instance_manager_refresh)
         self._instance_manager_view.activate_requested.connect(self._on_instance_selected)
         self._instance_manager_view.create_requested.connect(self._on_instance_create_requested)
@@ -471,63 +466,35 @@ class LauncherWindow(QMainWindow):
             self._status_panel.append_syslog(line)
             processed += 1
 
-    @staticmethod
-    def _voice_option_choices(voice_bindings: dict) -> list[tuple[str, str]]:
-        options: list[tuple[str, str]] = [("Default", "default")]
-        seen = {"default"}
-
-        def _add_binding(engine: str, voice_id: str) -> None:
-            value = f"{engine}:{voice_id}"
-            if not engine or not voice_id or value in seen:
-                return
-            seen.add(value)
-            options.append((f"{engine} / {voice_id}", value))
-
-        defaults = voice_bindings.get("defaults", {}) if isinstance(voice_bindings, dict) else {}
-        if isinstance(defaults, dict):
-            _add_binding(str(defaults.get("engine", "")).strip(), str(defaults.get("voice_id", "")).strip())
-
-        bindings = voice_bindings.get("bindings", {}) if isinstance(voice_bindings, dict) else {}
-        if isinstance(bindings, dict):
-            for mapping_key in ("by_persona", "by_model"):
-                mapping = bindings.get(mapping_key, {})
-                if not isinstance(mapping, dict):
-                    continue
-                for item in mapping.values():
-                    if isinstance(item, dict):
-                        _add_binding(str(item.get("engine", "")).strip(), str(item.get("voice_id", "")).strip())
-
-        imports = voice_bindings.get("imports", []) if isinstance(voice_bindings, dict) else []
-        if isinstance(imports, list):
-            for item in imports:
-                if not isinstance(item, dict):
-                    continue
-                _add_binding(str(item.get("engine", "")).strip(), str(item.get("voice_id", "")).strip())
-        return options
-
     def _refresh_personalization_state(self, preferred_persona: str = "") -> None:
         try:
             persona_config = load_persona_config() if _PERSONALIZATION_BOOTSTRAP_AVAILABLE else {}
             voice_bindings = load_voice_bindings() if _PERSONALIZATION_BOOTSTRAP_AVAILABLE else {}
             persona_choices = list_persona_choices(persona_config)
-            persona_options = [(item.get("name", item.get("id", "guppy")), item.get("id", "guppy")) for item in persona_choices]
             target_persona = preferred_persona or self._assistant_view.chat_context()[1]
-            self._assistant_view.set_persona_options(persona_options, selected=target_persona)
-            self._instance_manager_view.set_persona_options(persona_options, selected=target_persona)
-            self._instance_manager_view.set_voice_options(self._voice_option_choices(voice_bindings), selected="default")
-            self._voices_view._load_assignment_options()
-            self._voices_view._refresh_bindings_summary()
             active_model_id = self._assistant_model_id(self._assistant_view.selected_mode())
-
             voice_choice = resolve_voice_binding(
-                persona_id=self._assistant_view.chat_context()[1],
+                persona_id=target_persona,
                 model_id=active_model_id,
                 voice_bindings=voice_bindings,
             )
+            empty_state = PersonalizationState.empty()
+            personalization_state = PersonalizationState(
+                persona_options=build_persona_options(persona_choices) or empty_state.persona_options,
+                voice_options=tuple(voice_option_choices(voice_bindings)) or empty_state.voice_options,
+                voice_summary=voice_binding_summary(voice_choice),
+                model_id=active_model_id,
+                voice_choice=voice_choice if isinstance(voice_choice, dict) else {},
+            )
+            self._assistant_view.set_persona_options(list(personalization_state.persona_options), selected=target_persona)
+            self._instance_manager_view.set_persona_options(list(personalization_state.persona_options), selected=target_persona)
+            self._instance_manager_view.set_voice_options(list(personalization_state.voice_options), selected="default")
+            self._voices_view._load_assignment_options()
+            self._voices_view._refresh_bindings_summary()
             self._assistant_view.set_runtime_facts(
                 profile=self._assistant_view._cb_profile.currentText().strip().lower() or "standard",
-                model=active_model_id,
-                voice=self._voice_binding_summary(voice_choice),
+                model=personalization_state.model_id,
+                voice=personalization_state.voice_summary,
                 latency="-",
                 last_query=self._last_command or "-",
             )
@@ -536,130 +503,13 @@ class LauncherWindow(QMainWindow):
             self._status_panel.append_syslog(f"personalization refresh failed: {exc}")
 
     def _update_route_preview(self, text: str = "") -> None:
-        sample = (text or self._last_command or "").strip()
-        if not sample:
-            self._assistant_view.set_route_preview(reason="waiting for command")
-            self._advanced_view.set_daily_context_route(self._assistant_view._route_facts.text())
-            return
-        mode, persona = self._assistant_view.chat_context()
-        try:
-            decision = resolve_ui_route(
-                user_text=sample,
-                mode=mode,
-                api_key_available=bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip()),
-            )
-            self._assistant_view.set_route_preview(
-                task_type=str(decision.get("task_type", "unknown")),
-                route=str(decision.get("route", "pending")),
-                model=str(decision.get("model", "")),
-                backup_model=str(decision.get("backup_model", "")),
-                reason=str(decision.get("route_reason", "")),
-                evidence=self._route_evidence_summary(decision),
-            )
-            self._advanced_view.set_daily_context_route(self._assistant_view._route_facts.text())
-        except Exception as exc:
-            self._assistant_view.set_route_preview(reason=f"preview failed: {exc}")
-            self._advanced_view.set_daily_context_route(self._assistant_view._route_facts.text())
+        update_route_preview(self, text)
 
     def _set_daily_activity(self, text: str) -> None:
-        self._assistant_view.set_background_event(text)
-        self._advanced_view.set_daily_context_activity(text)
+        set_daily_activity(self, text)
 
     def _sync_right_tray(self, active_payload: dict[str, object]) -> None:
-        workspace_name = str(active_payload.get("name", self._active_instance_name) or self._active_instance_name)
-        workspace_type = str(active_payload.get("type", "user_instance") or "user_instance")
-        self._status_panel.set_workspace(workspace_name, workspace_type)
-        self._status_panel.set_tool_states(self._tools_view.current_tool_states())
-        description = str(
-            active_payload.get("description", "") or self._workspace_default_purpose(workspace_type)
-        ).strip()
-        mode = str(active_payload.get("mode", "auto") or "auto").strip().upper()
-        persona = str(active_payload.get("persona", "guppy") or "guppy").strip().upper()
-        voice = str(active_payload.get("voice", "default") or "default").strip().upper()
-        self._advanced_view.set_daily_context_workspace(
-            f"Workspace: {self._workspace_role_label(workspace_type)}. {description} | Saved context: {mode} mode / {persona} persona / {voice} voice"
-        )
-        self._advanced_view.set_daily_context_runtime(self._assistant_view._runtime_facts.text())
-
-    @staticmethod
-    def _workspace_role_label(workspace_type: str) -> str:
-        key = (workspace_type or "user_instance").strip().lower()
-        return {
-            "user_instance": "Daily assistant workspace",
-            "builder_instance": "Builder collaborator workspace",
-            "read_only_instance": "Read-only reference workspace",
-            "admin_instance": "Operations workspace",
-        }.get(key, key.replace("_", " ").strip().capitalize() or "Workspace")
-
-    @staticmethod
-    def _workspace_default_purpose(workspace_type: str) -> str:
-        key = (workspace_type or "user_instance").strip().lower()
-        return {
-            "user_instance": "General help, recurring work, and quick tasks.",
-            "builder_instance": "Planning, review, and low-risk builder collaboration.",
-            "read_only_instance": "Safe research, source review, and reference work without writes.",
-            "admin_instance": "Recovery, diagnostics, and guarded changes.",
-        }.get(key, "Task-focused context for this workspace.")
-
-    @staticmethod
-    def _workspace_first_run_recipe(workspace_type: str) -> str:
-        key = (workspace_type or "user_instance").strip().lower()
-        return {
-            "user_instance": "Start with MORNING BRIEF or type one short daily request.",
-            "builder_instance": "Start with PLAN NEXT PASS or type the next pass you want reviewed.",
-            "read_only_instance": "Start with SOURCE RESEARCH or type one evidence question.",
-            "admin_instance": "Start with OPS CHECK or type one short status question.",
-        }.get(key, "Type one short request to start this workspace.")
-
-    @staticmethod
-    def _voice_binding_summary(choice: dict | None) -> str:
-        payload = choice if isinstance(choice, dict) else {}
-        engine = str(payload.get("engine", "edge")).strip() or "edge"
-        source = str(payload.get("source", "default")).strip().lower() or "default"
-        source_label = {
-            "default": "default voice",
-            "persona": "persona voice",
-            "model": "model voice",
-        }.get(source, "voice setting")
-        readiness = "ready"
-        if engine.upper() == "ELEVENLABS" and not (os.environ.get("ELEVENLABS_API_KEY", "") or "").strip():
-            readiness = "needs API key"
-        elif engine.upper() == "EDGE TTS":
-            try:
-                import importlib.util
-
-                readiness = "ready" if importlib.util.find_spec("edge_tts") is not None else "preview dependency missing"
-            except Exception:
-                readiness = "ready"
-        return f"{engine} from {source_label} ({readiness})"
-
-    @staticmethod
-    def _route_evidence_summary(decision: dict | None) -> str:
-        payload = decision if isinstance(decision, dict) else {}
-        route = str(payload.get("route", "") or "").strip().lower()
-        latency = ""
-        try:
-            status = _read_json(_RUNTIME / "guppy.status")
-            latency = str(status.get("last_latency_ms", "") or "").strip()
-        except Exception:
-            latency = ""
-        if route in {"haiku", "sonnet", "opus"}:
-            ready = (
-                "cloud route configured"
-                if bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip())
-                else "cloud route needs API key"
-            )
-        elif route == "local":
-            ready = (
-                "local launcher heartbeat detected"
-                if (_RUNTIME / "guppy.heartbeat").exists()
-                else "local launcher heartbeat not detected"
-            )
-        else:
-            ready = "launcher route available"
-        if latency and latency not in {"—", "-"}:
-            return f"{ready}; launcher-wide last reply {latency} ms"
-        return ready
+        sync_right_tray(self, active_payload)
 
     # ── Bottom strip ──────────────────────────────────────────────────────────
     def _build_sys_strip(self) -> QFrame:
@@ -778,7 +628,7 @@ class LauncherWindow(QMainWindow):
         data["guppy_online"]  = (_RUNTIME / "guppy.heartbeat").exists()
 
         # Guppy status
-        gs = _read_json(_RUNTIME / "guppy.status")
+        gs = read_json_dict(_RUNTIME / "guppy.status")
         data["profile"]      = gs.get("runtime_profile", os.environ.get("GUPPY_RUNTIME_PROFILE", "standard"))
         data["daemon"]       = gs.get("daemon_running", data["guppy_online"])
         data["voice_engine"] = gs.get("tts_engine", os.environ.get("GUPPY_TTS_ENGINE", "edge"))
@@ -810,7 +660,7 @@ class LauncherWindow(QMainWindow):
         )
         try:
             if _PERSONALIZATION_BOOTSTRAP_AVAILABLE:
-                voice_summary = self._voice_binding_summary(
+                voice_summary = voice_binding_summary(
                     resolve_voice_binding(
                         persona_id=self._assistant_view.chat_context()[1],
                         model_id=active_model_id,
@@ -849,7 +699,7 @@ class LauncherWindow(QMainWindow):
             {},
         )
         active_type = str((active_payload or {}).get("type", "user_instance") or "user_instance")
-        role = self._workspace_role_label(active_type)
+        role = workspace_role_label(active_type)
         background_summary = f"{role.upper()} {'READY' if guppy_online else 'NEEDS ATTENTION'}"
         self._assistant_view.set_background_status(
             background_summary,
@@ -958,7 +808,7 @@ class LauncherWindow(QMainWindow):
         if mtime == self._recovery_outcome_mtime:
             return
         self._recovery_outcome_mtime = mtime
-        events = _read_jsonl_tail(path, limit=80)
+        events = read_jsonl_tail(path, limit=80)
         target = None
         for item in reversed(events):
             if item.get("event") in {"recovery_result", "recovery_error"}:
@@ -1035,7 +885,7 @@ class LauncherWindow(QMainWindow):
         self._stack.setCurrentIndex(index)
         self._topbar.set_active_tab(index)
         self._sidebar.set_active(index)
-        if index == 3:
+        if index == 4:
             self._sync_automation_test_state()
 
     def _apply_start_destination(self) -> None:
@@ -1045,12 +895,12 @@ class LauncherWindow(QMainWindow):
         self._on_tab_change(_START_DESTINATION_TO_TAB[target])
         if target == "automation-test":
             note = (
-                "Test flow ready: use Setup & Health to verify readiness, queue one safe check, review it, approve it, and run validation."
+                "Test flow ready: use Settings & System to verify readiness, queue one safe check, review it, approve it, and run validation."
             )
             self._advanced_view.focus_automation_test(note=note)
             self._assistant_view.set_background_event(note)
-            self._set_daily_activity("Test flow opened Setup & Health")
-            self._status_panel.append_syslog("automation test start intent opened Setup & Health")
+            self._set_daily_activity("Test flow opened Settings & System")
+            self._status_panel.append_syslog("automation test start intent opened Settings & System")
         self._log_launcher_event("start_destination_applied", destination=target)
 
     def _instances_config_path(self) -> Path:
@@ -1079,8 +929,8 @@ class LauncherWindow(QMainWindow):
         }
 
     def _local_instance_snapshot(self, *, include_workspace_details: bool = True) -> dict:
-        config = _read_json(self._instances_config_path())
-        state = _read_json(self._instance_state_path())
+        config = read_json_dict(self._instances_config_path())
+        state = read_json_dict(self._instance_state_path())
         items: list[dict[str, object]] = []
         warnings: list[str] = []
         raw_items = config.get("instances", []) if isinstance(config, dict) else []
@@ -1247,70 +1097,7 @@ class LauncherWindow(QMainWindow):
         return names, active
 
     def _refresh_instance_views(self, *, load_logs: bool = False, force: bool = False) -> None:
-        snapshot = self._fetch_instance_snapshot(force=force)
-        self._last_instance_snapshot = snapshot
-        connector_inventory_snapshot = self._fetch_connector_inventory(force=force)
-        typed_connector_inventory = build_connector_inventory(connector_inventory_snapshot)
-        self._launcher_state_snapshot = self._build_launcher_state_snapshot(
-            snapshot,
-            typed_connector_inventory,
-            self._advanced_view.windows_ops_snapshot(),
-            self._runtime_health_snapshot,
-        )
-        instance_view_signature = self._payload_signature(snapshot)
-        connector_view_signature = self._payload_signature(connector_inventory_snapshot)
-        if force or instance_view_signature != self._last_instance_view_signature:
-            self._instance_manager_view.set_instances(snapshot)
-            self._advanced_view.set_instance_snapshot(snapshot)
-            self._last_instance_view_signature = instance_view_signature
-        if force or connector_view_signature != self._last_connector_view_signature:
-            self._advanced_view.set_connector_inventory(connector_inventory_snapshot)
-            self._my_pc_view.set_connector_inventory(connector_inventory_snapshot)
-            self._last_connector_view_signature = connector_view_signature
-        items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
-        enabled_names = enabled_workspace_names(snapshot) or [item.name for item in self._launcher_state_snapshot.workspaces if item.name]
-        active = str(snapshot.get("active_instance", "")).strip() or self._active_instance_name or "guppy-primary"
-        if active not in enabled_names:
-            enabled_names = enabled_names or [active]
-            if active not in enabled_names:
-                enabled_names.insert(0, active)
-        stale_names = [name for name in self._instance_histories.keys() if name not in enabled_names]
-        for name in stale_names:
-            self._instance_histories.pop(name, None)
-        if active != self._active_instance_name and not self._request_in_flight:
-            self._apply_instance_switch(active, announce=False)
-        self._topbar.set_instances(enabled_names, active_instance=active)
-        active_payload = resolve_active_instance_payload(snapshot, active)
-        if isinstance(active_payload, dict):
-            tools_context_signature = self._payload_signature(
-                {
-                    "active_instance": active,
-                    "active_payload": active_payload,
-                    "limits": snapshot.get("limits", {}) if isinstance(snapshot, dict) else {},
-                }
-            )
-            if force or tools_context_signature != self._last_tools_context_signature:
-                self._tools_view.set_instance_context(active_payload, snapshot)
-                self._last_tools_context_signature = tools_context_signature
-            self._sync_right_tray(active_payload)
-            self._assistant_view.set_active_instance(
-                active,
-                workspace_type=str(active_payload.get("type", "user_instance") or "user_instance"),
-                description=str(active_payload.get("description", "") or ""),
-                mode=str(active_payload.get("mode", "auto") or "auto"),
-                persona=str(active_payload.get("persona", "guppy") or "guppy"),
-                voice=str(active_payload.get("voice", "default") or "default"),
-                last_message=str(active_payload.get("last_message", "") or ""),
-            )
-            self._topbar.set_session(self._workspace_role_label(str(active_payload.get("type", "user_instance") or "user_instance")))
-        windows_snapshot = self._advanced_view.windows_ops_snapshot()
-        windows_snapshot_signature = self._payload_signature(windows_snapshot)
-        if force or windows_snapshot_signature != self._last_windows_snapshot_signature:
-            self._my_pc_view.set_windows_snapshot(windows_snapshot)
-            self._last_windows_snapshot_signature = windows_snapshot_signature
-        if load_logs:
-            self._on_instance_logs_requested(active, quiet=True)
-        self._sync_automation_test_state()
+        refresh_workspace_instance_views(self, load_logs=load_logs, force=force)
 
     def _build_launcher_state_snapshot(
         self,
@@ -1327,89 +1114,105 @@ class LauncherWindow(QMainWindow):
             runtime_health=runtime_health,
         )
 
-    def _apply_instance_switch(self, target: str, *, announce: bool = True) -> None:
-        if not target:
-            return
-        if target == self._active_instance_name and not announce:
-            self._assistant_view.set_active_instance(target)
-            return
-        self._snapshot_active_instance_history()
-        self._active_instance_name = target
-        history = self._instance_histories.get(target)
-        if history is None or not history:
-            history = self._load_instance_history_from_logs(target)
-            self._instance_histories[target] = history
-        self._assistant_view.restore_history(history)
-        snapshot = self._last_instance_snapshot if isinstance(self._last_instance_snapshot, dict) else {}
-        active_payload = resolve_active_instance_payload(snapshot, target)
-        self._assistant_view.set_active_instance(
-            target,
-            workspace_type=str(active_payload.get("type", "user_instance") or "user_instance"),
-            description=str(active_payload.get("description", "") or ""),
-            mode=str(active_payload.get("mode", "auto") or "auto"),
-            persona=str(active_payload.get("persona", "guppy") or "guppy"),
-            voice=str(active_payload.get("voice", "default") or "default"),
-            last_message=str(active_payload.get("last_message", "") or ""),
+    def _sync_assistant_library_context(self, library_view) -> None:
+        sync_assistant_library_context(self._assistant_view, library_view, self._active_library_context_items)
+
+    def _ensure_library_workflow(self):
+        workflow = getattr(self, "_library_workflow", None)
+        if workflow is not None:
+            return workflow
+        workflow = LibraryWorkflowController(
+            assistant_view=getattr(self, "_assistant_view", None),
+            status_panel=getattr(self, "_status_panel", None),
+            get_active_items=lambda: list(getattr(self, "_active_library_context_items", [])),
+            set_active_items=lambda items: setattr(self, "_active_library_context_items", list(items)),
+            get_active_instance_name=lambda: getattr(self, "_active_instance_name", "guppy-primary"),
+            get_library_view=lambda: getattr(self, "_library_view", None),
+            refresh_library_surface=lambda: self._refresh_library_surface(),
+            on_tab_change=lambda index: self._on_tab_change(index),
+            set_daily_activity=lambda text: self._set_daily_activity(text),
+            log_launcher_event=lambda event, **fields: self._log_launcher_event(event, **fields),
         )
-        self._assistant_view.ensure_welcome_message()
-        if isinstance(active_payload, dict):
-            self._sync_right_tray(active_payload)
-        self._topbar.set_active_instance(target)
-        mode, persona = self._assistant_view.chat_context()
-        self._rotate_chat_session("instance_switched", mode=mode, persona=persona, instance=target)
-        self._topbar.set_session(self._workspace_role_label(str(active_payload.get("type", "user_instance") or "user_instance")))
-        if announce:
-            self._assistant_view.add_system_message(f"Switched to workspace {target}.")
-            self._set_daily_activity(f"Workspace switched to {target}")
-            self._status_panel.append_syslog(f"active workspace switched: {target}")
-            self._instance_manager_view.set_status(f"Workspace switched to {target}")
-            self._log_launcher_event("instance_switched", instance=target)
-        self._sync_automation_test_state()
+        setattr(self, "_library_workflow", workflow)
+        return workflow
+
+    @staticmethod
+    def _compose_library_aware_message(cmd: str, active_items: list[dict[str, str]] | None) -> str:
+        return compose_library_aware_message(cmd, active_items)
+
+    def _on_library_context_requested(self, title: str, item_path: str, item_kind: str, prompt: str) -> None:
+        self._ensure_library_workflow().handle_context_requested(title, item_path, item_kind, prompt)
+
+    def _on_library_context_cleared(self) -> None:
+        self._ensure_library_workflow().handle_context_cleared()
+
+    def _on_library_context_focused(self, title: str) -> None:
+        self._ensure_library_workflow().handle_context_focused(title)
+
+    def _on_library_context_opened(self, title: str) -> None:
+        title_text = str(title or "").strip()
+        self._on_tab_change(2)
+        library_view = getattr(self, "_library_view", None)
+        if library_view is not None and hasattr(library_view, "focus_search_query"):
+            library_view.focus_search_query(title_text)
+        self._set_daily_activity(f"Library opened for source: {title_text}")
+        self._status_panel.append_syslog(f"library source opened: {title_text}")
+        self._log_launcher_event("library_context_opened", title=title_text)
+
+    def _on_library_context_removed(self, title: str) -> None:
+        self._ensure_library_workflow().handle_context_removed(title)
+
+    def _refresh_library_surface(self) -> None:
+        snapshot = self._last_instance_snapshot if isinstance(self._last_instance_snapshot, dict) else {}
+        active_payload = resolve_active_instance_payload(snapshot, self._active_instance_name)
+        library_view = getattr(self, "_library_view", None)
+        if library_view is not None and isinstance(active_payload, dict):
+            apply_library_payload(self._assistant_view, library_view, self._active_library_context_items, active_payload, snapshot)
+
+    def _on_library_root_requested(self, root_path: str, label: str) -> None:
+        self._ensure_library_workflow().handle_root_requested(root_path, label)
+
+    def _on_library_note_requested(self, title: str, summary: str) -> None:
+        self._ensure_library_workflow().handle_note_requested(title, summary)
+
+    def _on_library_note_updated(self, item_id: int, title: str, summary: str) -> None:
+        self._ensure_library_workflow().handle_note_updated(item_id, title, summary)
+
+    def _on_library_artifact_requested(self, title: str, item_path: str, summary: str) -> None:
+        self._ensure_library_workflow().handle_artifact_requested(title, item_path, summary)
+
+    def _on_library_artifact_updated(self, item_id: int, title: str, item_path: str, summary: str) -> None:
+        self._ensure_library_workflow().handle_artifact_updated(item_id, title, item_path, summary)
+
+    def _on_library_item_deleted(self, item_id: int, title: str) -> None:
+        self._ensure_library_workflow().handle_item_deleted(item_id, title)
+
+    def _on_assistant_reply_library_requested(self, content: str, attach_next: bool) -> None:
+        self._ensure_library_workflow().handle_reply_saved(content, attach_next=attach_next)
+    def _on_assistant_reply_artifact_requested(self, content: str) -> None:
+        self._ensure_library_workflow().handle_reply_artifact_saved(content)
+    def _on_latest_saved_output_attached(self, title: str, summary: str) -> None:
+        self._ensure_library_workflow().handle_latest_output_attached(title, summary)
+    def _on_active_context_refresh_requested(self, content: str, as_artifact: bool) -> None:
+        workflow = self._ensure_library_workflow()
+        if as_artifact:
+            workflow.handle_reply_artifact_saved(content, attach_now=True)
+        else:
+            workflow.handle_reply_saved(content, attach_next=True)
+
+    def _apply_instance_switch(self, target: str, *, announce: bool = True) -> None:
+        apply_workspace_instance_switch(self, target, announce=announce)
 
     def _bootstrap_instance_switcher(self) -> None:
-        snapshot = self._local_instance_snapshot(include_workspace_details=False)
-        names, active = self._load_instance_catalog(snapshot=snapshot)
-        self._instance_histories = {}
-        self._active_instance_name = active
-        self._last_instance_snapshot = snapshot
-        self._instance_snapshot_expires_at = time.monotonic() + 0.75
-        self._topbar.set_instances(names, active_instance=active)
-        self._rotate_chat_session("instance_bootstrap", instance=active)
-        self._instance_manager_view.set_instances(snapshot)
-        self._advanced_view.set_instance_snapshot(snapshot)
-        self._my_pc_view.set_windows_snapshot(self._advanced_view.windows_ops_snapshot())
-        active_payload = resolve_active_instance_payload(snapshot, active)
-        if isinstance(active_payload, dict):
-            self._assistant_view.set_active_instance(
-                active,
-                workspace_type=str(active_payload.get("type", "user_instance") or "user_instance"),
-                description=str(active_payload.get("description", "") or ""),
-                mode=str(active_payload.get("mode", "auto") or "auto"),
-                persona=str(active_payload.get("persona", "guppy") or "guppy"),
-                voice=str(active_payload.get("voice", "default") or "default"),
-                last_message=str(active_payload.get("last_message", "") or ""),
-            )
-            self._assistant_view.ensure_welcome_message()
-            self._sync_right_tray(active_payload)
-        self._set_daily_activity(f"Active workspace: {active}")
-        self._bootstrap_instance_refresh_pending = True
-        self._bootstrap_instance_refresh_complete = False
-        QTimer.singleShot(0, self._complete_bootstrap_instance_switcher)
+        bootstrap_workspace_instance_switcher(self, schedule_single_shot=QTimer.singleShot)
 
     def _complete_bootstrap_instance_switcher(self) -> None:
-        if not self._bootstrap_instance_refresh_pending:
-            return
-        self._bootstrap_instance_refresh_pending = False
-        active = self._active_instance_name
-        try:
-            self._last_instance_snapshot = self._local_instance_snapshot(include_workspace_details=True)
-            self._instance_snapshot_expires_at = time.monotonic() + max(2.0, self._instance_snapshot_ttl_s)
-            self._last_connector_inventory_snapshot = [item.raw for item in fetch_connector_inventory()]
-            self._connector_inventory_expires_at = time.monotonic() + max(3.0, self._connector_inventory_ttl_s)
-            self._refresh_instance_views(force=False)
-        finally:
-            self._bootstrap_instance_refresh_complete = True
-        QTimer.singleShot(150, lambda target=active: self._on_instance_logs_requested(target, quiet=True))
+        complete_bootstrap_workspace_instance_switcher(
+            self,
+            schedule_single_shot=QTimer.singleShot,
+            monotonic=time.monotonic,
+            fetch_connector_inventory=fetch_connector_inventory,
+        )
 
     def _snapshot_active_instance_history(self) -> None:
         if not self._active_instance_name:
@@ -1417,382 +1220,64 @@ class LauncherWindow(QMainWindow):
         self._instance_histories[self._active_instance_name] = self._assistant_view.recent_history(limit=200)
 
     def _on_instance_selected(self, name: str) -> None:
-        target = (name or "").strip()
-        if not target or target == self._active_instance_name:
-            return
-        if self._request_in_flight:
-            self._status_panel.append_syslog("instance switch blocked during active request")
-            self._topbar.set_active_instance(self._active_instance_name)
-            return
-        try:
-            self._http_json(
-                f"/instances/{target}/activate",
-                method="POST",
-                payload={},
-                timeout=2.0,
-                retry_auth_on_401=True,
-                auth_retry_reason="instance_activate",
-            )
-        except Exception:
-            cfg = _read_json(self._instances_config_path())
-            if isinstance(cfg, dict):
-                cfg["active_instance"] = target
-                _write_json(self._instances_config_path(), cfg)
-            state = _read_json(self._instance_state_path())
-            if isinstance(state, dict):
-                state["active_instance"] = target
-                entries = state.get("instances", {})
-                if isinstance(entries, dict):
-                    for key, item in entries.items():
-                        if not isinstance(item, dict):
-                            continue
-                        item["status"] = "active" if key == target else "idle"
-                _write_json(self._instance_state_path(), state)
-        self._apply_instance_switch(target, announce=True)
-        self._refresh_instance_views(load_logs=True, force=True)
+        select_workspace_instance(self, name, read_json_dict=read_json_dict, write_json=_write_json)
 
     def _on_instance_manager_refresh(self) -> None:
-        self._refresh_instance_views(load_logs=True, force=True)
-        self._instance_manager_view.set_status("Workspace state refreshed")
+        launcher_app.refresh_workspace_instance_manager(self)
 
     def _on_instance_create_requested(self, payload: dict) -> None:
-        name = str(payload.get("name", "")).strip()
-        workspace_type = str(payload.get("type", "user_instance") or "user_instance")
-        if not name:
-            self._instance_manager_view.set_status("Workspace name is required", ok=False)
-            return
-        try:
-            result = self._http_json(
-                "/instances",
-                method="POST",
-                payload=payload,
-                timeout=3.0,
-                retry_auth_on_401=True,
-                auth_retry_reason="instance_create",
-            )
-        except Exception as e:
-            message = str(e)
-            if "instance limit reached" in message.lower():
-                message = "Workspace limit reached (5 / 5). Delete a workspace or update an existing name."
-            self._instance_manager_view.set_status(f"Save failed: {message}", ok=False)
-            self._status_panel.append_syslog(f"workspace save failed: {message}")
-            return
-        action = str(result.get("action", "updated")).strip() or "updated"
-        self._refresh_instance_views(load_logs=True, force=True)
-        if action == "created":
-            self._apply_instance_switch(name, announce=True)
-            self._refresh_instance_views(load_logs=True, force=True)
-            recipe = self._workspace_first_run_recipe(workspace_type)
-            role = self._workspace_role_label(workspace_type)
-            add_system = getattr(getattr(self, "_assistant_view", None), "add_system_message", None)
-            if callable(add_system):
-                add_system(f"{role} {name} is ready. {recipe}")
-            activity_setter = getattr(self, "_set_daily_activity", None)
-            if callable(activity_setter):
-                activity_setter(f"Workspace ready: {name} | {recipe}")
-            log_event = getattr(self, "_log_launcher_event", None)
-            if callable(log_event):
-                log_event("workspace_onboarding_ready", instance=name, workspace_type=workspace_type, recipe=recipe)
-            self._instance_manager_view.set_status(f"Workspace {name} created. {recipe}")
-            self._status_panel.append_syslog(f"workspace {name} created. {recipe}")
-            return
-        self._instance_manager_view.set_status(f"Workspace {name} {action}")
-        self._status_panel.append_syslog(f"workspace {name} {action}")
+        save_workspace_instance(self, payload)
 
     def _on_instance_governance_save_requested(self, payload: dict) -> None:
-        name = str(payload.get("name", "")).strip()
-        if not name:
-            self._instance_manager_view.set_governance_status("Workspace name is required for governance save.", ok=False)
-            return
-        body = {
-            "auth_mode": str(payload.get("auth_mode", "runtime_default") or "runtime_default"),
-            "tool_allow": list(payload.get("tool_allow", []) or []),
-            "tool_block": list(payload.get("tool_block", []) or []),
-            "endpoint_allow": list(payload.get("endpoint_allow", []) or []),
-            "endpoint_block": list(payload.get("endpoint_block", []) or []),
-            "policy_note": str(payload.get("policy_note", "") or "").strip(),
-        }
-        try:
-            self._http_json(
-                f"/instances/{name}/governance",
-                method="POST",
-                payload=body,
-                timeout=3.0,
-                retry_auth_on_401=True,
-                auth_retry_reason="instance_governance_save",
-            )
-        except Exception as e:
-            if not _INSTANCE_GOVERNANCE_BACKEND:
-                self._instance_manager_view.set_governance_status(f"Governance save failed: {e}", ok=False)
-                self._status_panel.append_syslog(f"workspace governance save failed: {e}")
-                return
-            try:
-                instance_type = str(payload.get("instance_type", "user_instance") or "user_instance")
-                resolved = resolve_instance_permissions(name, instance_type)
-                set_instance_tool_permission_policy(
-                    name,
-                    {
-                        "read": bool(resolved.get("read", False)),
-                        "write": bool(resolved.get("write", False)),
-                        "execute": bool(resolved.get("execute", False)),
-                        "network": bool(resolved.get("network", False)),
-                        **body,
-                    },
-                )
-            except Exception as local_error:
-                self._instance_manager_view.set_governance_status(f"Governance save failed: {local_error}", ok=False)
-                self._status_panel.append_syslog(f"workspace governance save failed: {local_error}")
-                return
-        self._instance_manager_view.set_governance_status(f"Governance saved for {name}")
-        self._status_panel.append_syslog(f"workspace governance saved: {name}")
-        self._log_launcher_event("workspace_governance_saved", instance=name, auth_mode=body["auth_mode"])
-        self._refresh_instance_views(load_logs=True, force=True)
+        save_instance_governance(self, payload, backend_available=_INSTANCE_GOVERNANCE_BACKEND)
 
     def _on_instance_connector_binding_save_requested(self, payload: dict) -> None:
-        name = str(payload.get("name", "")).strip()
-        connector_id = str(payload.get("connector", "")).strip().lower()
-        if not name or not connector_id:
-            self._instance_manager_view.set_connector_binding_status("Workspace and connector are required for save.", ok=False)
-            return
-        body = {
-            "enabled": bool(payload.get("enabled", False)),
-            "account_id": str(payload.get("account_id", "") or "").strip().lower(),
-            "provider": str(payload.get("provider", "") or "").strip().lower(),
-            "action_allow": list(payload.get("action_allow", []) or []),
-            "action_block": list(payload.get("action_block", []) or []),
-            "endpoint_allow": list(payload.get("endpoint_allow", []) or []),
-            "endpoint_block": list(payload.get("endpoint_block", []) or []),
-            "note": str(payload.get("note", "") or "").strip(),
-        }
-        try:
-            self._http_json(
-                f"/instances/{name}/connectors/{connector_id}",
-                method="POST",
-                payload=body,
-                timeout=3.0,
-                retry_auth_on_401=True,
-                auth_retry_reason="instance_connector_binding_save",
-            )
-        except Exception as e:
-            if not _CONNECTOR_MANAGER_BACKEND:
-                self._instance_manager_view.set_connector_binding_status(f"Connector binding save failed: {e}", ok=False)
-                self._status_panel.append_syslog(f"connector binding save failed: {e}")
-                return
-            try:
-                save_workspace_connector_binding(name, connector_id, body)
-            except Exception as local_error:
-                self._instance_manager_view.set_connector_binding_status(f"Connector binding save failed: {local_error}", ok=False)
-                self._status_panel.append_syslog(f"connector binding save failed: {local_error}")
-                return
-        self._instance_manager_view.set_connector_binding_status(f"Connector binding saved for {name} / {connector_id}")
-        self._status_panel.append_syslog(f"connector binding saved: {name} / {connector_id}")
-        self._log_launcher_event("workspace_connector_binding_saved", instance=name, connector=connector_id)
-        self._refresh_instance_views(load_logs=False, force=True)
+        save_instance_connector_binding(self, payload, backend_available=_CONNECTOR_MANAGER_BACKEND)
 
     def _perform_connector_action_request(self, payload: dict) -> dict:
-        connector_id = str(payload.get("connector", "")).strip().lower()
-        action = str(payload.get("action", "")).strip().lower()
-        if not connector_id or not action:
-            return {}
-        request = build_connector_action_request(
-            connector_id,
-            action,
-            provider=str(payload.get("provider", "") or "").strip().lower(),
-            account_id=str(payload.get("account_id", "") or "").strip().lower(),
-            secret_key=str(payload.get("secret_key", "") or "").strip(),
-            secret_value=str(payload.get("secret_value", "") or "").strip(),
-            workspace_name=str(self._active_instance_name or "").strip(),
-        )
-        try:
-            result = self._http_json(
-                f"/connectors/{connector_id}/{action}",
-                method="POST",
-                payload=connector_action_http_payload(request),
-                timeout=6.0,
-                retry_auth_on_401=True,
-                auth_retry_reason="connector_action",
-            )
-            typed_result = build_connector_action_result(
-                {
-                    **(result if isinstance(result, dict) else {}),
-                    "connector": connector_id,
-                    "action": action,
-                }
-            )
-        except Exception as e:
-            if not _CONNECTOR_MANAGER_BACKEND:
-                self._advanced_view.append_log(f"connector action failed: {e}")
-                return {}
-            typed_result = execute_connector_action(request)
-        return connector_action_record(request, typed_result)
+        return perform_connector_action_request(self, payload, backend_available=_CONNECTOR_MANAGER_BACKEND)
 
     def _apply_connector_action_feedback(self, record: dict, *, refresh_after: bool = True) -> dict:
-        if not isinstance(record, dict) or not record:
-            return {}
-        connector_id = str(record.get("connector", "") or "").strip().lower()
-        action = str(record.get("action", "") or "").strip().lower()
-        ok = bool(record.get("ok", False))
-        summary = str(record.get("summary", "") or "").strip()
-        next_step = str(record.get("next_step", "") or "").strip()
-        result_code = str(record.get("result_code", "") or "").strip()
-        fix_target = str(record.get("fix_target", "") or "").strip()
-        event_id = str(record.get("event_id", "") or "").strip()
-        status = record.get("status", {}) if isinstance(record.get("status"), dict) else {}
-        self._advanced_view.append_log(summary)
-        if next_step:
-            self._advanced_view.append_log("next step: " + next_step + (f" | fix in: {fix_target}" if fix_target else ""))
-        self._my_pc_view.set_account_result(
-            summary + (f" | Next: {next_step}" if next_step else ""),
-            ok=ok,
-        )
-        self._status_panel.append_syslog(summary)
-        self._set_daily_activity(summary)
-        self._log_launcher_event(
-            "connector_action_result",
-            connector=connector_id,
-            action=action,
-            ok=ok,
-            summary=summary,
-            provider=str(record.get("provider", "") or "").strip().lower(),
-            account_id=str(record.get("account_id", "") or "").strip().lower(),
-            event_id=event_id,
-            integration_event=str(record.get("integration_event", "") or "").strip(),
-            auth_state=str(status.get("auth_state", "") or ""),
-            result_code=result_code,
-            next_step=next_step,
-            fix_target=fix_target,
-        )
-        if refresh_after:
-            self._refresh_instance_views(load_logs=False, force=True)
-        return record
+        return apply_connector_action_feedback(self, record, refresh_after=refresh_after)
 
     def _run_connector_action_request(self, payload: dict, *, refresh_after: bool = True) -> dict:
-        record = self._perform_connector_action_request(payload)
-        return self._apply_connector_action_feedback(record, refresh_after=refresh_after)
+        return run_connector_action_request(
+            self,
+            payload,
+            refresh_after=refresh_after,
+            backend_available=_CONNECTOR_MANAGER_BACKEND,
+        )
 
     def _start_connector_action_async(self, payload: dict, *, refresh_after: bool = True) -> None:
-        connector_id = str(payload.get("connector", "") or "").strip().lower()
-        action = str(payload.get("action", "") or "").strip().lower()
-        if not connector_id or not action:
-            return
-        action_label = connector_action_status_label(action)
-        self._my_pc_view.set_account_result(action_label, ok=True)
-        self._advanced_view.append_log(f"{connector_id} {action} requested")
-        self._status_panel.append_syslog(f"{connector_id} {action} requested")
-
-        def _worker() -> None:
-            record = self._perform_connector_action_request(payload)
-            self._connector_action_events.put({"kind": "single", "record": record, "refresh_after": refresh_after})
-            emitter = getattr(self, "connector_action_event_queued", None)
-            if emitter is not None and hasattr(emitter, "emit"):
-                emitter.emit()
-
-        threading.Thread(target=_worker, daemon=True).start()
+        start_connector_action_async(
+            self,
+            payload,
+            refresh_after=refresh_after,
+            backend_available=_CONNECTOR_MANAGER_BACKEND,
+        )
 
     def _start_connector_guided_link_async(self, payload: dict) -> None:
-        connector_id = str(payload.get("connector", "") or "").strip().lower()
-        provider = str(payload.get("provider", "") or "").strip().lower()
-        account_id = str(payload.get("account_id", "") or "").strip().lower()
-        secrets = [item for item in payload.get("secrets", []) if isinstance(item, dict)]
-        verify_after = bool(payload.get("verify_after", True))
-        self._my_pc_view.set_account_result("Saving details and checking the connection...", ok=True)
-        self._advanced_view.append_log(f"{connector_id} guided setup requested")
-        self._status_panel.append_syslog(f"{connector_id} guided setup requested")
-
-        def _worker() -> None:
-            records = execute_guided_connector_setup(
-                connector_id=connector_id,
-                provider=provider,
-                account_id=account_id,
-                secrets=secrets,
-                verify_after=verify_after,
-                performer=self._perform_connector_action_request,
-            )
-            self._connector_action_events.put({"kind": "batch", "records": records, "refresh_after": True})
-            emitter = getattr(self, "connector_action_event_queued", None)
-            if emitter is not None and hasattr(emitter, "emit"):
-                emitter.emit()
-
-        threading.Thread(target=_worker, daemon=True).start()
+        start_connector_guided_link_async(self, payload, backend_available=_CONNECTOR_MANAGER_BACKEND)
 
     def _drain_connector_action_events(self) -> None:
-        while True:
-            try:
-                payload = self._connector_action_events.get_nowait()
-            except Empty:
-                break
-            kind = str(payload.get("kind", "single") or "single").strip().lower()
-            if kind == "batch":
-                records = [item for item in payload.get("records", []) if isinstance(item, dict)]
-                for index, record in enumerate(records):
-                    self._apply_connector_action_feedback(
-                        record,
-                        refresh_after=bool(payload.get("refresh_after", False)) and index == len(records) - 1,
-                    )
-            else:
-                record = payload.get("record", {}) if isinstance(payload.get("record"), dict) else {}
-                self._apply_connector_action_feedback(record, refresh_after=bool(payload.get("refresh_after", False)))
+        drain_connector_action_events(self)
 
     def _on_connector_action_requested(self, payload: dict) -> None:
-        self._start_connector_action_async(payload, refresh_after=True)
+        handle_connector_action_request(self, payload, backend_available=_CONNECTOR_MANAGER_BACKEND)
 
     def _on_connector_guided_link_requested(self, payload: dict) -> None:
-        connector_id = str(payload.get("connector", "")).strip().lower()
-        if not connector_id:
-            self._my_pc_view.set_account_result("Choose a connector before saving details.", ok=False)
-            return
-        secrets = [item for item in payload.get("secrets", []) if isinstance(item, dict)]
-        if not secrets:
-            self._my_pc_view.set_account_result("Add an API key or account details before saving.", ok=False)
-            return
-        self._start_connector_guided_link_async(payload)
+        handle_connector_guided_link_request(self, payload, backend_available=_CONNECTOR_MANAGER_BACKEND)
 
     def _on_instance_delete_requested(self, name: str) -> None:
-        target = (name or "").strip()
-        if not target:
-            return
-        try:
-            result = self._http_json(
-                f"/instances/{target}",
-                method="DELETE",
-                timeout=3.0,
-                retry_auth_on_401=True,
-                auth_retry_reason="instance_delete",
-            )
-        except Exception as e:
-            self._instance_manager_view.set_status(f"Delete failed: {e}", ok=False)
-            self._status_panel.append_syslog(f"workspace delete failed: {e}")
-            return
-        new_active = str(result.get("active_instance", self._active_instance_name)).strip() or self._active_instance_name
-        if target == self._active_instance_name:
-            self._apply_instance_switch(new_active, announce=False)
-        self._instance_histories.pop(target, None)
-        self._instance_manager_view.set_status(f"Workspace {target} deleted")
-        self._status_panel.append_syslog(f"workspace deleted: {target}")
-        self._refresh_instance_views(load_logs=True, force=True)
+        delete_workspace_instance(self, name)
 
     def _on_instance_logs_requested(self, name: str, quiet: bool = False) -> None:
-        target = (name or self._active_instance_name or "guppy-primary").strip()
-        if not target:
-            return
-        entries: list[dict] = []
-        try:
-            payload = self._http_json(
-                f"/instances/{target}/logs?limit=80",
-                method="GET",
-                timeout=2.0,
-                retry_auth_on_401=True,
-                auth_retry_reason="instance_logs",
-            )
-            raw_entries = payload.get("entries", []) if isinstance(payload, dict) else []
-            if isinstance(raw_entries, list):
-                entries = [item for item in raw_entries if isinstance(item, dict)]
-        except Exception:
-            if _INSTANCE_LOGGER_AVAILABLE:
-                entries = read_instance_log_tail(target, limit=80)
-        self._instance_manager_view.set_logs(target, entries)
-        if not quiet:
-            self._instance_manager_view.set_status(f"Loaded logs for {target}")
+        load_workspace_instance_logs(
+            self,
+            name,
+            quiet=quiet,
+            local_log_reader=read_instance_log_tail if _INSTANCE_LOGGER_AVAILABLE else None,
+        )
 
     # ── Event handlers ────────────────────────────────────────────────────────
     def _on_settings_saved(self, settings: dict) -> None:
@@ -2207,7 +1692,7 @@ class LauncherWindow(QMainWindow):
         if not path.exists():
             return
         try:
-            states = _read_json(path)
+            states = read_json_dict(path)
             if isinstance(states, dict):
                 self._tools_view.set_states({k: bool(v) for k, v in states.items()})
                 self._status_panel.append_syslog("tools state restored")
@@ -2247,10 +1732,9 @@ class LauncherWindow(QMainWindow):
             "uptime_s": round(time.monotonic() - _START_TIME, 3),
             **fields,
         }
-        if _SAFE_IO:
-            from utils.safe_io import append_jsonl
+        try:
             append_jsonl(_RUNTIME / "launcher_events.jsonl", record)
-        else:
+        except Exception:
             try:
                 path = _RUNTIME / "launcher_events.jsonl"
                 with path.open("a", encoding="utf-8") as f:
@@ -2586,7 +2070,7 @@ class LauncherWindow(QMainWindow):
     @staticmethod
     def _latest_stress_report_path() -> Path | None:
         candidates: list[Path] = []
-        for folder in (_RUNTIME, _RUNTIME / "stress_reports", _RUNTIME.parent / "tests" / "runtime"):
+        for folder in (_RUNTIME, _RUNTIME / "stress_reports"):
             if not folder.exists():
                 continue
             candidates.extend(folder.glob("stress_report_*.json"))
@@ -2595,7 +2079,7 @@ class LauncherWindow(QMainWindow):
         return max(candidates, key=lambda path: path.stat().st_mtime)
 
     def _recent_launcher_event_summaries(self, limit: int = 4) -> list[str]:
-        items = _read_jsonl_tail(_RUNTIME / "launcher_events.jsonl", limit=24)
+        items = read_jsonl_tail(_RUNTIME / "launcher_events.jsonl", limit=24)
         rendered: list[str] = []
         for item in reversed(items):
             if not isinstance(item, dict):
@@ -2742,7 +2226,7 @@ class LauncherWindow(QMainWindow):
         from utils.offhours_builder import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, build_builder_report
 
         report = build_builder_report(queue_path=QUEUE_PATH, results_path=RESULTS_PATH, metrics_path=METRICS_PATH)
-        queue_payload = _read_json(QUEUE_PATH)
+        queue_payload = read_json_dict(QUEUE_PATH)
         tasks = [
             item for item in queue_payload.get("tasks", [])
             if isinstance(item, dict)
@@ -2902,7 +2386,7 @@ class LauncherWindow(QMainWindow):
     def _approve_latest_builder_task(self) -> dict[str, object]:
         from utils.offhours_builder import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, approve_builder_task
 
-        queue_payload = _read_json(QUEUE_PATH)
+        queue_payload = read_json_dict(QUEUE_PATH)
         tasks = [
             item for item in queue_payload.get("tasks", [])
             if isinstance(item, dict)
@@ -2937,7 +2421,7 @@ class LauncherWindow(QMainWindow):
                 announce_text=f"Builder task queued for {instance_name}: {template_id}",
             )
             self._advanced_view.set_automation_status(
-                f"Queued {task['title']} from Workspace Tools. Review staged output in App Mgmt when it is ready."
+                f"Queued {task['title']} from Tools. Review staged output in Settings when it is ready."
             )
         except Exception as exc:
             self._tools_view.set_builder_status(f"Queue failed: {exc}", ok=False)
@@ -2948,7 +2432,7 @@ class LauncherWindow(QMainWindow):
         target = (action or "").strip().lower()
         if target == "verify_now":
             self._advanced_view.focus_automation_test(
-                note="VERIFY NOW queued runtime readiness checks in the App Mgmt terminal."
+                note="VERIFY NOW queued runtime readiness checks in the Settings terminal."
             )
             self._on_windows_ops_requested("verify_runtime")
             self._sync_automation_test_state(
@@ -3038,7 +2522,7 @@ class LauncherWindow(QMainWindow):
                 },
             )
             if queued:
-                self._set_daily_activity("Automation validation queued in App Mgmt terminal")
+                self._set_daily_activity("Automation validation queued in Settings terminal")
                 self._status_panel.append_syslog("automation validation queued")
                 self._sync_automation_test_state(
                     status="Focused automation validation queued in the embedded terminal.",
@@ -3082,20 +2566,9 @@ class LauncherWindow(QMainWindow):
         return f"http://127.0.0.1:{port}"
 
     def _build_local_bearer_token(self) -> str:
-        env_token = os.environ.get("GUPPY_API_BEARER_TOKEN", "").strip()
-        if env_token:
-            self._api_token_source = "env_bearer_token"
-            return env_token
-        if not _API_AUTH_HELPER:
-            self._api_token_source = "jwt_helper_unavailable"
-            return ""
-        try:
-            token = _create_access_token({"sub": "launcher_local"})
-            self._api_token_source = "jwt_helper"
-            return token
-        except Exception as e:
-            self._api_token_source = f"jwt_helper_error:{type(e).__name__}"
-            return ""
+        token, token_source = build_local_bearer_token()
+        self._api_token_source = token_source
+        return token
 
     def _refresh_api_auth_state(self, reason: str) -> str:
         self._api_bearer_token = self._build_local_bearer_token()
@@ -3126,7 +2599,7 @@ class LauncherWindow(QMainWindow):
         if _SECRET_STORE_AVAILABLE and _secret_store is not None:
             try:
                 ks_token = _secret_store.get_secret("repair_token")
-                if ks_token and _is_valid_repair_token(ks_token):
+                if ks_token and launcher_app.is_valid_repair_token(ks_token):
                     return ks_token
             except Exception:
                 pass
@@ -3138,12 +2611,11 @@ class LauncherWindow(QMainWindow):
             token = tok_path.read_text(encoding="utf-8").strip()
         except Exception:
             return ""
-        return token if _is_valid_repair_token(token) else ""
+        return token if launcher_app.is_valid_repair_token(token) else ""
 
     @staticmethod
     def _validate_repair_token(token: str) -> bool:
-        """Backward-compatible alias; delegates to module-level _is_valid_repair_token."""
-        return _is_valid_repair_token(token)
+        return launcher_app.is_valid_repair_token(token)
 
     def _http_json(
         self,
@@ -3291,7 +2763,7 @@ class LauncherWindow(QMainWindow):
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
             token = (json.loads(raw) if raw.strip() else {}).get("repair_token", "")
-            return token if _is_valid_repair_token(token) else ""
+            return token if launcher_app.is_valid_repair_token(token) else ""
         except Exception:
             return ""
 
@@ -3685,7 +3157,7 @@ class LauncherWindow(QMainWindow):
                 },
             )
             if queued:
-                summary = str(descriptor.request_summary or f"{label.title()} queued in App Mgmt terminal")
+                summary = str(descriptor.request_summary or f"{label.title()} queued in Settings terminal")
                 self._set_daily_activity(summary)
                 self._status_panel.append_syslog(str(descriptor.syslog_message or f"{label.lower()} queued"))
                 self._record_windows_ops_state(
@@ -3735,7 +3207,7 @@ class LauncherWindow(QMainWindow):
             return
         if descriptor.execution_kind == WindowsOpsExecutionKind.SUBPROCESS and target == "start_supervised_api":
             guidance = self._windows_ops_guidance(target, ok=True, phase="queued")
-            summary = str(descriptor.request_summary or "Supervised API launch requested from App Mgmt")
+            summary = str(descriptor.request_summary or "Supervised API launch requested from Settings")
             self._status_panel.append_syslog(str(descriptor.syslog_message or "supervised api requested"))
             self._set_daily_activity(summary)
             self._record_windows_ops_state(
@@ -3875,7 +3347,15 @@ class LauncherWindow(QMainWindow):
         self._request_in_flight = True
         history_getter = getattr(self._assistant_view, "recent_history", None)
         history = history_getter(limit=12) if callable(history_getter) else []
+        active_library_items = list(getattr(self, "_active_library_context_items", []))
+        library_submission = build_library_chat_submission(cmd, history, active_library_items)
+        request_message = library_submission.request_message
+        history = library_submission.history
         idempotency_key = f"launcher-{uuid.uuid4().hex}"
+        if library_submission.context_notice:
+            note_context_submission = getattr(self._assistant_view, "note_active_context_submission", None)
+            if callable(note_context_submission):
+                note_context_submission(library_submission.context_notice)
         self._assistant_view.add_user_message(cmd)
         if _INSTANCE_LOGGER_AVAILABLE:
             append_instance_log(
@@ -3891,7 +3371,9 @@ class LauncherWindow(QMainWindow):
         set_in_flight = getattr(self._assistant_view, "set_request_in_flight", None)
         if callable(set_in_flight):
             set_in_flight(True)
-        self._assistant_view.set_status("Processing...")
+        self._assistant_view.set_status(library_submission.status_text)
+        if library_submission.background_event:
+            self._assistant_view.set_background_event(library_submission.background_event)
         activity_setter = getattr(self, "_set_daily_activity", None)
         if callable(activity_setter):
             activity_setter(f"Working on: {cmd[:96]}")
@@ -3902,7 +3384,7 @@ class LauncherWindow(QMainWindow):
 
         def _worker() -> None:
             payload = {
-                "message": cmd,
+                "message": request_message,
                 "session_id": self._chat_session_id,
                 "mode": selected_mode,
                 "persona": selected_persona,
@@ -4088,17 +3570,17 @@ class LauncherWindow(QMainWindow):
     def _on_quick_action(self, action: str) -> None:
         target = (action or "").strip().lower()
         if target == "notifications":
-            self._on_tab_change(3)
+            self._on_tab_change(4)
             self._advanced_view.focus_operator_logs(
                 "WARN",
                 note="Top bar notifications opened launcher warnings and recovery events.",
             )
-            self._set_daily_activity("App Mgmt opened launcher warnings and recovery events")
-            self._status_panel.append_syslog("App Mgmt warnings opened from top bar")
+            self._set_daily_activity("Settings opened launcher warnings and recovery events")
+            self._status_panel.append_syslog("Settings warnings opened from top bar")
             self._log_launcher_event("quick_action", action="notifications")
             return
         if target == "terminal":
-            self._on_tab_change(3)
+            self._on_tab_change(4)
             note = "Top bar terminal opened operator logs"
             if self._last_command:
                 note += f". Last command: {self._last_command}"
@@ -4106,8 +3588,8 @@ class LauncherWindow(QMainWindow):
             self._advanced_view.focus_terminal(
                 note=f"[launcher] terminal opened from top bar. cwd={_RUNTIME.parent}"
             )
-            self._set_daily_activity("App Mgmt terminal opened operator logs and workflow controls")
-            self._status_panel.append_syslog("App Mgmt terminal opened from top bar")
+            self._set_daily_activity("Settings opened operator logs and workflow controls")
+            self._status_panel.append_syslog("Settings terminal opened from top bar")
             self._log_launcher_event("quick_action", action="terminal", last_command=self._last_command)
             return
         self._status_panel.append_syslog(f"quick action unavailable: {action}")
@@ -4124,7 +3606,7 @@ class LauncherWindow(QMainWindow):
         if mtime == self._notification_badge_mtime:
             return
         self._notification_badge_mtime = mtime
-        events = _read_jsonl_tail(path, limit=80)
+        events = read_jsonl_tail(path, limit=80)
         warn_count = 0
         error_count = 0
         for item in events:

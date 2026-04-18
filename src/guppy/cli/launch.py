@@ -81,12 +81,25 @@ def setup_env(root: Path, profile: str = "standard") -> None:
     os.environ.setdefault("OLLAMA_CODE_MODEL", "guppy-code")
     os.environ.setdefault("OLLAMA_VAULT_MODEL", "vault-scraper")
     os.environ.setdefault("WEATHER_UNITS", "imperial")
+    os.environ.pop("GUPPY_DEFAULT_SURFACE", None)
+    os.environ.pop("GUPPY_SHOW_ADVANCED_SURFACES", None)
 
     # Profile
     os.environ["GUPPY_RUNTIME_PROFILE"] = profile
-    if profile == "power":
-        os.environ.setdefault("GUPPY_DEFAULT_SURFACE", "guppy")
-        os.environ.setdefault("GUPPY_SHOW_ADVANCED_SURFACES", "1")
+
+
+def _resolve_python_executable(root: Path, *, prefer_windowed: bool = False) -> str:
+    """Resolve the preferred virtualenv interpreter for this launch path."""
+    scripts_dir = root / ".venv" / "Scripts"
+    pythonw = scripts_dir / "pythonw.exe"
+    python = scripts_dir / "python.exe"
+    if prefer_windowed and pythonw.exists():
+        return str(pythonw)
+    if python.exists():
+        return str(python)
+    if pythonw.exists():
+        return str(pythonw)
+    return sys.executable
 
 
 # ---------------------------------------------------------------------------
@@ -95,9 +108,7 @@ def setup_env(root: Path, profile: str = "standard") -> None:
 
 def start_hub_background(root: Path) -> subprocess.Popen | None:
     """Start guppy_hub.py in the background without a console window."""
-    pythonw = root / ".venv" / "Scripts" / "pythonw.exe"
-    python = root / ".venv" / "Scripts" / "python.exe"
-    exe = str(pythonw if pythonw.exists() else python)
+    exe = _resolve_python_executable(root, prefer_windowed=True)
     hub_script = root / "guppy_hub.py"
     if not hub_script.exists():
         print("[launch] WARNING: guppy_hub.py not found — skipping hub start")
@@ -194,9 +205,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.surface == "api":
         _setup_api_env()
 
-    python = ROOT / ".venv" / "Scripts" / "python.exe"
+    python = _resolve_python_executable(
+        ROOT,
+        prefer_windowed=script in {"guppy_launcher.py", "guppy_hub.py"},
+    )
     print(f"[launch] Starting {script} (profile={profile})...")
-    result = subprocess.run([str(python), script], cwd=str(ROOT))
+    result = subprocess.run([python, script], cwd=str(ROOT))
     return result.returncode
 
 

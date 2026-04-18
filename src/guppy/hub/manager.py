@@ -13,12 +13,6 @@ try:
 except ImportError:
     _CLAUDE_OK = False
 
-try:
-    from utils.runtime_profile import load_app_settings
-except Exception:
-    def load_app_settings():
-        return {"show_advanced_surfaces": True}
-
 logger = logging.getLogger("OmnissiahHub")
 
 
@@ -68,7 +62,6 @@ class HubManager(QObject):
     def update_context(self, title: str, running: list[str]):
         self._context_summary = title or "No context"
         rec = self.recommend(title, running)
-        _ = load_app_settings()
         self._recommended_agent = rec
         self._recommendation_summary = f"Recommended: {rec}"
         self.recommendation_changed.emit(rec, self._recommendation_summary)

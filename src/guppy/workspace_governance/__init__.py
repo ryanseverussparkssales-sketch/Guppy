@@ -1,5 +1,13 @@
 """Workspace governance seam contracts and connector helpers."""
 
+from .access_policy import (
+    auth_mode_label,
+    check_instance_tool_permission,
+    instance_policy_backend_available,
+    required_capability_for_tool,
+    resolve_instance_permissions,
+    set_instance_tool_permission_policy,
+)
 from .connector_service import (
     build_connector_action_request,
     build_connector_action_result,
@@ -57,10 +65,12 @@ __all__ = [
     "ConnectorInventoryItem",
     "WorkspaceGovernanceSnapshot",
     "WorkspaceSummary",
+    "auth_mode_label",
     "connector_action_for_tool",
     "connector_catalog",
     "connector_id_for_tool",
     "connector_spec",
+    "check_instance_tool_permission",
     "build_connector_action_request",
     "build_connector_action_result",
     "build_connector_guidance",
@@ -72,7 +82,11 @@ __all__ = [
     "provider_environment_fields",
     "provider_metadata",
     "provider_spec",
+    "instance_policy_backend_available",
+    "required_capability_for_tool",
+    "resolve_instance_permissions",
     "secret_field_meta",
+    "set_instance_tool_permission_policy",
     "summarize_connector_readiness",
     "validate_secret_value",
     "keyring_key",

@@ -12,7 +12,6 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $envPath = Join-Path $repoRoot ".env"
-$webJsPath = Join-Path $repoRoot "web/turnstile.js"
 
 function Get-TunnelAccountTag {
     param(
@@ -188,19 +187,6 @@ if (-not $SkipFileUpdates) {
     Set-EnvFileValue -Path $envPath -Key "TURNSTILE_SITE_KEY" -Value $siteKey
     Write-Host "Updated .env TURNSTILE_SITE_KEY"
 
-    if (Test-Path $webJsPath) {
-        $js = Get-Content $webJsPath -Raw
-        $updatedJs = [Regex]::Replace(
-            $js,
-            "const TURNSTILE_SITE_KEY\s*=\s*'[^']*';",
-            "const TURNSTILE_SITE_KEY = '$siteKey';"
-        )
-
-        if ($updatedJs -ne $js) {
-            Set-Content -Path $webJsPath -Value $updatedJs
-            Write-Host "Updated web/turnstile.js TURNSTILE_SITE_KEY"
-        }
-    }
 }
 
 Write-Host "Done."

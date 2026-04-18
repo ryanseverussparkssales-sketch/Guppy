@@ -20,11 +20,15 @@ def windows_ops_guidance(action: str, *, ok: bool, phase: str = "completed") -> 
     if lifecycle_phase == "queued":
         if normalized in {"verify_runtime", "update_runtime", "package_desktop", "release_dry_run"}:
             return {
-                "next_step": "Watch the App Mgmt terminal for completion evidence and wait for the servicing ref to appear.",
+                "next_step": (
+                    "Watch the App Mgmt terminal for completion evidence and wait for the servicing ref to appear."
+                    if normalized != "release_dry_run"
+                    else "Watch the App Mgmt terminal while the canonical release-check preflight and reviewer bundle both finish."
+                ),
                 "fix_target": "App Mgmt > Windows Ops",
                 "docs_hint": "docs/PACKAGING.md" if normalized in {"package_desktop", "release_dry_run"} else "docs/TROUBLESHOOTING.md",
                 "entry_point": (
-                    "python tools/beta_release_dry_run.py"
+                    "python tools/dev_workflow.py release-check"
                     if normalized == "release_dry_run"
                     else "bin\\build_executable.bat --no-clean --ci"
                     if normalized == "package_desktop"
@@ -66,10 +70,10 @@ def windows_ops_guidance(action: str, *, ok: bool, phase: str = "completed") -> 
                 "entry_point": "bin\\build_executable.bat --no-clean --ci",
             },
             "release_dry_run": {
-                "next_step": "Release dry-run passed. Review the dry-run report, receipt, and summary in that order, then package or hand off the reviewer bundle.",
-                "fix_target": "runtime/beta_release_dry_run_report.json",
+                "next_step": "Release-check and the dry-run bundle both passed. Review the dry-run report, receipt, and summary in that order, then package or hand off the reviewer bundle.",
+                "fix_target": "tools/dev_workflow.py release-check -> runtime/beta_release_dry_run_report.json",
                 "docs_hint": "docs/PACKAGING.md",
-                "entry_point": "python tools/beta_release_dry_run.py",
+                "entry_point": "python tools/dev_workflow.py release-check",
             },
             "start_supervised_api": {
                 "next_step": "Supervised API launch passed. Run VERIFY next if you want fresh runtime evidence from inside App Mgmt.",
@@ -113,10 +117,10 @@ def windows_ops_guidance(action: str, *, ok: bool, phase: str = "completed") -> 
                 "entry_point": "bin\\build_executable.bat --no-clean --ci",
             },
             "release_dry_run": {
-                "next_step": "Open the dry-run evidence, fix the failing gate or missing handoff file, then rerun RELEASE DRY RUN.",
-                "fix_target": "tools/beta_release_dry_run.py / tools/pilot_exit_check.py / docs/REMOTE_BETA_EXE_POLICY.md",
+                "next_step": "Open the terminal evidence, fix the failing preflight or missing handoff file, then rerun RELEASE DRY RUN.",
+                "fix_target": "tools/dev_workflow.py release-check / tools/beta_release_dry_run.py / tools/pilot_exit_check.py / docs/REMOTE_BETA_EXE_POLICY.md",
                 "docs_hint": "docs/PACKAGING.md",
-                "entry_point": "python tools/beta_release_dry_run.py",
+                "entry_point": "python tools/dev_workflow.py release-check",
             },
             "start_supervised_api": {
                 "next_step": "Check the supervised launch script and API startup prerequisites, then rerun START API or fall back to REPAIR.",

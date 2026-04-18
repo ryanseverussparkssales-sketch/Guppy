@@ -150,8 +150,6 @@ class StatusSettingsCard(QFrame):
             " | ".join(
                 [
                     f"PROFILE={str(settings.get('runtime_profile', 'standard')).upper()}",
-                    f"DEFAULT_SURFACE={str(settings.get('default_surface', 'guppy')).upper()}",
-                    f"ADVANCED={'ON' if settings.get('show_advanced_surfaces', True) else 'OFF'}",
                     f"DAEMON={'ON' if settings.get('enable_daemon', True) else 'OFF'}",
                 ]
             )

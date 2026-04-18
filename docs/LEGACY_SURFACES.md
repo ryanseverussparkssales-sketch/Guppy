@@ -15,7 +15,7 @@ These areas remain available for compatibility and migration support, not new pr
 1. No new feature work should originate in `compat_shims/legacy_surfaces/`.
 2. Live code in `src/guppy/`, `ui/`, and `utils/` should not import `compat_shims.legacy_surfaces`.
 3. Root wrappers stay thin and should only forward into the canonical `src/guppy/` implementation modules.
-4. The active documentation truth set is `README.md`, `docs/PROJECT_BRIEF.md`, and `ROADMAP.md`.
+4. The active documentation truth set is `docs/PROJECT_BRIEF.md`, `README.md`, and `documentation/`.
 
 ## Related Guardrails
 

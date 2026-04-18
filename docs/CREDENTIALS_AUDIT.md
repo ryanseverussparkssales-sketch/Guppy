@@ -5,7 +5,7 @@
 **Last Updated**: April 13, 2026  
 **Status**: Remote strict-mode path and public tunnel route verified; live guidance aligned to the `src/guppy/*` layout.
 
-Compatibility note: `guppy_api.py` remains the root API launch shim. Secondary compatibility helpers now live under `compat_shims/`. Canonical implementations live under `src/guppy/*`. Historical command examples later in this audit should be read as historical unless they are explicitly marked as current verification steps.
+Compatibility note: `guppy_api.py` remains the root API launch shim. Canonical implementations live under `src/guppy/*`, and historical specialist desktop material is limited to `compat_shims/legacy_surfaces/`. Historical command examples later in this audit should be read as historical unless they are explicitly marked as current verification steps.
 
 ---
 
@@ -13,7 +13,7 @@ Compatibility note: `guppy_api.py` remains the root API launch shim. Secondary c
 
 | Capability | Status | Requires | Notes |
 |---|---|---|---|
-| Desktop chat (Guppy/Merlin/Council UIs) | âœ… **READY** | None (Ollama local) or ANTHROPIC_API_KEY | Works offline; Claude optional |
+| Desktop launcher and hub surfaces | âœ… **READY** | None (Ollama local) or ANTHROPIC_API_KEY | Works offline; Claude optional |
 | Push-to-talk + voice responses | âœ… **READY** | None | Windows SAPI 5.1 built-in |
 | Smart dispatcher (Phases 1-3) | âœ… **READY** | ANTHROPIC_API_KEY for Haiku/Sonnet | Fallback to Ollama if key absent |
 | OpenRouter low-cost routing (optional) | âš ï¸ **OPTIONAL** | OPENROUTER_API_KEY | Broad model selection, cost-focused fallback tier |
@@ -38,9 +38,9 @@ Compatibility note: `guppy_api.py` remains the root API launch shim. Secondary c
 
 ## Core (Always Works)
 
-### Desktop Chat Surfaces
+### Desktop Launcher Surfaces
 
-**Files**: `src/guppy/cli/launch.py`, `guppy_launcher.py`, `compat_shims/legacy_surfaces/merlin_ui_legacy.py`, `compat_shims/legacy_surfaces/council_ui_legacy.py`
+**Files**: `src/guppy/cli/launch.py`, `guppy_launcher.py`, `guppy_hub.py`
 
 **Capabilities**:
 - âœ… Per-query task classification (simple/complex/teaching)
@@ -48,6 +48,8 @@ Compatibility note: `guppy_api.py` remains the root API launch shim. Secondary c
 - âœ… Merlin auto-routing based on task keywords
 - âœ… Real-time chat UI with scroll
 - âœ… Persistent session logs
+
+Historical specialist surface code remains under `compat_shims/legacy_surfaces/` for migration reference only and is not part of the supported desktop launch path.
 
 **Credentials Required**: 
 - **None** (runs offline with Ollama)
@@ -63,7 +65,7 @@ Works immediately if Ollama is running.
 
 ### Push-to-Talk & Voice I/O
 
-**Files**: `src/guppy/voice/voice.py` (`compat_shims/guppy_voice.py` remains only as a fallback shim)
+**Files**: `src/guppy/voice/voice.py`
 
 **Capabilities**:
 - âœ… PTT (hold-to-talk) via UI button

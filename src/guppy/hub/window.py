@@ -34,7 +34,6 @@ class HubWindow(QWidget):
         python_executable: str,
         hb_stale_secs: int,
         operator,
-        legacy_surface_enabled_fn,
         status_check_fns: dict,
         orchestration_fns: dict,
         parent=None,
@@ -52,7 +51,6 @@ class HubWindow(QWidget):
         self._python = python_executable
         self._hb_stale_secs = hb_stale_secs
         self._operator = operator
-        self._legacy_surface_enabled = legacy_surface_enabled_fn
         self._status_check_fns = status_check_fns
         self._orchestration_fns = orchestration_fns
 
@@ -116,7 +114,6 @@ class HubWindow(QWidget):
                 hb_stale_secs=self._hb_stale_secs,
                 psutil_module=self._psutil,
                 logger=self._logger,
-                legacy_surface_enabled_fn=self._legacy_surface_enabled,
                 operator=self._operator,
                 parent=self,
             )
@@ -221,24 +218,7 @@ class HubWindow(QWidget):
         close_btn.clicked.connect(self.hide)
         lay.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
 
-        self._refresh_card_visibility()
-
-    def _show_advanced_surfaces(self) -> bool:
-        try:
-            return bool(self._load_settings().get("show_advanced_surfaces", True))
-        except Exception:
-            return True
-
-    def _refresh_card_visibility(self):
-        allow_advanced = self._show_advanced_surfaces()
-        for agent in AGENTS:
-            card = self._cards.get(agent["id"])
-            if card is None:
-                continue
-            card.setVisible(allow_advanced or not bool(agent.get("advanced", False)))
-
     def _tick(self):
-        self._refresh_card_visibility()
         running = [aid for aid, card in self._cards.items() if card.is_running()]
 
         if self._daemon_available:
@@ -302,7 +282,7 @@ class HubWindow(QWidget):
                 self._logger.error(f"Error stopping {agent_id}: {exc}")
 
     def _launch_primary(self):
-        primary = str(self._load_settings().get("default_surface", "guppy")).strip().lower() or "guppy"
+        primary = "guppy"
         self._logger.info(f"Launching primary surface: {primary}")
         card = self._cards.get(primary)
         if card is not None and not card.is_running():

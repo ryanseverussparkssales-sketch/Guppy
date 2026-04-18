@@ -164,11 +164,26 @@ def _write_release_outputs(
 
     finished_at = datetime.now(timezone.utc).isoformat()
     overall_ok = all(result.ok for result in results)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    release_ref = f"{subcommand}-{stamp}"
+    steps_total = len(results)
+    steps_passed = sum(1 for result in results if result.ok)
+    gate_state = f"{steps_passed}/{steps_total} passed"
+    next_review_step = (
+        f"Review {summary_path.name} and {receipt_path.name}, then use {release_ref} as the gate handoff ref for downstream review or packaging work."
+        if overall_ok
+        else "Fix the first failing step above, then rerun `python tools/dev_workflow.py release-check` to refresh the receipt and summary."
+    )
     receipt = {
         "subcommand": subcommand,
+        "ref": release_ref,
         "python": str(PYTHON),
         "finished_at": finished_at,
         "ok": overall_ok,
+        "gate_state": gate_state,
+        "steps_total": steps_total,
+        "steps_passed": steps_passed,
+        "next_review_step": next_review_step,
         "steps": [asdict(result) | {"ok": result.ok} for result in results],
         "workspace_paths": {name: str(path) for name, path in _workflow_paths().items()},
     }
@@ -176,14 +191,19 @@ def _write_release_outputs(
 
     lines = [
         f"release-check: {'PASS' if overall_ok else 'FAIL'}",
+        f"ref: {release_ref}",
         f"finished_at: {finished_at}",
         f"python: {PYTHON}",
+        f"gate_state: {gate_state}",
         "steps:",
     ]
     for result in results:
         status = "PASS" if result.ok else "FAIL"
         lines.append(f"- {status} {result.name} ({result.duration_seconds:.2f}s)")
     lines.append(f"receipt: {receipt_path}")
+    lines.append("")
+    lines.append("## Next Review Step" if overall_ok else "## Fix-First")
+    lines.append(next_review_step)
     summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     print(f"\nRelease receipt: {receipt_path}")

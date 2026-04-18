@@ -29,7 +29,6 @@ class AgentCard(QFrame):
         hb_stale_secs: int,
         psutil_module,
         logger,
-        legacy_surface_enabled_fn,
         operator=None,
         parent=None,
     ):
@@ -42,7 +41,6 @@ class AgentCard(QFrame):
         self._psutil = psutil_module
         self._psutil_ok = psutil_module is not None
         self._logger = logger
-        self._legacy_surface_enabled = legacy_surface_enabled_fn
         self._operator = operator
 
         self._proc: Optional[subprocess.Popen] = None
@@ -289,18 +287,6 @@ class AgentCard(QFrame):
             return False
 
     def launch(self):
-        if not self._legacy_surface_enabled():
-            self._rec_lbl.setText("compat mode off")
-            self._status_lbl.setText("-- BLOCKED")
-            if self._operator:
-                self._operator.record_event(
-                    self._agent["id"],
-                    "launch_blocked",
-                    "compatibility_guard",
-                    "set GUPPY_ENABLE_LEGACY_SURFACES=1",
-                )
-            return
-
         if self.is_running():
             return
 

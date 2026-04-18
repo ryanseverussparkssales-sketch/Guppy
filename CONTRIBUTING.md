@@ -14,12 +14,12 @@
 - API server: `python src/guppy/cli/launch.py api`
 - CLI surface: `python guppy_agent.py`
 
-Legacy specialist surfaces are compatibility-only. Set `GUPPY_ENABLE_LEGACY_SURFACES=1` before launching `merlin` or `council` directly.
+Historical specialist surfaces are quarantined and should not be used as active entrypoints. Use the launcher, hub, API, or CLI agent flows above.
 
 ## Tests and Quality
 - Run tests: `python -m pytest`
 - Compile sanity check:
-   - `python -m py_compile guppy_launcher.py merlin_ui.py council_ui.py guppy_api.py src/guppy/cli/launch.py`
+   - `python -m py_compile guppy_launcher.py guppy_hub.py guppy_api.py src/guppy/cli/launch.py`
 - Manual smoke checks:
    - `python tests/smoke/smoke_api.py`
    - `python tests/integration/test_ptt.py`

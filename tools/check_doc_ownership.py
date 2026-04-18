@@ -1,4 +1,4 @@
-"""Fail CI when core docs drift from ownership contract."""
+"""Fail CI when core docs drift from the ownership contract."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,17 +9,17 @@ ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_README_TOKENS = [
     "## doc ownership contract",
     "project_brief.md",
-    "only status owner",
+    "single active status, roadmap, and handoff source",
     "readme.md",
     "architecture/setup/operations reference only",
+    "docs/archive/ is historical only",
 ]
 
-REQUIRED_ROADMAP_TOKENS = [
-    "## doc ownership contract",
+REQUIRED_ROADMAP_STUB_TOKENS = [
+    "roadmap compatibility stub",
+    "no longer an active truth doc",
     "project_brief.md",
-    "canonical status source",
-    "roadmap.md",
-    "dated handoff execution log",
+    "archive/root-history/roadmap_2026-04-17.md",
 ]
 
 REQUIRED_INSTRUCTIONS_TOKENS = [
@@ -36,8 +36,8 @@ REQUIRED_DOCUMENTATION_TOKENS = [
 ]
 
 FORBIDDEN_README_SECTIONS = {
-    "## Session Log": "Session logs belong in ROADMAP handoff, not README.",
-    "## Active Priorities": "Active priorities belong in ROADMAP, not README.",
+    "## Session Log": "Session logs belong in docs/PROJECT_BRIEF.md, not README.",
+    "## Active Priorities": "Active priorities belong in docs/PROJECT_BRIEF.md, not README.",
 }
 
 
@@ -49,36 +49,40 @@ def _normalize(text: str) -> str:
     return text.lower().replace("`", "")
 
 
+def _first_nonempty_line(text: str) -> str:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return ""
+
+
 def main() -> int:
     errors: list[str] = []
 
     readme = ROOT / "README.md"
-    roadmap = ROOT / "ROADMAP.md"
     instructions_readme = ROOT / "instructions" / "README.md"
     documentation_readme = ROOT / "documentation" / "README.md"
 
-    required_files = [readme, roadmap, instructions_readme, documentation_readme]
+    required_files = [readme, instructions_readme, documentation_readme]
     if any(not p.exists() for p in required_files):
-        print("doc ownership check skipped: one or more required README/ROADMAP files are missing")
+        print("doc ownership check skipped: one or more required canonical docs are missing")
         return 0
 
-    readme_txt = _read(readme)
-    roadmap_txt = _read(roadmap)
-    instructions_txt = _read(instructions_readme)
-    documentation_txt = _read(documentation_readme)
-
-    readme_l = _normalize(readme_txt)
-    roadmap_l = _normalize(roadmap_txt)
-    instructions_l = _normalize(instructions_txt)
-    documentation_l = _normalize(documentation_txt)
+    readme_l = _normalize(_read(readme))
+    instructions_l = _normalize(_read(instructions_readme))
+    documentation_l = _normalize(_read(documentation_readme))
 
     for token in REQUIRED_README_TOKENS:
         if token not in readme_l:
             errors.append(f"README.md missing required ownership token: {token}")
 
-    for token in REQUIRED_ROADMAP_TOKENS:
-        if token not in roadmap_l:
-            errors.append(f"ROADMAP.md missing required ownership token: {token}")
+    roadmap = ROOT / "ROADMAP.md"
+    if roadmap.exists():
+        roadmap_l = _normalize(_read(roadmap))
+        for token in REQUIRED_ROADMAP_STUB_TOKENS:
+            if token not in roadmap_l:
+                errors.append(f"ROADMAP.md missing required compatibility-stub token: {token}")
 
     for token in REQUIRED_INSTRUCTIONS_TOKENS:
         if token not in instructions_l:
@@ -88,6 +92,9 @@ def main() -> int:
         if token not in documentation_l:
             errors.append(f"documentation/README.md missing canonical token: {token}")
 
+    readme_txt = _read(readme)
+    if not _first_nonempty_line(readme_txt).startswith("# "):
+        errors.append("README.md must start with a top-level heading so the repo front door stays readable.")
     for section, reason in FORBIDDEN_README_SECTIONS.items():
         if section in readme_txt:
             errors.append(f"README.md contains forbidden section '{section}'. {reason}")

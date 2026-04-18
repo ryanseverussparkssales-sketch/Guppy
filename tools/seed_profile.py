@@ -48,7 +48,7 @@ seed("ai_suite_name",       "Guppy — Ryan's personal AI assistant suite",     
 seed("ai_guppy",            "Guppy: cyberpunk chief-of-staff persona. Primary: Claude Sonnet. Local route: Ollama model 'guppy'.", "projects")
 seed("ai_merlin",           "Merlin: fantasy wizard mentor persona. Runs locally via Ollama model 'merlin'.", "projects")
 seed("ai_omnissiah",        "Omnissiah: Warhammer 40K / gothic hub controller. System-tray launcher for all agents.", "projects")
-seed("ai_council",          "The Council: dual-panel window running Guppy + Merlin simultaneously.", "projects")
+seed("ai_council",          "Historical Council specialist surface is quarantined; the unified launcher and configured instances are the active desktop path.", "projects")
 seed("ai_stack",            "PySide6 GUI, Anthropic Claude API, Ollama, SQLite memory (guppy_memory.db), Gmail API, Spotify API, edge_tts + Whisper voice", "projects")
 
 # ── Preferences & style ────────────────────────────────────────────────────────

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any, Callable, Mapping
+
+from utils.safe_io import read_json_dict
 
 from .contracts import RuntimeHealthSnapshot, StartupReadinessSnapshot
 
@@ -94,6 +98,38 @@ def build_runtime_health_snapshot(
         "daemon_available": bool(api_payload.get("daemon_available", False)),
     }
     return RuntimeHealthSnapshot.from_mapping(payload)
+
+
+def route_evidence_summary(
+    decision: dict[str, Any] | None,
+    *,
+    runtime_path: Path,
+) -> str:
+    """Return a short human-readable readiness string for a routing decision."""
+    payload = decision if isinstance(decision, dict) else {}
+    route = str(payload.get("route", "") or "").strip().lower()
+    try:
+        status = read_json_dict(runtime_path / "guppy.status")
+        latency = str(status.get("last_latency_ms", "") or "").strip()
+    except Exception:
+        latency = ""
+    if route in {"haiku", "sonnet", "opus"}:
+        ready = (
+            "cloud route configured"
+            if bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip())
+            else "cloud route needs API key"
+        )
+    elif route == "local":
+        ready = (
+            "local launcher heartbeat detected"
+            if (runtime_path / "guppy.heartbeat").exists()
+            else "local launcher heartbeat not detected"
+        )
+    else:
+        ready = "launcher route available"
+    if latency and latency not in {"—", "-"}:
+        return f"{ready}; launcher-wide last reply {latency} ms"
+    return ready
 
 
 def build_runtime_health_view_payload(

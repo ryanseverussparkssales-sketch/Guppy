@@ -15,6 +15,7 @@ from src.guppy.api import server as guppy_api
 from src.guppy.api import auth as guppy_api_auth
 from src.guppy.daemon.daemon import TaskScheduler
 from src.guppy.inference.router import InferenceRouter, resolve_ui_route
+from src.guppy.paths import RUNTIME_DIR
 from utils.router_scorecard import log_router_scorecard
 from utils.session_logger import log_session_event, tail_session_events
 
@@ -387,9 +388,9 @@ def main():
         log_events=args.log_events,
     )
 
-    runtime_dir = Path(__file__).resolve().parent.parent / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    out = runtime_dir / f"stress_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
+    reports_dir = RUNTIME_DIR / "stress_reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    out = reports_dir / f"stress_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
     _write_json_no_bom(out, result)
 
     print(json.dumps(result, indent=2))

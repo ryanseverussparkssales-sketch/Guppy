@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from src.guppy.local_llm.manifest import load_local_llm_manifest
-from src.guppy.paths import REPO_ROOT
 
 WhichFn = Callable[[str], str | None]
 
@@ -53,13 +52,27 @@ def _candidate_command_names(runtime_id: str) -> tuple[str, ...]:
     return ()
 
 
-def _vendor_repo_state(runtime_id: str, repo_root: Path | None = None) -> dict[str, Any]:
-    base = repo_root or REPO_ROOT
-    vendor_dir = base / "vendor"
-    if str(runtime_id or "").strip().lower() == "lemonade":
-        repo_dir = vendor_dir / "lemonade"
-        return {"vendor_repo_present": repo_dir.exists(), "vendor_repo_path": str(repo_dir)}
-    return {"vendor_repo_present": False, "vendor_repo_path": ""}
+def _integration_surface_state(runtime_id: str) -> dict[str, Any]:
+    normalized = str(runtime_id or "").strip().lower()
+    if normalized == "lemonade":
+        return {
+            "integration_surface": "external_openai_compatible_runtime",
+            "integration_contract": "Use the configured base URL plus /models and /chat/completions. No repo-local vendor clone is required.",
+        }
+    if normalized == "llama.cpp":
+        return {
+            "integration_surface": "external_binary_runtime",
+            "integration_contract": "Use installed llama.cpp binaries and benchmark harnesses. No repo-local vendor clone is required.",
+        }
+    if normalized == "vllm-rocm":
+        return {
+            "integration_surface": "external_service_runtime",
+            "integration_contract": "Treat as an external serving stack when this research lane is activated.",
+        }
+    return {
+        "integration_surface": "unknown",
+        "integration_contract": "No integration contract is defined for this runtime yet.",
+    }
 
 
 def _host_fit(runtime_id: str, host: HostRuntimeFacts) -> tuple[str, str]:
@@ -141,13 +154,14 @@ def probe_runtime_challengers(
     which_fn: WhichFn | None = None,
     repo_root: Path | None = None,
 ) -> dict[str, Any]:
+    del repo_root
     active_which = which_fn or shutil.which
     rows: list[dict[str, Any]] = []
     for entry in get_runtime_challenger_entries(manifest):
         runtime_id = str(entry.get("id") or "").strip()
         host_fit, host_note = _host_fit(runtime_id, host)
         binary_state = _binary_state(runtime_id, active_which)
-        vendor_state = _vendor_repo_state(runtime_id, repo_root=repo_root)
+        integration_state = _integration_surface_state(runtime_id)
         rows.append(
             {
                 "id": runtime_id,
@@ -159,7 +173,7 @@ def probe_runtime_challengers(
                 "benchmark_priority": _benchmark_priority(runtime_id),
                 "integration_priority": _integration_priority(runtime_id, host_fit),
                 **binary_state,
-                **vendor_state,
+                **integration_state,
             }
         )
 

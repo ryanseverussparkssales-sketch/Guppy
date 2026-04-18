@@ -39,7 +39,8 @@ The backup includes:
 1. Program surfaces and ops tooling (`tools`, `ui`, `utils`, `docs`, `bin`, `web`, `tests`).
 2. Root launch/config files and markdown runbooks.
 3. Knowledge stores and telemetry files used by memory and triage.
-4. Chroma data directory when present (`chroma_db`).
+4. User-data memory/index stores when present:
+   `guppy_memory.db`, `library.db`, semantic indexes, and MemPalace drawers under the Guppy user-data root.
 
 ## Run Commands
 
@@ -65,8 +66,9 @@ bin\backup_seed_vault.bat --destination "E:\GuppyBackups" --retain 10
 
 1. Pick snapshot folder under `snapshots/<timestamp>`.
 2. Copy `data/` contents back into a clean working directory.
-3. Verify key files exist: `runtime/ops_telemetry.sqlite3`, `runtime/router_scorecard.jsonl`, `ROADMAP.md`.
-4. Run health checks:
+3. Restore user-data storage files under the Guppy user-data root if the snapshot includes them.
+4. Verify key files exist: `runtime/ops_telemetry.sqlite3`, `runtime/router_scorecard.jsonl`, `docs/PROJECT_BRIEF.md`.
+5. Run health checks:
   - `python tools/pilot_exit_check.py --allow-limited-go`
   - `python tools/verify_logging_health.py --emit-probe --require-fresh-core`
 

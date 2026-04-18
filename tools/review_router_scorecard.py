@@ -121,7 +121,6 @@ def propose_tuning(summary):
     # Conservative, bounded recommendations only.
     if summary["budget_hit_count"] >= 5:
         patch["GUPPY_TOOL_BUDGET"] = "6"
-        patch["COUNCIL_TOOL_BUDGET"] = "5"
         recs.append("Frequent tool-budget hits: lower tool budgets for tighter loops.")
 
     if summary["first_token_p95"] and summary["first_token_p95"] > 3000:
@@ -129,9 +128,8 @@ def propose_tuning(summary):
         recs.append("First-token p95 high: loosen simple SLO slightly to reduce false fails.")
 
     if summary["lat_p95"] and summary["lat_p95"] > 45000:
-        patch["COUNCIL_MERLIN_TIMEOUT"] = "60"
-        patch["COUNCIL_MERLIN_NUM_PREDICT"] = "256"
-        recs.append("High latency p95: tighten Council Merlin timeout and max tokens.")
+        patch["GUPPY_LOCAL_NUM_PREDICT"] = "256"
+        recs.append("High latency p95: cap local generation length more aggressively.")
 
     if summary["slo_rate"] < 0.6:
         patch["GUPPY_SLO_COMPLEX_MS"] = "12000"

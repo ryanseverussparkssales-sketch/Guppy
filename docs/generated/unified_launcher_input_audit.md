@@ -21,7 +21,7 @@ Audit covers the unified PySide launcher surfaces under `ui/launcher/`.
 - Top bar notification button is disabled and still placeholder-only.
 - Top bar terminal button is disabled and still placeholder-only.
 - Home mic/PTT button is disabled and still placeholder-only.
-- Legacy Merlin and Council launch/deploy cards remain env-gated behind `GUPPY_ENABLE_LEGACY_SURFACES=1`.
+- Historical Merlin and Council specialist surfaces are quarantined and do not appear in the supported launcher flow.
 
 ## Consolidation Notes
 

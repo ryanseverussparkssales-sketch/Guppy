@@ -28,8 +28,6 @@ SETTINGS_PATH = RUNTIME_DIR / "app_settings.json"
 
 DEFAULT_SETTINGS = {
     "runtime_profile": "standard",
-    "default_surface": "guppy",
-    "show_advanced_surfaces": True,
     "enable_daemon": True,
     "enable_voice": True,
     "wake_word_default": False,
@@ -47,8 +45,6 @@ DEFAULT_SETTINGS = {
 PROFILE_PRESETS = {
     "light": {
         "runtime_profile": "light",
-        "default_surface": "guppy",
-        "show_advanced_surfaces": False,
         "enable_daemon": False,
         "enable_voice": True,
         "wake_word_default": False,
@@ -73,8 +69,6 @@ PROFILE_PRESETS = {
     },
     "standard": {
         "runtime_profile": "standard",
-        "default_surface": "guppy",
-        "show_advanced_surfaces": True,
         "enable_daemon": True,
         "enable_voice": True,
         "wake_word_default": False,
@@ -99,8 +93,6 @@ PROFILE_PRESETS = {
     },
     "power": {
         "runtime_profile": "power",
-        "default_surface": "guppy",
-        "show_advanced_surfaces": True,
         "enable_daemon": True,
         "enable_voice": True,
         "wake_word_default": True,
@@ -155,16 +147,11 @@ def load_app_settings() -> dict[str, Any]:
     if env_profile:
         settings["runtime_profile"] = _normalize_profile(env_profile)
 
-    env_default_surface = os.environ.get("GUPPY_DEFAULT_SURFACE", "").strip().lower()
-    if env_default_surface in {"guppy", "merlin", "council"}:
-        settings["default_surface"] = env_default_surface
-
     env_default_mode = os.environ.get("GUPPY_DEFAULT_MODE", "").strip().lower()
     if env_default_mode in {"auto", "claude", "ollama", "local", "code", "teaching"}:
         settings["default_mode"] = env_default_mode
 
     for setting_key, env_name in (
-        ("show_advanced_surfaces", "GUPPY_SHOW_ADVANCED_SURFACES"),
         ("enable_daemon", "GUPPY_ENABLE_DAEMON"),
         ("enable_voice", "GUPPY_ENABLE_VOICE"),
         ("wake_word_default", "GUPPY_WAKE_WORD_DEFAULT"),
@@ -216,9 +203,9 @@ def apply_settings_to_env(settings: dict[str, Any]) -> dict[str, Any]:
         os.environ.setdefault(key, str(value))
 
     os.environ["GUPPY_RUNTIME_PROFILE"] = profile
-    os.environ["GUPPY_DEFAULT_SURFACE"] = str(merged.get("default_surface", "guppy"))
     os.environ["GUPPY_DEFAULT_MODE"] = str(merged.get("default_mode", "auto"))
-    os.environ["GUPPY_SHOW_ADVANCED_SURFACES"] = "1" if merged.get("show_advanced_surfaces") else "0"
+    os.environ.pop("GUPPY_DEFAULT_SURFACE", None)
+    os.environ.pop("GUPPY_SHOW_ADVANCED_SURFACES", None)
     os.environ["GUPPY_ENABLE_DAEMON"] = "1" if merged.get("enable_daemon") else "0"
     os.environ["GUPPY_ENABLE_VOICE"] = "1" if merged.get("enable_voice") else "0"
     os.environ["GUPPY_WAKE_WORD_DEFAULT"] = "1" if merged.get("wake_word_default") else "0"

@@ -1,6 +1,6 @@
 """
 ui/launcher/components/status_panel.py
-Right-side quick tray for workspace tools, add-on slots, and a media dock.
+Right-side workspace drawer for daily context, primary actions, and optional extras.
 """
 from __future__ import annotations
 
@@ -38,11 +38,14 @@ def _workspace_kind_label(workspace_type: str) -> str:
     }.get(key, key.replace("_", " ").strip().upper() or "WORKSPACE")
 
 
-_TRAY_TOOLS: list[tuple[str, str, str]] = [
+_PRIMARY_TRAY_TOOLS: list[tuple[str, str, str]] = [
     ("read_file", "RF", "Read files in the active workspace"),
     ("screenshot", "SS", "Inspect a screenshot or visual surface"),
     ("query_instance", "QI", "Ask another workspace a bounded question"),
     ("debug_console", "DBG", "Inspect safe runtime details"),
+]
+
+_SECONDARY_TRAY_TOOLS: list[tuple[str, str, str]] = [
     ("run_python", "PY", "Run a bounded Python snippet"),
     ("write_file", "WF", "Prepare a write-file task"),
     ("execute_command", "CMD", "Prepare a workspace command"),
@@ -63,44 +66,45 @@ class StatusPanel(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._tool_buttons: dict[str, QPushButton] = {}
+        self._secondary_tool_keys: set[str] = set()
         self._space_buttons: dict[str, QPushButton] = {}
-        self._last_activity = "Tray ready"
+        self._last_activity = "Workspace ready"
         self._extras_visible = False
         self.setFixedWidth(T.STATUS_W)
         self.setObjectName("status_panel")
         self.setStyleSheet(
             "QFrame#status_panel {"
-            " background-color: rgba(255,250,243,0.56);"
-            " border-left: 1px solid rgba(205,181,154,0.28);"
+            " background-color: rgba(255,253,248,0.84);"
+            " border-left: 1px solid rgba(214,197,174,0.60);"
             "}"
         )
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(12, 16, 12, 12)
-        outer.setSpacing(10)
+        outer.setContentsMargins(14, 18, 14, 12)
+        outer.setSpacing(12)
 
         title_row = QHBoxLayout()
-        title = QLabel("TRAY")
+        title = QLabel("WORKSPACE")
         title.setStyleSheet(
             f"color: {T.INK}; font-family: '{T.FF_HEAD}';"
             f"font-size: {T.FS_TITLE + 1}pt; font-weight: bold;"
         )
         title_row.addWidget(title)
         title_row.addStretch()
-        self._extras_btn = QPushButton("SHOW MORE")
+        self._extras_btn = QPushButton("DETAILS")
         self._extras_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._extras_btn.setStyleSheet(
-            f"QPushButton {{ background: rgba(255,250,243,0.92); color: {T.DIM}; border: 1px solid rgba(205,181,154,0.30);"
+            f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
             f" border-radius: 14px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: rgba(255,107,61,0.46); color: {T.PRIMARY}; background: #ffffff; }}"
+            f"QPushButton:hover {{ border-color: rgba(70,98,199,0.46); color: {T.TERTIARY}; background: #ffffff; }}"
         )
         self._extras_btn.clicked.connect(self._toggle_extras)
         title_row.addWidget(self._extras_btn)
         outer.addLayout(title_row)
 
         self._workspace_lbl = _mono("WORKSPACE / GUPPY-PRIMARY", T.TEXT, T.FS_TINY, True)
-        self._tray_status_lbl = _mono("CHAT READY", T.GREEN, T.FS_TINY, True)
-        self._activity_lbl = _mono("Latest: Tray ready", T.DIM, T.FS_TINY)
+        self._tray_status_lbl = _mono("READY", T.GREEN, T.FS_TINY, True)
+        self._activity_lbl = _mono("Latest: Workspace ready", T.DIM, T.FS_TINY)
         self._activity_lbl.setWordWrap(True)
         self._activity_lbl.setStyleSheet(
             f"color: rgba(115,96,79,0.72); font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
@@ -110,24 +114,24 @@ class StatusPanel(QFrame):
         outer.addWidget(self._activity_lbl)
 
         tools_frame = QFrame()
-        tools_frame.setObjectName("tray_tools")
+        tools_frame.setObjectName("drawer_actions")
         tools_frame.setStyleSheet(
-            "QFrame#tray_tools {"
-            " background-color: rgba(255,255,255,0.54);"
-            " border: 1px solid rgba(205,181,154,0.34);"
-            " border-radius: 22px;"
+            "QFrame#drawer_actions {"
+            " background-color: rgba(255,255,255,0.68);"
+            " border: 1px solid rgba(214,197,174,0.48);"
+            " border-radius: 24px;"
             "}"
         )
         tools_layout = QVBoxLayout(tools_frame)
         tools_layout.setContentsMargins(12, 12, 12, 10)
         tools_layout.setSpacing(8)
-        tools_layout.addWidget(_mono("QUICK TOOLS", T.PRIMARY, T.FS_TINY, True))
+        tools_layout.addWidget(_mono("READY NOW", T.PRIMARY, T.FS_TINY, True))
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
-        for index, (tool_key, short_label, tooltip) in enumerate(_TRAY_TOOLS):
+        for index, (tool_key, short_label, tooltip) in enumerate(_PRIMARY_TRAY_TOOLS):
             btn = QPushButton(short_label)
             btn.setFixedSize(52, 44)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -135,10 +139,14 @@ class StatusPanel(QFrame):
             btn.setStyleSheet(self._tool_button_style(True))
             btn.clicked.connect(lambda _=False, key=tool_key: self.tool_requested.emit(key))
             self._tool_buttons[tool_key] = btn
-            grid.addWidget(btn, index // 3, index % 3)
+            grid.addWidget(btn, index // 2, index % 2)
         tools_layout.addLayout(grid)
 
-        self._tool_hint_lbl = _mono("Quick actions live here.", T.DIM, T.FS_TINY)
+        self._tool_hint_lbl = _mono(
+            "Start with files, screenshots, quick questions, or safe debug details.",
+            T.DIM,
+            T.FS_TINY,
+        )
         self._tool_hint_lbl.setWordWrap(True)
         tools_layout.addWidget(self._tool_hint_lbl)
         outer.addWidget(tools_frame)
@@ -149,12 +157,12 @@ class StatusPanel(QFrame):
         extras_layout.setSpacing(10)
 
         spaces_frame = QFrame()
-        spaces_frame.setObjectName("tray_spaces")
+        spaces_frame.setObjectName("drawer_secondary_actions")
         spaces_frame.setStyleSheet(
-            "QFrame#tray_spaces {"
-            " background-color: rgba(255,255,255,0.54);"
-            " border: 1px solid rgba(205,181,154,0.34);"
-            " border-radius: 22px;"
+            "QFrame#drawer_secondary_actions {"
+            " background-color: rgba(255,255,255,0.68);"
+            " border: 1px solid rgba(214,197,174,0.48);"
+            " border-radius: 24px;"
             "}"
         )
         spaces_layout = QVBoxLayout(spaces_frame)
@@ -162,12 +170,16 @@ class StatusPanel(QFrame):
         spaces_layout.setSpacing(8)
 
         spaces_head = QHBoxLayout()
-        spaces_head.addWidget(_mono("SPACES", T.PRIMARY, T.FS_TINY, True))
+        spaces_head.addWidget(_mono("MORE ACTIONS", T.PRIMARY, T.FS_TINY, True))
         spaces_head.addStretch()
-        spaces_head.addWidget(_mono("OUTLOOK / CAL / RSS", T.DIM, T.FS_TINY))
+        spaces_head.addWidget(_mono("WRITE / CODE / SHELL", T.DIM, T.FS_TINY))
         spaces_layout.addLayout(spaces_head)
 
-        self._spaces_summary_lbl = _mono("Pin a small set of follow-up slots when you need them.", T.DIM, T.FS_TINY)
+        self._spaces_summary_lbl = _mono(
+            "Open the heavier workspace actions only when you need to build or mutate something.",
+            T.DIM,
+            T.FS_TINY,
+        )
         self._spaces_summary_lbl.setWordWrap(True)
         spaces_layout.addWidget(self._spaces_summary_lbl)
 
@@ -175,6 +187,16 @@ class StatusPanel(QFrame):
         slots_grid.setContentsMargins(0, 0, 0, 0)
         slots_grid.setHorizontalSpacing(8)
         slots_grid.setVerticalSpacing(8)
+        for index, (tool_key, label, tooltip) in enumerate(_SECONDARY_TRAY_TOOLS):
+            btn = QPushButton(label)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setToolTip(tooltip)
+            btn.setFixedHeight(34)
+            btn.setStyleSheet(self._space_button_style())
+            btn.clicked.connect(lambda _=False, key=tool_key: self.tool_requested.emit(key))
+            self._tool_buttons[tool_key] = btn
+            self._secondary_tool_keys.add(tool_key)
+            slots_grid.addWidget(btn, 0, index)
         for index, (slot_key, label, tooltip) in enumerate(_TRAY_SPACES):
             btn = QPushButton(label)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -183,7 +205,7 @@ class StatusPanel(QFrame):
             btn.setStyleSheet(self._space_button_style())
             btn.clicked.connect(lambda _=False, key=slot_key: self.tool_requested.emit(key))
             self._space_buttons[slot_key] = btn
-            slots_grid.addWidget(btn, index // 2, index % 2)
+            slots_grid.addWidget(btn, 1 + (index // 2), index % 2)
         spaces_layout.addLayout(slots_grid)
         extras_layout.addWidget(spaces_frame)
 
@@ -191,8 +213,8 @@ class StatusPanel(QFrame):
         media_frame.setObjectName("media_dock")
         media_frame.setStyleSheet(
             "QFrame#media_dock {"
-            " background-color: rgba(255,255,255,0.58);"
-            " border: 1px solid rgba(205,181,154,0.34);"
+            " background-color: rgba(255,255,255,0.72);"
+            " border: 1px solid rgba(214,197,174,0.48);"
             " border-radius: 24px;"
             "}"
         )
@@ -201,9 +223,9 @@ class StatusPanel(QFrame):
         media_layout.setSpacing(8)
 
         media_top = QHBoxLayout()
-        media_top.addWidget(_mono("MEDIA DOCK", T.PRIMARY, T.FS_TINY, True))
+        media_top.addWidget(_mono("OPTIONAL SPACES", T.PRIMARY, T.FS_TINY, True))
         media_top.addStretch()
-        media_top.addWidget(_mono("SPOTIFY / APK SLOT", T.DIM, T.FS_TINY))
+        media_top.addWidget(_mono("MEDIA / FOLLOW-UP", T.DIM, T.FS_TINY))
         media_layout.addLayout(media_top)
 
         artwork = QFrame()
@@ -215,16 +237,20 @@ class StatusPanel(QFrame):
         art_layout = QVBoxLayout(artwork)
         art_layout.setContentsMargins(14, 10, 14, 10)
         art_layout.setSpacing(5)
-        art_layout.addWidget(_mono("NOW PLAYING", "#fff7f2", T.FS_TINY, True))
-        self._media_title_lbl = QLabel("A music corner belongs here")
+        art_layout.addWidget(_mono("OPTIONAL", "#fff7f2", T.FS_TINY, True))
+        self._media_title_lbl = QLabel("Keep the daily path light")
         self._media_title_lbl.setStyleSheet(
             f"color: white; font-family: '{T.FF_HEAD}'; font-size: 15pt; font-weight: bold;"
         )
         art_layout.addWidget(self._media_title_lbl)
-        self._media_subtitle_lbl = _mono("Add Spotify or a lightweight player when you want it.", "#fff7f2", T.FS_SMALL)
+        self._media_subtitle_lbl = _mono(
+            "Use this drawer for media, calendar, mail, or extra workflow spaces only when they help.",
+            "#fff7f2",
+            T.FS_SMALL,
+        )
         self._media_subtitle_lbl.setWordWrap(True)
         art_layout.addWidget(self._media_subtitle_lbl)
-        art_gesture = QLabel("// art / sound / flow")
+        art_gesture = QLabel("// calm / focus / context")
         art_gesture.setStyleSheet(
             f"color: rgba(255,255,255,0.92); background: transparent; font-family: '{T.FF_MONO}'; font-size: 9pt; letter-spacing: 2px;"
         )
@@ -285,25 +311,28 @@ class StatusPanel(QFrame):
     def _toggle_extras(self) -> None:
         self._extras_visible = not self._extras_visible
         self._extras_host.setVisible(self._extras_visible)
-        self._extras_btn.setText("HIDE MORE" if self._extras_visible else "SHOW MORE")
+        self._extras_btn.setText("HIDE DETAILS" if self._extras_visible else "DETAILS")
 
     def set_tool_states(self, states: dict[str, str]) -> None:
         for tool_key, button in self._tool_buttons.items():
             ready = str(states.get(tool_key, "ready")).strip().lower() == "ready"
             button.setEnabled(ready)
-            button.setStyleSheet(self._tool_button_style(ready))
+            if tool_key in self._secondary_tool_keys:
+                button.setStyleSheet(self._space_button_style() if ready else self._tool_button_style(False))
+            else:
+                button.setStyleSheet(self._tool_button_style(ready))
 
     def update_status(self, data: dict) -> None:
         model = str(data.get("model", "guppy") or "guppy").strip().upper()
         query = str(data.get("last_query", "") or "").strip()
         if query in {"-", "—"}:
             query = ""
-        self._tray_status_lbl.setText(f"CHAT READY / {model}")
+        self._tray_status_lbl.setText(f"READY / {model}")
         if query:
             self._activity_lbl.setText(f"Latest: {query[:88]}")
 
     def append_syslog(self, line: str) -> None:
-        self._last_activity = (line or "Tray ready").strip() or "Tray ready"
+        self._last_activity = (line or "Workspace ready").strip() or "Workspace ready"
         self._activity_lbl.setText(f"Latest: {self._last_activity}")
 
     def update_agent_status(self, agent: str, online: bool, last_seen: str = "-", load_pct: float | None = None) -> None:

@@ -55,15 +55,6 @@ _RUNTIME = _ROOT / "runtime"
 HB_STALE_SECS = int(os.environ.get("GUPPY_HB_STALE_SECS", "30"))
 
 
-def _legacy_surface_launch_enabled() -> bool:
-    return os.environ.get("GUPPY_ENABLE_LEGACY_SURFACES", "0").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-
-
 try:
     import psutil
 except ImportError:
@@ -106,8 +97,7 @@ except Exception as exc:
     logger.error(f"runtime_profile load failed - using hard-coded defaults: {exc}")
     APP_SETTINGS = {
         "runtime_profile": os.environ.get("GUPPY_RUNTIME_PROFILE", "standard"),
-        "default_surface": os.environ.get("GUPPY_DEFAULT_SURFACE", "guppy"),
-        "show_advanced_surfaces": os.environ.get("GUPPY_SHOW_ADVANCED_SURFACES", "1").strip().lower()
+        "enable_daemon": os.environ.get("GUPPY_ENABLE_DAEMON", "1").strip().lower()
         in {"1", "true", "yes", "on"},
     }
 
@@ -177,7 +167,6 @@ def main() -> int:
             python_executable=PYTHON,
             hb_stale_secs=HB_STALE_SECS,
             operator=operator,
-            legacy_surface_enabled_fn=_legacy_surface_launch_enabled,
             status_check_fns={
                 "recommend_runtime_profile": recommend_runtime_profile,
                 "check_api_server": check_api_server,

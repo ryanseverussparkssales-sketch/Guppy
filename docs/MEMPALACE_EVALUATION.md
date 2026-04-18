@@ -1,127 +1,85 @@
 # MemPalace Evaluation
 
-Last updated: 2026-04-14
+Last updated: 2026-04-17
 
 ## Decision
 
-MemPalace looks feasible for Guppy, but not as a blind replacement for the current memory stack.
+MemPalace remains a feasible local-memory upgrade track for Guppy, but the integration should stay adapter-first and repo-light.
 
-Best fit:
+Current position:
 
-1. Treat it as a local-memory upgrade track for local LLM workflows.
-2. Start with an adapter / sidecar integration.
-3. Prove value on Guppy local chat recall before folding it deeper into startup prompts or cross-workspace memory.
+1. Keep Guppy's live memory path independent from any vendored MemPalace source tree.
+2. Use `src/guppy/memory/mempalace_adapter.py` plus user-data storage as the integration seam.
+3. Treat any future upstream MemPalace clone as an external evaluation input, not a required part of the Guppy build.
 
-## What MemPalace Brings
+## What Still Matters
 
-Based on the cloned repo in [vendor/mempalace](../vendor/mempalace):
+The useful ideas from MemPalace are product and retrieval ideas, not "keep a giant vendor folder in the repo" ideas:
 
-1. Local-first verbatim memory instead of summary-first memory.
-2. Chroma-backed retrieval with hybrid ranking and scoped search.
-3. A layered recall model in [vendor/mempalace/mempalace/layers.py](../vendor/mempalace/mempalace/layers.py).
-4. A local SQLite knowledge graph in [vendor/mempalace/mempalace/knowledge_graph.py](../vendor/mempalace/mempalace/knowledge_graph.py).
-5. A real MCP/tool surface in [vendor/mempalace/mempalace/mcp_server.py](../vendor/mempalace/mempalace/mcp_server.py).
-6. MIT licensing, so integration/adaptation is allowed.
+1. Local-first verbatim memory instead of summary-first memory only.
+2. Scoped retrieval instead of one flat semantic bucket.
+3. Layered wake-up context for local sessions.
+4. A cleaner split between storage, retrieval, graph facts, and tool access.
 
-## Where It Overlaps With Guppy
+Those ideas still line up well with Guppy's local-first direction, especially for local coding, study, and file-heavy workflows.
+
+## Where Guppy Already Covers The Basics
 
 Guppy already has:
 
-1. Persistent SQLite fact memory in [src/guppy/memory/memory.py](../src/guppy/memory/memory.py).
-2. Semantic memory with SQLite or Chroma backends in [src/guppy/memory/semantic.py](../src/guppy/memory/semantic.py).
-3. Prompt-time memory injection in [guppy_core/system_prompt.py](../guppy_core/system_prompt.py).
-4. Tool-level semantic recall through `semantic_remember` and `semantic_recall`.
+1. Persistent SQLite fact memory in `src/guppy/memory/memory.py`.
+2. Semantic memory with SQLite or Chroma-backed storage in `src/guppy/memory/semantic.py`.
+3. A live MemPalace adapter seam in `src/guppy/memory/mempalace_adapter.py`.
+4. Durable local storage under the Guppy user-data root instead of the repo tree.
 
-So this is not a “we finally get memory” situation.
+So this is not a "we finally get memory" situation.
 
-This is a “we may be able to replace or augment the weaker local semantic-recall layer with a better structured local recall system” situation.
-
-## Why It Is Interesting
-
-MemPalace’s strongest ideas are:
-
-1. Verbatim storage as the retrieval floor.
-2. Scoped retrieval instead of one flat semantic bucket.
-3. Layered wake-up context instead of always stuffing one generic semantic block into prompts.
-4. A clean split between storage, retrieval, graph facts, and tool access.
-
-Those ideas line up well with Guppy’s local-first direction and with the current need to make local models feel more dependable without forcing cloud routing.
+This is a "we may improve the weaker local semantic-recall layer with a better structured local recall system" situation.
 
 ## Risks And Caveats
 
-1. The headline benchmark story is retrieval-heavy, not end-to-end Guppy chat quality.
-   Source: [vendor/mempalace/README.md](../vendor/mempalace/README.md) and [vendor/mempalace/benchmarks/BENCHMARKS.md](../vendor/mempalace/benchmarks/BENCHMARKS.md)
-2. MemPalace assumes its own palace taxonomy, ingest flow, and storage layout.
-3. Guppy already carries Chroma as an optional path, so a full embed adds dependency and lifecycle overlap unless we consolidate.
-4. Raw verbatim recall can increase prompt noise if we inject it too aggressively.
-5. Windows file-lock and persistence behavior need validation because both Guppy and MemPalace touch local storage heavily.
-6. Guppy workspaces, personas, and runtime policies are product concepts MemPalace does not know about.
+1. Retrieval wins do not automatically translate into better end-to-end Guppy chat quality.
+2. Raw verbatim recall can increase prompt noise if injected too aggressively.
+3. Guppy workspaces, personas, and runtime policies are product concepts a generic memory sidecar does not understand on its own.
+4. Windows file locking and local persistence behavior still need validation whenever a sidecar stack is added.
 
-## Recommendation
+## Recommended Implementation Path
 
-Implement this in phases.
-
-### Phase 0 — Evaluation Spike
-
-Goal:
-Prove whether MemPalace improves local recall for Guppy without touching the main chat path.
-
-Work:
+### Phase 0 - External evaluation spike
 
 1. Mine a bounded set of Guppy chat/session history into a dedicated local palace.
-2. Compare MemPalace retrieval against `semantic_recall` on real Guppy follow-up prompts.
-3. Measure latency, token overhead, and answer usefulness on local Ollama routes.
+2. Compare adapter-backed recall against `semantic_recall` on real follow-up prompts.
+3. Measure latency, token overhead, and answer usefulness on local routes.
 
-### Phase 1 — Adapter, Not Replacement
+### Phase 1 - Adapter, not replacement
 
-Goal:
-Add MemPalace as an optional local memory backend for local LLM workflows.
-
-Work:
-
-1. Build a Guppy adapter module instead of importing MemPalace everywhere.
-2. Feed only approved local-chat / workspace history into the palace.
+1. Keep Guppy importing only its adapter module.
+2. Feed only approved local-chat or workspace history into the palace.
 3. Expose a small local-memory API:
    - wake-up summary
    - scoped search
    - related memory lookup
 4. Keep the current Guppy memory path as fallback.
 
-### Phase 2 — Local LLM Page
+### Phase 2 - Productized local-memory surface
 
-Goal:
-Give local models their own product surface in the launcher.
+1. Show local-memory readiness on the Local LLM or Library surface.
+2. Keep Home calm while local-memory tuning stays in deeper product surfaces.
+3. Avoid surfacing vendor names in user-facing copy.
 
-Work:
+## Product Framing
 
-1. Add a dedicated Local LLM page in the launcher.
-2. Show local model fleet, memory backend, recall readiness, and memory health there.
-3. Keep Home/assistant chat calm while Local LLM becomes the place for local-model trust and tuning.
+If this lands well:
 
-### Phase 3 — Deeper Runtime Integration
+1. User-facing labels should be `Local Memory`, `Memory Palace`, or `Local Recall`.
+2. Internal implementation can still refer to the MemPalace adapter/backend.
 
-Goal:
-Use MemPalace-derived context in the real local prompt path only where it clearly helps.
+## Repo Rule
 
-Work:
+The Guppy build should not require `vendor/mempalace/` to exist.
 
-1. Add optional layered wake-up context for local sessions.
-2. Add workspace-scoped recall instead of one global semantic bucket.
-3. Consider selective graph/fact integration only after retrieval is proven useful.
+If upstream evaluation work is needed again later, keep it outside the shipped repo or re-clone it temporarily as an external reference. Guppy's supported build path should stay anchored on:
 
-## Recommended Product Framing
-
-If this lands well, MemPalace should not be surfaced as a random vendor name in the main UI.
-
-Recommended framing:
-
-1. User-facing: `Local Memory`, `Memory Palace`, or `Local Recall`
-2. Internal/implementation: MemPalace adapter/backend
-
-## Immediate Repo Actions
-
-1. Keep the clone in `vendor/mempalace` for evaluation only.
-2. Add the Local LLM + local-memory track to the roadmap.
-3. Switch the launcher app icon to the fish mark now.
-4. Do not relabel Home as `Local LLM` until a real dedicated local-model surface exists.
-
+1. adapter seams under `src/guppy/`
+2. durable user-data storage
+3. explicit external integration contracts

@@ -1,9 +1,9 @@
 """
 utils/settings_dialog.py — Shared runtime settings dialog (PySide6)
 ====================================================================
-Used by Guppy, Merlin, and Council to open the same settings panel
-with surface-specific theming.  Import RuntimeSettingsDialog from here;
-do NOT import from guppy_ui to avoid circular/full-module init.
+Shared runtime settings dialog for the current launcher and hub flow.
+Import RuntimeSettingsDialog from here; do NOT import from surface-specific
+modules to avoid circular/full-module init.
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class RuntimeSettingsDialog(QDialog):
         self._recommendation = dict(recommendation or {})
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.resize(520, 460)
+        self.resize(520, 420)
 
         bg     = theme.get("bg",     "#0f0f0f")
         bg3    = theme.get("bg3",    "#1e1e1e")
@@ -111,15 +111,6 @@ class RuntimeSettingsDialog(QDialog):
         self._default_mode.setCurrentText(str(settings.get("default_mode", "auto")))
         lay.addLayout(_row("DEFAULT MODE", self._default_mode))
 
-        self._default_surface = QComboBox()
-        self._default_surface.addItems(["guppy", "merlin", "council"])
-        self._default_surface.setCurrentText(str(settings.get("default_surface", "guppy")))
-        lay.addLayout(_row("DEFAULT SURFACE", self._default_surface))
-
-        self._show_advanced = QCheckBox("Show Merlin / Council surfaces")
-        self._show_advanced.setChecked(bool(settings.get("show_advanced_surfaces", True)))
-        lay.addWidget(self._show_advanced)
-
         self._enable_daemon = QCheckBox("Enable background daemon services")
         self._enable_daemon.setChecked(bool(settings.get("enable_daemon", True)))
         lay.addWidget(self._enable_daemon)
@@ -154,8 +145,6 @@ class RuntimeSettingsDialog(QDialog):
     def settings_payload(self) -> dict:
         return {
             "runtime_profile": self._profile.currentText(),
-            "default_surface": self._default_surface.currentText(),
-            "show_advanced_surfaces": self._show_advanced.isChecked(),
             "enable_daemon": self._enable_daemon.isChecked(),
             "enable_voice": self._enable_voice.isChecked(),
             "wake_word_default": self._wake_word.isChecked(),

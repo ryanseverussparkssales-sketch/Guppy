@@ -34,12 +34,10 @@ logging.basicConfig(
 logger = logging.getLogger("GuppyLauncher")
 
 _VENV_PYTHON = _ROOT / ".venv" / "Scripts" / "python.exe"
+_VENV_PYTHONW = _ROOT / ".venv" / "Scripts" / "pythonw.exe"
 _PYTHON = str(_VENV_PYTHON) if _VENV_PYTHON.exists() else sys.executable
+_BACKGROUND_PYTHON = str(_VENV_PYTHONW) if _VENV_PYTHONW.exists() else _PYTHON
 
-_NO_WIN: dict = (
-    {"creationflags": subprocess.CREATE_NO_WINDOW}
-    if sys.platform == "win32" else {}
-)
 _DETACHED: dict = (
     {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW}
     if sys.platform == "win32" else {}
@@ -64,26 +62,47 @@ def _append_launcher_event(event: str, **fields: object) -> None:
 
 def _api_reachable() -> bool:
     try:
-        req = urllib.request.Request("http://127.0.0.1:8081/status")
+        req = urllib.request.Request("http://127.0.0.1:8081/")
         with urllib.request.urlopen(req, timeout=1.2):
             return True
     except Exception:
         return False
 
 
+def _cleanup_hub_pid() -> None:
+    pid_path = _ROOT / "runtime" / "hub.pid"
+    try:
+        pid_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _spawn_background_process(script: Path, *, log_name: str) -> None:
+    log_path = _ROOT / "runtime" / log_name
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as log_file:
+        subprocess.Popen(
+            [_BACKGROUND_PYTHON, str(script)],
+            cwd=str(_ROOT),
+            stdin=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=log_file,
+            **_DETACHED,
+        )
+
+
 def _start_api() -> None:
     """Launch guppy_api.py detached if port 8081 is not answering."""
     if _api_reachable():
-        logger.info("API already reachable on :8081 — skipping auto-start")
+        logger.info("API already reachable on :8081 - skipping auto-start")
         return
     script = _ROOT / "guppy_api.py"
     if not script.exists():
-        logger.warning("guppy_api.py not found — skipping API auto-start")
+        logger.warning("guppy_api.py not found - skipping API auto-start")
         return
     logger.info("Starting guppy_api.py in background...")
     try:
-        subprocess.Popen([_PYTHON, str(script)], cwd=str(_ROOT), **_DETACHED)
-        # Give it up to 6 s to bind
+        _spawn_background_process(script, log_name="launcher_api.log")
         deadline = time.monotonic() + 6.0
         while time.monotonic() < deadline:
             time.sleep(0.5)
@@ -103,27 +122,41 @@ def _hub_running() -> bool:
     try:
         pid = int(hb.read_text().strip())
     except Exception:
+        _cleanup_hub_pid()
         return False
     try:
         import psutil
-        return psutil.pid_exists(pid)
+
+        if not psutil.pid_exists(pid):
+            _cleanup_hub_pid()
+            return False
+        try:
+            process = psutil.Process(pid)
+            command_line = " ".join(process.cmdline()).lower()
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, OSError):
+            _cleanup_hub_pid()
+            return False
+        if "guppy_hub.py" in command_line or "src.guppy.hub.app" in command_line:
+            return True
+        _cleanup_hub_pid()
+        return False
     except ImportError:
-        logger.warning("psutil not available — cannot verify hub PID, will launch hub")
+        logger.warning("psutil not available - cannot verify hub PID, will launch hub")
         return False
 
 
 def _start_hub() -> None:
     """Launch guppy_hub.py detached if it's not already running."""
     if _hub_running():
-        logger.info("Hub already running — skipping auto-start")
+        logger.info("Hub already running - skipping auto-start")
         return
     script = _ROOT / "guppy_hub.py"
     if not script.exists():
-        logger.warning("guppy_hub.py not found — skipping hub auto-start")
+        logger.warning("guppy_hub.py not found - skipping hub auto-start")
         return
     logger.info("Starting guppy_hub.py in background...")
     try:
-        subprocess.Popen([_PYTHON, str(script)], cwd=str(_ROOT), **_DETACHED)
+        _spawn_background_process(script, log_name="launcher_hub.log")
         logger.info("guppy_hub.py launched")
     except Exception as exc:
         logger.error("Failed to start guppy_hub.py: %s", exc)
@@ -131,9 +164,8 @@ def _start_hub() -> None:
 
 def main() -> int:
     _append_launcher_event("startup_phase", phase="launcher_enter")
-    startup_budget_ms = int(os.environ.get("GUPPY_STARTUP_PHASE_WARN_MS", "750"))
+    startup_budget_ms = int(os.environ.get("GUPPY_STARTUP_PHASE_WARN_MS", "3000"))
 
-    # ── PySide6 app ───────────────────────────────────────────────────────────
     app = QApplication(sys.argv)
     app.setApplicationName("Guppy AI")
     app.setApplicationDisplayName("COMMAND_INTERFACE")
@@ -146,7 +178,6 @@ def main() -> int:
     window.show()
     _append_launcher_event("startup_phase", phase="window_shown")
 
-    # Bootstrap background services asynchronously so UI never blocks on startup.
     def _bootstrap_services() -> None:
         t0 = time.monotonic()
         _append_launcher_event("startup_phase", phase="bootstrap_services_begin")

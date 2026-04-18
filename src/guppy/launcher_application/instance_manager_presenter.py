@@ -2,80 +2,25 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
-
-DEFAULT_CONNECTOR_IDS = ("gmail", "calendar", "spotify", "youtube", "crm", "voip")
-
-
-@dataclass(frozen=True, slots=True)
-class RolePreset:
-    name_placeholder: str
-    description_placeholder: str
-    mode: str
-    summary: str
-    recipe: str
-
-
-@dataclass(frozen=True, slots=True)
-class GovernanceEditorState:
-    auth_mode: str
-    policy_note: str
-    tool_allow_text: str
-    tool_block_text: str
-    endpoint_allow_text: str
-    endpoint_block_text: str
-    status_text: str
-
-
-@dataclass(frozen=True, slots=True)
-class SelectorOption:
-    label: str
-    value: str
-
-
-@dataclass(frozen=True, slots=True)
-class ConnectorBindingState:
-    connector_ids: tuple[str, ...]
-    selected_connector_id: str
-    enabled: bool
-    provider_options: tuple[SelectorOption, ...]
-    selected_provider: str
-    account_options: tuple[SelectorOption, ...]
-    selected_account: str
-    action_allow_text: str
-    action_block_text: str
-    endpoint_allow_text: str
-    endpoint_block_text: str
-    note: str
-    status_text: str
-    validation_text: str
-    history_text: str
-
-
-@dataclass(frozen=True, slots=True)
-class InstanceManagerState:
-    items: tuple[dict[str, object], ...]
-    ordered_names: tuple[str, ...]
-    governance_map: dict[str, dict[str, object]]
-    connector_map: dict[str, dict[str, dict[str, object]]]
-    governance_target: str
-    connector_target_workspace: str
-    connector_ids: tuple[str, ...]
-    connector_target_id: str
-    active_instance: str
-    configured: int
-    max_configured: int
-    active_runtime: int
-    max_active_runtime: int
-    summary_text: str
-    limits_text: str
-    role_mix_text: str
-    collaboration_text: str
-    recurring_text: str
-    show_empty_state: bool
-    empty_state_text: str
+from .instance_manager_models import (
+    DEFAULT_CONNECTOR_IDS,
+    ConnectorBindingSaveRequest,
+    ConnectorBindingState,
+    GovernanceEditorState,
+    GovernanceSaveRequest,
+    InstanceManagerState,
+    RolePreset,
+    SaveAffordanceState,
+    SectionToggleState,
+    SelectorOption,
+    SelectorState,
+    WorkspaceCreateCopy,
+    WorkspaceCreateFormState,
+    WorkspaceCreateRequest,
+    WorkspaceEditorsState,
+)
 
 
 def parse_policy_lines(text: str) -> list[str]:
@@ -245,6 +190,166 @@ def role_preset(workspace_type: str) -> RolePreset:
     return presets.get(key, presets["user_instance"])
 
 
+def build_workspace_create_copy(workspace_type: str) -> WorkspaceCreateCopy:
+    key = (workspace_type or "user_instance").strip().lower() or "user_instance"
+    preset = role_preset(key)
+    return WorkspaceCreateCopy(
+        workspace_type=key,
+        role_label=workspace_role_label(key),
+        default_purpose=workspace_default_purpose(key),
+        collaboration_hint=workspace_collaboration_hint(key),
+        reentry_hint=workspace_reentry_hint(key),
+        first_run_recipe=workspace_first_run_recipe(key),
+        example_names=workspace_example_names(key),
+        name_placeholder=preset.name_placeholder,
+        description_placeholder=preset.description_placeholder,
+        default_mode=preset.mode,
+        preset_summary=preset.summary,
+    )
+
+
+def build_workspace_create_request(
+    *,
+    name: str,
+    description: str,
+    mode: str,
+    persona: str,
+    voice: str,
+    workspace_type: str,
+    enabled: bool,
+) -> WorkspaceCreateRequest:
+    return WorkspaceCreateRequest(
+        name=str(name or "").strip(),
+        description=str(description or "").strip(),
+        mode=str(mode or "auto").strip() or "auto",
+        persona=str(persona or "guppy").strip() or "guppy",
+        voice=str(voice or "default").strip() or "default",
+        workspace_type=(str(workspace_type or "user_instance").strip().lower() or "user_instance"),
+        enabled=bool(enabled),
+    )
+
+
+def build_workspace_create_form_state(
+    *,
+    workspace_type: str,
+    current_description: str,
+    current_mode: str,
+    previous_copy: WorkspaceCreateCopy,
+) -> WorkspaceCreateFormState:
+    copy = build_workspace_create_copy(workspace_type)
+    description = str(current_description or "").strip()
+    mode = str(current_mode or "").strip().lower()
+    description_value = None
+    mode_value = None
+    if not description or description == previous_copy.description_placeholder:
+        description_value = copy.description_placeholder
+    if not mode or mode == previous_copy.default_mode:
+        mode_value = copy.default_mode
+    return WorkspaceCreateFormState(
+        copy=copy,
+        description_value=description_value,
+        mode_value=mode_value,
+    )
+
+
+def build_governance_save_request(
+    *,
+    target: str,
+    policy: dict[str, object] | None,
+    auth_mode: str,
+    tool_allow_text: str,
+    tool_block_text: str,
+    endpoint_allow_text: str,
+    endpoint_block_text: str,
+    policy_note: str,
+) -> tuple[GovernanceSaveRequest | None, str]:
+    workspace_name = str(target or "").strip()
+    if not workspace_name:
+        return None, "Choose a workspace before saving governance."
+    payload = policy if isinstance(policy, dict) else {}
+    return (
+        GovernanceSaveRequest(
+            name=workspace_name,
+            instance_type=str(payload.get("instance_type", "user_instance") or "user_instance"),
+            auth_mode=str(auth_mode or "runtime_default").strip() or "runtime_default",
+            tool_allow=tuple(parse_policy_lines(tool_allow_text)),
+            tool_block=tuple(parse_policy_lines(tool_block_text)),
+            endpoint_allow=tuple(parse_policy_lines(endpoint_allow_text)),
+            endpoint_block=tuple(parse_policy_lines(endpoint_block_text)),
+            policy_note=str(policy_note or "").strip(),
+        ),
+        "",
+    )
+
+
+def build_connector_binding_save_request(
+    *,
+    workspace_name: str,
+    connector_id: str,
+    enabled: bool,
+    account_id: str,
+    provider: str,
+    action_allow_text: str,
+    action_block_text: str,
+    endpoint_allow_text: str,
+    endpoint_block_text: str,
+    note: str,
+) -> tuple[ConnectorBindingSaveRequest | None, str]:
+    name = str(workspace_name or "").strip()
+    connector = str(connector_id or "").strip().lower()
+    if not name or not connector:
+        return None, "Choose a workspace and connector before saving."
+    return (
+        ConnectorBindingSaveRequest(
+            name=name,
+            connector=connector,
+            enabled=bool(enabled),
+            account_id=str(account_id or "").strip().lower(),
+            provider=str(provider or "").strip().lower(),
+            action_allow=tuple(parse_policy_lines(action_allow_text)),
+            action_block=tuple(parse_policy_lines(action_block_text)),
+            endpoint_allow=tuple(parse_policy_lines(endpoint_allow_text)),
+            endpoint_block=tuple(parse_policy_lines(endpoint_block_text)),
+            note=str(note or "").strip(),
+        ),
+        "",
+    )
+
+
+def build_section_toggle_state(
+    visible: bool,
+    *,
+    show_label: str,
+    hide_label: str,
+) -> SectionToggleState:
+    return SectionToggleState(
+        visible=bool(visible),
+        button_label=hide_label if visible else show_label,
+    )
+
+
+def build_selector_state(
+    options: tuple[str, ...],
+    selected_value: str,
+) -> SelectorState:
+    normalized_options = tuple(str(item).strip() for item in options if str(item).strip())
+    if not normalized_options:
+        return SelectorState(options=(), selected_value="")
+    target = str(selected_value or "").strip()
+    if target not in normalized_options:
+        target = normalized_options[0]
+    return SelectorState(options=normalized_options, selected_value=target)
+
+
+def workspace_onboarding_ready_message(name: str, workspace_type: str) -> str:
+    copy = build_workspace_create_copy(workspace_type)
+    role = copy.role_label
+    if "workspace" not in role.lower():
+        role = f"{role} workspace"
+    workspace_name = str(name or "").strip() or "workspace"
+    return f"{role} {workspace_name} is ready. {copy.first_run_recipe}"
+
+
 def build_governance_editor_state(
     workspace_name: str,
     governance_by_name: dict[str, dict[str, object]],
@@ -353,6 +458,65 @@ def build_connector_binding_editor_state(
         validation_text=validation_text,
         history_text=history_text,
     )
+
+
+def build_workspace_editors_state(state: InstanceManagerState) -> WorkspaceEditorsState:
+    governance_workspace = build_selector_state(state.ordered_names, state.governance_target)
+    connector_workspace = build_selector_state(state.ordered_names, state.connector_target_workspace)
+    connector_id = build_selector_state(state.connector_ids, state.connector_target_id)
+    return WorkspaceEditorsState(
+        governance_workspace=governance_workspace,
+        connector_workspace=connector_workspace,
+        connector_id=connector_id,
+        governance_editor=build_governance_editor_state(
+            governance_workspace.selected_value,
+            state.governance_map,
+        ),
+        connector_editor=build_connector_binding_editor_state(
+            connector_workspace.selected_value,
+            connector_id.selected_value,
+            state.connector_map,
+        ),
+    )
+
+
+def build_save_affordance_state(
+    *,
+    candidate_name: str,
+    known_names: set[str] | tuple[str, ...],
+    configured: int,
+    max_configured: int,
+) -> SaveAffordanceState:
+    candidate = str(candidate_name or "").strip()
+    is_new_name = bool(candidate) and candidate not in set(known_names)
+    at_limit = int(configured) >= int(max_configured)
+    if at_limit and is_new_name:
+        return SaveAffordanceState(
+            enabled=False,
+            warning_text=(
+                f"Workspace limit reached ({configured} / {max_configured}). "
+                "Update an existing workspace or delete one first."
+            ),
+        )
+    return SaveAffordanceState(enabled=True, warning_text="")
+
+
+def build_workspace_activity_log_text(
+    instance_name: str,
+    entries: list[dict[str, object]] | tuple[dict[str, object], ...],
+) -> str:
+    lines: list[str] = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        timestamp = str(item.get("timestamp", "")).replace("T", " ").replace("+00:00", "Z")
+        role = str(item.get("role", "event")).upper()
+        message = str(item.get("message", item.get("response", ""))).strip()
+        if message:
+            lines.append(f"[{timestamp}] {role}: {message}")
+    if lines:
+        return "\n".join(lines)
+    return f"No recent conversation or ops activity yet for workspace {instance_name}"
 
 
 def build_instance_manager_state(

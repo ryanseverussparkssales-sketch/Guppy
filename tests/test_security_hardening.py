@@ -12,14 +12,18 @@ from __future__ import annotations
 
 import os
 import json
+import shutil
 import sqlite3
 import tempfile
 import threading
 import time
 import unittest
+import uuid
+from contextlib import contextmanager
 from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("GUPPY_JWT_SECRET", "test-security-hardening-secret-key-32x")
 os.environ.setdefault("GUPPY_DEV_MODE", "0")
@@ -32,15 +36,32 @@ except ImportError:
 
 import guppy_api
 from fastapi.testclient import TestClient
+import src.guppy.launcher_application as launcher_app
+from src.guppy.launcher_application import is_valid_repair_token as _is_valid_repair_token
 from src.guppy.api import auth as guppy_api_auth
 from utils import secret_store
 from utils.db_utils import open_db
 from ui.launcher import launcher_window
-from ui.launcher.launcher_window import _is_valid_repair_token
 
 
 _TEST_SECRET = "test-security-hardening-secret-key-32x"
 _ALG = "HS256"
+_TEST_TEMP_ROOT = Path(__file__).resolve().parents[1] / ".tmp" / "test-scratch" / "security-hardening-root"
+
+
+@contextmanager
+def workspace_tempdir():
+    _TEST_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+    path = _TEST_TEMP_ROOT / f"{int(time.time() * 1000)}-{uuid.uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=False)
+    try:
+        yield str(path)
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
+
+
+# Windows sandbox runs are more reliable when test scratch stays inside the repo.
+tempfile.TemporaryDirectory = workspace_tempdir  # type: ignore[assignment]
 
 
 # ── JWT tests ──────────────────────────────────────────────────────────────────
@@ -286,7 +307,7 @@ class MalformedRuntimeFileTests(unittest.TestCase):
             old_runtime = launcher_window._RUNTIME
             launcher_window._RUNTIME = runtime_dir
             try:
-                result = launcher_window._read_json(status_path)
+                result = launcher_window.read_json_dict(status_path)
                 self.assertIsInstance(result, dict)
                 self.assertEqual(result, {})
             finally:
@@ -295,7 +316,7 @@ class MalformedRuntimeFileTests(unittest.TestCase):
     def test_missing_status_file_returns_empty_dict(self):
         """A missing status file must return an empty dict, not raise."""
         with tempfile.TemporaryDirectory() as td:
-            result = launcher_window._read_json(Path(td) / "nonexistent.status")
+            result = launcher_window.read_json_dict(Path(td) / "nonexistent.status")
             self.assertIsInstance(result, dict)
             self.assertEqual(result, {})
 
@@ -309,7 +330,7 @@ class MalformedRuntimeFileTests(unittest.TestCase):
                 '{"event": "truncated',  # intentionally truncated
                 encoding="utf-8",
             )
-            result = launcher_window._read_jsonl_tail(jsonl_path, limit=50)
+            result = launcher_window.read_jsonl_tail(jsonl_path, limit=50)
             events = [r.get("event") for r in result if isinstance(r, dict)]
             self.assertIn("ok1", events)
             self.assertIn("ok2", events)
@@ -322,7 +343,7 @@ class MalformedRuntimeFileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             empty = Path(td) / "empty.status"
             empty.write_text("", encoding="utf-8")
-            result = launcher_window._read_json(empty)
+            result = launcher_window.read_json_dict(empty)
             self.assertIsInstance(result, dict)
             self.assertEqual(result, {})
 
@@ -523,6 +544,16 @@ class RepairTokenValidationTests(unittest.TestCase):
         self.assertFalse(_is_valid_repair_token(token_with_null))
 
 
+class LauncherWriteJsonTests(unittest.TestCase):
+    def test_write_json_raises_when_atomic_write_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "state.json"
+
+            with patch.object(launcher_window, "write_json_atomic", return_value=False):
+                with self.assertRaises(OSError):
+                    launcher_window._write_json(target, {"ok": True})
+
+
 # ── Repair token re-sync endpoint tests ──────────────────────────────────────
 
 class RepairTokenRefreshEndpointTests(unittest.TestCase):
@@ -651,7 +682,7 @@ class LauncherRepairTokenResyncTests(unittest.TestCase):
             cm.__exit__ = MagicMock(return_value=False)
             return cm
 
-        with patch.object(lw, "_is_valid_repair_token", return_value=True):
+        with patch.object(launcher_app, "is_valid_repair_token", return_value=True):
             with patch("ui.launcher.launcher_window.urllib.request.urlopen", side_effect=_fake_urlopen):
                 result = stub._http_json(
                     "/repair", method="POST",

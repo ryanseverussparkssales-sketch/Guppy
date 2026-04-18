@@ -12,24 +12,6 @@ WRAPPERS = {
     "guppy_hub.py": "from src.guppy.apps.hub_app import main",
 }
 
-# sys.modules-redirect shims: maps root filename → canonical dotted module path
-SHIMS = {
-    "guppy_api_auth.py":        "src.guppy.api.auth",
-    "inference_router.py":      "src.guppy.inference.router",
-    "merlin_core.py":           "src.guppy.merlin.core",
-    "media_tools.py":           "src.guppy.tools.media",
-    "debug_console.py":         "src.guppy.debug.console",
-    "guppy_memory.py":          "src.guppy.memory.memory",
-    "guppy_voice.py":           "src.guppy.voice.voice",
-    "guppy_daemon.py":          "src.guppy.daemon.daemon",
-    "guppy_agent.py":           "src.guppy.cli.agent",
-    "crm_voip_integrations.py": "src.guppy.integrations.crm_voip",
-    "guppy_semantic_memory.py": "src.guppy.memory.semantic",
-    "github_tools.py":          "src.guppy.tools.github",
-    "guppy_theme.py":           "src.guppy.ui.theme",
-}
-
-
 def _validate_wrapper(path: Path, required_import: str) -> list[str]:
     errs: list[str] = []
     if not path.exists():
@@ -84,8 +66,6 @@ def main() -> int:
     for rel, required_import in WRAPPERS.items():
         failures.extend(_validate_wrapper(ROOT / rel, required_import))
     failures.extend(_validate_shim(ROOT / "guppy_api.py", "src.guppy.api.server"))
-    for rel, canonical in SHIMS.items():
-        failures.extend(_validate_shim(COMPAT / rel, canonical))
 
     if failures:
         print("wrapper integrity check failed:")

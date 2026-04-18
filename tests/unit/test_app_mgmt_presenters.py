@@ -2,6 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.guppy.launcher_application.app_mgmt_presenter import (
+    build_automation_snapshot_state,
+    build_connector_inventory_state,
+    build_daily_context_state,
+    build_instance_snapshot_state,
+    build_status_snapshot_state,
+    build_windows_ops_snapshot,
+    validate_connector_action,
+)
 from src.guppy.launcher_application.terminal_recipes import (
     TERMINAL_RECIPE_MARKER,
     apply_terminal_recipe_marker,
@@ -9,10 +18,12 @@ from src.guppy.launcher_application.terminal_recipes import (
     recipe_marker,
 )
 from src.guppy.launcher_application.workflow_panel import (
+    build_workflow_failed_state,
     build_workflow_loaded_state,
     build_workflow_panel_state,
     build_workflow_queued_state,
     resolve_workflow_loop_spec,
+    workflow_loaded_log_lines,
     workflow_command_strings,
 )
 from src.guppy.launcher_application.windows_ops_presenter import (
@@ -56,6 +67,19 @@ def test_workflow_loaded_and_queued_states_preserve_catalog_copy() -> None:
     assert "queued 8 command(s)" in queued.outcome_text
 
 
+def test_workflow_failed_state_and_loaded_log_lines_preserve_title() -> None:
+    loaded = build_workflow_loaded_state("midday_stability")
+    failed = build_workflow_failed_state(
+        "midday_stability",
+        reason="MIDDAY STABILITY failed before queueing all commands.",
+    )
+
+    assert workflow_loaded_log_lines(loaded)[0] == "[workflow] MIDDAY STABILITY loaded (2 commands)"
+    assert failed.status_ok is False
+    assert failed.status_text == "MIDDAY STABILITY failed before queueing all commands."
+    assert "Check operator logs and terminal output." in failed.evidence_text
+
+
 def test_windows_ops_panel_state_renders_summary_copy_from_snapshot() -> None:
     state = build_windows_ops_panel_state(
         {
@@ -94,7 +118,7 @@ def test_windows_ops_feedback_and_followup_lines_use_structured_inputs() -> None
         next_step="Fix gate findings before package",
         fix_target="docs/PACKAGING.md",
         docs_hint="docs/PACKAGING.md",
-        entry_point=".venv\\Scripts\\python.exe tools/beta_release_dry_run.py",
+        entry_point=".venv\\Scripts\\python.exe tools/dev_workflow.py release-check",
         artifacts=[{"label": "report", "path": "C:\\Users\\Ryan\\Guppy\\runtime\\beta_release_dry_run_report.json"}],
         receipt_path="C:\\Users\\Ryan\\Guppy\\runtime\\windows_release_receipt.json",
         summary_path="C:\\Users\\Ryan\\Guppy\\runtime\\windows_release_summary.md",
@@ -105,7 +129,7 @@ def test_windows_ops_feedback_and_followup_lines_use_structured_inputs() -> None
                 "text": "Run release dry run again after fixing docs.",
                 "fix_target": "docs/PACKAGING.md",
                 "docs_hint": "docs/PACKAGING.md",
-                "entry_point": ".venv\\Scripts\\python.exe tools/beta_release_dry_run.py",
+                "entry_point": ".venv\\Scripts\\python.exe tools/dev_workflow.py release-check",
             }
         ],
         review_order=["runtime/beta_release_dry_run_report.json", "runtime/windows_release_receipt.json"],
@@ -137,7 +161,7 @@ def test_windows_ops_feedback_uses_review_copy_when_release_gate_is_green() -> N
                 "text": "Review the generated handoff bundle.",
                 "fix_target": "runtime/windows_release_receipt.json",
                 "docs_hint": "docs/PACKAGING.md",
-                "entry_point": "python tools/beta_release_dry_run.py",
+                "entry_point": "python tools/dev_workflow.py release-check",
             }
         ],
         review_order=[
@@ -262,3 +286,207 @@ def test_apply_terminal_recipe_marker_ignores_non_marker_lines() -> None:
     assert result.status_text is None
     assert result.completed_payload is None
     assert TERMINAL_RECIPE_MARKER == "__GUPPY_RECIPE__|"
+
+
+def test_daily_context_state_normalizes_launcher_copy() -> None:
+    state = build_daily_context_state(
+        activity="warmup complete",
+        runtime="local runtime ready",
+        recovery="Recovery: operator attention needed",
+        recovery_ok=False,
+    )
+
+    assert state.activity_text == "Recent activity: warmup complete"
+    assert state.runtime_text == "Ready now: local runtime ready"
+    assert state.recovery_text == "Recovery: operator attention needed"
+    assert state.recovery_ok is False
+
+
+def test_status_snapshot_state_preserves_voice_and_runtime_details() -> None:
+    state = build_status_snapshot_state(
+        {
+            "status": "healthy",
+            "startup_readiness": {"overall": "GO"},
+            "voice_tts_backend": "edge",
+            "voice_stt_backend": "whisper",
+            "voice_binding": "EDGE TTS",
+            "route_evidence": "local route confirmed",
+            "resource_envelope": {"state": "ok", "message": "headroom stable"},
+            "local_runtime": {"backend": "llama", "state": "ready", "detail": "latency stable"},
+        },
+        configured_backend="ollama",
+        previous_windows_runtime="Local AI runtime: OLLAMA | Live backend: OLLAMA | Status: READY",
+    )
+
+    assert state.health_text == "API health: HEALTHY | Startup readiness: GO"
+    assert state.voice_text == "Voice services: tts=edge | stt=whisper | EDGE TTS"
+    assert state.route_health_text == "Why the next route was chosen: local route confirmed"
+    assert state.resource_text == "System headroom: ok | headroom stable"
+    assert state.windows_runtime_text == "Local AI runtime: ollama | Live backend: LLAMA | Status: READY | latency stable"
+
+
+def test_instance_snapshot_state_formats_workspace_limits() -> None:
+    state = build_instance_snapshot_state(
+        {
+            "active_instance": "guppy-primary",
+            "limits": {"configured": 2, "max_configured": 5, "active_runtime": 1, "max_active_runtime": 2},
+        }
+    )
+
+    assert state.instances_text == "Workspaces: active=guppy-primary | configured 2/5 | live 1/2"
+
+
+def test_automation_snapshot_state_uses_safe_defaults() -> None:
+    state = build_automation_snapshot_state({})
+
+    assert state.workspace_text == "Workspace step: active workspace telemetry is not available yet."
+    assert state.queue_text == "Queue counts: builder queue status is not available yet."
+    assert state.report_text == "Builder report: runtime/offhours_builder_report.json"
+    assert state.evidence_text == "Evidence pack: runtime/user_test_evidence.md"
+    assert state.stress_text == "Latest stress run: no stress report recorded yet."
+    assert state.validation_text == "Validation command: unavailable"
+
+
+def test_build_windows_ops_snapshot_reads_runtime_state_and_defaults(tmp_path: Path) -> None:
+    root = tmp_path
+    runtime = root / "runtime"
+    config = root / "config"
+    bin_dir = root / "bin"
+    runtime.mkdir()
+    config.mkdir()
+    bin_dir.mkdir()
+    (bin_dir / "launch_api_supervised.bat").write_text("@echo off\n", encoding="utf-8")
+    (bin_dir / "build_executable.bat").write_text("@echo off\n", encoding="utf-8")
+    (runtime / "repair_token.txt").write_text("token", encoding="utf-8")
+    (runtime / "diagnostics_bundle_20260417_120000.json").write_text("{}", encoding="utf-8")
+    (runtime / "windows_ops_state.json").write_text(
+        """
+        {
+          "action": "release_dry_run",
+          "timestamp": "2026-04-17T18:00:00Z",
+          "summary": "Dry run finished",
+          "changes": "receipt and summary refreshed",
+          "phase": "completed",
+          "event_id": "evt-123",
+          "next_step": "Review handoff bundle",
+          "fix_target": "runtime/windows_release_receipt.json",
+          "docs_hint": "docs/PACKAGING.md",
+          "entry_point": "python tools/dev_workflow.py release-check",
+          "ok": true,
+          "gate_summary": "PASS",
+          "gate_detail": "all checks passed",
+          "gate_recommendation_details": [
+            {
+              "text": "Review the generated handoff bundle.",
+              "fix_target": "runtime/windows_release_receipt.json",
+              "docs_hint": "docs/PACKAGING.md",
+              "entry_point": "python tools/dev_workflow.py release-check"
+            }
+          ],
+          "artifacts": [
+            {"label": "diagnostics bundle", "path": "runtime/diagnostics_bundle_20260417_120000.json"}
+          ],
+          "release_receipt": "runtime/windows_release_receipt.json",
+          "release_summary": "runtime/windows_release_summary.md"
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    state = build_windows_ops_snapshot(
+        root,
+        configured_backend="ollama",
+        launcher_python="C:/Python/python.exe",
+    )
+
+    assert state["install"].startswith("Installed on this PC: Launcher python: C:/Python/python.exe")
+    assert state["runtime"] == "Local AI runtime: ollama | Live backend: waiting for first status poll"
+    assert "settings=app_settings.json" not in state["paths"]
+    assert "runtime=" in state["paths"]
+    assert state["repair"].startswith("Repair help: keyring-backed first; file fallback present")
+    assert "Review handoff bundle" in state["next"]
+    assert "Ref: evt-123" in state["service"]
+    assert state["gate"] == "Release check: PASS | all checks passed"
+    assert state["gate_fix"].startswith("Review next: Review the generated handoff bundle.")
+    assert "receipt=runtime/windows_release_receipt.json" in state["handoff"]
+
+
+def test_build_connector_inventory_state_surfaces_provider_guidance_and_buttons() -> None:
+    state = build_connector_inventory_state(
+        {
+            "id": "crm",
+            "label": "CRM",
+            "auth_kind": "provider_secret",
+            "auth_state": "missing",
+            "auth_detail": "Salesforce still needs provider secrets.",
+            "providers": [
+                {
+                    "id": "salesforce",
+                    "label": "Salesforce",
+                    "auth_state": "missing",
+                    "auth_detail": "Salesforce still needs access token and org URL.",
+                    "required_fields": ["SALESFORCE_ACCESS_TOKEN", "SALESFORCE_INSTANCE_URL"],
+                    "field_details": [
+                        {
+                            "key": "SALESFORCE_ACCESS_TOKEN",
+                            "label": "Access Token",
+                            "placeholder": "00D...!....",
+                            "validation_hint": "Use the access token string, not a URL.",
+                            "masked": True,
+                            "present": False,
+                        }
+                    ],
+                    "setup_summary": "Step 1/2: add Access Token.",
+                    "next_field": {
+                        "key": "SALESFORCE_ACCESS_TOKEN",
+                        "label": "Access Token",
+                        "validation_hint": "Use the access token string, not a URL.",
+                    },
+                    "scope_label": "contacts + opportunities",
+                    "next_step": "App Mgmt: save Access Token for Salesforce, then run Verify.",
+                    "fix_target": "App Mgmt > Connector Inventory",
+                }
+            ],
+            "accounts": [],
+            "actions_supported": ["verify", "connect", "disconnect"],
+            "secret_fields": ["SALESFORCE_ACCESS_TOKEN", "SALESFORCE_INSTANCE_URL"],
+            "scope_telemetry": {
+                "summary": "CRM bindings can pin a provider and narrow contact/opportunity actions.",
+                "endpoint_prefixes": ["connector://crm/salesforce", "connector://crm/salesforce/contacts"],
+            },
+            "history": {"timeline": [], "recent_events": []},
+        }
+    )
+
+    assert state.selected_provider == "salesforce"
+    assert state.selected_secret_key == "SALESFORCE_ACCESS_TOKEN"
+    assert "customer records" in state.state_text.lower()
+    assert "Needs setup" in state.auth_text
+    assert "Salesforce still needs access token" in state.validation_text
+    assert "contacts + opportunities" in state.scope_text
+    assert "Saved details:" in state.setup_text
+    assert "Connector Inventory" in state.next_step_text
+    assert state.secret_placeholder == "00D...!...."
+    assert state.button_states["reconnect"].visible is False
+    assert state.button_states["save_secret"].enabled is True
+
+
+def test_validate_connector_action_requires_secret_value_when_field_selected() -> None:
+    error = validate_connector_action(
+        {
+            "id": "crm",
+            "providers": [
+                {
+                    "id": "hubspot",
+                    "field_details": [{"key": "CRM_API_KEY", "label": "API Key"}],
+                    "required_fields": ["CRM_API_KEY"],
+                }
+            ],
+        },
+        "save_secret",
+        selected_provider_id="hubspot",
+        selected_secret_key="CRM_API_KEY",
+        secret_value="",
+    )
+
+    assert error == "Enter a value for API Key before saving it."

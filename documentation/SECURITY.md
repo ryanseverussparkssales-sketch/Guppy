@@ -16,7 +16,7 @@ preserve compatibility in constrained environments.
 
 ## 2) JWT Security
 
-- JWT creation and verification in `src/guppy/api/auth.py` (`compat_shims/guppy_api_auth.py` remains only as a fallback shim)
+- JWT creation and verification in `src/guppy/api/auth.py`
 - Placeholder secret detection enforced
 - Strict-mode behavior rejects invalid/expired tokens
 - Secret retrieval supports OS store (`jwt_secret`) with env fallback

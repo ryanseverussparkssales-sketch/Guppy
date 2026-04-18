@@ -142,13 +142,13 @@ Acceptance:
 
 Targets:
 
-1. `ROADMAP.md`
-2. `docs/PROJECT_BRIEF.md`
+1. `docs/PROJECT_BRIEF.md`
+2. `docs/archive/root-history/ROADMAP_2026-04-17.md`
 
 Acceptance:
 
-1. Local LLM track has a clear sequence
-2. Current accomplishments and next steps are visible in repo truth
+1. Local LLM track has a clear sequence in the active project brief
+2. Historical sequencing remains discoverable in the archived roadmap log
 
 ## Guardrails
 

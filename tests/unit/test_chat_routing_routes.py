@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
@@ -10,6 +11,9 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from src.guppy.api import server as guppy_api
+
+
+_TEST_TMP_ROOT = Path(__file__).resolve().parents[1] / ".tmp" / "test-scratch" / "chat-routing"
 
 
 def _snapshot_api_paths():
@@ -37,7 +41,9 @@ def _temp_api_layout(
     resource_envelope: dict | None = None,
 ):
     old_paths = _snapshot_api_paths()
-    tmp_root = Path(tempfile.mkdtemp())
+    _TEST_TMP_ROOT.mkdir(parents=True, exist_ok=True)
+    tmp_root = _TEST_TMP_ROOT / uuid.uuid4().hex
+    tmp_root.mkdir(parents=True, exist_ok=False)
     try:
         cfg = tmp_root / "config"
         rt = tmp_root / "runtime"

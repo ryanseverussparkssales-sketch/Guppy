@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from src.guppy.paths import CHROMA_DIR, LIBRARY_DB_PATH, MEMPALACE_DIR, MEMORY_DB_PATH
+
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 
 DEFAULT_INCLUDE_PATHS = [
@@ -19,13 +21,12 @@ DEFAULT_INCLUDE_PATHS = [
     "utils",
     "web",
     "README.md",
-    "ROADMAP.md",
+    "docs/PROJECT_BRIEF.md",
     "docs/DAILY_WORKFLOW.md",
     "requirements.txt",
     "pyproject.toml",
     "src/guppy/ui/theme.json",
     "app_settings.json",
-    "chroma_db",
     "runtime/ops_telemetry.sqlite3",
     "runtime/response_cache.sqlite3",
     "runtime/triage_regression_state.json",
@@ -43,6 +44,13 @@ DEFAULT_INCLUDE_PATHS = [
 ]
 
 DEFAULT_GLOBS = ["*.py", "*.bat", "*.spec", "*.md"]
+
+DEFAULT_EXTERNAL_PATHS = [
+    MEMORY_DB_PATH,
+    LIBRARY_DB_PATH,
+    CHROMA_DIR,
+    MEMPALACE_DIR,
+]
 
 EXCLUDE_DIRS = {
     ".git",
@@ -72,7 +80,7 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _iter_files(path: Path) -> list[Path]:
+def _iter_files(path: Path, *, exclude_root: Path | None = None) -> list[Path]:
     if path.is_file():
         return [path]
 
@@ -80,40 +88,58 @@ def _iter_files(path: Path) -> list[Path]:
     for candidate in path.rglob("*"):
         if not candidate.is_file():
             continue
-        rel = candidate.relative_to(SOURCE_ROOT)
-        if any(part in EXCLUDE_DIRS for part in rel.parts):
-            continue
+        if exclude_root is not None and candidate.is_relative_to(exclude_root):
+            rel = candidate.relative_to(exclude_root)
+            if any(part in EXCLUDE_DIRS for part in rel.parts):
+                continue
         if candidate.suffix.lower() in EXCLUDE_SUFFIXES:
             continue
         files.append(candidate)
     return files
 
 
-def _collect_candidates() -> list[Path]:
-    candidates: set[Path] = set()
+def _external_rel_path(path: Path) -> Path:
+    if path.is_dir():
+        return Path("external") / path.name
+    parent_name = path.parent.name if path.parent.name else "user-data"
+    return Path("external") / parent_name / path.name
+
+
+def _collect_candidates() -> list[tuple[Path, Path]]:
+    candidates: dict[Path, Path] = {}
 
     for rel_str in DEFAULT_INCLUDE_PATHS:
         rel = Path(rel_str)
         src = SOURCE_ROOT / rel
         if not src.exists():
             continue
-        for item in _iter_files(src):
-            candidates.add(item)
+        for item in _iter_files(src, exclude_root=SOURCE_ROOT):
+            candidates[item.resolve()] = item.relative_to(SOURCE_ROOT)
 
     for pattern in DEFAULT_GLOBS:
         for item in SOURCE_ROOT.glob(pattern):
             if item.is_file() and item.suffix.lower() not in EXCLUDE_SUFFIXES:
-                candidates.add(item)
+                candidates[item.resolve()] = item.relative_to(SOURCE_ROOT)
 
-    return sorted(candidates)
+    for external in DEFAULT_EXTERNAL_PATHS:
+        src = Path(external)
+        if not src.exists():
+            continue
+        rel_root = _external_rel_path(src)
+        if src.is_file():
+            candidates[src.resolve()] = rel_root
+            continue
+        for item in _iter_files(src):
+            candidates[item.resolve()] = rel_root / item.relative_to(src)
+
+    return sorted(candidates.items(), key=lambda pair: pair[1].as_posix())
 
 
-def _copy_files(files: list[Path], snapshot_data_dir: Path, with_hash: bool) -> tuple[list[CopiedFile], int]:
+def _copy_files(files: list[tuple[Path, Path]], snapshot_data_dir: Path, with_hash: bool) -> tuple[list[CopiedFile], int]:
     copied: list[CopiedFile] = []
     total_bytes = 0
 
-    for src in files:
-        rel = src.relative_to(SOURCE_ROOT)
+    for src, rel in files:
         dst = snapshot_data_dir / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)

@@ -145,3 +145,37 @@ def build_workflow_queued_state(workflow_id: str) -> WorkflowPanelState:
         status_ok=True,
         commands=base.commands,
     )
+
+
+def build_workflow_failed_state(
+    workflow_id: str,
+    *,
+    reason: str,
+) -> WorkflowPanelState:
+    """Build the panel state after a workflow queue failure."""
+
+    base = build_workflow_panel_state(workflow_id)
+    title = base.title or "WORKFLOW"
+    failure = str(reason or f"{title} failed before queueing all commands.").strip()
+    return WorkflowPanelState(
+        workflow_id=base.workflow_id,
+        title=title,
+        summary_text=base.summary_text,
+        steps_text=base.steps_text,
+        next_step_text="Next step: check operator logs and embedded terminal output before retrying.",
+        outcome_text=f"Outcome: {failure}",
+        evidence_text=f"Evidence: {failure} Check operator logs and terminal output.",
+        status_text=f"{title} failed before queueing all commands.",
+        status_ok=False,
+        commands=base.commands,
+    )
+
+
+def workflow_loaded_log_lines(state: WorkflowPanelState) -> tuple[str, ...]:
+    """Return the terminal lines used when a workflow is loaded into the shell."""
+
+    if not state.has_commands:
+        return ()
+    lines = [f"[workflow] {state.title} loaded ({len(state.commands)} commands)"]
+    lines.extend(f"[workflow:{idx}] {cmd}" for idx, cmd in enumerate(state.commands, start=1))
+    return tuple(lines)

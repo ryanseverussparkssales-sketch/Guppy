@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import call
 from unittest.mock import patch
@@ -10,6 +12,26 @@ from src.guppy.cli import launch as launch_cli
 
 
 class LaunchCliTests(unittest.TestCase):
+    def test_repo_batch_launcher_uses_cli_entrypoint(self):
+        batch = (launch_cli.ROOT / "bin" / "Guppy.bat").read_text(encoding="utf-8")
+
+        self.assertIn(r"src\guppy\cli\launch.py launcher", batch)
+        self.assertNotIn("guppy_launcher.py", batch)
+
+    def test_resolve_python_executable_prefers_windowed_binary_for_gui_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / ".venv" / "Scripts"
+            scripts.mkdir(parents=True, exist_ok=True)
+            python = scripts / "python.exe"
+            pythonw = scripts / "pythonw.exe"
+            python.write_text("", encoding="utf-8")
+            pythonw.write_text("", encoding="utf-8")
+
+            resolved = launch_cli._resolve_python_executable(root, prefer_windowed=True)
+
+            self.assertEqual(resolved, str(pythonw))
+
     def test_launcher_start_sets_destination_env(self):
         prior = os.environ.get("GUPPY_START_DESTINATION")
         try:
@@ -31,6 +53,27 @@ class LaunchCliTests(unittest.TestCase):
                 os.environ.pop("GUPPY_START_DESTINATION", None)
             else:
                 os.environ["GUPPY_START_DESTINATION"] = prior
+
+    def test_launcher_surface_uses_windowed_python_when_available(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / ".venv" / "Scripts"
+            scripts.mkdir(parents=True, exist_ok=True)
+            python = scripts / "python.exe"
+            pythonw = scripts / "pythonw.exe"
+            python.write_text("", encoding="utf-8")
+            pythonw.write_text("", encoding="utf-8")
+
+            with patch.object(launch_cli, "ROOT", root), patch.object(
+                launch_cli, "setup_env"
+            ) as setup_env, patch.object(
+                launch_cli.subprocess, "run", return_value=SimpleNamespace(returncode=0)
+            ) as run:
+                rc = launch_cli.main(["launcher", "--no-hub"])
+
+            self.assertEqual(rc, 0)
+            setup_env.assert_called_once_with(root, profile="standard")
+            run.assert_called_once_with([str(pythonw), "guppy_launcher.py"], cwd=str(root))
 
     def test_launcher_without_start_clears_destination_env(self):
         prior = os.environ.get("GUPPY_START_DESTINATION")

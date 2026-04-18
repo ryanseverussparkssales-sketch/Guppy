@@ -1,6 +1,6 @@
 # Documentation Truth Audit
 
-Audit date: 2026-04-13
+Audit date: 2026-04-17
 
 This file records what was verified against live code and where legacy docs are
 outdated or ambiguous.
@@ -15,8 +15,8 @@ outdated or ambiguous.
 6. Default dependency install is slimmer than before.
    - Dev-only packages now live in `requirements-dev.txt`.
    - Optional `openwakeword` and `chromadb` extras now live in `requirements-optional.txt`.
-7. Canonical CLI launch treats `merlin` and `council` as compatibility-only surfaces.
-   - `src/guppy/cli/launch.py` now requires `GUPPY_ENABLE_LEGACY_SURFACES=1` before launching them.
+7. Canonical CLI launch no longer exposes `merlin` or `council` as supported surfaces.
+   - `src/guppy/cli/launch.py` now supports only `guppy`, `launcher`, `guppyprime`, `hub`, and `api`.
 
 ## Drift / Needs Correction in Legacy Docs
 
@@ -37,7 +37,7 @@ outdated or ambiguous.
 5. Root-module references are widely stale outside canonical docs.
    - Core implementations now live under `src/guppy/*`.
    - Root launch shims are now limited to `guppy_launcher.py`, `guppy_hub.py`, and `guppy_api.py`.
-   - Secondary compatibility shims now live under `compat_shims/`.
+- Historical compatibility-only desktop surfaces now live under `compat_shims/legacy_surfaces/`.
 
 6. Test-path references drifted after suite reorganization.
    - Default pytest targets are now `tests/unit/` and `tests/integration/`.
@@ -52,7 +52,9 @@ Canonical docs are now:
 
 - Instructions: `instructions/README.md`, `instructions/OPERATIONS.md`, `instructions/DEVELOPMENT.md`
 - Technical documentation: `documentation/README.md`, `documentation/ARCHITECTURE.md`, `documentation/SECURITY.md`, `documentation/TRUTH_AUDIT.md`
-- Operational references: `docs/API.md`, `docs/TROUBLESHOOTING.md`, `docs/VOICE.md`, `docs/PACKAGING.md`, `docs/PROJECT_BRIEF.md`
+- Operational references: `docs/API.md`, `docs/TROUBLESHOOTING.md`, `docs/VOICE.md`, `docs/PACKAGING.md`
+- Active status and roadmap reference: `docs/PROJECT_BRIEF.md`
+- Historical roadmap and handoff archive: `docs/archive/root-history/ROADMAP_2026-04-17.md`
 
 Legacy docs remain present for historical context and should be treated as
 secondary unless migrated.

@@ -597,6 +597,49 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertEqual(view._artifact_title.text(), "")
         self.assertEqual(view._artifact_path.text(), "")
 
+    def test_library_view_surfaces_selected_root_and_chat_reuse_guidance(self):
+        view = LibraryView()
+        view.set_instance_context(
+            {
+                "name": "builder-collab",
+                "type": "builder_instance",
+                "description": "Planning partner for review loops.",
+            },
+            {},
+        )
+
+        self.assertIn("Nothing outside approved roots is scanned", view._roots_hint.text())
+        self.assertIn("READY TO USE IN CHAT", view._recent_header.text())
+        self.assertIn("USE IN CHAT attaches one as source context", view._recent_hint.text())
+        self.assertIn("CURRENT ROOT", view._selected_root_status.text())
+        self.assertIn("USE IN CHAT", view._browse_hint.text())
+
+    def test_assistant_active_context_surfaces_current_sources_and_primary_source_copy(self):
+        assistant = AssistantView()
+        assistant.set_active_context_items(
+            [
+                {
+                    "title": "Release review",
+                    "kind": "note",
+                    "detail": "Saved from the latest assistant reply in builder-collab",
+                    "origin": "assistant_reply",
+                    "source_label": "Saved reply note",
+                },
+                {
+                    "title": "review-notes.md",
+                    "kind": "study",
+                    "detail": "C:/repo/docs/review-notes.md",
+                },
+            ]
+        )
+
+        self.assertIn("Current sources:", assistant._active_context_summary.text())
+        self.assertIn("Primary source:", assistant._active_context_summary.text())
+        self.assertIn("saved reply note", assistant._active_context_summary.text().lower())
+        self.assertIn("Current source:", assistant._starter_summary.text())
+        self.assertIn("saved reply note", assistant._starter_summary.text().lower())
+        self.assertIn("CURRENT SOURCE", assistant._grounding_chip.text())
+
     def test_instance_manager_view_renders_snapshot_and_logs(self):
         view = InstanceManagerView()
         payload = {

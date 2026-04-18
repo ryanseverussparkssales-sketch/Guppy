@@ -1,16 +1,11 @@
 """
 ui/launcher/views/advanced_view.py
-APP MGMT tab - app-level recovery actions, diagnostics, settings, and operator logs.
+SETTINGS tab - app-level setup, recovery actions, diagnostics, and system logs.
 """
 from __future__ import annotations
 
 import json
-import os
-import queue
-import shutil
-import subprocess
 import sys
-import threading
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -27,37 +22,45 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.guppy.launcher_application.terminal_recipes import (
-    TERMINAL_RECIPE_MARKER,
-    apply_terminal_recipe_marker,
-    build_tracked_terminal_recipe,
+from src.guppy.experience_config import configured_local_runtime_backend
+from src.guppy.launcher_application.embedded_terminal import EmbeddedTerminalSession
+from src.guppy.launcher_application.app_mgmt_presenter import (
+    build_automation_snapshot_state,
+    build_daily_context_state,
+    build_instance_snapshot_state,
+    build_status_snapshot_state,
+    build_windows_ops_snapshot,
 )
-from src.guppy.launcher_application.workflow_panel import (
-    build_workflow_loaded_state,
-    build_workflow_panel_state,
-    build_workflow_queued_state,
-)
+from src.guppy.launcher_application.terminal_recipes import build_tracked_terminal_recipe
 from src.guppy.launcher_application.windows_ops_presenter import (
     apply_windows_ops_feedback,
     artifact_display_path,
     build_windows_ops_panel_state,
-    build_windows_gate_followup_line,
-    build_windows_handoff_line,
 )
 from src.guppy.launcher_application.workflows import list_workflow_specs
+from .connector_panel import (
+    current_connector_payload as panel_current_connector_payload,
+    emit_connector_action as panel_emit_connector_action,
+    set_connector_inventory as panel_set_connector_inventory,
+    sync_connector_controls as panel_sync_connector_controls,
+)
+from .advanced_terminal_panel import (
+    append_terminal_output as panel_append_terminal_output,
+    apply_workflow_panel_state as panel_apply_workflow_panel_state,
+    drain_terminal_queue as panel_drain_terminal_queue,
+    focus_terminal as panel_focus_terminal,
+    handle_terminal_recipe_marker as panel_handle_terminal_recipe_marker,
+    load_workflow_recipe as panel_load_workflow_recipe,
+    run_terminal_commands as panel_run_terminal_commands,
+    run_workflow_recipe as panel_run_workflow_recipe,
+    stop_terminal_process as panel_stop_terminal_process,
+    submit_terminal_command as panel_submit_terminal_command,
+    sync_workflow_recipe as panel_sync_workflow_recipe,
+)
 
 from .. import tokens as T
 
 _ROOT = Path(__file__).resolve().parent.parent.parent.parent
-
-try:
-    from utils.runtime_profile import load_app_settings
-    _RUNTIME_SETTINGS_BACKEND = True
-except Exception:
-    _RUNTIME_SETTINGS_BACKEND = False
-
-    def load_app_settings() -> dict[str, object]:
-        return {}
 
 
 def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = False) -> QLabel:
@@ -68,39 +71,6 @@ def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = Fa
         + ("font-weight: bold;" if bold else "")
     )
     return lbl
-
-
-def _service_purpose(connector_id: str) -> str:
-    return {
-        "gmail": "Email",
-        "calendar": "Calendar",
-        "spotify": "Music",
-        "youtube": "Video tools",
-        "crm": "Customer records",
-        "voip": "Calling",
-    }.get(str(connector_id or "").strip().lower(), "Connected service")
-
-
-def _friendly_auth_state(auth_state: str) -> str:
-    normalized = str(auth_state or "").strip().lower()
-    return {
-        "ready": "Connected",
-        "optional": "Optional",
-        "partial": "Almost ready",
-        "missing": "Needs setup",
-    }.get(normalized, "Needs setup")
-
-
-def _clean_guidance_text(text: str) -> str:
-    cleaned = str(text or "").strip()
-    replacements = (
-        ("App Mgmt:", ""),
-        ("Workspaces >", ""),
-        ("App Mgmt >", ""),
-    )
-    for old, new in replacements:
-        cleaned = cleaned.replace(old, new)
-    return " ".join(cleaned.split())
 
 
 class AdvancedView(QWidget):
@@ -115,10 +85,8 @@ class AdvancedView(QWidget):
         self._diagnostics: dict[str, str] = {}
         self._log_filter = "ALL"
         self._details_visible = False
-        self._terminal_queue: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
-        self._terminal_process: subprocess.Popen[str] | None = None
-        self._terminal_focus_pending = False
-        self._terminal_recipes: dict[str, dict[str, object]] = {}
+        self._terminal_session = EmbeddedTerminalSession(root=_ROOT)
+        self._terminal_recipes = self._terminal_session.recipes
         self._windows_ops: dict[str, str] = self._build_windows_ops_snapshot()
         self._connector_inventory: list[dict[str, object]] = []
         self._detail_frames: list[QFrame] = []
@@ -136,56 +104,72 @@ class AdvancedView(QWidget):
         content = QWidget()
         content.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(20)
+        layout.setContentsMargins(30, 26, 30, 24)
+        layout.setSpacing(18)
 
         # Page title
+        header_frame = QFrame()
+        header_frame.setObjectName("appmgmt_header")
+        header_frame.setStyleSheet(
+            f"QFrame#appmgmt_header {{ background-color: rgba(255,255,255,0.60); border: 1px solid rgba(214,197,174,0.46); border-radius: 28px; }}"
+        )
+        header_layout = QVBoxLayout(header_frame)
+        header_layout.setContentsMargins(20, 18, 20, 16)
+        header_layout.setSpacing(8)
+
         title_row = QHBoxLayout()
-        title = QLabel("Setup & Health")
+        title = QLabel("Settings & System")
         title.setStyleSheet(
-            f"color: {T.TEXT}; font-family: '{T.FF_HEAD}';"
-            f"font-size: 30pt; font-weight: 900; letter-spacing: -1px;"
+            f"color: {T.INK}; font-family: '{T.FF_HEAD}';"
+            f"font-size: 28pt; font-weight: 700; letter-spacing: -1px;"
         )
         title_row.addWidget(title)
         title_row.addStretch()
         self._details_btn = QPushButton("SHOW DETAILS")
         self._details_btn.setStyleSheet(
-            f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER};"
+            f"QPushButton {{ background: rgba(255,255,255,0.88); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.62);"
             f" padding: 5px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; }}"
+            f"QPushButton:hover {{ border-color: {T.TERTIARY}; color: {T.TERTIARY}; }}"
         )
         self._details_btn.clicked.connect(self._toggle_details)
         title_row.addWidget(self._details_btn)
-        layout.addLayout(title_row)
+        header_layout.addLayout(title_row)
 
         # sub-info
         info_row = QHBoxLayout()
         info_row.setSpacing(8)
-        dot = QLabel("*")
+        dot = QLabel("•")
         dot.setStyleSheet(f"color: {T.PRIMARY}; font-size: {T.FS_TINY}pt;")
         info_row.addWidget(dot)
-        info_row.addWidget(_mono("SETUP + RECOVERY", T.PRIMARY, T.FS_TINY))
+        info_row.addWidget(_mono("SETTINGS + RECOVERY", T.PRIMARY, T.FS_TINY, True))
         info_row.addSpacing(12)
-        info_row.addWidget(_mono("HEALTH / RECOVERY / SETTINGS / DESKTOP RUNTIME", T.DIM, T.FS_TINY))
+        info_row.addWidget(_mono("SYSTEM HEALTH / CONNECTORS / AUTOMATION / MODELS / DESKTOP RUNTIME", T.DIM, T.FS_TINY))
         info_row.addStretch()
-        layout.addLayout(info_row)
-        layout.addSpacing(12)
+        header_layout.addLayout(info_row)
+        subtitle = _mono(
+            "Keep setup, models, connectors, health, and recovery in one secondary surface. Use details only when you need the deeper system lanes.",
+            T.DIM,
+            T.FS_SMALL,
+        )
+        subtitle.setWordWrap(True)
+        header_layout.addWidget(subtitle)
+        layout.addWidget(header_frame)
 
         self._boundary_frame = QFrame()
         self._boundary_frame.setStyleSheet(
-            f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
+            f"QFrame {{ background: rgba(244,239,231,0.82); border: 1px solid rgba(214,197,174,0.52); border-radius: 22px; }}"
         )
         boundary_layout = QVBoxLayout(self._boundary_frame)
         boundary_layout.setContentsMargins(12, 10, 12, 10)
         boundary_layout.setSpacing(4)
         boundary_layout.addWidget(_mono("BOUNDARY", T.PRIMARY, T.FS_TINY, True))
-        boundary_layout.addWidget(_mono("Open this tab for app-wide recovery, diagnostics, settings, workflow loops, operator logs, and the Home context that no longer lives above the chat. Workspace task tools now live in the right tray.", T.DIM, T.FS_SMALL))
+        boundary_layout.addWidget(_mono("Open this tab for app-wide setup, recovery, diagnostics, workflow loops, logs, and system configuration. Daily task tools stay in Chat, Workspaces, and Tools.", T.DIM, T.FS_SMALL))
         layout.addWidget(self._boundary_frame)
         self._detail_frames.append(self._boundary_frame)
 
         context_frame = QFrame()
         context_frame.setStyleSheet(
-            f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
+            f"QFrame {{ background: rgba(255,255,255,0.70); border: 1px solid rgba(214,197,174,0.48); border-radius: 22px; }}"
         )
         context_layout = QVBoxLayout(context_frame)
         context_layout.setContentsMargins(16, 14, 16, 14)
@@ -193,7 +177,7 @@ class AdvancedView(QWidget):
         context_layout.addWidget(_mono("DAILY SESSION CONTEXT", T.PRIMARY, T.FS_TINY, True))
         context_layout.addWidget(
             _mono(
-                "Home stays focused on conversation. This page keeps setup, health, and recovery in one place.",
+                "Chat stays focused on conversation. This page keeps setup, health, and recovery in one place.",
                 T.DIM,
                 T.FS_SMALL,
             )
@@ -216,7 +200,7 @@ class AdvancedView(QWidget):
 
         actions_frame = QFrame()
         actions_frame.setStyleSheet(
-            f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
+            f"QFrame {{ background: rgba(255,255,255,0.70); border: 1px solid rgba(214,197,174,0.48); border-radius: 22px; }}"
         )
         actions_layout = QVBoxLayout(actions_frame)
         actions_layout.setContentsMargins(16, 14, 16, 14)
@@ -247,7 +231,7 @@ class AdvancedView(QWidget):
 
         diag_frame = QFrame()
         diag_frame.setStyleSheet(
-            f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
+            f"QFrame {{ background: rgba(255,255,255,0.70); border: 1px solid rgba(214,197,174,0.48); border-radius: 22px; }}"
         )
         diag_layout = QVBoxLayout(diag_frame)
         diag_layout.setContentsMargins(16, 14, 16, 14)
@@ -434,7 +418,6 @@ class AdvancedView(QWidget):
             widget.setWordWrap(True)
             connectors_layout.addWidget(widget)
         layout.addWidget(self._connectors_frame)
-        self._detail_frames.append(self._connectors_frame)
 
         self._automation_frame = QFrame()
         self._automation_frame.setStyleSheet(
@@ -773,24 +756,20 @@ class AdvancedView(QWidget):
         self._refresh_windows_ops_labels()
 
     def set_daily_context_activity(self, text: str) -> None:
-        msg = (text or "launcher ready").strip() or "launcher ready"
-        self._daily_activity_lbl.setText(f"Recent activity: {msg}")
+        self._daily_activity_lbl.setText(build_daily_context_state(activity=text).activity_text)
 
     def set_daily_context_workspace(self, text: str) -> None:
-        msg = (text or "workspace context unavailable").strip() or "workspace context unavailable"
-        self._daily_workspace_lbl.setText(msg)
+        self._daily_workspace_lbl.setText(build_daily_context_state(workspace=text).workspace_text)
 
     def set_daily_context_runtime(self, text: str) -> None:
-        msg = (text or "runtime details unavailable").strip() or "runtime details unavailable"
-        self._daily_runtime_lbl.setText(msg if ":" in msg else f"Ready now: {msg}")
+        self._daily_runtime_lbl.setText(build_daily_context_state(runtime=text).runtime_text)
 
     def set_daily_context_route(self, text: str) -> None:
-        msg = (text or "route preview unavailable").strip() or "route preview unavailable"
-        self._daily_route_lbl.setText(msg)
+        self._daily_route_lbl.setText(build_daily_context_state(route=text).route_text)
 
     def set_daily_context_recovery(self, text: str, ok: bool = True) -> None:
-        msg = (text or "Recovery: all clear").strip() or "Recovery: all clear"
-        self._daily_recovery_lbl.setText(msg)
+        state = build_daily_context_state(recovery=text, recovery_ok=ok)
+        self._daily_recovery_lbl.setText(state.recovery_text)
         self._daily_recovery_lbl.setStyleSheet(
             f"color: {T.GREEN if ok else T.ERROR}; font-family: '{T.FF_MONO}';"
             f"font-size: {T.FS_SMALL}pt; letter-spacing: 1px;"
@@ -801,95 +780,37 @@ class AdvancedView(QWidget):
         self._windows_ops = self._build_windows_ops_snapshot()
         if runtime_line:
             self._windows_ops["runtime"] = runtime_line
-        api_state = str(payload.get("status", "unknown") or "unknown").upper()
-        startup = payload.get("startup_readiness", {})
-        startup_overall = "unknown"
-        if isinstance(startup, dict):
-            startup_overall = str(startup.get("overall", startup.get("status", "unknown")) or "unknown").upper()
-        self._health_lbl.setText(f"API health: {api_state} | Startup readiness: {startup_overall}")
-
-        voice_tts = str(payload.get("voice_tts_backend", "unknown") or "unknown")
-        voice_stt = str(payload.get("voice_stt_backend", "unknown") or "unknown")
-        binding = str(payload.get("voice_binding", "") or "").strip()
-        self._voice_lbl.setText(
-            f"Voice services: tts={voice_tts} | stt={voice_stt}" + (f" | {binding}" if binding else "")
+        state = build_status_snapshot_state(
+            payload,
+            configured_backend=self._configured_local_runtime_backend(),
+            previous_windows_runtime=self._windows_ops.get("runtime", ""),
         )
-
-        route_evidence = str(payload.get("route_evidence", "") or "").strip()
-        self._route_health_lbl.setText(
-            f"Why the next route was chosen: {route_evidence or 'waiting for the next route preview'}"
-        )
-
-        envelope = payload.get("resource_envelope", {})
-        if isinstance(envelope, dict):
-            state = str(envelope.get("state", "unknown") or "unknown")
-            detail = str(envelope.get("message", envelope.get("detail", "")) or "").strip()
-            self._resource_lbl.setText(f"System headroom: {state}" + (f" | {detail}" if detail else ""))
+        self._health_lbl.setText(state.health_text)
+        self._voice_lbl.setText(state.voice_text)
+        self._route_health_lbl.setText(state.route_health_text)
+        self._resource_lbl.setText(state.resource_text)
         self._refresh_windows_ops_labels()
-
-        local_runtime = payload.get("local_runtime", {})
-        if isinstance(local_runtime, dict):
-            configured_backend = self._configured_local_runtime_backend()
-            live_backend = str(local_runtime.get("backend", configured_backend.lower()) or configured_backend).strip().upper()
-            live_state = str(local_runtime.get("state", "unknown") or "unknown").strip().upper()
-            live_detail = str(local_runtime.get("detail", "") or "").strip()
-            self._windows_ops["runtime"] = (
-                f"Local AI runtime: {configured_backend} | Live backend: {live_backend} | Status: {live_state}"
-                + (f" | {live_detail}" if live_detail else "")
-            )
+        if state.windows_runtime_text:
+            self._windows_ops["runtime"] = state.windows_runtime_text
             self._refresh_windows_ops_labels()
 
     def set_instance_snapshot(self, payload: dict[str, object]) -> None:
-        limits = payload.get("limits", {}) if isinstance(payload, dict) else {}
-        configured = int(limits.get("configured", 0) or 0) if isinstance(limits, dict) else 0
-        max_configured = int(limits.get("max_configured", 5) or 5) if isinstance(limits, dict) else 5
-        active_runtime = int(limits.get("active_runtime", 0) or 0) if isinstance(limits, dict) else 0
-        max_active_runtime = int(limits.get("max_active_runtime", 2) or 2) if isinstance(limits, dict) else 2
-        active_instance = str(payload.get("active_instance", "-") or "-") if isinstance(payload, dict) else "-"
-        self._instances_lbl.setText(
-            f"Workspaces: active={active_instance} | configured {configured}/{max_configured} | live {active_runtime}/{max_active_runtime}"
-        )
+        self._instances_lbl.setText(build_instance_snapshot_state(payload).instances_text)
 
     def set_automation_snapshot(self, payload: dict[str, object]) -> None:
-        workspace = str(payload.get("workspace", "") or "").strip()
-        queue_counts = str(payload.get("queue_counts", "") or "").strip()
-        staged_file = str(payload.get("staged_file", "") or "").strip()
-        result_path = str(payload.get("result_path", "") or "").strip()
-        approval_state = str(payload.get("approval_state", "") or "").strip()
-        report_path = str(payload.get("report_path", "") or "runtime/offhours_builder_report.json").strip()
-        evidence_pack_path = str(payload.get("evidence_pack_path", "") or "runtime/user_test_evidence.md").strip()
-        stress_report_path = str(payload.get("stress_report_path", "") or "").strip()
-        recent_events = str(payload.get("recent_events", "") or "").strip()
-        validation_command = str(payload.get("validation_command", "") or "").strip()
-        status = str(payload.get("status", "") or "").strip()
-        self._automation_workspace_lbl.setText(
-            workspace or "Workspace step: active workspace telemetry is not available yet."
-        )
-        self._automation_queue_lbl.setText(
-            queue_counts or "Queue counts: builder queue status is not available yet."
-        )
-        self._automation_staged_lbl.setText(
-            staged_file or "Latest staged output: nothing is waiting for approval yet."
-        )
-        self._automation_result_lbl.setText(
-            result_path or "Latest result: no approved builder output has been recorded yet."
-        )
-        self._automation_approval_lbl.setText(
-            approval_state or "Latest approval: no staged task is awaiting approval yet."
-        )
-        self._automation_report_lbl.setText(f"Builder report: {report_path}")
-        self._automation_evidence_lbl.setText(f"Evidence pack: {evidence_pack_path}")
-        self._automation_stress_lbl.setText(
-            f"Latest stress run: {stress_report_path}" if stress_report_path else "Latest stress run: no stress report recorded yet."
-        )
-        self._automation_recent_lbl.setText(
-            recent_events or "Recent operator notes: no recent launcher notes recorded yet."
-        )
-        self._automation_validation_lbl.setText(
-            f"Validation command: {validation_command}" if validation_command else "Validation command: unavailable"
-        )
-        if status:
-            self.set_automation_status(status)
+        state = build_automation_snapshot_state(payload)
+        self._automation_workspace_lbl.setText(state.workspace_text)
+        self._automation_queue_lbl.setText(state.queue_text)
+        self._automation_staged_lbl.setText(state.staged_text)
+        self._automation_result_lbl.setText(state.result_text)
+        self._automation_approval_lbl.setText(state.approval_text)
+        self._automation_report_lbl.setText(state.report_text)
+        self._automation_evidence_lbl.setText(state.evidence_text)
+        self._automation_stress_lbl.setText(state.stress_text)
+        self._automation_recent_lbl.setText(state.recent_text)
+        self._automation_validation_lbl.setText(state.validation_text)
+        if state.status_text:
+            self.set_automation_status(state.status_text)
 
     def set_automation_status(self, text: str, ok: bool = True) -> None:
         color = T.GREEN if ok else T.ERROR
@@ -899,551 +820,38 @@ class AdvancedView(QWidget):
             f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
 
-    @staticmethod
-    def _selector_label(item: dict[str, object], *, fallback: str) -> str:
-        label = str(item.get("label", item.get("id", fallback)) or fallback).strip() or fallback
-        auth_state = str(item.get("auth_state", "") or "").strip().upper()
-        if auth_state:
-            label += f" [{auth_state}]"
-        return label
-
-    @staticmethod
-    def _history_line(history: dict[str, object]) -> str:
-        last_action = str(history.get("last_action", "") or "").strip()
-        last_action_at = str(history.get("last_action_at", "") or "").strip()
-        last_result = str(history.get("last_result", "") or "").strip()
-        last_event_id = str(history.get("last_event_id", "") or "").strip()
-        if not last_action:
-            return "History: no connector action has been recorded yet."
-        summary = f"History: last {last_action}"
-        if last_action_at:
-            summary += f" @ {last_action_at}"
-        if last_result:
-            summary += f" | {last_result}"
-        if last_event_id:
-            summary += f" | Ref: {last_event_id}"
-        return summary
-
-    @staticmethod
-    def _recent_history_line(history: dict[str, object]) -> str:
-        recent_summary = str(history.get("recent_summary", "") or "").strip()
-        if recent_summary:
-            return "Recent attempts: " + recent_summary
-        timeline = [item for item in history.get("timeline", []) if isinstance(item, dict)] if isinstance(history.get("timeline"), list) else []
-        if not timeline:
-            return "Recent attempts: none recorded yet."
-        rendered: list[str] = []
-        for item in timeline[-3:]:
-            action = str(item.get("action", "action") or "action").strip()
-            state = "OK" if bool(item.get("ok", False)) else "FAIL"
-            ref = str(item.get("event_id", "") or "").strip()
-            text = f"{action}={state}"
-            if ref:
-                text += f" ref={ref}"
-            rendered.append(text)
-        return "Recent attempts: " + " | ".join(rendered)
-
-    def _connector_action_validation(
-        self,
-        *,
-        item: dict[str, object],
-        action: str,
-        provider_payload: dict[str, object],
-        selected_secret_key: str,
-        secret_value: str,
-    ) -> str:
-        connector_id = str(item.get("id", self._connector_cb.currentText()) or self._connector_cb.currentText()).strip().lower()
-        providers = [row for row in item.get("providers", []) if isinstance(row, dict)] if isinstance(item.get("providers"), list) else []
-        if providers and not provider_payload:
-            return "Choose a provider from the connector inventory before running this action."
-        if action in {"connect", "save_secret"}:
-            field_details = [
-                row for row in provider_payload.get("field_details", [])
-                if isinstance(row, dict)
-            ] if isinstance(provider_payload.get("field_details"), list) else []
-            needs_secret = bool(field_details) or self._connector_secret_key.count() > 1
-            if needs_secret and not selected_secret_key:
-                return "Choose which provider field you want to save before continuing."
-            if selected_secret_key and not secret_value:
-                selected_field = next(
-                    (
-                        row for row in field_details
-                        if str(row.get("key", "")).strip() == selected_secret_key
-                    ),
-                    {},
-                )
-                field_label = str(selected_field.get("label", selected_secret_key) or selected_secret_key).strip() or selected_secret_key
-                return f"Enter a value for {field_label} before saving it."
-        if action == "reconnect" and connector_id in {"crm", "voip", "youtube"}:
-            return f"{connector_id} does not expose reconnect in this guided secret flow."
-        return ""
+    def _set_workflow_status(self, text: str, ok: bool = True) -> None:
+        color = T.GREEN if ok else T.ERROR
+        self._workflow_status_lbl.setText(text)
+        self._workflow_status_lbl.setStyleSheet(
+            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
 
     def set_connector_inventory(self, items: list[dict[str, object]]) -> None:
-        self._connector_inventory = [item for item in items if isinstance(item, dict)]
-        current = str(self._connector_cb.currentData() or self._connector_cb.currentText() or "").strip().lower()
-        self._connector_cb.blockSignals(True)
-        self._connector_cb.clear()
-        for item in self._connector_inventory:
-            connector_id = str(item.get("id", "")).strip().lower()
-            label = str(item.get("label", connector_id.title()) or connector_id.title())
-            if connector_id:
-                self._connector_cb.addItem(label, connector_id)
-        if self._connector_cb.count() == 0:
-            for connector_id, label in (
-                ("gmail", "Gmail"),
-                ("calendar", "Calendar"),
-                ("spotify", "Spotify"),
-                ("youtube", "YouTube"),
-                ("crm", "CRM"),
-                ("voip", "VoIP"),
-            ):
-                self._connector_cb.addItem(label, connector_id)
-        idx = self._connector_cb.findData(current)
-        self._connector_cb.setCurrentIndex(max(0, idx))
-        self._connector_cb.blockSignals(False)
-        self._sync_connector_controls()
+        panel_set_connector_inventory(self, items)
 
     def _current_connector_payload(self) -> dict[str, object]:
-        connector_id = str(self._connector_cb.currentData() or self._connector_cb.currentText() or "").strip().lower()
-        return next(
-            (
-                item
-                for item in self._connector_inventory
-                if str(item.get("id", "")).strip().lower() == connector_id
-            ),
-            {},
-        )
+        return panel_current_connector_payload(self)
 
     def _sync_connector_controls(self) -> None:
-        item = self._current_connector_payload()
-        providers = [row for row in item.get("providers", []) if isinstance(row, dict)] if isinstance(item.get("providers"), list) else []
-        accounts = [row for row in item.get("accounts", []) if isinstance(row, dict)] if isinstance(item.get("accounts"), list) else []
-        history = item.get("history", {}) if isinstance(item.get("history"), dict) else {}
-        scope = item.get("scope_telemetry", {}) if isinstance(item.get("scope_telemetry"), dict) else {}
-        previous_provider = str(self._connector_provider.currentData() or "").strip().lower()
-        previous_account = str(self._connector_account.currentData() or "").strip().lower()
-        selected_provider_payload = next(
-            (row for row in providers if str(row.get("id", "")).strip().lower() == previous_provider),
-            providers[0] if providers else {},
-        )
-        provider_field_details = [
-            row for row in selected_provider_payload.get("field_details", [])
-            if isinstance(row, dict)
-        ] if isinstance(selected_provider_payload, dict) and isinstance(selected_provider_payload.get("field_details"), list) else []
-        provider_secret_fields = [
-            str(row.get("key", "")).strip()
-            for row in provider_field_details
-            if str(row.get("key", "")).strip()
-        ] or (list(selected_provider_payload.get("required_fields", [])) if isinstance(selected_provider_payload, dict) else [])
-        secret_fields = provider_secret_fields or (
-            item.get("secret_fields", []) if isinstance(item.get("secret_fields"), list) else []
-        )
-        for combo, values, default_label in (
-            (self._connector_provider, providers, "(provider)"),
-            (self._connector_account, accounts, "(account)"),
-        ):
-            combo.blockSignals(True)
-            combo.clear()
-            combo.addItem(default_label, "")
-            for value in values:
-                combo.addItem(self._selector_label(value, fallback=default_label), str(value.get("id", "")))
-            target = previous_provider if combo is self._connector_provider else previous_account
-            idx = combo.findData(target)
-            if not target and values:
-                combo.setCurrentIndex(1)
-            else:
-                combo.setCurrentIndex(0 if idx < 0 else idx)
-            combo.blockSignals(False)
-        self._connector_secret_key.blockSignals(True)
-        previous_secret_key = str(self._connector_secret_key.currentData() or "").strip()
-        self._connector_secret_key.clear()
-        self._connector_secret_key.addItem("(secret field)", "")
-        for field in secret_fields:
-            self._connector_secret_key.addItem(str(field), str(field))
-        secret_idx = self._connector_secret_key.findData(previous_secret_key)
-        default_secret_key = str(selected_provider_payload.get("next_field", {}).get("key", "") or "").strip() if isinstance(selected_provider_payload, dict) else ""
-        if default_secret_key:
-            secret_idx = self._connector_secret_key.findData(default_secret_key)
-        if not previous_secret_key and secret_fields:
-            self._connector_secret_key.setCurrentIndex(1)
-        else:
-            self._connector_secret_key.setCurrentIndex(0 if secret_idx < 0 else secret_idx)
-        self._connector_secret_key.blockSignals(False)
-        selected_provider = str(self._connector_provider.currentData() or "").strip().lower()
-        if selected_provider and selected_provider != previous_provider:
-            matching_provider = next(
-                (row for row in providers if str(row.get("id", "")).strip().lower() == selected_provider),
-                {},
-            )
-            matching_field_details = [
-                row for row in matching_provider.get("field_details", [])
-                if isinstance(row, dict)
-            ] if isinstance(matching_provider, dict) and isinstance(matching_provider.get("field_details"), list) else []
-            secret_fields = [
-                str(row.get("key", "")).strip()
-                for row in matching_field_details
-                if str(row.get("key", "")).strip()
-            ] or (list(matching_provider.get("required_fields", [])) if isinstance(matching_provider, dict) else secret_fields)
-            self._connector_secret_key.blockSignals(True)
-            self._connector_secret_key.clear()
-            self._connector_secret_key.addItem("(secret field)", "")
-            for field in secret_fields or (item.get("secret_fields", []) if isinstance(item.get("secret_fields"), list) else []):
-                self._connector_secret_key.addItem(str(field), str(field))
-            default_secret_key = str(matching_provider.get("next_field", {}).get("key", "") or "").strip() if isinstance(matching_provider, dict) else ""
-            default_idx = self._connector_secret_key.findData(default_secret_key)
-            if default_idx > 0:
-                self._connector_secret_key.setCurrentIndex(default_idx)
-            elif self._connector_secret_key.count() > 1:
-                self._connector_secret_key.setCurrentIndex(1)
-            self._connector_secret_key.blockSignals(False)
-        connector_id = str(item.get("id", self._connector_cb.currentText()) or self._connector_cb.currentText()).strip().lower()
-        auth_kind = str(item.get("auth_kind", "unknown") or "unknown")
-        auth_state = str(item.get("auth_state", "unknown") or "unknown").upper()
-        source = str(item.get("source", "none") or "none").upper()
-        detail = str(item.get("auth_detail", "") or "").strip()
-        actions = [str(action) for action in item.get("actions_supported", []) if str(action).strip()]
-        selected_provider_payload = next(
-            (
-                row
-                for row in providers
-                if str(row.get("id", "")).strip().lower() == str(self._connector_provider.currentData() or "").strip().lower()
-            ),
-            {},
-        )
-        provider_field_details = [
-            row for row in selected_provider_payload.get("field_details", [])
-            if isinstance(row, dict)
-        ] if isinstance(selected_provider_payload, dict) and isinstance(selected_provider_payload.get("field_details"), list) else []
-        selected_account_payload = next(
-            (
-                row
-                for row in accounts
-                if str(row.get("id", "")).strip().lower() == str(self._connector_account.currentData() or "").strip().lower()
-            ),
-            {},
-        )
-        selected_secret_key = str(self._connector_secret_key.currentData() or "").strip()
-        selected_field_detail = next(
-            (
-                row
-                for row in provider_field_details
-                if str(row.get("key", "")).strip() == selected_secret_key
-            ),
-            {},
-        )
-        connector_label = str(item.get("label", connector_id or "Service") or connector_id or "Service")
-        purpose = _service_purpose(connector_id)
-        self._connector_state_lbl.setText(f"{connector_label} helps with {purpose.lower()} on this PC.")
-        self._connector_auth_lbl.setText(f"Connection status: {_friendly_auth_state(auth_state)}")
-        self._connector_detail_lbl.setText(
-            _clean_guidance_text(detail or f"Choose {connector_label} to see how to connect it.")
-        )
-        validation_bits: list[str] = []
-        if providers:
-            if selected_provider_payload:
-                validation_bits.append(str(selected_provider_payload.get("auth_detail", "") or "").strip())
-                setup_summary = str(selected_provider_payload.get("setup_summary", "") or "").strip()
-                if setup_summary:
-                    validation_bits.append(setup_summary)
-                verify_summary = str(selected_provider_payload.get("verify_summary", "") or "").strip()
-                if verify_summary:
-                    validation_bits.append(verify_summary)
-                verify_check_summary = str(selected_provider_payload.get("verify_check_summary", "") or "").strip()
-                if verify_check_summary:
-                    validation_bits.append("Checks: " + verify_check_summary)
-            else:
-                validation_bits.append("Choose a provider before you save or verify this connector.")
-        if accounts:
-            if selected_account_payload:
-                validation_bits.append(str(selected_account_payload.get("auth_detail", "") or "").strip())
-            else:
-                validation_bits.append("Choose which account you want to use on this PC.")
-        if not validation_bits:
-            validation_bits.append(detail or "This service is ready to review.")
-        self._connector_validation_lbl.setText(
-            "What to do next: " + " | ".join(_clean_guidance_text(bit) for bit in validation_bits if bit)
-        )
-        endpoint_prefixes = [str(item) for item in scope.get("endpoint_prefixes", []) if str(item).strip()]
-        scope_summary = str(scope.get("summary", "") or "").strip()
-        selected_scope = str(selected_provider_payload.get("scope_label", "") or selected_account_payload.get("label", "") or "").strip()
-        rendered_scope = selected_scope or scope_summary or "No explicit scope guidance is available."
-        provider_scope_detail = str(selected_provider_payload.get("scope_detail", "") or "").strip()
-        if provider_scope_detail:
-            rendered_scope += f" | {provider_scope_detail}"
-        if endpoint_prefixes:
-            rendered_scope += f" | {len(endpoint_prefixes[:3])} machine actions available"
-        self._connector_scope_lbl.setText(f"What it can help with: {_clean_guidance_text(rendered_scope)}")
-        if provider_field_details:
-            present_count = len([row for row in provider_field_details if bool(row.get("present", False))])
-            total_count = len(provider_field_details)
-            next_field = selected_provider_payload.get("next_field", {}) if isinstance(selected_provider_payload, dict) else {}
-            next_label = str(next_field.get("label", next_field.get("key", "")) or next_field.get("key", "")).strip()
-            next_hint = str(next_field.get("validation_hint", "") or next_field.get("input_hint", "") or "").strip()
-            setup_text = f"Saved details: {present_count}/{total_count} ready"
-            if next_label and present_count < total_count:
-                setup_text += f" | Next: add {next_label}"
-            if next_hint:
-                setup_text += f" | {next_hint}"
-            self._connector_setup_lbl.setText(setup_text)
-        elif secret_fields:
-            self._connector_setup_lbl.setText(
-                "Saved details: choose the detail you want to save, then test the connection."
-            )
-        else:
-            self._connector_setup_lbl.setText(
-                "Saved details: this service mostly uses account selection or browser sign-in."
-            )
-        next_step = str(selected_provider_payload.get("next_step", "") or item.get("next_step", "") or "").strip()
-        fix_target = str(selected_provider_payload.get("fix_target", "") or item.get("fix_target", "") or "").strip()
-        if next_step:
-            self._connector_next_step_lbl.setText(
-                "Next step: " + _clean_guidance_text(next_step) + (f" | Change it in {fix_target}" if fix_target else "")
-            )
-        else:
-            self._connector_next_step_lbl.setText("Next step: choose a service or test the current connection.")
-        self._connector_history_lbl.setText(self._history_line(history))
-        self._connector_recent_lbl.setText(self._recent_history_line(history))
-        if provider_field_details:
-            field_summary = ", ".join(
-                f"{str(row.get('label', row.get('key', 'field')))}={'READY' if bool(row.get('present', False)) else 'MISSING'}"
-                for row in provider_field_details
-            )
-            self._connector_secret_lbl.setText("Saved details: " + (field_summary or "none"))
-        else:
-            self._connector_secret_lbl.setText(
-                "Saved details: " + (", ".join(str(field) for field in secret_fields) if secret_fields else "none")
-            )
-        placeholder = "secret value for API-key or provider-backed connectors"
-        masked = True
-        if selected_field_detail:
-            placeholder = str(
-                selected_field_detail.get("placeholder")
-                or selected_field_detail.get("input_hint")
-                or placeholder
-            ).strip() or placeholder
-            masked = bool(selected_field_detail.get("masked", True))
-        self._connector_secret_value.setPlaceholderText(placeholder)
-        self._connector_secret_value.setEchoMode(
-            QLineEdit.EchoMode.Password if masked and bool(selected_secret_key) else QLineEdit.EchoMode.Normal
-        )
-        supported = set(actions)
-        provider_required = bool(providers)
-        provider_selected = bool(selected_provider_payload) or not provider_required
-        if auth_kind == "api_key":
-            self._connector_action_buttons["verify"].setText("TEST KEY")
-            self._connector_action_buttons["connect"].setText("SAVE KEY")
-            self._connector_action_buttons["reconnect"].setText("RECONNECT")
-            self._connector_action_buttons["disconnect"].setText("REMOVE KEY")
-        elif auth_kind == "oauth_file_token":
-            self._connector_action_buttons["verify"].setText("CHECK SIGN-IN")
-            self._connector_action_buttons["connect"].setText("SIGN IN")
-            self._connector_action_buttons["reconnect"].setText("SIGN IN AGAIN")
-            self._connector_action_buttons["disconnect"].setText("REMOVE SIGN-IN")
-            if auth_state == "missing":
-                self._connector_next_step_lbl.setText(
-                    f"Next step: add the downloaded {connector_label.lower()} credentials JSON on this PC before browser sign-in can start."
-                )
-        elif auth_kind in {"provider_secret", "oauth_secret"}:
-            self._connector_action_buttons["verify"].setText("CHECK SETUP")
-            self._connector_action_buttons["connect"].setText("SAVE DETAILS")
-            self._connector_action_buttons["reconnect"].setText("RECONNECT")
-            self._connector_action_buttons["disconnect"].setText("CLEAR DETAILS")
-        else:
-            self._connector_action_buttons["verify"].setText("VERIFY")
-            self._connector_action_buttons["connect"].setText("CONNECT")
-            self._connector_action_buttons["reconnect"].setText("RECONNECT")
-            self._connector_action_buttons["disconnect"].setText("DISCONNECT")
-        for action_name, button in self._connector_action_buttons.items():
-            resolved_action = "connect" if action_name == "save_secret" else "disconnect" if action_name == "clear_secret" else action_name
-            enabled = resolved_action in supported
-            if action_name in {"save_secret", "clear_secret"}:
-                enabled = enabled and self._connector_secret_key.count() > 1
-            enabled = enabled and provider_selected
-            if auth_kind == "api_key" and action_name in {"connect", "reconnect"}:
-                button.setVisible(False)
-            elif auth_kind == "provider_secret" and action_name == "reconnect":
-                button.setVisible(False)
-            elif auth_kind == "oauth_file_token" and auth_state == "missing" and action_name in {"connect", "reconnect"}:
-                button.setVisible(False)
-            else:
-                button.setVisible(True)
-            button.setEnabled(enabled)
-            if enabled:
-                button.setToolTip("")
-            elif provider_required and not provider_selected:
-                button.setToolTip("Choose a provider from the inventory before running connector actions.")
-            else:
-                button.setToolTip(f"{connector_id or 'connector'} does not support {resolved_action}.")
+        panel_sync_connector_controls(self)
 
     def _emit_connector_action(self, action: str) -> None:
-        connector_id = str(self._connector_cb.currentData() or self._connector_cb.currentText() or "").strip().lower()
-        if not connector_id:
-            self.append_log("connector action ignored: choose a connector first")
-            return
-        resolved_action = "connect" if action == "save_secret" else "disconnect" if action == "clear_secret" else action
-        item = self._current_connector_payload()
-        provider_payload = next(
-            (
-                row
-                for row in item.get("providers", [])
-                if isinstance(row, dict) and str(row.get("id", "")).strip().lower() == str(self._connector_provider.currentData() or "").strip().lower()
-            ),
-            {},
-        ) if isinstance(item.get("providers"), list) else {}
-        selected_secret_key = str(self._connector_secret_key.currentData() or "").strip()
-        secret_value = self._connector_secret_value.text().strip()
-        validation_error = self._connector_action_validation(
-            item=item,
-            action=action,
-            provider_payload=provider_payload,
-            selected_secret_key=selected_secret_key,
-            secret_value=secret_value,
-        )
-        if validation_error:
-            self.append_log(f"connector action blocked: {validation_error}")
-            return
-        self.connector_action_requested.emit(
-            {
-                "connector": connector_id,
-                "action": resolved_action,
-                "provider": str(self._connector_provider.currentData() or "").strip(),
-                "account_id": str(self._connector_account.currentData() or "").strip(),
-                "secret_key": selected_secret_key,
-                "secret_value": secret_value,
-            }
-        )
+        panel_emit_connector_action(self, action)
 
     def _set_log_filter(self, value: str) -> None:
         self._log_filter = (value or "ALL").strip().upper() or "ALL"
         self._refresh_operator_logs()
 
     def _configured_local_runtime_backend(self) -> str:
-        settings = load_app_settings() if _RUNTIME_SETTINGS_BACKEND else {}
-        backend = str(
-            settings.get("local_runtime_backend", os.environ.get("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama"))
-        ).strip().lower() or "ollama"
-        return backend.upper()
-
-    def _latest_runtime_artifact(self, *patterns: str) -> Path | None:
-        candidates: list[Path] = []
-        runtime_dir = _ROOT / "runtime"
-        for pattern in patterns:
-            candidates.extend(runtime_dir.glob(pattern))
-        if not candidates:
-            return None
-        return max(candidates, key=lambda path: path.stat().st_mtime)
+        return configured_local_runtime_backend()
 
     def _build_windows_ops_snapshot(self) -> dict[str, str]:
-        runtime_dir = _ROOT / "runtime"
-        config_dir = _ROOT / "config"
-        settings_path = runtime_dir / "app_settings.json"
-        launcher_events = runtime_dir / "launcher_events.jsonl"
-        state_path = runtime_dir / "windows_ops_state.json"
-        venv_python = _ROOT / ".venv" / "Scripts" / "python.exe"
-        supervisor_script = _ROOT / "bin" / "launch_api_supervised.bat"
-        build_script = _ROOT / "bin" / "build_executable.bat"
-        repair_file = runtime_dir / "repair_token.txt"
-        latest_bundle = self._latest_runtime_artifact("diagnostics_bundle_*.json", "diagnostics_*.json")
-        latest_bundle_text = str(latest_bundle) if latest_bundle is not None else "none yet"
-        install_bits: list[str] = []
-        install_bits.append(f"Launcher python: {sys.executable}")
-        install_bits.append(f"Repo python: {'present' if venv_python.exists() else 'missing'}")
-        install_bits.append(f"Ollama CLI: {'found' if shutil.which('ollama') else 'missing'}")
-        install_bits.append(f"Lemonade CLI: {'found' if shutil.which('lemonade') else 'missing'}")
-        install_bits.append(f"Supervisor script: {'ready' if supervisor_script.exists() else 'missing'}")
-        install_bits.append(f"Packager: {'ready' if build_script.exists() else 'missing'}")
-
-        repair_hint = "keyring-backed first; file fallback present" if repair_file.exists() else "keyring-backed first; file fallback not present"
-        state_payload: dict[str, object] = {}
-        if state_path.exists():
-            try:
-                parsed = json.loads(state_path.read_text(encoding="utf-8"))
-                state_payload = parsed if isinstance(parsed, dict) else {}
-            except Exception:
-                state_payload = {}
-        last_action = str(state_payload.get("action", "") or "").strip()
-        last_timestamp = str(state_payload.get("timestamp", "") or "").strip()
-        last_summary = str(state_payload.get("summary", "") or "").strip()
-        last_changes = str(state_payload.get("changes", "") or "").strip()
-        last_phase = str(state_payload.get("phase", "") or "").strip().lower()
-        last_event_id = str(state_payload.get("event_id", "") or "").strip()
-        next_step = str(state_payload.get("next_step", "") or "").strip()
-        fix_target = str(state_payload.get("fix_target", "") or "").strip()
-        docs_hint = str(state_payload.get("docs_hint", "") or "").strip()
-        entry_point = str(state_payload.get("entry_point", "") or "").strip()
-        steps_completed = state_payload.get("steps_completed")
-        steps_total = state_payload.get("steps_total")
-        ok = bool(state_payload.get("ok", False))
-        artifacts = [item for item in state_payload.get("artifacts", []) if isinstance(item, dict)] if isinstance(state_payload.get("artifacts"), list) else []
-        receipt_path = str(state_payload.get("release_receipt", "") or "").strip()
-        summary_path = str(state_payload.get("release_summary", "") or "").strip()
-        gate_summary = str(state_payload.get("gate_summary", "") or "").strip()
-        gate_detail = str(state_payload.get("gate_detail", "") or "").strip()
-        gate_recommendations = [str(item).strip() for item in state_payload.get("gate_recommendations", []) if str(item).strip()] if isinstance(state_payload.get("gate_recommendations"), list) else []
-        gate_recommendation_details = [item for item in state_payload.get("gate_recommendation_details", []) if isinstance(item, dict)] if isinstance(state_payload.get("gate_recommendation_details"), list) else []
-        review_order = [str(item).strip() for item in state_payload.get("review_order", []) if str(item).strip()] if isinstance(state_payload.get("review_order"), list) else []
-        step_text = (
-            f" | Steps: {int(steps_completed or 0)}/{int(steps_total or 0)}"
-            if steps_completed is not None and steps_total is not None
-            else ""
+        return build_windows_ops_snapshot(
+            _ROOT,
+            configured_backend=self._configured_local_runtime_backend(),
+            launcher_python=sys.executable,
         )
-        phase_text = f" | Phase: {last_phase}" if last_phase else ""
-        ref_text = f" | Ref: {last_event_id}" if last_event_id else ""
-        return {
-            "install": "Installed on this PC: " + " | ".join(install_bits),
-            "runtime": f"Local AI runtime: {self._configured_local_runtime_backend()} | Live backend: waiting for first status poll",
-            "paths": f"Data locations: runtime={runtime_dir} | config={config_dir} | settings={settings_path}",
-            "repair": f"Repair help: {repair_hint} | API relaunch: {supervisor_script}",
-            "update": (
-                "Update steps: python -m pip install -r requirements.txt | "
-                "optional extras: python -m pip install -r requirements-optional.txt | "
-                "postflight: python tools/validate_build_checks.py + python tools/verify_ollama_runtime.py --prompt ok | "
-                "daily launcher: python src/guppy/cli/launch.py launcher"
-            ),
-            "diagnostics": (
-                f"Diagnostics: launcher log={launcher_events} | latest bundle={latest_bundle_text} | "
-                "runtime check: python tools/verify_ollama_runtime.py --prompt ok"
-            ),
-            "entry": (
-                "Useful entry points: launcher=python src/guppy/cli/launch.py launcher | "
-                "package=bin/build_executable.bat --no-clean | "
-                f"supervisor={supervisor_script}"
-            ),
-            "next": (
-                "Recommended next step: "
-                + (
-                    next_step
-                    + (f" | Fix in: {fix_target}" if fix_target else "")
-                    + (f" | Doc: {docs_hint}" if docs_hint else "")
-                    + (f" | Command: {entry_point}" if entry_point else "")
-                )
-                if next_step
-                else "Recommended next step: choose VERIFY, UPDATE, PACKAGE, RELEASE DRY RUN, SUPERVISED API, RESTART, or REPAIR."
-            ),
-            "service": (
-                f"Recent service action: {last_action} @ {last_timestamp} | {'OK' if ok else 'CHECK'} | {last_summary}{phase_text}{step_text}{ref_text}"
-                if last_action
-                else "Recent service action: none recorded yet"
-            ),
-            "changes": f"Recent changes: {last_changes or 'No service summary recorded yet.'}",
-            "gate": "Release check: " + (
-                gate_summary + (f" | {gate_detail}" if gate_detail else "")
-                if gate_summary
-                else "no dry-run result recorded yet."
-            ),
-            "gate_fix": build_windows_gate_followup_line(
-                gate_summary,
-                gate_recommendations,
-                gate_recommendation_details,
-            ),
-            "handoff": build_windows_handoff_line(
-                artifacts,
-                receipt_path=receipt_path,
-                summary_path=summary_path,
-                review_order=review_order,
-                root=_ROOT,
-            ),
-        }
 
     def _refresh_windows_ops_labels(self) -> None:
         state = build_windows_ops_panel_state(self._windows_ops)
@@ -1527,13 +935,7 @@ class AdvancedView(QWidget):
             self.append_log(note)
 
     def focus_terminal(self, note: str = "") -> None:
-        if not self._details_visible:
-            self._details_visible = True
-            self._sync_detail_visibility()
-        self._terminal_focus_pending = True
-        if note:
-            self._append_terminal_output(note)
-        self._terminal_input.setFocus()
+        panel_focus_terminal(self, note)
 
     def focus_automation_test(self, note: str = "") -> None:
         if note:
@@ -1551,69 +953,17 @@ class AdvancedView(QWidget):
     ) -> bool:
         return self._run_terminal_commands(commands, label=label, recipe_context=recipe_context)
 
-    def _set_workflow_status(self, text: str, ok: bool = True) -> None:
-        color = T.GREEN if ok else T.ERROR
-        self._workflow_status_lbl.setText(text)
-        self._workflow_status_lbl.setStyleSheet(
-            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-
-    def _set_workflow_outcome(self, text: str, ok: bool = True) -> None:
-        color = T.PRIMARY_DIM if ok else T.ERROR
-        self._workflow_outcome_lbl.setText(f"Outcome: {text}")
-        self._workflow_outcome_lbl.setStyleSheet(
-            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-
-    def _set_workflow_evidence(self, text: str) -> None:
-        self._workflow_evidence_lbl.setText(f"Evidence: {text}")
-
     def _apply_workflow_panel_state(self, state) -> None:
-        self._workflow_summary_lbl.setText(state.summary_text or "No workflow summary available.")
-        self._workflow_steps_lbl.setText(state.steps_text)
-        self._workflow_next_step_lbl.setText(state.next_step_text)
-        self._workflow_outcome_lbl.setText(state.outcome_text)
-        self._workflow_outcome_lbl.setStyleSheet(
-            f"color: {T.PRIMARY_DIM if state.status_ok else T.ERROR}; "
-            f"font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        self._workflow_evidence_lbl.setText(state.evidence_text)
-        self._set_workflow_status(state.status_text, ok=state.status_ok)
+        panel_apply_workflow_panel_state(self, state)
 
     def _sync_workflow_recipe(self) -> None:
-        state = build_workflow_panel_state(
-            str(self._workflow_cb.currentData() or ""),
-            terminal_status=self._terminal_status_lbl.text(),
-        )
-        self._apply_workflow_panel_state(state)
+        panel_sync_workflow_recipe(self)
 
     def _load_workflow_recipe(self) -> None:
-        state = build_workflow_loaded_state(str(self._workflow_cb.currentData() or ""))
-        if not state.has_commands:
-            self._apply_workflow_panel_state(state)
-            return
-        self._terminal_input.setText(state.first_command)
-        self._append_terminal_output(f"[workflow] {state.title} loaded ({len(state.commands)} commands)")
-        for idx, cmd in enumerate(state.commands, start=1):
-            self._append_terminal_output(f"[workflow:{idx}] {cmd}")
-        self._terminal_input.setFocus()
-        self._apply_workflow_panel_state(state)
+        panel_load_workflow_recipe(self)
 
     def _handle_terminal_recipe_marker(self, line: str) -> bool:
-        result = apply_terminal_recipe_marker(
-            line,
-            self._terminal_recipes,
-            shell_pid=self._terminal_process.pid if self._terminal_process is not None else None,
-            shell_alive=self._terminal_process is not None and self._terminal_process.poll() is None,
-        )
-        if not result.consumed:
-            return False
-        self._terminal_recipes = result.recipes
-        if result.status_text:
-            self._terminal_status_lbl.setText(result.status_text)
-        if result.completed_payload is not None:
-            self.terminal_recipe_finished.emit(result.completed_payload)
-        return True
+        return panel_handle_terminal_recipe_marker(self, line)
 
     def _run_terminal_commands(
         self,
@@ -1622,161 +972,30 @@ class AdvancedView(QWidget):
         label: str,
         recipe_context: dict[str, object] | None = None,
     ) -> bool:
-        cleaned = [str(item).strip() for item in commands if str(item).strip()]
-        if not cleaned:
-            self._append_terminal_output(f"[launcher] {label} has no commands to run")
-            self._set_workflow_outcome(f"{label} did not start because no commands were available.", ok=False)
-            return False
-        if not self._ensure_terminal_process():
-            self._set_workflow_status(f"{label} could not start the embedded shell", ok=False)
-            self._set_workflow_outcome(f"{label} could not start because the embedded shell was unavailable.", ok=False)
-            return False
-        proc = self._terminal_process
-        if proc is None or proc.stdin is None:
-            self._append_terminal_output("[launcher] terminal stdin unavailable")
-            self._set_workflow_status(f"{label} could not access terminal stdin", ok=False)
-            self._set_workflow_outcome(f"{label} could not start because terminal input was unavailable.", ok=False)
-            return False
-        rendered_commands = cleaned
-        if isinstance(recipe_context, dict):
-            plan = build_tracked_terminal_recipe(cleaned, label=label, recipe_context=recipe_context)
-            self._terminal_recipes[plan.recipe_id] = plan.context
-            rendered_commands = list(plan.rendered_commands)
-        self._append_terminal_output(f"[workflow] running {label} ({len(cleaned)} commands)")
-        try:
-            for idx, command in enumerate(cleaned, start=1):
-                self._append_terminal_output(f"> [{idx}/{len(cleaned)}] {command}")
-            for command in rendered_commands:
-                proc.stdin.write(command + "\n")
-            proc.stdin.flush()
-            self._terminal_status_lbl.setText(f"Shell running {label.lower()}")
-            self._terminal_focus_pending = True
-            if recipe_context and str(recipe_context.get("kind", "") or "").strip().lower() == "workflow_loop":
-                self._apply_workflow_panel_state(build_workflow_queued_state(str(recipe_context.get("workflow_id", "") or "")))
-            return True
-        except Exception as exc:
-            self._append_terminal_output(f"[launcher] workflow run failed: {exc}")
-            self._set_workflow_status(f"{label} failed: {exc}", ok=False)
-            self._set_workflow_outcome(f"{label} failed before queueing all commands: {exc}", ok=False)
-            self._set_workflow_evidence(f"{label} failed before queueing all commands. Check operator logs and terminal output.")
-            return False
+        return panel_run_terminal_commands(
+            self,
+            commands,
+            label=label,
+            recipe_context=recipe_context,
+        )
 
     def _run_workflow_recipe(self) -> None:
-        state = build_workflow_queued_state(str(self._workflow_cb.currentData() or ""))
-        if self._run_terminal_commands(
-            list(state.commands),
-            label=state.title,
-            recipe_context={"kind": "workflow_loop", "workflow_id": state.workflow_id},
-        ):
-            self._apply_workflow_panel_state(state)
+        panel_run_workflow_recipe(self)
 
     def _append_terminal_output(self, text: str) -> None:
-        current = self._terminal_output.toPlainText().splitlines()
-        current.extend(str(text or "").splitlines() or [""])
-        self._terminal_output.setPlainText("\n".join(current[-400:]))
-        bar = self._terminal_output.verticalScrollBar()
-        bar.setValue(bar.maximum())
-
-    def _ensure_terminal_process(self) -> bool:
-        if self._terminal_process and self._terminal_process.poll() is None:
-            return True
-        try:
-            self._terminal_process = subprocess.Popen(
-                ["powershell", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit", "-Command", "-"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                cwd=str(_ROOT),
-                bufsize=1,
-            )
-        except Exception as exc:
-            self._terminal_status_lbl.setText(f"Shell failed: {exc}")
-            self._append_terminal_output(f"[launcher] terminal start failed: {exc}")
-            return False
-
-        self._terminal_status_lbl.setText(f"Shell ready [pid={self._terminal_process.pid}]")
-        self._append_terminal_output(f"[launcher] embedded PowerShell ready in {_ROOT}")
-        self._start_terminal_reader(self._terminal_process.stdout, "stdout")
-        self._start_terminal_reader(self._terminal_process.stderr, "stderr")
-        return True
-
-    def _start_terminal_reader(self, stream, stream_name: str) -> None:
-        if stream is None:
-            return
-
-        def _reader() -> None:
-            while True:
-                try:
-                    line = stream.readline()
-                except Exception as exc:
-                    self._terminal_queue.put(("stderr", f"[launcher] terminal reader failed: {exc}"))
-                    break
-                if line == "":
-                    break
-                self._terminal_queue.put((stream_name, line.rstrip("\n")))
-
-        threading.Thread(target=_reader, daemon=True).start()
+        panel_append_terminal_output(self, text)
 
     def _submit_terminal_command(self) -> None:
-        command = self._terminal_input.text().strip()
-        if not command:
-            return
-        if not self._ensure_terminal_process():
-            return
-        proc = self._terminal_process
-        if proc is None or proc.stdin is None:
-            self._append_terminal_output("[launcher] terminal stdin unavailable")
-            return
-        self._append_terminal_output(f"> {command}")
-        try:
-            proc.stdin.write(command + "\n")
-            proc.stdin.flush()
-            self._terminal_status_lbl.setText("Shell running command")
-            self._terminal_input.clear()
-        except Exception as exc:
-            self._append_terminal_output(f"[launcher] terminal write failed: {exc}")
-            self._terminal_status_lbl.setText(f"Shell write failed: {exc}")
+        panel_submit_terminal_command(self)
 
     def _drain_terminal_queue(self) -> None:
-        drained = 0
-        while drained < 80:
-            try:
-                stream_name, line = self._terminal_queue.get_nowait()
-            except queue.Empty:
-                break
-            if line:
-                if self._handle_terminal_recipe_marker(line):
-                    drained += 1
-                    continue
-                prefix = "[stderr] " if stream_name == "stderr" else ""
-                self._append_terminal_output(prefix + line)
-                if self._terminal_focus_pending:
-                    self._terminal_output.setFocus()
-                    self._terminal_focus_pending = False
-            drained += 1
-
-        if self._terminal_process is not None and self._terminal_process.poll() is not None:
-            code = self._terminal_process.returncode
-            self._terminal_status_lbl.setText(f"Shell exited [{code}]")
-            self._terminal_process = None
+        panel_drain_terminal_queue(self)
 
     def _stop_terminal_process(self) -> None:
-        proc = self._terminal_process
-        if proc is None or proc.poll() is not None:
-            self._terminal_status_lbl.setText("Shell idle")
-            return
-        try:
-            proc.terminate()
-            self._append_terminal_output("[launcher] stop requested")
-            self._terminal_status_lbl.setText("Shell stopping")
-        except Exception as exc:
-            self._append_terminal_output(f"[launcher] stop failed: {exc}")
+        panel_stop_terminal_process(self)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        self._stop_terminal_process()
+        self._terminal_session.stop()
         super().closeEvent(event)
 
     def _event_level(self, item: dict[str, object]) -> str:

@@ -30,7 +30,7 @@ def _get_spotify():
     csecret = read_machine_secret("SPOTIFY_CLIENT_SECRET")
     if not cid or not csecret:
         return None, (
-            "Spotify API not configured. Add to launch_guppy.bat / launch_council.bat:\n"
+            "Spotify API not configured. Set these env vars before launching Guppy:\n"
             "  set SPOTIFY_CLIENT_ID=your-client-id\n"
             "  set SPOTIFY_CLIENT_SECRET=your-client-secret\n"
             "Get free credentials at developer.spotify.com -> Create App."

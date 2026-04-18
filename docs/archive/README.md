@@ -4,8 +4,9 @@ This folder holds historical docs that are no longer part of the living project-
 
 ## Active Docs
 
-- `README.md` at repo root — stable project source of truth
-- `ROADMAP.md` at repo root — active priorities and handoff log
+- `docs/PROJECT_BRIEF.md` - single active status, roadmap, checkpoint, and handoff doc
+- `README.md` at repo root - stable setup and operations reference
+- `documentation/README.md` - canonical technical documentation index
 
 ## Archive Buckets
 
@@ -23,6 +24,6 @@ Superseded broad reference docs moved out once their useful active summary was f
 
 ## Guidance
 
-- Add new implementation notes to `ROADMAP.md`, not here.
+- Add new implementation notes to `docs/PROJECT_BRIEF.md`, not here.
 - Keep active operational references in `docs/` only if they are still used regularly.
 - Move superseded planning/status docs into the appropriate archive bucket instead of leaving them beside living docs.

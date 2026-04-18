@@ -1,6 +1,6 @@
 # Voice and Audio System
 
-Canonical implementation lives in `src/guppy/voice/voice.py`; `compat_shims/guppy_voice.py` is the fallback compatibility shim.
+Canonical implementation lives in `src/guppy/voice/voice.py`.
 
 ## Runtime Components
 

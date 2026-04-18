@@ -18,6 +18,5 @@ AGENTS = [
         "title": "Magos Administratum",
         "script": "guppy_launcher.py",
         "accent": "#00c8ff",
-        "advanced": False,
     },
 ]

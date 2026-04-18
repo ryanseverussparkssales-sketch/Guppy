@@ -1,5 +1,8 @@
-﻿?
-Model roster:
+# Guppy
+
+Windows-first, local-first personal assistant workspace. This README is the stable setup, launch, and operator-reference entrypoint; use `docs/PROJECT_BRIEF.md` for active status and roadmap updates.
+
+## Model Roster
 
 | Agent | Base | VRAM | Role |
 | --- | --- | --- | --- |
@@ -28,17 +31,19 @@ bin\\launch_api_supervised.bat
 bin\\launch_automation_test.bat
 ```
 
-Legacy specialist surfaces remain available only behind `GUPPY_ENABLE_LEGACY_SURFACES=1`.
+Historical specialist surface code is quarantined for migration reference and is not a supported launcher path.
 
 VS Code tasks in this workspace also cover the main launch flows.
 
 ## Doc Ownership Contract
 
-`docs/PROJECT_BRIEF.md` is the only status owner.
+`docs/PROJECT_BRIEF.md` is the single active status, roadmap, and handoff source.
 
 `README.md` is architecture/setup/operations reference only.
 
-Use `ROADMAP.md` for the dated execution log and handoff notes.
+`documentation/` owns canonical technical architecture, security, and truth-audit material.
+
+`docs/archive/` is historical only.
 
 ## Build Truth Path
 
@@ -66,7 +71,8 @@ The command entrypoint keeps temp, cache, and pytest scratch data inside `.tmp/d
 The active refactor path now has a small typed seam layer under `src/guppy/`:
 
 - `src/guppy/launcher_application/` holds launcher-facing intents, state contracts, connector-facing launcher services, and the shared workflow catalog.
-- `src/guppy/workspace_governance/` holds workspace, connector inventory, and governance normalization helpers.
+- `src/guppy/experience_config/` holds runtime settings, persona, provider, and voice helpers so launcher personalization/config logic can move out of the Qt shell in small, typed slices.
+- `src/guppy/workspace_governance/` holds workspace, connector inventory, governance normalization, and capability-policy helpers.
 - `src/guppy/runtime_application/` holds runtime and startup-readiness contracts.
 
 New launcher-facing behavior should prefer these seams over adding more direct UI imports into runtime or `utils/` internals. App Mgmt workflow recipes should come from `src/guppy/launcher_application/workflows.py`, not inline view literals.
@@ -99,7 +105,7 @@ New launcher-facing behavior should prefer these seams over adding more direct U
 - Live architecture map: `docs/LIVE_ARCHITECTURE.md`
 - Build and CI truth path: `docs/BUILD_TRUTH_PATH.md`
 - Legacy quarantine rules: `docs/LEGACY_SURFACES.md`
-- Current active work and handoff notes: `ROADMAP.md`
+- Current active work, roadmap, and handoff notes: `docs/PROJECT_BRIEF.md`
 
 ### Router Scorecard Review (6A)
 
@@ -193,7 +199,7 @@ python -c "import sounddevice as sd; import json; print(json.dumps(sd.query_devi
 
 Set `GUPPY_PTT_INTERACTIVE=1` only when you want the microphone capture smoke to run.
 
-If voice behavior drifts, treat `src/guppy/voice/voice.py` plus `ROADMAP.md` as the current truth, and `docs/VOICE.md` as the deeper operator reference.
+If voice behavior drifts, treat `src/guppy/voice/voice.py` plus `docs/PROJECT_BRIEF.md` as the current product-status reference, and `docs/VOICE.md` as the deeper operator reference.
 
 ## Troubleshooting Quick Hits
 
@@ -216,13 +222,13 @@ Use `docs/PACKAGING.md` for full build, installer, signing, and distribution det
 
 ## Current Work Pointer
 
-For active priorities and dated execution history, use `ROADMAP.md`.
+For active priorities, checkpoints, and short handoff notes, use `docs/PROJECT_BRIEF.md`.
 
 ## Working Style For Multi-Agent Sessions
 
 When multiple agents are touching the repo in parallel:
 
 - Use `README.md` for the stable project picture.
-- Use `ROADMAP.md` for active priorities, open questions, and handoff notes.
-- Add short dated notes to the handoff log instead of creating another status markdown file.
+- Use `docs/PROJECT_BRIEF.md` for active priorities, open questions, and handoff notes.
+- Add short dated notes to the handoff section there instead of creating another status markdown file.
 - Treat older handoff, planning, or completion docs as archive material unless they are being deliberately refreshed; archived docs live under `docs/archive/`.

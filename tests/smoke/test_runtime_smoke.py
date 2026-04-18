@@ -4,6 +4,7 @@ import unittest
 import os
 import sqlite3
 import json
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,6 +14,16 @@ from src.guppy.api import server as guppy_api
 import guppy_core
 from utils import operational_telemetry
 from utils.session_logger import log_session_event, tail_session_events
+
+
+_TEST_TMP_ROOT = Path(__file__).resolve().parents[1] / ".tmp" / "test-scratch" / "runtime-smoke"
+
+
+def _repo_tempdir() -> Path:
+    _TEST_TMP_ROOT.mkdir(parents=True, exist_ok=True)
+    path = _TEST_TMP_ROOT / uuid.uuid4().hex
+    path.mkdir(parents=True, exist_ok=False)
+    return path
 
 
 def _snapshot_api_paths():
@@ -131,7 +142,7 @@ class RuntimeSmokeTests(unittest.TestCase):
 
         old_paths = _snapshot_api_paths()
 
-        tmp_root = Path(tempfile.mkdtemp())
+        tmp_root = _repo_tempdir()
         try:
             cfg = tmp_root / "config"
             rt = tmp_root / "runtime"
@@ -199,7 +210,7 @@ class RuntimeSmokeTests(unittest.TestCase):
 
         old_paths = _snapshot_api_paths()
 
-        tmp_root = Path(tempfile.mkdtemp())
+        tmp_root = _repo_tempdir()
         try:
             cfg = tmp_root / "config"
             rt = tmp_root / "runtime"
@@ -369,7 +380,7 @@ class RuntimeSmokeTests(unittest.TestCase):
         old_db_path = operational_telemetry._DB_PATH
         old_runtime = operational_telemetry._RUNTIME
         old_backend = os.environ.get("GUPPY_TELEMETRY_BACKEND")
-        runtime_dir = Path(tempfile.mkdtemp())
+        runtime_dir = _repo_tempdir()
 
         operational_telemetry._RUNTIME = runtime_dir
         operational_telemetry._DB_PATH = runtime_dir / "ops_telemetry.sqlite3"

@@ -154,7 +154,7 @@ A challenger memory backend can replace the current path only if:
 1. It is compared against `semantic_recall` on real Guppy follow-up prompts.
 2. It improves recall usefulness without materially increasing prompt noise.
 3. It remains rebuildable from raw local history.
-4. The result is recorded in the benchmark artifact path and summarized in the roadmap handoff log.
+4. The result is recorded in the benchmark artifact path and summarized in the handoff section of `docs/PROJECT_BRIEF.md`.
 5. Human review packets are filled for the candidate and baseline artifacts being compared.
 
 ### Runtime promotion

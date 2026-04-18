@@ -1,6 +1,6 @@
 # Legacy Quarantine Protocol
 
-Last updated: 2026-04-14
+Last updated: 2026-04-17
 
 ## Purpose
 
@@ -13,33 +13,25 @@ what is compatibility-only, and what is ready for removal.
 - `compat_shims/legacy_surfaces/guppy_ui_legacy.py`
 - `compat_shims/legacy_surfaces/merlin_ui_legacy.py`
 - `compat_shims/legacy_surfaces/council_ui_legacy.py`
-- Compatibility shims:
-  `compat_shims/guppy_ui.py`, `compat_shims/merlin_ui.py`, `compat_shims/council_ui.py`,
-  `compat_shims/guppy_api_auth.py`, `compat_shims/guppy_agent.py`
 - Active root launch shims:
   `guppy_launcher.py`, `guppy_hub.py`, `guppy_api.py`
 
 ## Active Compatibility Entry Points
 
-- Canonical shim apps still importing legacy implementations:
-  `src/guppy/apps/guppy_surface_app.py`,
-  `src/guppy/apps/merlin_surface_app.py`,
-  `src/guppy/apps/council_surface_app.py`
-- Compatibility launch paths still exposed:
+- Supported launch paths:
   `src/guppy/cli/launch.py`,
-  `ui/launcher/views/advanced_view.py`,
-  `src/guppy/hub/theme_config.py`,
-  `src/guppy/hub/window.py`,
-  `src/guppy/hub/agent_card.py`
+  `guppy_launcher.py`,
+  `guppy_hub.py`,
+  `guppy_api.py`
+- Historical specialist surface code remains quarantined under:
+  `compat_shims/legacy_surfaces/`
 - Thin wrappers that should stay thin until removal:
-  `compat_shims/guppy_ui.py`, `compat_shims/merlin_ui.py`, `compat_shims/council_ui.py`
+  root launch wrappers only
 
 ## Initial Classification
 
-- `compat_shims/guppy_ui.py`: likely removable first once wrapper/reference sweep is complete.
-- `compat_shims/merlin_ui.py`: compatibility-only, but still reachable through legacy launch paths.
-- `compat_shims/council_ui.py`: compatibility-only, but still reachable through legacy launch paths.
-- `compat_shims/legacy_surfaces/*`: not directly imported across the wider runtime; they are currently reached through the canonical legacy shim path.
+- `compat_shims/legacy_surfaces/*`: compatibility-only historical surface code; no supported entrypoint should depend on it.
+- root launch wrappers: keep thin and behavior-free.
 
 ## Quarantine Rules
 
@@ -62,3 +54,4 @@ what is compatibility-only, and what is ready for removal.
 
 - Runtime artifact cleanup happens before structural deletion so git noise does not mask real migration work.
 - The next phase will use reference scans to classify each legacy entry as active, compatibility-only, or removable.
+- April 17, 2026: reference scan found no live code imports of the non-UI `compat_shims/*` aliases, so those shim files are now removable. Only `compat_shims/legacy_surfaces/` plus the root launch wrappers remain in the compatibility lane.

@@ -98,7 +98,7 @@ _WORKFLOWS: tuple[WorkflowSpec, ...] = (
             _command("python tools/generate_triage_summary.py"),
         ),
         next_step="Share the generated triage summary with the next-day handoff.",
-        docs_hint="ROADMAP.md",
+        docs_hint="docs/PROJECT_BRIEF.md",
         tags=("daily", "handoff", "summary"),
     ),
     WorkflowSpec(
@@ -160,12 +160,13 @@ _WORKFLOWS: tuple[WorkflowSpec, ...] = (
     WorkflowSpec(
         workflow_id="windows_release_dry_run",
         title="WINDOWS RELEASE DRY RUN",
-        summary="Run the release dry-run gate and emit the reviewer bundle.",
+        summary="Run the canonical release-check preflight, then emit the reviewer bundle for release review.",
         category="windows_ops",
         commands=(
+            _command(".venv\\Scripts\\python.exe tools/dev_workflow.py release-check"),
             _command(".venv\\Scripts\\python.exe tools/beta_release_dry_run.py"),
         ),
-        next_step="Review the dry-run report, receipt, and summary in that order before packaging or handoff.",
+        next_step="Review the dry-run report, receipt, and summary in that order after release-check stays green.",
         docs_hint="docs/PACKAGING.md",
         review_order=(
             "runtime/beta_release_dry_run_report.json",

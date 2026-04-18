@@ -10,29 +10,27 @@ from typing import Any
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import QApplication, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
+from src.guppy.experience_config import (
+    apply_runtime_settings_to_env as apply_settings_to_env,
+    ensure_personalization_scaffold,
+    load_provider_registry,
+    load_runtime_settings as load_app_settings,
+    personalization_backend_available,
+    runtime_settings_backend_available,
+    save_provider_registry,
+    save_runtime_settings as save_app_settings,
+    validate_provider_registry,
+)
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY, resolve_ui_route
 from .. import tokens as T
+from .models_runtime_library import (
+    assign_runtime_model as runtime_library_assign_runtime_model,
+    refresh_runtime_library as runtime_library_refresh_runtime_library,
+    set_selected_runtime_role as runtime_library_set_selected_runtime_role,
+)
 
-try:
-    from utils.runtime_profile import apply_settings_to_env, load_app_settings, save_app_settings
-    _RUNTIME_SETTINGS_BACKEND = True
-except Exception:
-    _RUNTIME_SETTINGS_BACKEND = False
-
-    def load_app_settings():
-        return {}
-
-    def save_app_settings(_payload):
-        return None
-
-    def apply_settings_to_env(_payload):
-        return {}
-
-try:
-    from utils.personalization_config import ensure_personalization_scaffold, load_provider_registry, save_provider_registry, validate_provider_registry
-    _PROVIDER_BACKEND = True
-except Exception:
-    _PROVIDER_BACKEND = False
+_RUNTIME_SETTINGS_BACKEND = runtime_settings_backend_available()
+_PROVIDER_BACKEND = personalization_backend_available()
 
 try:
     from src.guppy.local_llm.manifest import get_local_llm_policy_summary, load_local_llm_manifest
@@ -788,68 +786,13 @@ class ModelsView(QWidget):
         self._refresh_runtime_library()
 
     def _set_selected_runtime_role(self, field_name: str) -> None:
-        self._selected_runtime_role_field = field_name if field_name in self._lemonade_role_inputs else "lemonade_fast_model"
-        label = next((label for key, label in _LEMONADE_ROLE_FIELDS if key == self._selected_runtime_role_field), "FAST")
-        self._runtime_library_target_lbl.setText(f"Assigning to {label}")
-        self._refresh_runtime_library()
+        runtime_library_set_selected_runtime_role(self, field_name, _LEMONADE_ROLE_FIELDS)
 
     def _assign_runtime_model(self, model_name: str) -> None:
-        combo = self._lemonade_role_inputs.get(self._selected_runtime_role_field)
-        if combo is None:
-            return
-        if combo.findText(model_name) < 0:
-            combo.addItem(model_name)
-        combo.setCurrentText(model_name)
-        self._set_runtime_status(f"Selected {model_name} for {self._runtime_library_target_lbl.text().replace('Assigning to ', '').lower()} role", ok=True)
-        self._refresh_runtime_summary()
-        self._refresh_runtime_library()
+        runtime_library_assign_runtime_model(self, model_name)
 
     def _refresh_runtime_library(self) -> None:
-        if not hasattr(self, "_runtime_library_grid"):
-            return
-        while self._runtime_library_grid.count():
-            item = self._runtime_library_grid.takeAt(0)
-            if item is None:
-                continue
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-        self._runtime_library_buttons = []
-        if self._local_runtime_backend != "lemonade":
-            self._runtime_library_summary_lbl.setText("Switch to Lemonade to browse downloaded GGUF models here.")
-            return
-        query = self._runtime_library_search.text().strip().lower()
-        assigned = []
-        for _field_name, combo in self._lemonade_role_inputs.items():
-            value = combo.currentText().strip()
-            if value and value not in assigned:
-                assigned.append(value)
-        available = [name for name in self._available_local_model_names() if not query or query in name.lower()]
-        self._runtime_library_summary_lbl.setText(
-            ("Assigned now: " + ", ".join(assigned[:4]) if assigned else "Assigned now: none")
-            + f" | Downloaded models: {len(self._available_local_model_names())}"
-            + (f" | Filtered: {len(available)}" if query else "")
-            + " | Click a model to drop it into the selected role."
-        )
-        if not available:
-            empty = QLabel("No downloaded models match this search yet.")
-            empty.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; padding: 4px 0;")
-            self._runtime_library_grid.addWidget(empty, 0, 0)
-            return
-        for index, model_name in enumerate(available):
-            button = QPushButton(model_name)
-            is_assigned = model_name in assigned
-            accent = T.PRIMARY if is_assigned else T.DIM
-            button.setStyleSheet(
-                f"QPushButton {{ background: {T.BG0}; color: {accent}; border: 1px solid {accent if is_assigned else T.BORDER};"
-                f" padding: 5px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; text-align: left; }}"
-                f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; }}"
-            )
-            button.clicked.connect(lambda _=False, selected_model=model_name: self._assign_runtime_model(selected_model))
-            row = index // 3
-            col = index % 3
-            self._runtime_library_grid.addWidget(button, row, col)
-            self._runtime_library_buttons.append(button)
+        runtime_library_refresh_runtime_library(self)
 
     def _on_runtime_backend_changed(self, text: str) -> None:
         self._local_runtime_backend = self._normalize_runtime_backend(text)
