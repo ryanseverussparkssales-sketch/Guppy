@@ -84,3 +84,45 @@ def test_write_release_outputs_uses_fix_first_on_failure() -> None:
         assert "## Fix-First" in summary
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def test_release_receipt_schema_stability() -> None:
+    dev_workflow = _load_dev_workflow_module()
+    tmp_dir = _repo_tmp_dir("release-schema")
+    try:
+        receipt_path = tmp_dir / "release-check-receipt.json"
+        summary_path = tmp_dir / "release-check-summary.txt"
+        results = [
+            dev_workflow.StepResult(
+                name="guardrails (delta)",
+                command=["python", "tools/dev_workflow.py", "dev-check", "--guard-scope", "delta"],
+                returncode=0,
+                duration_seconds=0.8,
+            )
+        ]
+
+        dev_workflow._write_release_outputs("release-check", results, receipt_path, summary_path)
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+
+        assert set(receipt.keys()) == {
+            "subcommand",
+            "ref",
+            "python",
+            "finished_at",
+            "ok",
+            "gate_state",
+            "steps_total",
+            "steps_passed",
+            "next_review_step",
+            "steps",
+            "workspace_paths",
+        }
+        assert set(receipt["steps"][0].keys()) == {
+            "name",
+            "command",
+            "returncode",
+            "duration_seconds",
+            "ok",
+        }
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)

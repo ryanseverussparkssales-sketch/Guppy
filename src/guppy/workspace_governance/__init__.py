@@ -33,6 +33,7 @@ from .connector_metadata import (
     secret_field_meta,
     validate_secret_value,
 )
+from .connector_binding_validation import validate_connector_binding_request
 from .machine_auth import (
     clear_machine_secret,
     keyring_key,
@@ -89,6 +90,7 @@ __all__ = [
     "set_instance_tool_permission_policy",
     "summarize_connector_readiness",
     "validate_secret_value",
+    "validate_connector_binding_request",
     "keyring_key",
     "read_machine_secret",
     "write_machine_secret",

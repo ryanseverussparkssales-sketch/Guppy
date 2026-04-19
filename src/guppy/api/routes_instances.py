@@ -14,6 +14,7 @@ from src.guppy.api._server_fragment_models import (
     InstanceQueryRequest,
 )
 from src.guppy.api.server_context import ServerContext
+from src.guppy.workspace_governance import validate_connector_binding_request
 
 
 def build_instances_router(ctx: ServerContext) -> APIRouter:
@@ -257,19 +258,13 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
         target_entry = ctx.get_instance_entry(config, target)
         if not isinstance(target_entry, dict):
             raise HTTPException(status_code=404, detail=f"unknown instance: {target}")
+        error, payload = validate_connector_binding_request(normalized_connector, request)
+        if error:
+            raise HTTPException(status_code=422, detail=error)
         ctx.save_workspace_connector_binding(
             target,
             normalized_connector,
-            {
-                "enabled": bool(request.enabled),
-                "account_id": request.account_id,
-                "provider": request.provider,
-                "action_allow": request.action_allow,
-                "action_block": request.action_block,
-                "endpoint_allow": request.endpoint_allow,
-                "endpoint_block": request.endpoint_block,
-                "note": request.note,
-            },
+            payload,
             config_path=ctx.paths.connector_bindings_path,
         )
         return {

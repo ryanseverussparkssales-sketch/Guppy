@@ -66,6 +66,8 @@ class TopBar(QFrame):
         self._sidebar_btn = QPushButton("\u2630")
         self._sidebar_btn.setFixedSize(34, 34)
         self._sidebar_btn.setToolTip("Toggle navigation")
+        self._sidebar_btn.setAccessibleName("Toggle navigation")
+        self._sidebar_btn.setAccessibleDescription("Shows or hides the left navigation rail")
         self._sidebar_btn.setStyleSheet(self._icon_button_style(T.BG0, T.TEXT))
         self._sidebar_btn.clicked.connect(lambda: self.quick_action.emit("toggle_sidebar"))
         row.addWidget(self._sidebar_btn)
@@ -105,6 +107,8 @@ class TopBar(QFrame):
         self._launcher_summary_btn = QPushButton("CHAT")
         self._launcher_summary_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._launcher_summary_btn.setToolTip("Open Home context controls for this workspace.")
+        self._launcher_summary_btn.setAccessibleName("Open chat context controls")
+        self._launcher_summary_btn.setAccessibleDescription("Opens chat context controls for the active workspace")
         self._launcher_summary_btn.setMinimumWidth(112)
         self._launcher_summary_btn.setStyleSheet(
             f"QPushButton {{ background-color: rgba(244,239,231,0.90); color: {T.TEXT};"
@@ -117,6 +121,9 @@ class TopBar(QFrame):
 
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search Home, files, and Library")
+        self._search.setToolTip("Search home context, files, and library items")
+        self._search.setAccessibleName("Search launcher content")
+        self._search.setAccessibleDescription("Searches home context, files, and library")
         self._search.setFixedWidth(190)
         self._search.setFixedHeight(34)
         self._search.returnPressed.connect(lambda: self.search_submitted.emit(self._search.text()))
@@ -145,6 +152,8 @@ class TopBar(QFrame):
         self._notif_btn = QPushButton("\U0001F514")
         self._notif_btn.setFixedSize(36, 36)
         self._notif_btn.setToolTip("Open launcher warnings and recovery events in Settings.")
+        self._notif_btn.setAccessibleName("Notifications")
+        self._notif_btn.setAccessibleDescription("Opens warnings and recovery events")
         self._notif_btn.clicked.connect(lambda: self.quick_action.emit("notifications"))
         self._notif_btn.setStyleSheet(self._icon_button_style(T.BG0, T.TEXT))
         notif_layout.addWidget(self._notif_btn)
@@ -160,12 +169,16 @@ class TopBar(QFrame):
         self._term_btn = QPushButton("\u2328")
         self._term_btn.setFixedSize(36, 36)
         self._term_btn.setToolTip("Open logs and recent command activity in Settings.")
+        self._term_btn.setAccessibleName("Open logs")
+        self._term_btn.setAccessibleDescription("Opens logs and recent command activity")
         self._term_btn.setStyleSheet(self._icon_button_style(T.BG0, T.TEXT))
         self._term_btn.clicked.connect(lambda: self.quick_action.emit("terminal"))
 
         self._drawer_btn = QPushButton("\u25e8")
         self._drawer_btn.setFixedSize(36, 36)
         self._drawer_btn.setToolTip("Toggle workspace drawer")
+        self._drawer_btn.setAccessibleName("Toggle workspace drawer")
+        self._drawer_btn.setAccessibleDescription("Shows or hides the workspace drawer")
         self._drawer_btn.setStyleSheet(self._icon_button_style(T.BG0, T.TEXT))
         self._drawer_btn.clicked.connect(lambda: self.quick_action.emit("toggle_drawer"))
 

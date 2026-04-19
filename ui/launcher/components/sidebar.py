@@ -4,6 +4,8 @@ Compact left navigation rail for the launcher.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
@@ -30,6 +32,8 @@ _NAV: list[tuple[str, str]] = [
     ("\u266B", "VOICE"),
 ]
 _PRIMARY_NAV_COUNT = 5
+_ROOT = Path(__file__).resolve().parents[3]
+_DESKTOP_G_LOGO = _ROOT / "assets" / "desktop" / "guppy_launcher_icon.png"
 
 
 def _paint_guppy_fish(painter: QPainter, bounds) -> None:
@@ -81,6 +85,11 @@ def _paint_guppy_fish(painter: QPainter, bounds) -> None:
 
 
 def create_guppy_fish_icon(size: int = 64) -> QIcon:
+    if _DESKTOP_G_LOGO.exists():
+        icon = QIcon(str(_DESKTOP_G_LOGO))
+        if not icon.isNull():
+            return icon
+
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
@@ -94,12 +103,24 @@ class _GuppyBadge(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setFixedSize(56, 56)
+        self._logo = QPixmap(str(_DESKTOP_G_LOGO)) if _DESKTOP_G_LOGO.exists() else QPixmap()
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         del event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        _paint_guppy_fish(painter, self.rect().adjusted(2, 2, -2, -2))
+        if not self._logo.isNull():
+            fitted = self._logo.scaled(
+                self.width() - 4,
+                self.height() - 4,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            x = (self.width() - fitted.width()) // 2
+            y = (self.height() - fitted.height()) // 2
+            painter.drawPixmap(x, y, fitted)
+        else:
+            _paint_guppy_fish(painter, self.rect().adjusted(2, 2, -2, -2))
         painter.end()
 
 

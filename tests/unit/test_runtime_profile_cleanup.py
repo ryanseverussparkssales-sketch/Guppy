@@ -35,6 +35,8 @@ class RuntimeProfileCleanupTests(unittest.TestCase):
         saved_env = {
             "GUPPY_DEFAULT_SURFACE": os.environ.get("GUPPY_DEFAULT_SURFACE"),
             "GUPPY_SHOW_ADVANCED_SURFACES": os.environ.get("GUPPY_SHOW_ADVANCED_SURFACES"),
+            "GUPPY_RUNTIME_PROFILE": os.environ.get("GUPPY_RUNTIME_PROFILE"),
+            "GUPPY_DEFAULT_MODE": os.environ.get("GUPPY_DEFAULT_MODE"),
         }
 
         with tempfile.TemporaryDirectory() as td:
@@ -54,6 +56,8 @@ class RuntimeProfileCleanupTests(unittest.TestCase):
             )
             os.environ["GUPPY_DEFAULT_SURFACE"] = "council"
             os.environ["GUPPY_SHOW_ADVANCED_SURFACES"] = "1"
+            os.environ.pop("GUPPY_RUNTIME_PROFILE", None)
+            os.environ.pop("GUPPY_DEFAULT_MODE", None)
 
             try:
                 settings = runtime_profile.load_app_settings()
@@ -99,6 +103,43 @@ class RuntimeProfileCleanupTests(unittest.TestCase):
         self.assertEqual(merged["default_mode"], "auto")
         self.assertNotIn("GUPPY_DEFAULT_SURFACE", os.environ)
         self.assertNotIn("GUPPY_SHOW_ADVANCED_SURFACES", os.environ)
+
+    def test_apply_settings_to_env_maps_three_model_loadout(self):
+        saved_env = {
+            "GUPPY_MAIN_MODEL": os.environ.get("GUPPY_MAIN_MODEL"),
+            "GUPPY_SUB_MODEL_A": os.environ.get("GUPPY_SUB_MODEL_A"),
+            "GUPPY_SUB_MODEL_B": os.environ.get("GUPPY_SUB_MODEL_B"),
+            "OLLAMA_MODEL": os.environ.get("OLLAMA_MODEL"),
+            "OLLAMA_FAST_MODEL": os.environ.get("OLLAMA_FAST_MODEL"),
+            "OLLAMA_CODE_MODEL": os.environ.get("OLLAMA_CODE_MODEL"),
+            "GUPPY_LOCAL_COMPLEX_MODEL": os.environ.get("GUPPY_LOCAL_COMPLEX_MODEL"),
+            "GUPPY_LOCAL_FAST_MODEL": os.environ.get("GUPPY_LOCAL_FAST_MODEL"),
+            "GUPPY_LOCAL_CODE_MODEL": os.environ.get("GUPPY_LOCAL_CODE_MODEL"),
+        }
+
+        try:
+            runtime_profile.apply_settings_to_env(
+                {
+                    "local_main_model": "guppy",
+                    "local_sub_model_a": "guppy-fast",
+                    "local_sub_model_b": "guppy-code",
+                }
+            )
+            self.assertEqual(os.environ.get("GUPPY_MAIN_MODEL"), "guppy")
+            self.assertEqual(os.environ.get("GUPPY_SUB_MODEL_A"), "guppy-fast")
+            self.assertEqual(os.environ.get("GUPPY_SUB_MODEL_B"), "guppy-code")
+            self.assertEqual(os.environ.get("OLLAMA_MODEL"), "guppy")
+            self.assertEqual(os.environ.get("OLLAMA_FAST_MODEL"), "guppy-fast")
+            self.assertEqual(os.environ.get("OLLAMA_CODE_MODEL"), "guppy-code")
+            self.assertEqual(os.environ.get("GUPPY_LOCAL_COMPLEX_MODEL"), "guppy")
+            self.assertEqual(os.environ.get("GUPPY_LOCAL_FAST_MODEL"), "guppy-fast")
+            self.assertEqual(os.environ.get("GUPPY_LOCAL_CODE_MODEL"), "guppy-code")
+        finally:
+            for key, value in saved_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
 
 if __name__ == "__main__":

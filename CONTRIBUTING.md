@@ -16,6 +16,12 @@
 
 Historical specialist surfaces are quarantined and should not be used as active entrypoints. Use the launcher, hub, API, or CLI agent flows above.
 
+## Project Boundaries
+- `Guppy` and `Guppy-pi` are separate development tracks and must not be edited together in one workflow.
+- Do not include `Guppy-pi/` file edits in Guppy commits, guardrail runs, or release validation.
+- `python tools/dev_workflow.py dev-check` now runs `tools/check_project_isolation.py` first and fails if `Guppy-pi` is dirty.
+- Emergency local bypass only: set `GUPPY_ALLOW_CROSS_PROJECT_DIRTY=1` for one-off local investigation runs.
+
 ## Tests and Quality
 - Run tests: `python -m pytest`
 - Compile sanity check:

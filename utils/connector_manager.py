@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from fnmatch import fnmatchcase
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -433,13 +434,22 @@ def evaluate_workspace_connector_policy(
 
     endpoint_block = [str(item) for item in binding.get("endpoint_block", []) if str(item).strip()]
     endpoint_allow = [str(item) for item in binding.get("endpoint_allow", []) if str(item).strip()]
-    if normalized_endpoint and endpoint_block and any(normalized_endpoint.startswith(pattern.rstrip("*")) for pattern in endpoint_block):
+
+    def _matches_endpoint_pattern(value: str, pattern: str) -> bool:
+        candidate = str(pattern or "").strip().lower()
+        if not candidate:
+            return False
+        if any(token in candidate for token in ("*", "?", "[")):
+            return fnmatchcase(value, candidate)
+        return value.startswith(candidate)
+
+    if normalized_endpoint and endpoint_block and any(_matches_endpoint_pattern(normalized_endpoint, pattern) for pattern in endpoint_block):
         return False, f"Connector endpoint {normalized_endpoint} is blocked for {connector_id} in workspace {workspace_name}", {
             **context,
             "reason_code": "endpoint_block",
         }
     if normalized_endpoint and endpoint_allow:
-        matches_allow = any(normalized_endpoint.startswith(pattern.rstrip("*")) for pattern in endpoint_allow)
+        matches_allow = any(_matches_endpoint_pattern(normalized_endpoint, pattern) for pattern in endpoint_allow)
         if not matches_allow:
             return False, f"Connector endpoint {normalized_endpoint} is outside the workspace connector filters for {connector_id}", {
                 **context,

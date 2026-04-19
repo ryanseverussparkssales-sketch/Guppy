@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -60,6 +63,18 @@ _LEMONADE_ROLE_FIELDS = [
     ("lemonade_code_model", "CODE"),
     ("lemonade_vault_model", "VAULT"),
 ]
+_LOADOUT_FIELDS = [
+    ("local_main_model", "MAIN"),
+    ("local_sub_model_a", "SUB A"),
+    ("local_sub_model_b", "SUB B"),
+]
+_MIX_ROUTE_FIELDS = [
+    ("mix_main_route", "MAIN"),
+    ("mix_sub_route_a", "SUB A"),
+    ("mix_sub_route_b", "SUB B"),
+]
+_DEFAULT_LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
+_DEFAULT_LOCAL_HARNESS_BASE_URL = "http://127.0.0.1:8001"
 
 
 def _fmt_size(num_bytes: int) -> str:
@@ -122,6 +137,120 @@ class _LocalRuntimeFetch(QThread):
             self.finished.emit({"backend": self._backend, "models": models, "error": ""})
         except Exception as exc:
             self.finished.emit({"backend": self._backend, "models": [], "error": str(exc)})
+
+
+class _ModelWarmSpawn(QThread):
+    finished = Signal(dict)
+
+    def __init__(self, models: list[str], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._models = [str(item or "").strip() for item in models if str(item or "").strip()]
+
+    def run(self) -> None:
+        warmed: list[str] = []
+        failed: list[str] = []
+        for model in self._models:
+            try:
+                req = urllib.request.Request(
+                    "http://127.0.0.1:11434/api/generate",
+                    data=json.dumps(
+                        {
+                            "model": model,
+                            "prompt": "warmup",
+                            "stream": False,
+                            "keep_alive": "20m",
+                            "options": {"num_predict": 1},
+                        }
+                    ).encode("utf-8"),
+                    headers={"Content-Type": "application/json", "Accept": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=8):
+                    pass
+                warmed.append(model)
+            except Exception:
+                failed.append(model)
+        self.finished.emit({"warmed": warmed, "failed": failed})
+
+
+class _ModelHealthCheck(QThread):
+    finished = Signal(dict)
+
+    def __init__(self, lemonade_base_url: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._lemonade_base_url = (lemonade_base_url or _DEFAULT_LEMONADE_BASE_URL).strip() or _DEFAULT_LEMONADE_BASE_URL
+
+    def _probe_json(self, url: str, timeout: float = 3.5) -> tuple[bool, str]:
+        try:
+            req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read() or b"{}")
+            return True, f"ok ({len(data.get('data', data.get('models', [])) if isinstance(data, dict) else 0)} models)"
+        except Exception as exc:
+            return False, str(exc)
+
+    def run(self) -> None:
+        statuses: dict[str, str] = {}
+        anth_key = bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip())
+        openai_key = bool((os.environ.get("OPENAI_API_KEY", "") or "").strip())
+        gemini_key = bool((os.environ.get("GEMINI_API_KEY", "") or "").strip())
+        ollama_api_key = bool((os.environ.get("OLLAMA_API_KEY", "") or "").strip())
+        statuses["anthropic"] = "key configured" if anth_key else "missing API key"
+        statuses["openai"] = "key configured" if openai_key else "missing API key"
+        statuses["gemini"] = "key configured" if gemini_key else "missing API key"
+        statuses["ollama_api"] = "key configured" if ollama_api_key else "missing API key"
+
+        ok_ollama, detail_ollama = self._probe_json("http://127.0.0.1:11434/api/tags")
+        statuses["ollama_local"] = detail_ollama if ok_ollama else f"offline ({detail_ollama})"
+
+        lmstudio_base = (os.environ.get("GUPPY_LMSTUDIO_BASE_URL", _DEFAULT_LMSTUDIO_BASE_URL) or _DEFAULT_LMSTUDIO_BASE_URL).rstrip("/")
+        ok_lms, detail_lms = self._probe_json(f"{lmstudio_base}/models")
+        statuses["lmstudio_local"] = detail_lms if ok_lms else f"offline ({detail_lms})"
+
+        lemonade_base = self._lemonade_base_url.rstrip("/")
+        ok_lem, detail_lem = self._probe_json(f"{lemonade_base}/models")
+        statuses["lemonade_local"] = detail_lem if ok_lem else f"offline ({detail_lem})"
+
+        harness_base = (os.environ.get("GUPPY_LOCAL_HARNESS_BASE_URL", _DEFAULT_LOCAL_HARNESS_BASE_URL) or _DEFAULT_LOCAL_HARNESS_BASE_URL).rstrip("/")
+        ok_harness, detail_harness = self._probe_json(f"{harness_base}/health")
+        statuses["local_harness"] = detail_harness if ok_harness else f"offline ({detail_harness})"
+
+        self.finished.emit(statuses)
+
+
+class _OllamaModelOp(QThread):
+    finished = Signal(dict)
+
+    def __init__(self, operation: str, model_name: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._operation = (operation or "pull").strip().lower()
+        self._model_name = (model_name or "").strip()
+
+    def run(self) -> None:
+        if not self._model_name:
+            self.finished.emit({"ok": False, "summary": "model name is required"})
+            return
+        if shutil.which("ollama") is None:
+            self.finished.emit({"ok": False, "summary": "ollama CLI was not found in PATH"})
+            return
+        verb = "pull" if self._operation == "pull" else "rm"
+        try:
+            result = subprocess.run(
+                ["ollama", verb, self._model_name],
+                capture_output=True,
+                text=True,
+                timeout=600,
+                check=False,
+            )
+            ok = result.returncode == 0
+            summary = (result.stdout or result.stderr or "").strip()
+            if len(summary) > 260:
+                summary = summary[:260] + "..."
+            if not summary:
+                summary = "completed"
+            self.finished.emit({"ok": ok, "summary": summary})
+        except Exception as exc:
+            self.finished.emit({"ok": False, "summary": str(exc)})
 
 
 class _ModelCard(QFrame):
@@ -239,6 +368,16 @@ class ModelsView(QWidget):
         self._lemonade_role_inputs: dict[str, QComboBox] = {}
         self._selected_runtime_role_field = "lemonade_fast_model"
         self._runtime_library_buttons: list[QPushButton] = []
+        self._model_loadout: dict[str, str] = {
+            "local_main_model": os.environ.get("GUPPY_MAIN_MODEL", os.environ.get("OLLAMA_MODEL", self._active_model)).strip() or self._active_model,
+            "local_sub_model_a": os.environ.get("GUPPY_SUB_MODEL_A", os.environ.get("GUPPY_LOCAL_FAST_MODEL", "guppy-fast")).strip() or "guppy-fast",
+            "local_sub_model_b": os.environ.get("GUPPY_SUB_MODEL_B", os.environ.get("GUPPY_LOCAL_CODE_MODEL", "guppy-code")).strip() or "guppy-code",
+        }
+        self._loadout_inputs: dict[str, QComboBox] = {}
+        self._loadout_spawn_thread: _ModelWarmSpawn | None = None
+        self._mix_route_inputs: dict[str, QComboBox] = {}
+        self._health_thread: _ModelHealthCheck | None = None
+        self._model_op_thread: _OllamaModelOp | None = None
         self._build_ui()
         self._load_runtime_settings()
         self._load_route_config()
@@ -291,6 +430,64 @@ class ModelsView(QWidget):
         search_row.addWidget(self._library_hint_lbl, stretch=1)
         library_shell.addWidget(self._library_summary_lbl)
         library_shell.addLayout(search_row)
+
+        self._loadout_frame = QFrame()
+        self._loadout_frame.setStyleSheet(f"background-color: {T.BG1}; border: 1px solid {T.BORDER};")
+        loadout_layout = QVBoxLayout(self._loadout_frame)
+        loadout_layout.setContentsMargins(10, 10, 10, 10)
+        loadout_layout.setSpacing(8)
+        loadout_header = QHBoxLayout()
+        loadout_title = QLabel("LOCAL LOADOUT (MAIN + 2 SUB MODELS)")
+        loadout_title.setStyleSheet(f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
+        self._loadout_status_lbl = QLabel("Set a main model and two spawnable sub models")
+        self._loadout_status_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+        loadout_header.addWidget(loadout_title)
+        loadout_header.addStretch()
+        loadout_header.addWidget(self._loadout_status_lbl)
+        loadout_layout.addLayout(loadout_header)
+
+        loadout_grid = QGridLayout()
+        loadout_grid.setHorizontalSpacing(10)
+        loadout_grid.setVerticalSpacing(8)
+        for index, (field_name, field_label) in enumerate(_LOADOUT_FIELDS):
+            lbl = QLabel(field_label)
+            lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
+            combo = QComboBox()
+            combo.setEditable(True)
+            combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+            combo.setMinimumWidth(240)
+            combo.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG0}; border: 1px solid {T.BORDER}; padding: 4px 6px;")
+            combo.currentTextChanged.connect(lambda value, target=field_name: self._on_loadout_changed(target, value))
+            loadout_grid.addWidget(lbl, index, 0)
+            loadout_grid.addWidget(combo, index, 1)
+            self._loadout_inputs[field_name] = combo
+        loadout_layout.addLayout(loadout_grid)
+
+        loadout_buttons = QHBoxLayout()
+        self._apply_loadout_btn = QPushButton("APPLY LOADOUT")
+        self._apply_loadout_btn.setFixedHeight(28)
+        self._apply_loadout_btn.clicked.connect(self._apply_model_loadout)
+        self._spawn_main_btn = QPushButton("SPAWN MAIN")
+        self._spawn_main_btn.setFixedHeight(28)
+        self._spawn_main_btn.clicked.connect(lambda: self._spawn_loadout_models(include_main=True, include_subs=False))
+        self._spawn_subs_btn = QPushButton("SPAWN SUBS")
+        self._spawn_subs_btn.setFixedHeight(28)
+        self._spawn_subs_btn.clicked.connect(lambda: self._spawn_loadout_models(include_main=False, include_subs=True))
+        self._spawn_all_btn = QPushButton("SPAWN ALL")
+        self._spawn_all_btn.setFixedHeight(28)
+        self._spawn_all_btn.clicked.connect(lambda: self._spawn_loadout_models(include_main=True, include_subs=True))
+        loadout_buttons.addWidget(self._apply_loadout_btn)
+        loadout_buttons.addWidget(self._spawn_main_btn)
+        loadout_buttons.addWidget(self._spawn_subs_btn)
+        loadout_buttons.addWidget(self._spawn_all_btn)
+        loadout_buttons.addStretch()
+        loadout_layout.addLayout(loadout_buttons)
+
+        self._loadout_help_lbl = QLabel("")
+        self._loadout_help_lbl.setWordWrap(True)
+        self._loadout_help_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+        loadout_layout.addWidget(self._loadout_help_lbl)
+        library_shell.addWidget(self._loadout_frame)
         root.addWidget(self._library_summary_frame)
 
         self._runtime_bar = QFrame()
@@ -409,6 +606,88 @@ class ModelsView(QWidget):
         self._apply_routes_btn.clicked.connect(self._apply_routes)
         row2.addWidget(self._fallback_chain_input); row2.addWidget(self._apply_routes_btn); row2.addStretch()
         rbl.addLayout(row2)
+
+        self._mix_routes_frame = QFrame()
+        self._mix_routes_frame.setStyleSheet(f"background-color: {T.BG1}; border: 1px solid {T.BORDER};")
+        mix_layout = QVBoxLayout(self._mix_routes_frame)
+        mix_layout.setContentsMargins(10, 10, 10, 10)
+        mix_layout.setSpacing(8)
+        mix_header = QHBoxLayout()
+        mix_title = QLabel("MIXED LOADOUT (MAIN + 2 SUB ROUTES)")
+        mix_title.setStyleSheet(f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
+        self._mix_status_lbl = QLabel("Mix local, cloud, and API providers by route target")
+        self._mix_status_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+        mix_header.addWidget(mix_title)
+        mix_header.addStretch()
+        mix_header.addWidget(self._mix_status_lbl)
+        mix_layout.addLayout(mix_header)
+        mix_grid = QGridLayout()
+        mix_grid.setHorizontalSpacing(10)
+        mix_grid.setVerticalSpacing(8)
+        for index, (field_name, label_text) in enumerate(_MIX_ROUTE_FIELDS):
+            label = QLabel(label_text)
+            label.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
+            combo = QComboBox()
+            combo.setEditable(True)
+            combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+            combo.setMinimumWidth(320)
+            combo.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG0}; border: 1px solid {T.BORDER}; padding: 4px 6px;")
+            mix_grid.addWidget(label, index, 0)
+            mix_grid.addWidget(combo, index, 1)
+            self._mix_route_inputs[field_name] = combo
+        mix_layout.addLayout(mix_grid)
+        mix_actions = QHBoxLayout()
+        self._apply_mix_btn = QPushButton("APPLY MIX")
+        self._apply_mix_btn.setFixedHeight(28)
+        self._apply_mix_btn.clicked.connect(self._apply_mixed_loadout)
+        mix_actions.addWidget(self._apply_mix_btn)
+        mix_actions.addStretch()
+        mix_layout.addLayout(mix_actions)
+        rbl.addWidget(self._mix_routes_frame)
+
+        self._ops_toggle_btn = QPushButton("MODEL HEALTH + SETTINGS")
+        self._ops_toggle_btn.setFixedHeight(28)
+        self._ops_toggle_btn.clicked.connect(self._toggle_model_ops_panel)
+        rbl.addWidget(self._ops_toggle_btn)
+
+        self._ops_panel = QFrame()
+        self._ops_panel.setVisible(False)
+        self._ops_panel.setStyleSheet(f"background-color: {T.BG1}; border: 1px solid {T.BORDER};")
+        ops_layout = QVBoxLayout(self._ops_panel)
+        ops_layout.setContentsMargins(10, 10, 10, 10)
+        ops_layout.setSpacing(8)
+        endpoints_lbl = QLabel(
+            "Hidden provider settings: LM Studio base URL (env GUPPY_LMSTUDIO_BASE_URL), local harness base URL (env GUPPY_LOCAL_HARNESS_BASE_URL), and cloud API keys."
+        )
+        endpoints_lbl.setWordWrap(True)
+        endpoints_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+        ops_layout.addWidget(endpoints_lbl)
+        op_row = QHBoxLayout()
+        op_row.setSpacing(8)
+        self._ops_model_input = QLineEdit()
+        self._ops_model_input.setPlaceholderText("model id e.g. llama3.2:3b")
+        self._ops_model_input.setMinimumWidth(260)
+        self._ops_model_input.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG0}; border: 1px solid {T.BORDER}; padding: 6px 8px;")
+        self._ops_download_btn = QPushButton("DOWNLOAD")
+        self._ops_download_btn.setFixedHeight(28)
+        self._ops_download_btn.clicked.connect(lambda: self._run_ollama_model_op("pull"))
+        self._ops_uninstall_btn = QPushButton("UNINSTALL")
+        self._ops_uninstall_btn.setFixedHeight(28)
+        self._ops_uninstall_btn.clicked.connect(lambda: self._run_ollama_model_op("rm"))
+        self._ops_health_btn = QPushButton("CHECK HEALTH")
+        self._ops_health_btn.setFixedHeight(28)
+        self._ops_health_btn.clicked.connect(self._check_model_health)
+        op_row.addWidget(self._ops_model_input)
+        op_row.addWidget(self._ops_download_btn)
+        op_row.addWidget(self._ops_uninstall_btn)
+        op_row.addWidget(self._ops_health_btn)
+        op_row.addStretch()
+        ops_layout.addLayout(op_row)
+        self._ops_status_lbl = QLabel("Health and provider settings are hidden by default")
+        self._ops_status_lbl.setWordWrap(True)
+        self._ops_status_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+        ops_layout.addWidget(self._ops_status_lbl)
+        rbl.addWidget(self._ops_panel)
 
         self._route_status_lbl = QLabel("Route strategy ready")
         self._route_status_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
@@ -554,7 +833,13 @@ class ModelsView(QWidget):
             if value:
                 combo.addItem(value)
                 combo.setCurrentText(value)
+        for field_name, _label in _LOADOUT_FIELDS:
+            value = str(settings.get(field_name, self._model_loadout.get(field_name, "")) or "").strip()
+            if value:
+                self._model_loadout[field_name] = value
         self._update_runtime_controls()
+        self._refresh_loadout_inputs()
+        self._refresh_loadout_help()
 
     def _update_runtime_controls(self) -> None:
         is_lemonade = self._local_runtime_backend == "lemonade"
@@ -782,8 +1067,265 @@ class ModelsView(QWidget):
         names = self._available_local_model_names()
         for _field_name, combo in self._lemonade_role_inputs.items():
             self._set_combo_items_preserve_text(combo, names, combo.currentText().strip())
+        self._refresh_loadout_inputs()
+        self._refresh_mix_route_inputs()
         self._refresh_runtime_summary()
         self._refresh_runtime_library()
+
+    def _available_route_targets(self) -> list[str]:
+        local_targets = [f"local/{name}" for name in self._available_local_model_names() if name]
+        return sorted(set(self._route_options + local_targets))
+
+    def _refresh_mix_route_inputs(self) -> None:
+        options = self._available_route_targets()
+        for field_name, combo in self._mix_route_inputs.items():
+            current = combo.currentText().strip()
+            self._set_combo_items_preserve_text(combo, options, current)
+
+    def _load_mix_from_routes(self) -> None:
+        if not self._mix_route_inputs:
+            return
+        main = self._complex_route_cb.currentText().strip()
+        sub_a = self._simple_route_cb.currentText().strip()
+        sub_b = self._teaching_route_cb.currentText().strip()
+        self._mix_route_inputs["mix_main_route"].setCurrentText(main)
+        self._mix_route_inputs["mix_sub_route_a"].setCurrentText(sub_a)
+        self._mix_route_inputs["mix_sub_route_b"].setCurrentText(sub_b)
+
+    def _set_mix_status(self, text: str, ok: bool) -> None:
+        color = T.GREEN if ok else T.ERROR
+        self._mix_status_lbl.setText(text)
+        self._mix_status_lbl.setStyleSheet(
+            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+        )
+
+    def _apply_mixed_loadout(self) -> None:
+        if not _PROVIDER_BACKEND:
+            self._set_mix_status("Provider backend unavailable", ok=False)
+            return
+        main = self._mix_route_inputs["mix_main_route"].currentText().strip()
+        sub_a = self._mix_route_inputs["mix_sub_route_a"].currentText().strip()
+        sub_b = self._mix_route_inputs["mix_sub_route_b"].currentText().strip()
+        if not main or not sub_a or not sub_b:
+            self._set_mix_status("Mix requires main + sub A + sub B routes", ok=False)
+            return
+        valid_targets = set(self._available_route_targets())
+        for target in (main, sub_a, sub_b):
+            if target not in valid_targets:
+                self._set_mix_status(f"Invalid target: {target}", ok=False)
+                return
+        try:
+            registry = load_provider_registry()
+            if not isinstance(registry, dict):
+                self._set_mix_status("Provider registry is invalid", ok=False)
+                return
+            routes = registry.setdefault("routes", {})
+            if not isinstance(routes, dict):
+                routes = {}
+                registry["routes"] = routes
+            routes["complex"] = main
+            routes["simple"] = sub_a
+            routes["teaching"] = sub_b
+            routes["fallback_chain"] = list(dict.fromkeys([main, sub_a, sub_b, "local/guppy"]))
+            errors = validate_provider_registry(registry)
+            if errors:
+                self._set_mix_status(f"Registry invalid: {errors[0]}", ok=False)
+                return
+            save_provider_registry(registry)
+            self._provider_registry = registry
+            self._route_options = self._route_targets_from_registry(registry)
+            for cb in [self._simple_route_cb, self._complex_route_cb, self._teaching_route_cb]:
+                current = cb.currentText().strip()
+                cb.clear()
+                cb.addItems(self._route_options)
+                self._set_combo_to_text(cb, current)
+            self._set_combo_to_text(self._simple_route_cb, sub_a)
+            self._set_combo_to_text(self._complex_route_cb, main)
+            self._set_combo_to_text(self._teaching_route_cb, sub_b)
+            self._fallback_chain_input.setText(", ".join(routes["fallback_chain"]))
+            os.environ["GUPPY_MAIN_ROUTE"] = main
+            os.environ["GUPPY_SUB_ROUTE_A"] = sub_a
+            os.environ["GUPPY_SUB_ROUTE_B"] = sub_b
+            self._refresh_mix_route_inputs()
+            self._refresh_route_summary()
+            self._refresh_route_preview()
+            self._set_mix_status("Mixed loadout applied", ok=True)
+        except Exception as exc:
+            self._set_mix_status(f"Mix save failed: {exc}", ok=False)
+
+    def _toggle_model_ops_panel(self) -> None:
+        visible = not self._ops_panel.isVisible()
+        self._ops_panel.setVisible(visible)
+        self._ops_toggle_btn.setText("HIDE MODEL HEALTH + SETTINGS" if visible else "MODEL HEALTH + SETTINGS")
+
+    def _set_ops_status(self, text: str, ok: bool = True) -> None:
+        color = T.GREEN if ok else T.ERROR
+        self._ops_status_lbl.setText(text)
+        self._ops_status_lbl.setStyleSheet(
+            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+        )
+
+    def _check_model_health(self) -> None:
+        if self._health_thread is not None and self._health_thread.isRunning():
+            self._set_ops_status("Health check already running", ok=False)
+            return
+        self._set_ops_status("Checking provider and model health...", ok=True)
+        self._health_thread = _ModelHealthCheck(self._lemonade_base_url_input.text().strip(), self)
+        self._health_thread.finished.connect(self._on_health_checked)
+        self._health_thread.start()
+
+    def _on_health_checked(self, payload: dict[str, str]) -> None:
+        parts = [
+            f"anthropic={payload.get('anthropic', 'unknown')}",
+            f"openai={payload.get('openai', 'unknown')}",
+            f"gemini={payload.get('gemini', 'unknown')}",
+            f"ollama_api={payload.get('ollama_api', 'unknown')}",
+            f"ollama_local={payload.get('ollama_local', 'unknown')}",
+            f"lmstudio={payload.get('lmstudio_local', 'unknown')}",
+            f"lemonade={payload.get('lemonade_local', 'unknown')}",
+            f"local_harness={payload.get('local_harness', 'unknown')}",
+        ]
+        failures = [part for part in parts if "offline" in part or "missing API key" in part]
+        self._set_ops_status(" | ".join(parts), ok=not bool(failures))
+
+    def _run_ollama_model_op(self, operation: str) -> None:
+        if self._model_op_thread is not None and self._model_op_thread.isRunning():
+            self._set_ops_status("Model operation already running", ok=False)
+            return
+        model_name = self._ops_model_input.text().strip()
+        if not model_name:
+            self._set_ops_status("Enter a model id first", ok=False)
+            return
+        action = "download" if operation == "pull" else "uninstall"
+        self._set_ops_status(f"Running {action} for {model_name}...", ok=True)
+        self._model_op_thread = _OllamaModelOp(operation, model_name, self)
+        self._model_op_thread.finished.connect(self._on_model_op_finished)
+        self._model_op_thread.start()
+
+    def _on_model_op_finished(self, payload: dict[str, Any]) -> None:
+        ok = bool(payload.get("ok", False))
+        summary = str(payload.get("summary", "") or "completed").strip()
+        self._set_ops_status(summary, ok=ok)
+        if ok:
+            self._refresh()
+
+    def _refresh_loadout_inputs(self) -> None:
+        names = self._available_local_model_names()
+        for field_name, combo in self._loadout_inputs.items():
+            current = self._model_loadout.get(field_name, combo.currentText().strip())
+            self._set_combo_items_preserve_text(combo, names, current)
+
+    def _on_loadout_changed(self, field_name: str, value: str) -> None:
+        self._model_loadout[field_name] = str(value or "").strip()
+        self._refresh_loadout_help()
+
+    def _refresh_loadout_help(self) -> None:
+        main_model = self._model_loadout.get("local_main_model", "") or "unset"
+        sub_a = self._model_loadout.get("local_sub_model_a", "") or "unset"
+        sub_b = self._model_loadout.get("local_sub_model_b", "") or "unset"
+        self._loadout_help_lbl.setText(
+            "Directed lanes: "
+            f"complex/default -> {main_model} | simple/fast -> {sub_a} | code specialist -> {sub_b}."
+        )
+
+    def _loadout_payload(self) -> dict[str, str]:
+        payload: dict[str, str] = {}
+        for field_name, _label in _LOADOUT_FIELDS:
+            combo = self._loadout_inputs.get(field_name)
+            value = combo.currentText().strip() if combo is not None else self._model_loadout.get(field_name, "")
+            payload[field_name] = value
+        return payload
+
+    def _apply_model_loadout(self) -> None:
+        payload = self._loadout_payload()
+        main_model = payload.get("local_main_model", "")
+        sub_a = payload.get("local_sub_model_a", "")
+        sub_b = payload.get("local_sub_model_b", "")
+        if not main_model or not sub_a or not sub_b:
+            self._set_loadout_status("Loadout requires main + sub A + sub B", ok=False)
+            return
+        self._model_loadout.update(payload)
+
+        # Route defaults so one main and two sub models can be spawned and directed quickly.
+        os.environ["GUPPY_MAIN_MODEL"] = main_model
+        os.environ["GUPPY_SUB_MODEL_A"] = sub_a
+        os.environ["GUPPY_SUB_MODEL_B"] = sub_b
+        os.environ["GUPPY_LOCAL_COMPLEX_MODEL"] = main_model
+        os.environ["GUPPY_LOCAL_FAST_MODEL"] = sub_a
+        os.environ["GUPPY_LOCAL_CODE_MODEL"] = sub_b
+        os.environ["OLLAMA_MODEL"] = main_model
+        os.environ["OLLAMA_FAST_MODEL"] = sub_a
+        os.environ["OLLAMA_CODE_MODEL"] = sub_b
+
+        self._active_model = main_model
+        self._active_lbl.setText(f"CURRENT MODEL: {main_model.upper()}")
+        for card in self._local_cards:
+            card.mark_active(card._model_name == main_model)
+        self._rebuild_local_sections()
+        self._apply_library_filter()
+        self.model_selected.emit(main_model)
+
+        if _RUNTIME_SETTINGS_BACKEND:
+            merged_payload = dict(self._runtime_settings_payload())
+            merged_payload.update(payload)
+            try:
+                save_app_settings(merged_payload)
+                apply_settings_to_env(merged_payload)
+            except Exception as exc:
+                self._set_loadout_status(f"Loadout save failed: {exc}", ok=False)
+                return
+
+        self._refresh_library_summary()
+        self._refresh_loadout_help()
+        self._set_loadout_status("Loadout applied: main + 2 sub models ready", ok=True)
+
+    def _set_loadout_status(self, text: str, ok: bool) -> None:
+        color = T.GREEN if ok else T.ERROR
+        self._loadout_status_lbl.setText(text)
+        self._loadout_status_lbl.setStyleSheet(
+            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+        )
+
+    def _spawn_loadout_models(self, *, include_main: bool, include_subs: bool) -> None:
+        if self._local_runtime_backend != "ollama":
+            self._set_loadout_status("Spawn controls are available for Ollama loadouts", ok=False)
+            return
+        payload = self._loadout_payload()
+        targets: list[str] = []
+        if include_main:
+            main_model = payload.get("local_main_model", "")
+            if main_model:
+                targets.append(main_model)
+        if include_subs:
+            for key in ("local_sub_model_a", "local_sub_model_b"):
+                model = payload.get(key, "")
+                if model:
+                    targets.append(model)
+        deduped = list(dict.fromkeys(targets))
+        if not deduped:
+            self._set_loadout_status("No models selected to spawn", ok=False)
+            return
+        if self._loadout_spawn_thread is not None and self._loadout_spawn_thread.isRunning():
+            self._set_loadout_status("Spawn already running", ok=False)
+            return
+        self._set_loadout_status("Spawning selected models...", ok=True)
+        self._loadout_spawn_thread = _ModelWarmSpawn(deduped, self)
+        self._loadout_spawn_thread.finished.connect(self._on_spawn_finished)
+        self._loadout_spawn_thread.start()
+
+    def _on_spawn_finished(self, payload: dict[str, Any]) -> None:
+        warmed = [str(item).strip() for item in payload.get("warmed", []) if str(item).strip()]
+        failed = [str(item).strip() for item in payload.get("failed", []) if str(item).strip()]
+        if failed:
+            if warmed:
+                self._set_loadout_status(
+                    f"Spawn partial: warmed {', '.join(warmed)}; failed {', '.join(failed)}",
+                    ok=False,
+                )
+            else:
+                self._set_loadout_status(f"Spawn failed: {', '.join(failed)}", ok=False)
+            return
+        self._set_loadout_status(f"Spawned: {', '.join(warmed)}", ok=True)
 
     def _set_selected_runtime_role(self, field_name: str) -> None:
         runtime_library_set_selected_runtime_role(self, field_name, _LEMONADE_ROLE_FIELDS)
@@ -910,6 +1452,8 @@ class ModelsView(QWidget):
                 fallback = routes.get("fallback_chain", [])
                 if isinstance(fallback, list):
                     self._fallback_chain_input.setText(", ".join(str(item).strip() for item in fallback if str(item).strip()))
+            self._refresh_mix_route_inputs()
+            self._load_mix_from_routes()
             self._refresh_route_summary(); self._refresh_route_preview(); self._set_route_status("Route strategy loaded", ok=True)
         except Exception as exc:
             self._set_route_status(f"Route load failed: {exc}", ok=False)

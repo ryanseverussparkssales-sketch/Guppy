@@ -125,7 +125,10 @@ class AdvancedView(QWidget):
         )
         title_row.addWidget(title)
         title_row.addStretch()
-        self._details_btn = QPushButton("SHOW DETAILS")
+        self._details_btn = QPushButton("ADVANCED")
+        self._details_btn.setToolTip("Show deeper diagnostics, connectors, and terminal lanes")
+        self._details_btn.setAccessibleName("Advanced details")
+        self._details_btn.setAccessibleDescription("Shows or hides advanced operational controls")
         self._details_btn.setStyleSheet(
             f"QPushButton {{ background: rgba(255,255,255,0.88); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.62);"
             f" padding: 5px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
@@ -739,7 +742,12 @@ class AdvancedView(QWidget):
             widget.setVisible(self._details_visible)
         for button in self._windows_detail_buttons:
             button.setVisible(self._details_visible)
-        self._details_btn.setText("HIDE DETAILS" if self._details_visible else "SHOW DETAILS")
+        self._details_btn.setText("LESS ADVANCED" if self._details_visible else "ADVANCED")
+        self._details_btn.setToolTip(
+            "Hide deeper diagnostics, connectors, and terminal lanes"
+            if self._details_visible
+            else "Show deeper diagnostics, connectors, and terminal lanes"
+        )
 
     def append_log(self, line: str) -> None:
         current = self._syslog.toPlainText().splitlines()

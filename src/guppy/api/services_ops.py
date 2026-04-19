@@ -8,38 +8,23 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, Request
+from src.guppy.runtime_application.json_io import (
+    read_json_dict as _read_json_dict,
+    read_jsonl_tail as _read_jsonl_tail,
+)
 
 
 def read_jsonl_tail(path: Path, limit: int = 50) -> list[dict[str, Any]]:
-    lim = max(1, min(int(limit), 500))
-    if not path.exists():
-        return []
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except Exception:
-        return []
-    out: list[dict[str, Any]] = []
-    for line in lines[-lim:]:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            out.append(json.loads(line))
-        except Exception:
-            out.append({"raw": line, "parse_error": True})
-    return out
+    return _read_jsonl_tail(path, limit=limit)
 
 
 def read_resource_envelope_status(owner: Any) -> dict[str, Any]:
     path = owner._path_config.runtime_dir / "resource_envelope.status.json"
     if not path.exists():
         return {"state": "unknown", "message": "resource envelope status file missing"}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(payload, dict):
-            return payload
-    except Exception as exc:
-        return {"state": "error", "message": f"resource envelope unreadable: {exc}"}
+    payload = _read_json_dict(path)
+    if payload:
+        return payload
     return {"state": "unknown", "message": "resource envelope status unavailable"}
 
 

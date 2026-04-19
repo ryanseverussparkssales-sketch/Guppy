@@ -103,6 +103,165 @@ class ConnectorManagerTests(unittest.TestCase):
             self.assertFalse(allowed)
             self.assertEqual(context["reason_code"], "connector_action_blocked")
 
+    def test_endpoint_block_wildcard_pattern_is_enforced(self):
+        with _workspace_tempdir() as td:
+            config_path = Path(td) / "connector_bindings.json"
+            connector_manager.save_workspace_connector_binding(
+                "builder-collab",
+                "gmail",
+                {
+                    "enabled": True,
+                    "endpoint_block": ["connector://gmail/*/admin*"],
+                },
+                config_path=config_path,
+            )
+            with patch(
+                "utils.connector_manager.connector_status",
+                return_value={
+                    "id": "gmail",
+                    "label": "Gmail",
+                    "auth_state": "ready",
+                    "auth_detail": "ready",
+                    "accounts": [],
+                    "providers": [],
+                },
+            ):
+                allowed, _reason, context = connector_manager.evaluate_workspace_connector_policy(
+                    "send_email",
+                    "builder-collab",
+                    endpoint="connector://gmail/inbox/admin/settings",
+                    config_path=config_path,
+                )
+            self.assertFalse(allowed)
+            self.assertEqual(context["reason_code"], "endpoint_block")
+
+    def test_endpoint_allow_wildcard_pattern_is_enforced(self):
+        with _workspace_tempdir() as td:
+            config_path = Path(td) / "connector_bindings.json"
+            connector_manager.save_workspace_connector_binding(
+                "builder-collab",
+                "gmail",
+                {
+                    "enabled": True,
+                    "endpoint_allow": ["connector://gmail/inbox/*"],
+                },
+                config_path=config_path,
+            )
+            with patch(
+                "utils.connector_manager.connector_status",
+                return_value={
+                    "id": "gmail",
+                    "label": "Gmail",
+                    "auth_state": "ready",
+                    "auth_detail": "ready",
+                    "accounts": [],
+                    "providers": [],
+                },
+            ):
+                allowed, _reason, context = connector_manager.evaluate_workspace_connector_policy(
+                    "send_email",
+                    "builder-collab",
+                    endpoint="connector://gmail/drafts/1",
+                    config_path=config_path,
+                )
+            self.assertFalse(allowed)
+            self.assertEqual(context["reason_code"], "endpoint_allow")
+
+    def test_endpoint_block_precedence_when_allow_and_block_overlap(self):
+        with _workspace_tempdir() as td:
+            config_path = Path(td) / "connector_bindings.json"
+            connector_manager.save_workspace_connector_binding(
+                "builder-collab",
+                "gmail",
+                {
+                    "enabled": True,
+                    "endpoint_allow": ["connector://gmail/*"],
+                    "endpoint_block": ["connector://gmail/*/admin*"],
+                },
+                config_path=config_path,
+            )
+            with patch(
+                "utils.connector_manager.connector_status",
+                return_value={
+                    "id": "gmail",
+                    "label": "Gmail",
+                    "auth_state": "ready",
+                    "auth_detail": "ready",
+                    "accounts": [],
+                    "providers": [],
+                },
+            ):
+                blocked, _reason, blocked_context = connector_manager.evaluate_workspace_connector_policy(
+                    "send_email",
+                    "builder-collab",
+                    endpoint="connector://gmail/inbox/admin/settings",
+                    config_path=config_path,
+                )
+                allowed, _reason, allowed_context = connector_manager.evaluate_workspace_connector_policy(
+                    "send_email",
+                    "builder-collab",
+                    endpoint="connector://gmail/inbox/messages/123",
+                    config_path=config_path,
+                )
+            self.assertFalse(blocked)
+            self.assertEqual(blocked_context["reason_code"], "endpoint_block")
+            self.assertTrue(allowed)
+            self.assertEqual(allowed_context["reason_code"], "")
+
+    def test_endpoint_pattern_matching_is_case_insensitive_with_wildcards(self):
+        with _workspace_tempdir() as td:
+            config_path = Path(td) / "connector_bindings.json"
+            connector_manager.save_workspace_connector_binding(
+                "builder-collab",
+                "gmail",
+                {
+                    "enabled": True,
+                    "endpoint_allow": ["CONNECTOR://GMAIL/INBOX/*"],
+                    "endpoint_block": ["CONNECTOR://GMAIL/INBOX/*/ADMIN*"],
+                },
+                config_path=config_path,
+            )
+            with patch(
+                "utils.connector_manager.connector_status",
+                return_value={
+                    "id": "gmail",
+                    "label": "Gmail",
+                    "auth_state": "ready",
+                    "auth_detail": "ready",
+                    "accounts": [],
+                    "providers": [],
+                },
+            ):
+                blocked, _reason, blocked_context = connector_manager.evaluate_workspace_connector_policy(
+                    "send_email",
+                    "builder-collab",
+                    endpoint="CoNnEcToR://GMAIL/INBOX/TEAM/ADMIN",
+                    config_path=config_path,
+                )
+            self.assertFalse(blocked)
+            self.assertEqual(blocked_context["reason_code"], "endpoint_block")
+
+    def test_action_block_precedence_when_allow_and_block_overlap(self):
+        with _workspace_tempdir() as td:
+            config_path = Path(td) / "connector_bindings.json"
+            connector_manager.save_workspace_connector_binding(
+                "builder-collab",
+                "gmail",
+                {
+                    "enabled": True,
+                    "action_allow": ["send", "compose"],
+                    "action_block": ["send"],
+                },
+                config_path=config_path,
+            )
+            allowed, _reason, context = connector_manager.evaluate_workspace_connector_policy(
+                "send_email",
+                "builder-collab",
+                config_path=config_path,
+            )
+            self.assertFalse(allowed)
+            self.assertEqual(context["reason_code"], "connector_action_blocked")
+
     def test_invalid_provider_is_rejected(self):
         with _workspace_tempdir() as td:
             config_path = Path(td) / "connector_bindings.json"

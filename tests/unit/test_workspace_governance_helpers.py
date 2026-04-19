@@ -22,6 +22,7 @@ from src.guppy.workspace_governance import (
     set_instance_tool_permission_policy,
     summarize_connector_readiness,
 )
+from src.guppy.workspace_governance import access_policy as access_policy_module
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -208,3 +209,18 @@ def test_workspace_governance_exports_policy_helpers() -> None:
         assert saved_path == config_path
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def test_access_policy_fallback_is_fail_closed() -> None:
+    allowed, reason, details = access_policy_module._fallback_check_instance_tool_permission(
+        "read_file",
+        instance_name="builder-collab",
+        instance_type="builder_instance",
+    )
+    assert allowed is False
+    assert "backend unavailable" in reason
+    assert details["_policy_reason_code"] == "instance_policy_backend_unavailable"
+    assert details["read"] is False
+    assert details["write"] is False
+    assert details["execute"] is False
+    assert details["network"] is False

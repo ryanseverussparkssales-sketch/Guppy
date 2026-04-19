@@ -190,43 +190,15 @@ except Exception:
     def read_instance_log_summary(*_args, **_kwargs):
         return {"entry_count": 0, "roles": {}, "statuses": {}, "window_days": 30}
 
-try:
-    from utils.instance_capabilities import (
-        auth_mode_label,
-        check_instance_tool_permission,
-        resolve_instance_permissions,
-        set_instance_tool_permission_policy,
-    )
-    _INSTANCE_CAPABILITIES_AVAILABLE = True
-except Exception:
-    _INSTANCE_CAPABILITIES_AVAILABLE = False
+from src.guppy.workspace_governance import (
+    auth_mode_label,
+    check_instance_tool_permission,
+    instance_policy_backend_available,
+    resolve_instance_permissions,
+    set_instance_tool_permission_policy,
+)
 
-    def auth_mode_label(mode: str) -> str:
-        return str(mode or "runtime default").strip() or "runtime default"
-
-    def resolve_instance_permissions(
-        instance_name: str | None = None,
-        instance_type: str | None = None,
-        config_path=None,
-    ):
-        del instance_name, instance_type, config_path
-        return {}
-
-    def set_instance_tool_permission_policy(instance_name: str, policy_entry: dict[str, Any], *, config_path=None):
-        del instance_name, policy_entry, config_path
-        return None
-
-    def check_instance_tool_permission(
-        tool_name: str,
-        *,
-        instance_name: str | None = None,
-        instance_type: str | None = None,
-        config_path=None,
-        endpoint: str | None = None,
-        metadata: dict[str, Any] | None = None,
-    ):
-        del tool_name, instance_name, instance_type, config_path, endpoint, metadata
-        return True, "", {}
+_INSTANCE_CAPABILITIES_AVAILABLE = instance_policy_backend_available()
 
 try:
     from utils.connector_manager import (

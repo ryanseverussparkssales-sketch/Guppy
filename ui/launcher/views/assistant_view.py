@@ -29,9 +29,13 @@ from src.guppy.launcher_application.home_presenter import (
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
 from .. import tokens as T
 from .assistant_context import (
+    active_context_titles as context_active_context_titles,
     build_composer_guidance as context_build_composer_guidance,
     build_grounding_cue as context_build_grounding_cue,
+    context_aware_starter_prompt as context_context_aware_starter_prompt,
+    context_aware_starter_title as context_context_aware_starter_title,
     format_active_context_summary as context_format_active_context_summary,
+    normalize_context_items as context_normalize_context_items,
     refresh_resource_context as context_refresh_resource_context,
     set_background_event as context_set_background_event,
     set_background_status as context_set_background_status,
@@ -79,6 +83,7 @@ class AssistantView(QWidget):
     active_context_clear_requested = Signal()
     active_context_remove_requested = Signal(str)
     active_context_focus_requested = Signal(str)
+    active_context_default_requested = Signal(str)
     active_context_library_requested = Signal(str)
     active_context_refresh_requested = Signal(str, bool)
     assistant_reply_library_requested = Signal(str, bool)
@@ -403,6 +408,9 @@ class AssistantView(QWidget):
         active_context_top.addStretch()
         self._active_context_clear_btn = QPushButton("CLEAR SOURCES")
         self._active_context_clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._active_context_clear_btn.setToolTip("Remove all currently attached sources")
+        self._active_context_clear_btn.setAccessibleName("Clear attached sources")
+        self._active_context_clear_btn.setAccessibleDescription("Clears all active context sources")
         self._active_context_clear_btn.setStyleSheet(
             f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.ERROR}; border: 1px solid rgba(214,197,174,0.54);"
             f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
@@ -411,6 +419,9 @@ class AssistantView(QWidget):
         self._active_context_clear_btn.clicked.connect(self.active_context_clear_requested.emit)
         self._active_context_refresh_btn = QPushButton("REFRESH SAVED SOURCE")
         self._active_context_refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._active_context_refresh_btn.setToolTip("Refresh the primary saved source using the latest assistant reply")
+        self._active_context_refresh_btn.setAccessibleName("Refresh saved source")
+        self._active_context_refresh_btn.setAccessibleDescription("Refreshes the primary saved source")
         self._active_context_refresh_btn.setStyleSheet(
             f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.TERTIARY}; border: 1px solid rgba(214,197,174,0.54);"
             f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
@@ -418,8 +429,23 @@ class AssistantView(QWidget):
         )
         self._active_context_refresh_btn.clicked.connect(self._emit_active_context_refresh_requested)
         self._active_context_refresh_btn.setVisible(False)
+        self._active_context_pin_default_btn = QPushButton("PIN PRIMARY")
+        self._active_context_pin_default_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._active_context_pin_default_btn.setToolTip("Pin the primary source as this workspace default")
+        self._active_context_pin_default_btn.setAccessibleName("Pin default source")
+        self._active_context_pin_default_btn.setAccessibleDescription("Pins the primary source for this workspace")
+        self._active_context_pin_default_btn.setStyleSheet(
+            f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.SECONDARY}; border: 1px solid rgba(214,197,174,0.54);"
+            f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton:hover {{ border-color: rgba(47,111,122,0.42); background: #ffffff; }}"
+        )
+        self._active_context_pin_default_btn.clicked.connect(self._emit_active_context_default_requested)
+        self._active_context_pin_default_btn.setVisible(False)
         self._active_context_swap_btn = QPushButton("MAKE PRIMARY SOURCE")
         self._active_context_swap_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._active_context_swap_btn.setToolTip("Promote another attached source to primary")
+        self._active_context_swap_btn.setAccessibleName("Make primary source")
+        self._active_context_swap_btn.setAccessibleDescription("Promotes a non-primary source to primary")
         self._active_context_swap_btn.setStyleSheet(
             f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.TERTIARY}; border: 1px solid rgba(214,197,174,0.54);"
             f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
@@ -428,6 +454,7 @@ class AssistantView(QWidget):
         self._active_context_swap_btn.clicked.connect(self._emit_active_context_swap_requested)
         self._active_context_swap_btn.setVisible(False)
         active_context_top.addWidget(self._active_context_refresh_btn)
+        active_context_top.addWidget(self._active_context_pin_default_btn)
         active_context_top.addWidget(self._active_context_swap_btn)
         active_context_top.addWidget(self._active_context_clear_btn)
         active_context_layout.addLayout(active_context_top)
@@ -444,6 +471,7 @@ class AssistantView(QWidget):
         self._last_context_notice = ""
         self._focused_context_title = ""
         self._previewed_context_title = ""
+        self._default_context_source_title = ""
         workspace_details_layout.addWidget(self._active_context_host)
         root.addWidget(self._workspace_details_host)
 
@@ -999,22 +1027,13 @@ class AssistantView(QWidget):
         ]
 
     def _active_context_titles(self, limit: int = 2) -> list[str]:
-        return [
-            str(item.get("title", "") or "").strip()
-            for item in self._active_context_items[:max(0, limit)]
-            if str(item.get("title", "") or "").strip()
-        ]
+        return context_active_context_titles(self._active_context_items, limit)
 
     def _context_aware_starter_title(self, starter_id: str, title: str) -> str:
-        if not self._active_context_items or starter_id == "morning_brief":
-            return title
-        return f"{title} +" if not title.endswith(" +") else title
+        return context_context_aware_starter_title(self._active_context_items, starter_id, title)
 
     def _context_aware_starter_prompt(self, prompt: str) -> str:
-        titles = self._active_context_titles()
-        if not titles:
-            return prompt
-        return f"{prompt.rstrip()} Use attached Library context first when relevant: {', '.join(titles)}."
+        return context_context_aware_starter_prompt(self._active_context_items, prompt)
 
     def _refresh_starter_buttons(self) -> None:
         for index, (starter_id, title, mode, prompt) in enumerate(self._starter_templates()):
@@ -1251,17 +1270,7 @@ class AssistantView(QWidget):
         self.latest_saved_output_library_requested.emit(str(self._latest_saved_output.get("title", "")))
 
     def set_active_context_items(self, items: list[dict[str, str]]) -> None:
-        self._active_context_items = [
-            {
-                "title": str(item.get("title", "") or "").strip(),
-                "kind": str(item.get("kind", "file") or "file").strip().upper(),
-                "detail": str(item.get("detail", "") or "").strip(),
-                "origin": str(item.get("origin", "") or "").strip().lower(),
-                "source_label": str(item.get("source_label", "") or "").strip(),
-            }
-            for item in items[:3]
-            if isinstance(item, dict) and str(item.get("title", "") or "").strip()
-        ]
+        self._active_context_items = context_normalize_context_items(items)
         while self._active_context_row.count():
             row_item = self._active_context_row.takeAt(0)
             if row_item is None:
@@ -1276,6 +1285,7 @@ class AssistantView(QWidget):
             self._previewed_context_title = ""
             self._swap_source_target_title = ""
             self._active_context_refresh_btn.setVisible(False)
+            self._active_context_pin_default_btn.setVisible(False)
             self._active_context_swap_btn.setVisible(False)
             self._active_context_host.setVisible(False)
             self._refresh_grounding_cue()
@@ -1297,8 +1307,17 @@ class AssistantView(QWidget):
                     self._swap_source_target_title = str(item.get("title", "") or "").strip()
                     break
         self._active_context_refresh_btn.setVisible(bool(primary_origin in saved_origins and self._latest_assistant_reply_text))
+        self._active_context_pin_default_btn.setVisible(bool(primary_title))
+        pinned_default = primary_title == self._default_context_source_title
+        self._active_context_pin_default_btn.setText("DEFAULT PINNED" if pinned_default else "PIN PRIMARY")
+        self._active_context_pin_default_btn.setEnabled(not pinned_default)
+        self._active_context_pin_default_btn.setToolTip(
+            "This source is already the workspace default"
+            if pinned_default
+            else "Pin the primary source as this workspace default"
+        )
         self._active_context_swap_btn.setVisible(bool(self._swap_source_target_title))
-        self._active_context_swap_btn.setText("MAKE PRIMARY SOURCE" if self._swap_source_target_title else "MAKE PRIMARY SOURCE")
+        self._active_context_swap_btn.setText("MAKE PRIMARY SOURCE")
         available_titles = {item["title"] for item in self._active_context_items}
         if previous_focus != primary_title or self._previewed_context_title not in available_titles:
             self._previewed_context_title = primary_title
@@ -1315,6 +1334,8 @@ class AssistantView(QWidget):
             top.setSpacing(6)
             if item["title"] == primary_title:
                 top.addWidget(_lbl("PRIMARY", T.PRIMARY, T.FS_TINY, True))
+            if item["title"] == self._default_context_source_title:
+                top.addWidget(_lbl("DEFAULT", T.SECONDARY, T.FS_TINY, True))
             kind_lbl = _lbl(item["kind"], T.SECONDARY, T.FS_TINY, True)
             top.addWidget(kind_lbl)
             if item.get("origin") in {"assistant_reply", "assistant_reply_artifact"}:
@@ -1422,6 +1443,19 @@ class AssistantView(QWidget):
         if not title:
             return
         self.active_context_focus_requested.emit(title)
+
+    def _emit_active_context_default_requested(self) -> None:
+        if not self._active_context_items:
+            return
+        primary_title = str(self._active_context_items[0].get("title", "") or "").strip()
+        if not primary_title:
+            return
+        self.active_context_default_requested.emit(primary_title)
+
+    def set_default_context_source(self, title: str) -> None:
+        self._default_context_source_title = str(title or "").strip()
+        if self._active_context_items:
+            self.set_active_context_items(self._active_context_items)
 
     def note_active_context_submission(self, text: str) -> None:
         notice = str(text or "").strip()

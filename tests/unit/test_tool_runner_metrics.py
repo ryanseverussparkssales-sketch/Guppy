@@ -30,3 +30,32 @@ class ToolMetricsRegressionTests(unittest.TestCase):
 
         self.assertIn("root cause failure", result)
         self.assertNotIn("metrics broke", result)
+
+    def test_run_tool_does_not_apply_connector_side_effects_when_permission_denied(self):
+        with patch.object(tool_runner, "get_workspace_connector_context", return_value={
+            "connector_id": "gmail",
+            "provider": "google",
+            "account_id": "acct-1",
+        }), \
+             patch.object(tool_runner, "check_instance_tool_permission", return_value=(False, "blocked", {})), \
+             patch.object(tool_runner, "_apply_workspace_connector_runtime_side_effects") as side_effects, \
+             patch.object(tool_runner, "_record_tool_call", return_value=None), \
+             patch.object(tool_runner, "_validate_tool_input", return_value=None), \
+             patch.object(tool_runner, "_is_tool_blocked", return_value=(False, "")), \
+             patch.object(tool_runner, "_exec_tool", return_value="ok"):
+            result = tool_runner.run_tool("gmail_read", {}, instance_name="guppy-primary")
+
+        self.assertEqual(result, "Error: blocked")
+        side_effects.assert_not_called()
+
+    def test_run_tool_returns_permission_error_when_policy_reports_backend_unavailable(self):
+        with patch.object(tool_runner, "get_workspace_connector_context", return_value={}), \
+             patch.object(
+                 tool_runner,
+                 "check_instance_tool_permission",
+                 return_value=(False, "instance capability policy backend unavailable", {"reason_code": "instance_policy_backend_unavailable"}),
+             ), \
+             patch.object(tool_runner, "_record_tool_call", return_value=None):
+            result = tool_runner.run_tool("send_email", {"subject": "test"}, instance_name="guppy-primary")
+
+        assert result == "Error: instance capability policy backend unavailable"

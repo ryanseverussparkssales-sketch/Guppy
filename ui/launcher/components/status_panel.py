@@ -39,10 +39,10 @@ def _workspace_kind_label(workspace_type: str) -> str:
 
 
 _PRIMARY_TRAY_TOOLS: list[tuple[str, str, str]] = [
-    ("read_file", "RF", "Read files in the active workspace"),
-    ("screenshot", "SS", "Inspect a screenshot or visual surface"),
-    ("query_instance", "QI", "Ask another workspace a bounded question"),
-    ("debug_console", "DBG", "Inspect safe runtime details"),
+    ("read_file", "READ", "Read files in the active workspace"),
+    ("screenshot", "SHOT", "Inspect a screenshot or visual surface"),
+    ("query_instance", "ASK", "Ask another workspace a bounded question"),
+    ("debug_console", "DEBUG", "Inspect safe runtime details"),
 ]
 
 _SECONDARY_TRAY_TOOLS: list[tuple[str, str, str]] = [
@@ -91,8 +91,11 @@ class StatusPanel(QFrame):
         )
         title_row.addWidget(title)
         title_row.addStretch()
-        self._extras_btn = QPushButton("SHOW MORE")
+        self._extras_btn = QPushButton("MORE OPTIONS")
         self._extras_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._extras_btn.setToolTip("Show additional workspace actions and optional spaces")
+        self._extras_btn.setAccessibleName("More workspace options")
+        self._extras_btn.setAccessibleDescription("Shows additional actions and optional spaces")
         self._extras_btn.setStyleSheet(
             f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
             f" border-radius: 14px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
@@ -133,7 +136,7 @@ class StatusPanel(QFrame):
         grid.setVerticalSpacing(8)
         for index, (tool_key, short_label, tooltip) in enumerate(_PRIMARY_TRAY_TOOLS):
             btn = QPushButton(short_label)
-            btn.setFixedSize(44, 38)
+            btn.setFixedSize(72, 36)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(tooltip)
             btn.setStyleSheet(self._tool_button_style(True))
@@ -311,7 +314,12 @@ class StatusPanel(QFrame):
     def _toggle_extras(self) -> None:
         self._extras_visible = not self._extras_visible
         self._extras_host.setVisible(self._extras_visible)
-        self._extras_btn.setText("HIDE MORE" if self._extras_visible else "SHOW MORE")
+        self._extras_btn.setText("LESS OPTIONS" if self._extras_visible else "MORE OPTIONS")
+        self._extras_btn.setToolTip(
+            "Hide additional workspace actions and optional spaces"
+            if self._extras_visible
+            else "Show additional workspace actions and optional spaces"
+        )
 
     def set_tool_states(self, states: dict[str, str]) -> None:
         for tool_key, button in self._tool_buttons.items():

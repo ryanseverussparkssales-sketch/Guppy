@@ -218,3 +218,39 @@ def set_recovery_summary(owner, text: str, healthy: bool = True) -> None:
         f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
     )
     sync_context_bar_visibility(owner)
+
+
+
+def active_context_titles(items: list[dict[str, str]], limit: int = 2) -> list[str]:
+    return [
+        str(item.get("title", "") or "").strip()
+        for item in items[:max(0, limit)]
+        if str(item.get("title", "") or "").strip()
+    ]
+
+
+def context_aware_starter_title(items: list[dict[str, str]], starter_id: str, title: str) -> str:
+    if not items or starter_id == "morning_brief":
+        return title
+    return f"{title} +" if not title.endswith(" +") else title
+
+
+def context_aware_starter_prompt(items: list[dict[str, str]], prompt: str) -> str:
+    titles = active_context_titles(items)
+    if not titles:
+        return prompt
+    return f"{prompt.rstrip()} Use attached Library context first when relevant: {', '.join(titles)}."
+
+
+def normalize_context_items(items: list[dict]) -> list[dict[str, str]]:
+    return [
+        {
+            "title": str(item.get("title", "") or "").strip(),
+            "kind": str(item.get("kind", "file") or "file").strip().upper(),
+            "detail": str(item.get("detail", "") or "").strip(),
+            "origin": str(item.get("origin", "") or "").strip().lower(),
+            "source_label": str(item.get("source_label", "") or "").strip(),
+        }
+        for item in items[:3]
+        if isinstance(item, dict) and str(item.get("title", "") or "").strip()
+    ]

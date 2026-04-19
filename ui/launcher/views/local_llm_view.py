@@ -121,8 +121,11 @@ class LocalLLMView(QWidget):
         self._summary_lbl.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
-        self._details_btn = QPushButton("SHOW DETAILS")
+        self._details_btn = QPushButton("ADVANCED")
         self._details_btn.setFixedHeight(28)
+        self._details_btn.setToolTip("Show benchmark history, review backlog, and experiment details")
+        self._details_btn.setAccessibleName("Advanced local LLM details")
+        self._details_btn.setAccessibleDescription("Shows benchmark and experiment details")
         self._details_btn.clicked.connect(self._toggle_details)
         refresh_btn = QPushButton("REFRESH")
         refresh_btn.setFixedHeight(28)
@@ -239,7 +242,12 @@ class LocalLLMView(QWidget):
         for frame in self._detail_frames:
             frame.setVisible(self._details_visible)
         if self._details_btn is not None:
-            self._details_btn.setText("HIDE DETAILS" if self._details_visible else "SHOW DETAILS")
+            self._details_btn.setText("LESS ADVANCED" if self._details_visible else "ADVANCED")
+            self._details_btn.setToolTip(
+                "Hide benchmark history, review backlog, and experiment details"
+                if self._details_visible
+                else "Show benchmark history, review backlog, and experiment details"
+            )
         if self._footer_lbl is not None:
             self._footer_lbl.setText(
                 "Open MODELS to browse models, and open RUNTIME for backend settings. Details are open, so you are also seeing benchmarks and experimental notes."

@@ -1,131 +1,68 @@
-#!/usr/bin/env python3
-"""Quick validation that Phase 1-3 implementation is production-ready (no UI import)."""
+from __future__ import annotations
 
-import sys
+import inspect
 from pathlib import Path
 
-print("=" * 70)
-print("FINAL PRODUCTION READINESS CHECK: Phases 1-3")
-print("=" * 70)
 
-# Test 1: Imports work
-print("\n[1] Testing router imports...")
-try:
-    from src.guppy.inference.router import InferenceRouter, get_router, route_inference_smart
-    print("✓ Router imports successful")
-except Exception as e:
-    print(f"✗ Router import failed: {e}")
-    sys.exit(1)
+def test_router_imports_and_instantiates() -> None:
+    from src.guppy.inference.router import get_router
 
-# Test 2: Router instantiates
-print("\n[2] Testing router instantiation...")
-try:
     router = get_router()
-    print(f"✓ Router initialized")
-    print(f"  - Anthropic available: {router.anthropic_available}")
-    print(f"  - HAIKU_TIMEOUT_SMART: {router.HAIKU_TIMEOUT_SMART}s")
-    print(f"  - Current primary: {router.current_primary}")
-except Exception as e:
-    print(f"✗ Router instantiation failed: {e}")
-    sys.exit(1)
+    assert router is not None
+    assert hasattr(router, "anthropic_available")
+    assert hasattr(router, "HAIKU_TIMEOUT_SMART")
 
-# Test 3: Methods exist
-print("\n[3] Testing method availability...")
-try:
-    assert hasattr(router, 'query_smart'), "query_smart method missing"
-    assert hasattr(router, '_classify_task'), "_classify_task method missing"
-    assert hasattr(router, 'query_haiku'), "query_haiku method missing"
-    assert hasattr(router, 'query_sonnet'), "query_sonnet method missing"
-    assert hasattr(router, 'query_local'), "query_local method missing"
-    print("✓ All required methods present (query_smart, _classify_task, query_*, etc)")
-except AssertionError as e:
-    print(f"✗ Method check failed: {e}")
-    sys.exit(1)
 
-# Test 4: Task classification works
-print("\n[4] Testing task classifier...")
-test_cases = [
-    ("What time is it?", "simple"),
-    ("Build a REST API", "complex"),
-    ("Explain machine learning", "teaching"),
-    ("Remind me to call John", "simple"),
-    ("Debug this memory leak", "complex"),
-    ("Help me understand OAuth", "teaching"),
-]
-all_passed = True
-for text, expected in test_cases:
-    result = router._classify_task(text)
-    if result == expected:
-        print(f"  ✓ '{text}' → {result}")
-    else:
-        print(f"  ✗ '{text}' expected {expected}, got {result}")
-        all_passed = False
+def test_router_required_methods_exist() -> None:
+    from src.guppy.inference.router import get_router
 
-if not all_passed:
-    print("✗ Task classification check failed")
-    sys.exit(1)
-else:
-    print("✓ Task classification working correctly")
+    router = get_router()
+    for method in (
+        "query_smart",
+        "_classify_task",
+        "query_haiku",
+        "query_sonnet",
+        "query_local",
+    ):
+        assert hasattr(router, method), f"Missing router method: {method}"
 
-# Test 5: Smart dispatch signature
-print("\n[5] Testing smart dispatch method signature...")
-try:
-    import inspect
-    sig = inspect.signature(router.query_smart)
-    params = list(sig.parameters.keys())
-    expected_params = ['system_prompt', 'user_text', 'tools', 'messages']
-    for p in expected_params:
-        assert p in params, f"Parameter {p} missing from query_smart"
-    print(f"✓ query_smart signature correct")
-    print(f"  Parameters: {', '.join(expected_params)}")
-except Exception as e:
-    print(f"✗ Signature check failed: {e}")
-    sys.exit(1)
 
-# Test 6: Merlin core imports
-print("\n[6] Testing Merlin core imports...")
-try:
-    from src.guppy.merlin.core import get_merlin_startup_system, MERLIN_SYSTEM
-    print("✓ Merlin imports successful")
-    assert "Socratic" in MERLIN_SYSTEM, "Merlin system prompt missing Socratic reference"
-    print("✓ Merlin system prompt contains Socratic method reference")
-except Exception as e:
-    print(f"✗ Merlin import failed: {e}")
-    sys.exit(1)
+def test_router_classifier_cases() -> None:
+    from src.guppy.inference.router import get_router
 
-# Test 7: Documentation updated
-print("\n[7] Checking documentation...")
-try:
+    router = get_router()
+    cases = [
+        ("What time is it?", "simple"),
+        ("Build a REST API", "complex"),
+        ("Explain machine learning", "teaching"),
+        ("Remind me to call John", "simple"),
+        ("Debug this memory leak", "complex"),
+        ("Help me understand OAuth", "teaching"),
+    ]
+    for text, expected in cases:
+        assert router._classify_task(text) == expected
+
+
+def test_query_smart_signature() -> None:
+    from src.guppy.inference.router import get_router
+
+    router = get_router()
+    params = list(inspect.signature(router.query_smart).parameters.keys())
+    for expected in ("system_prompt", "user_text", "tools", "messages"):
+        assert expected in params
+
+
+def test_merlin_core_smoke_imports() -> None:
+    from src.guppy.merlin.core import MERLIN_SYSTEM
+
+    assert "Socratic" in MERLIN_SYSTEM
+
+
+def test_docs_smoke_contracts() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     roadmap = (repo_root / "ROADMAP.md").read_text(encoding="utf-8")
     readme = (repo_root / "README.md").read_text(encoding="utf-8")
 
-    assert "Track 1: Full Custom Builder First" in roadmap, "ROADMAP missing custom builder priority"
-    assert "Track 2: Daily Workflow Productization" in roadmap, "ROADMAP missing daily workflow track"
-    assert "Windows personal assistant" in roadmap, "ROADMAP missing Windows assistant objective"
-    assert "Butler" in readme or "butler" in readme, "README missing butler focus note"
-
-    print("✓ Documentation properly updated")
-    print("  - ROADMAP.md: Phase 1-3 descriptions present")
-    print("  - README.md: Butler focus statement present")
-except Exception as e:
-    print(f"✗ Documentation check failed: {e}")
-    sys.exit(1)
-
-print("\n" + "=" * 70)
-print("✓ ALL PRODUCTION READINESS CHECKS PASSED")
-print("=" * 70)
-print("\nPhases 1-3 Implementation Summary:")
-print("  [✓] Router: importable, instantiable, all methods present")
-print("  [✓] Classification: 6/6 test cases correct (simple/complex/teaching)")
-print("  [✓] Integration: query_smart has correct method signature")
-print("  [✓] Merlin: system prompt accessible and Socratic method present")
-print("  [✓] Documentation: roadmap tracks and README focus properly updated")
-print("\n" + "=" * 70)
-print("\nProduction Status: READY FOR LIVE TESTING")
-print("  - Guppy can be launched with smart dispatch enabled")
-print("  - Set mode='auto' to use Phase 1-3 smart routing")
-print("  - Teaching tasks will auto-route to Merlin persona")
-print("  - Simple tasks: <3s latency expected (Haiku)")
-print("  - Complex tasks: 5-10s latency expected (Sonnet)")
-print("=" * 70)
+    assert "discoverability pointer" in roadmap
+    assert "Do not add new active priorities" in roadmap
+    assert "Guppy" in readme

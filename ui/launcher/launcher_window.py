@@ -380,6 +380,36 @@ class LauncherWindow(QMainWindow):
         root.addWidget(self._sys_strip)
 
         # ── Wire signals ─────────────────────────────────────────────────────
+        self._wire_signals()
+        self._assistant_view.set_session_id(self._chat_session_id)
+        self._topbar.set_launcher_summary("AUTO / GUPPY / LIGHT [EDIT]")
+        self._sidebar.set_collapsed(True)
+        self._topbar.set_sidebar_collapsed(True)
+        self._set_status_panel_visible(False)
+        self._bootstrap_instance_switcher()
+        self._refresh_personalization_state()
+        self._sync_automation_test_state()
+        QTimer.singleShot(0, self._apply_start_destination)
+
+        if _PERSONALIZATION_BOOTSTRAP_AVAILABLE:
+            self._log_launcher_event("startup_phase", phase="personalization_scaffold_thread_start")
+            threading.Thread(target=self._bootstrap_personalization_scaffold_worker, daemon=True).start()
+
+    def _bootstrap_personalization_scaffold_worker(self) -> None:
+        try:
+            self._scaffold_created = ensure_personalization_scaffold()
+            if self._scaffold_created:
+                created = ",".join(sorted(self._scaffold_created.keys()))
+                self._deferred_syslog.put(f"personalization scaffold ready: {created}")
+                self._log_launcher_event("personalization_scaffold_created", created=list(self._scaffold_created.keys()))
+            self._log_launcher_event("startup_phase", phase="personalization_scaffold_thread_complete")
+        except Exception as e:
+            self._deferred_syslog.put(f"personalization scaffold failed: {e}")
+            self._log_launcher_event("personalization_scaffold_error", error=str(e))
+            self._log_launcher_event("startup_phase", phase="personalization_scaffold_thread_error", error=str(e))
+
+    def _wire_signals(self) -> None:
+        """Composition helper — all inter-widget signal connections in one named seam."""
         self._sidebar.tab_changed.connect(self._on_tab_change)
         self._topbar.nav_requested.connect(self._on_tab_change)
         self._settings_view.settings_saved.connect(self._on_settings_saved)
@@ -413,6 +443,7 @@ class LauncherWindow(QMainWindow):
         self._assistant_view.active_context_refresh_requested.connect(self._on_active_context_refresh_requested)
         self._assistant_view.active_context_clear_requested.connect(self._on_library_context_cleared)
         self._assistant_view.active_context_focus_requested.connect(self._on_library_context_focused)
+        self._assistant_view.active_context_default_requested.connect(self._on_library_context_default_requested)
         self._assistant_view.active_context_library_requested.connect(self._on_library_context_opened)
         self._assistant_view.active_context_remove_requested.connect(self._on_library_context_removed)
         self.assistant_event_queued.connect(self._drain_assistant_events)
@@ -435,32 +466,6 @@ class LauncherWindow(QMainWindow):
         self._instance_manager_view.logs_requested.connect(self._on_instance_logs_requested)
         self._topbar.instance_selected.connect(self._on_instance_selected)
         self._status_panel.agent_init_requested.connect(self._on_agent_init_requested)
-        self._assistant_view.set_session_id(self._chat_session_id)
-        self._topbar.set_launcher_summary("AUTO / GUPPY / LIGHT [EDIT]")
-        self._sidebar.set_collapsed(True)
-        self._topbar.set_sidebar_collapsed(True)
-        self._set_status_panel_visible(False)
-        self._bootstrap_instance_switcher()
-        self._refresh_personalization_state()
-        self._sync_automation_test_state()
-        QTimer.singleShot(0, self._apply_start_destination)
-
-        if _PERSONALIZATION_BOOTSTRAP_AVAILABLE:
-            self._log_launcher_event("startup_phase", phase="personalization_scaffold_thread_start")
-            threading.Thread(target=self._bootstrap_personalization_scaffold_worker, daemon=True).start()
-
-    def _bootstrap_personalization_scaffold_worker(self) -> None:
-        try:
-            self._scaffold_created = ensure_personalization_scaffold()
-            if self._scaffold_created:
-                created = ",".join(sorted(self._scaffold_created.keys()))
-                self._deferred_syslog.put(f"personalization scaffold ready: {created}")
-                self._log_launcher_event("personalization_scaffold_created", created=list(self._scaffold_created.keys()))
-            self._log_launcher_event("startup_phase", phase="personalization_scaffold_thread_complete")
-        except Exception as e:
-            self._deferred_syslog.put(f"personalization scaffold failed: {e}")
-            self._log_launcher_event("personalization_scaffold_error", error=str(e))
-            self._log_launcher_event("startup_phase", phase="personalization_scaffold_thread_error", error=str(e))
 
     def _drain_deferred_syslog(self) -> None:
         processed = 0
@@ -1178,6 +1183,9 @@ class LauncherWindow(QMainWindow):
 
     def _on_library_context_focused(self, title: str) -> None:
         self._ensure_library_workflow().handle_context_focused(title)
+
+    def _on_library_context_default_requested(self, title: str) -> None:
+        self._ensure_library_workflow().handle_default_source_requested(title)
 
     def _on_library_context_opened(self, title: str) -> None:
         title_text = str(title or "").strip()
@@ -3376,7 +3384,7 @@ class LauncherWindow(QMainWindow):
                 self._assistant_view.add_system_message("A request is already in progress. Please wait for it to finish.")
             return
         selected_mode = self._assistant_view.selected_mode()
-        mode_ok, mode_err = LauncherWindow._validate_mode_ready(self, selected_mode)
+        mode_ok, mode_err = self._validate_mode_ready(selected_mode)
         if not mode_ok:
             self._assistant_view.set_status("Ready")
             add_assistant = getattr(self._assistant_view, "add_assistant_message", None)
@@ -3438,7 +3446,7 @@ class LauncherWindow(QMainWindow):
             activity_setter(f"Working on: {cmd[:96]}")
         self._status_panel.append_syslog("command queued")
         self._log_launcher_event("command_submitted", command=cmd, seq=req_seq, idempotency_key=idempotency_key)
-        request_timeout = LauncherWindow._chat_timeout_for_request(selected_mode, cmd)
+        request_timeout = self._chat_timeout_for_request(selected_mode, cmd)
         retry_timeout = max(request_timeout + 20.0, 60.0)
 
         def _worker() -> None:

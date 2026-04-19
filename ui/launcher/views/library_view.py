@@ -4,6 +4,8 @@ LIBRARY tab - saved files, study material, and coding context for the active wor
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -21,6 +23,7 @@ from PySide6.QtWidgets import (
 from src.guppy.launcher_application.library_presenter import (
     LibrarySurfaceState,
     build_library_surface_state,
+    validate_library_root,
 )
 from .. import tokens as T
 from .library_view_components import body_label as _body
@@ -116,10 +119,13 @@ class LibraryView(QWidget):
         self._root_label = QLineEdit()
         self._root_label.setPlaceholderText("Label")
         self._root_repo_btn = QPushButton("USE REPO")
+        self._root_repo_btn.setToolTip("Use the current Guppy repository as an approved root")
         self._root_repo_btn.clicked.connect(self._fill_repo_root)
         self._root_browse_btn = QPushButton("PICK FOLDER")
+        self._root_browse_btn.setToolTip("Browse and choose a folder to approve")
         self._root_browse_btn.clicked.connect(self._choose_root_path)
         self._root_save_btn = QPushButton("SAVE ROOT")
+        self._root_save_btn.setToolTip("Submit this root for approval in the active workspace")
         self._root_save_btn.clicked.connect(self._emit_root_request)
         for widget in (self._root_path, self._root_label):
             widget.setStyleSheet(
@@ -139,6 +145,9 @@ class LibraryView(QWidget):
         root_row.addWidget(self._root_browse_btn)
         root_row.addWidget(self._root_save_btn)
         manager_layout.addLayout(root_row)
+        self._root_feedback_lbl = _body("", color=T.DIM, size=T.FS_TINY)
+        self._root_feedback_lbl.setVisible(False)
+        manager_layout.addWidget(self._root_feedback_lbl)
 
         note_row = QHBoxLayout()
         note_row.setSpacing(8)
@@ -316,6 +325,7 @@ class LibraryView(QWidget):
             if str(root.get("label", "")).strip().lower() == "current guppy repo":
                 self._root_label.setText(str(root.get("label", "") or "").strip())
                 self._root_path.setText(str(root.get("root_path", "") or "").strip())
+                self._set_root_feedback("", is_error=False)
                 return
 
     def _choose_root_path(self) -> None:
@@ -329,6 +339,7 @@ class LibraryView(QWidget):
             normalized = chosen.replace("\\", "/").rstrip("/")
             default_label = normalized.rsplit("/", 1)[-1].strip() or "Approved root"
             self._root_label.setText(default_label)
+        self._set_root_feedback("", is_error=False)
 
     def _choose_artifact_path(self) -> None:
         current = self._artifact_path.text().strip() or self._root_path.text().strip()
@@ -381,13 +392,33 @@ class LibraryView(QWidget):
         self._artifact_cancel_btn.setVisible(False)
 
     def _emit_root_request(self) -> None:
-        path = self._root_path.text().strip()
+        raw_path = self._root_path.text().strip()
         label = self._root_label.text().strip() or "Approved root"
-        if not path:
+        ok, msg = validate_library_root(raw_path)
+        if not ok:
+            self._set_root_feedback(msg or "Invalid path.", is_error=True)
             return
-        self.approved_root_requested.emit(path, label)
+        resolved = str(Path(raw_path).expanduser().resolve())
+        self.approved_root_requested.emit(resolved, label)
         self._root_path.clear()
         self._root_label.clear()
+        self._set_root_feedback("Root save requested. Confirmation will appear in status.", is_error=False)
+
+    def _set_root_feedback(self, message: str, *, is_error: bool) -> None:
+        text = str(message or "").strip()
+        if not text:
+            self._root_feedback_lbl.clear()
+            self._root_feedback_lbl.setVisible(False)
+            return
+        color = T.ERROR if is_error else T.GREEN
+        self._root_feedback_lbl.setText(text)
+        self._root_feedback_lbl.setStyleSheet(
+            f"color: {color}; font-family: '{T.FF_BODY}'; font-size: {T.FS_TINY}pt;"
+        )
+        self._root_feedback_lbl.setVisible(True)
+
+    def set_root_feedback(self, message: str, *, is_error: bool = False) -> None:
+        self._set_root_feedback(message, is_error=is_error)
 
     def _emit_note_request(self) -> None:
         title = self._note_title.text().strip()

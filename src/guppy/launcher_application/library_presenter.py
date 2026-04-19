@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from src.guppy.launcher_application.library_storage import (
     build_workspace_library_snapshot,
@@ -297,3 +298,23 @@ def build_library_surface_state(
         saved_item_cards=saved_item_cards,
         recent_cards=recent_cards,
     )
+
+
+def validate_library_root(path_str: str) -> tuple[bool, str | None]:
+    """Validate that *path_str* is a non-empty string that points to an existing directory.
+
+    Returns ``(True, None)`` on success, or ``(False, error_message)`` on failure.
+    This is pure logic — no Qt imports required.
+    """
+    cleaned = str(path_str or "").strip()
+    if not cleaned:
+        return (False, "Path is required.")
+    try:
+        resolved = Path(cleaned).expanduser().resolve()
+    except OSError:
+        return (False, f"'{cleaned}' does not exist.")
+    if not resolved.exists():
+        return (False, f"'{cleaned}' does not exist.")
+    if not resolved.is_dir():
+        return (False, f"'{cleaned}' is not a directory.")
+    return (True, None)

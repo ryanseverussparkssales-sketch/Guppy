@@ -94,7 +94,171 @@ DEFAULT_PROVIDER_REGISTRY: dict[str, Any] = {
                     },
                 },
             ],
-        }
+        },
+        {
+            "id": "openai",
+            "name": "OpenAI",
+            "enabled": True,
+            "api_base": "https://api.openai.com/v1",
+            "auth_env": "OPENAI_API_KEY",
+            "models": [
+                {
+                    "id": "gpt-4.1-mini",
+                    "label": "GPT-4.1 Mini",
+                    "enabled": True,
+                    "context_window": 128000,
+                    "speed_tier": "fast",
+                    "tags": ["general", "cheap"],
+                    "pricing": {
+                        "tier": "cheap",
+                    },
+                },
+                {
+                    "id": "gpt-4.1",
+                    "label": "GPT-4.1",
+                    "enabled": True,
+                    "context_window": 128000,
+                    "speed_tier": "balanced",
+                    "tags": ["reasoning"],
+                    "pricing": {
+                        "tier": "premium",
+                    },
+                },
+            ],
+        },
+        {
+            "id": "gemini",
+            "name": "Google Gemini",
+            "enabled": True,
+            "api_base": "https://generativelanguage.googleapis.com/v1beta",
+            "auth_env": "GEMINI_API_KEY",
+            "models": [
+                {
+                    "id": "gemini-2.0-flash",
+                    "label": "Gemini 2.0 Flash",
+                    "enabled": True,
+                    "context_window": 1000000,
+                    "speed_tier": "fast",
+                    "tags": ["multimodal", "cheap"],
+                    "pricing": {
+                        "tier": "cheap",
+                    },
+                },
+                {
+                    "id": "gemini-2.5-pro",
+                    "label": "Gemini 2.5 Pro",
+                    "enabled": True,
+                    "context_window": 1000000,
+                    "speed_tier": "balanced",
+                    "tags": ["reasoning"],
+                    "pricing": {
+                        "tier": "premium",
+                    },
+                },
+            ],
+        },
+        {
+            "id": "ollama_api",
+            "name": "Ollama API (Cloud/Remote)",
+            "enabled": True,
+            "api_base": "https://ollama.com/api",
+            "auth_env": "OLLAMA_API_KEY",
+            "models": [
+                {
+                    "id": "llama3.1:8b",
+                    "label": "Llama 3.1 8B",
+                    "enabled": True,
+                    "context_window": 32768,
+                    "speed_tier": "balanced",
+                    "tags": ["general"],
+                    "pricing": {
+                        "tier": "cheap",
+                    },
+                }
+            ],
+        },
+        {
+            "id": "lmstudio_local",
+            "name": "LM Studio (Local)",
+            "enabled": True,
+            "api_base": "http://127.0.0.1:1234/v1",
+            "auth_env": "",
+            "models": [
+                {
+                    "id": "local-model",
+                    "label": "LM Studio Active Model",
+                    "enabled": True,
+                    "context_window": 0,
+                    "speed_tier": "balanced",
+                    "tags": ["local"],
+                    "pricing": {
+                        "tier": "local",
+                    },
+                }
+            ],
+        },
+        {
+            "id": "local_harness",
+            "name": "Local Harness",
+            "enabled": True,
+            "api_base": "http://127.0.0.1:8001",
+            "auth_env": "",
+            "models": [
+                {
+                    "id": "harness-default",
+                    "label": "Harness Default",
+                    "enabled": True,
+                    "context_window": 0,
+                    "speed_tier": "balanced",
+                    "tags": ["local", "harness"],
+                    "pricing": {
+                        "tier": "local",
+                    },
+                }
+            ],
+        },
+        {
+            "id": "local",
+            "name": "Ollama (Local)",
+            "enabled": True,
+            "api_base": "http://127.0.0.1:11434",
+            "auth_env": "",
+            "models": [
+                {
+                    "id": "guppy",
+                    "label": "Guppy",
+                    "enabled": True,
+                    "context_window": 32768,
+                    "speed_tier": "balanced",
+                    "tags": ["local", "default"],
+                    "pricing": {
+                        "tier": "local",
+                    },
+                },
+                {
+                    "id": "guppy-fast",
+                    "label": "Guppy Fast",
+                    "enabled": True,
+                    "context_window": 32768,
+                    "speed_tier": "fast",
+                    "tags": ["local", "fast"],
+                    "pricing": {
+                        "tier": "local",
+                    },
+                },
+                {
+                    "id": "guppy-code",
+                    "label": "Guppy Code",
+                    "enabled": True,
+                    "context_window": 32768,
+                    "speed_tier": "balanced",
+                    "tags": ["local", "code"],
+                    "pricing": {
+                        "tier": "local",
+                    },
+                },
+            ],
+        },
     ],
     "routes": {
         "simple": "anthropic/claude-haiku-4-5-20251001",

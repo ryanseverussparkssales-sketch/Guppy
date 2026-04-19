@@ -5,6 +5,11 @@ from unittest.mock import patch
 import pytest
 
 from src.guppy.api import server as guppy_api
+from src.guppy.api.routes_core import build_core_router
+from src.guppy.api.routes_instances import build_instances_router
+from src.guppy.api.routes_ops import build_ops_router
+from src.guppy.api.routes_realtime import build_realtime_router
+from src.guppy.api import services_runtime
 
 
 class _FakeRouter:
@@ -224,3 +229,44 @@ def test_claude_mode_raises_clear_error_when_route_is_unavailable() -> None:
     ), patch.object(guppy_api, "get_router", return_value=router):
         with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
             guppy_api._call_unified_inference("Hello", "SYSTEM", mode="claude")
+
+
+def _normalized_route_signatures(router) -> set[tuple[str, tuple[str, ...] | None]]:
+    signatures: set[tuple[str, tuple[str, ...] | None]] = set()
+    for route in router.routes:
+        methods = getattr(route, "methods", None)
+        normalized_methods = tuple(sorted(methods)) if methods else None
+        signatures.add((route.path, normalized_methods))
+    return signatures
+
+
+def test_api_route_registration_parity_with_modular_routers() -> None:
+    modular_routes = set()
+    for builder in (
+        build_core_router,
+        build_instances_router,
+        build_ops_router,
+        build_realtime_router,
+    ):
+        modular_routes |= _normalized_route_signatures(builder(guppy_api._server_context))
+
+    app_routes = _normalized_route_signatures(guppy_api.app)
+    missing = modular_routes - app_routes
+    assert not missing, f"Missing app route registrations: {sorted(missing)}"
+
+
+def test_startup_readiness_cache_expiry_transitions_with_monkeypatched_time(monkeypatch) -> None:
+    state = guppy_api._runtime_state
+    original_expires_at = state.startup_check_cache.get("expires_at", 0.0)
+    try:
+        with state.startup_check_cache_lock:
+            state.startup_check_cache["expires_at"] = 200.0
+
+        monkeypatch.setattr(services_runtime.time, "time", lambda: 150.0)
+        assert guppy_api._startup_readiness_cache_expired() is False
+
+        monkeypatch.setattr(services_runtime.time, "time", lambda: 250.0)
+        assert guppy_api._startup_readiness_cache_expired() is True
+    finally:
+        with state.startup_check_cache_lock:
+            state.startup_check_cache["expires_at"] = original_expires_at

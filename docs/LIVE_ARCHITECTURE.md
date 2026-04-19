@@ -1,6 +1,6 @@
 # Live Architecture Map
 
-Last updated: 2026-04-17
+Last updated: 2026-04-18
 
 ## Live Domains
 
@@ -41,6 +41,8 @@ The first clarity tranche added typed seam modules under `src/guppy/` so launche
    Normalize workspace summaries, connector inventory rows, governance snapshots, connector action requests/results, connector/provider metadata, machine-auth storage rules, connector guidance, and provider/readiness status builders that previously lived only inside the legacy connector manager.
 11. `src/guppy/runtime_application/contracts.py`, `readiness.py`, and `auth.py`
    Normalize startup-readiness, runtime-health, local-runtime payloads, launcher-facing readiness summaries/fallback fetch rules, and the launcher-local bearer-token helper that keeps `ui/launcher/launcher_window.py` from importing `src.guppy.api` directly.
+12. `src/guppy/launcher_application/library_workflow.py`
+   Owns Library-to-Home context orchestration (attach/clear/focus/remove), root-save validation gatekeeping, and per-workspace default source pinning persistence so context-priority behavior does not drift across the Qt views.
 
 These seams are additive for now. Existing launcher and runtime modules still own most live behavior, but new logic should prefer these contracts instead of introducing more cross-layer dict traffic.
 

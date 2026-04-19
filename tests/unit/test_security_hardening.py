@@ -239,6 +239,32 @@ class RateLimitPolicyTests(unittest.TestCase):
         self.assertTrue(guppy_api_auth.check_rate_limit("user-a:chat", max_requests=1, window_minutes=60))
 
 
+def test_rate_limit_window_transition_is_deterministic_with_monkeypatched_time(monkeypatch) -> None:
+    guppy_api_auth.rate_limit_store.clear()
+
+    class _FakeDatetime:
+        current = datetime(2026, 4, 18, 12, 0, 0, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return cls.current.replace(tzinfo=None)
+            return cls.current.astimezone(tz)
+
+    monkeypatch.setattr(guppy_api_auth, "datetime", _FakeDatetime)
+
+    principal = "deterministic-user:default"
+    assert guppy_api_auth.check_rate_limit(principal, max_requests=1, window_minutes=1) is True
+
+    _FakeDatetime.current = datetime(2026, 4, 18, 12, 0, 30, tzinfo=timezone.utc)
+    assert guppy_api_auth.check_rate_limit(principal, max_requests=1, window_minutes=1) is False
+
+    _FakeDatetime.current = datetime(2026, 4, 18, 12, 1, 1, tzinfo=timezone.utc)
+    assert guppy_api_auth.check_rate_limit(principal, max_requests=1, window_minutes=1) is True
+
+    guppy_api_auth.rate_limit_store.clear()
+
+
 # ── DB utility tests ───────────────────────────────────────────────────────────
 
 class DBUtilsTests(unittest.TestCase):

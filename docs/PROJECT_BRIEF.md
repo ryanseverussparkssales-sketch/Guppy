@@ -115,6 +115,10 @@ Apply `docs/PRODUCT_FEATURE_FILTER.md` to every tranche before expanding scope. 
    Library becomes a real workspace file surface with approved roots, recent files, and pinned study or coding context that can be reused in chat.
 3. May 22, 2026
    Chat-first workflow and operator-surface demotion land together, so Guppy feels like a local AI workspace first and a systems console second.
+4. May 2, 2026
+   Library-to-Chat continuity and governance hardening tranche closes with wildcard-safe connector filters, fail-closed permission fallback behavior, and stable source-priority behavior across workspace switches.
+5. May 16, 2026
+   Operator-surface demotion tranche is implementation-ready with validated boundaries between daily-path settings and deeper App Mgmt recovery/admin flows.
 
 ## Current Acceptance Gates
 
@@ -126,6 +130,49 @@ Apply `docs/PRODUCT_FEATURE_FILTER.md` to every tranche before expanding scope. 
    Launcher interaction, runtime, and security smoke suites pass.
 4. `python tools/dev_workflow.py release-check`
    Release receipt and summary are written with a stable `Ref`, complete gate state, and an explicit `Next Review Step`.
+
+## Weekly Status Report (April 18 - April 24, 2026)
+
+1. Week objective
+   Close the daily-path simplification checkpoint while keeping Library-to-Chat continuity stable and release-lane guardrails green.
+2. Track status
+   `P1` on track for April 24 first-run clarity checkpoint; `P2` on track with next slice focused on deeper Library ergonomics; `P3` started with continuity polish underway; `P4` queued with boundary definition work in progress; `P5` queued pending broader voice/runtime evidence; `P6` watch with no scope expansion.
+3. Gate snapshot
+   Baseline guardrails and targeted hardening tests are green in this tranche; release-lane commands remain the required final gate before closure.
+4. Active risks
+   Library depth can sprawl beyond `P2` if root/file ergonomics are not tightly sliced; chat polish can drift into operator detail if `P3` copy boundaries are not enforced; voice confidence still needs broader real-device validation.
+5. This-week decisions
+   Confirm April 24 `P1` closure bar, confirm `P2` depth slice order for next week, and keep `P4` demotion changes scoped to boundary clarity rather than new operator surfaces.
+
+## Next Action Tranche (Tranche 44: April 19 - May 2)
+
+1. Introduce waiver metadata drift reporting in `tools/check_new_module_line_cap.py` to make hotspot pressure explicit in CI output.
+2. Add fail-fast guardrails for broad exception fallbacks in runtime/auth critical paths.
+3. Centralize connector binding validation behind a shared workspace-governance validator seam.
+4. Align runtime and snapshot permission-policy fallback behavior so degraded mode is consistently fail-closed.
+5. Expand fail-closed regression coverage for tool-runner permission and side-effect ordering paths.
+6. Extend endpoint filter validation and wildcard matrix tests for connector allow/block parity.
+7. Consolidate safe JSON/JSONL runtime loaders to reduce malformed-artifact drift in startup and status flows.
+8. Add release comment-debt guard (`TODO`/`FIXME`/`HACK`) for changed files in release-facing paths.
+9. Tighten architecture-boundary map with explicit forbidden import rules for UI and utils layers.
+10. Strengthen wrapper/shim integrity checks for launcher/api/hub entrypoint contracts.
+11. Add API route registration parity tests to catch composition drift between expected and mounted router surfaces.
+12. Add deterministic time-control coverage for readiness, retry, and rate-limit transitions.
+
+### Agent Execution Split (Tranche 44)
+
+1. Agent A (Code hardening): items 1, 2, 9, 10.
+2. Agent B (Governance and connectors): items 3, 6, 11.
+3. Agent C (Runtime resilience): items 4, 7, 12.
+4. Agent D (Repo maintenance and release hygiene): item 8 plus doc/guardrail cleanup.
+5. Lead integrator: sequence merges, enforce guardrails, run tranche checkpoints, and publish final receipt/status summary.
+
+### Tranche 44 Merge Checkpoints
+
+1. Every item PR: `python tools/dev_workflow.py dev-check --guard-scope delta` plus focused tests.
+2. After every 3 merged items: `python tools/dev_workflow.py test-default`.
+3. After every 6 merged items: `python tools/dev_workflow.py test-smoke`.
+4. Tranche close: `python tools/dev_workflow.py release-check` with updated receipt/summary references.
 
 ## Current Tranche Handoff
 
@@ -205,11 +252,25 @@ Apply `docs/PRODUCT_FEATURE_FILTER.md` to every tranche before expanding scope. 
    Full preflight smoke debugging closed the remaining launcher blockers: Home now skips expensive Library browse-card discovery when it only needs lightweight context summaries, Library root-file discovery is scan-bounded so repo-sized approved roots do not stall the UI, launcher/workspace mutation/refresh restored several smoke-facing compatibility wrappers, and status/onboarding copy was brought back in line with the current smoke contract. The runtime smoke, launcher smoke, and security smoke bundle reached `[100%]`, and the launcher-window transitional line-cap waiver was updated to reflect the current shell size pending a later composition-cut tranche.
 38. April 18, 2026
    The launcher shell now aligns more closely with the chat-first structure from the UX review: Home uses a compact identity row instead of a dashboard hero, optional workspace details and starters stay collapsed by default, the right workspace drawer is hidden by default on Home and exposed through a top-bar toggle, the left rail is now collapsible, and the stack order was corrected so `SETTINGS` opens the dedicated settings view while diagnostics/automation remain in the separate advanced surface. The Settings page also gained subsection navigation so runtime defaults, persona configuration, and advanced-surface handoff live in a dedicated configuration area rather than leaking into the daily path, and full launcher smoke stayed green after the shell pass.
+39. April 18, 2026
+   Library root saves now have end-to-end validation and user-visible guidance: the workflow rejects missing/unreadable/non-directory paths before persistence, the Library UI shows inline save feedback instead of relying only on syslog cues, and focused unit coverage now verifies valid/invalid root handling contracts.
+40. April 18, 2026
+   Home/Library source continuity now includes per-workspace default source pinning: users can pin the current primary source as the workspace default, the pinned default is persisted under `runtime/library_workspace_defaults.json`, attached context prioritization respects that default when present, and deletion/removal clears stale defaults to avoid dangling source pointers.
+41. April 18, 2026
+   `bin/launch_automation_test.bat` now has hardened launch diagnostics and interpreter fallback order (`.venv\pythonw` -> `.venv\python` -> system `pythonw` -> system `python`) with clear error output when launch prerequisites are missing.
+42. April 18, 2026
+   Repo-wide hardening/bug-hunt pass landed targeted safety fixes with focused regression coverage: `guppy_core/tool_runner.py` now defers connector runtime side effects (for example Gmail account switching) until after instance capability permission approval, `ui/launcher/launcher_window.py` now uses instance dispatch (`self`) for mode-readiness and timeout helper calls to reduce brittle class-bound behavior in command flow, and `src/guppy/api/routes_instances.py` now validates connector binding payloads (known connector/provider, action allow/block conflicts, supported action ids, non-empty endpoint filters) before persistence. New unit coverage in `tests/unit/test_tool_runner_metrics.py` and `tests/unit/test_instance_connector_binding_validation.py` keeps these guardrails pinned.
+43. April 18, 2026
+   Follow-on hardening closed three additional risk seams: API runtime degraded-permission fallbacks now fail closed (`src/guppy/api/server_runtime.py`, `src/guppy/api/server_runtime_snapshot.py`, and `src/guppy/api/_server_fragment_bootstrap.py` no longer default to allow when capability policy backends are unavailable), connector endpoint allow/block filters now share wildcard-aware matching semantics in `utils/connector_manager.py` with focused regression coverage in `tests/unit/test_connector_manager.py`, and contributor-facing ownership boundaries now explicitly keep Guppy and `Guppy-pi` on separate development tracks in `CONTRIBUTING.md`.
+44. April 18, 2026
+   A new multi-agent execution tranche was planned and staged for April 19 - May 2 with 12 concrete execution items spanning code hardening, governance validation, runtime resilience, and repo maintenance. The plan includes explicit agent/workstream split, merge checkpoints (`dev-check delta`, `test-default`, `test-smoke`, `release-check`), and a refreshed weekly status plus timeline checkpoint additions for May 2 and May 16.
+45. April 18, 2026
+   Tranche 44 execution items were landed in tandem through multi-agent workstreams and integrated validation: waiver metadata drift reporting is now emitted by `tools/check_new_module_line_cap.py`; release comment-debt guard (`tools/check_release_comment_debt.py`) is wired into `tools/dev_workflow.py release-check`; connector binding request validation now lives in shared `src/guppy/workspace_governance/connector_binding_validation.py` and is consumed by API routes; runtime/snapshot/bootstrap permission fallback behavior is fail-closed and aligned through workspace-governance policy seams; connector endpoint filters now use wildcard-aware parity semantics in `utils/connector_manager.py`; architecture-boundary and wrapper-integrity guards were strengthened with focused test expansion; API route registration parity and deterministic readiness/rate-limit time-control tests were added; and safe JSON/JSONL loader behavior was consolidated via `src/guppy/runtime_application/json_io.py` and adopted in `src/guppy/api/services_ops.py`. Focused tranche test bundle and baseline `dev-check` passed (with documented temporary `GUPPY_ALLOW_CROSS_PROJECT_DIRTY=1` due local `Guppy-pi` dirty state).
 
 ## Current Gaps
 
 1. Agent Tools versus App Mgmt framing is clearer in the UI, but deeper execution flow and enforcement still need to catch up with the split.
-   Library roots are now browsable from the UI, pinned notes and artifacts can be edited or removed in place, and attached Library context now shapes outbound chat requests; the next Library gap is deeper file workflows like broader root selection, better note editing ergonomics, and richer source reuse.
+   Library roots now have inline validation feedback and per-workspace default source pinning is live, but the next Library gap remains deeper file workflows like broader root selection, better note editing ergonomics, and richer source reuse.
 2. Voice lifecycle still needs broader real-device validation across engines, especially preview behavior on more machines.
 3. Route visibility now includes readiness context and light latency evidence, but fuller live status signaling is still pending.
 4. Builder and off-hours flow still need output-cleanup polish, broader template coverage, and repeated stress validation.
@@ -225,6 +286,7 @@ Apply `docs/PRODUCT_FEATURE_FILTER.md` to every tranche before expanding scope. 
 3. Treat `src/guppy/`, `ui/`, and `utils/` as the live-code roots for build guardrails.
 4. Prefer `src/guppy/launcher_application/`, `src/guppy/runtime_application/`, `src/guppy/workspace_governance/`, and `src/guppy/experience_config/` for launcher-facing contracts and normalization behavior.
 5. Record short active tranche notes in this brief instead of creating parallel status markdown files.
+6. Keep Guppy and `Guppy-pi` fully isolated: no Guppy/Guppy Prime agent workflow should modify files under `Guppy-pi/` while working this repo.
 
 ## CI Guardrails
 

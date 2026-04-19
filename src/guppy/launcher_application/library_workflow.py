@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import json
+from pathlib import Path
 
 from src.guppy.launcher_application.library_storage import (
     delete_workspace_library_item,
@@ -9,6 +11,41 @@ from src.guppy.launcher_application.library_storage import (
     update_workspace_library_item,
     upsert_approved_root,
 )
+
+
+_LIBRARY_DEFAULTS_PATH = Path(__file__).resolve().parents[3] / "runtime" / "library_workspace_defaults.json"
+
+
+def _load_workspace_defaults() -> dict[str, str]:
+    try:
+        payload = json.loads(_LIBRARY_DEFAULTS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    result: dict[str, str] = {}
+    for key, value in payload.items():
+        name = str(key or "").strip()
+        title = str(value or "").strip()
+        if name and title:
+            result[name] = title
+    return result
+
+
+def _save_workspace_defaults(defaults: dict[str, str]) -> None:
+    clean = {
+        str(key or "").strip(): str(value or "").strip()
+        for key, value in defaults.items()
+        if str(key or "").strip() and str(value or "").strip()
+    }
+    try:
+        _LIBRARY_DEFAULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _LIBRARY_DEFAULTS_PATH.write_text(
+            json.dumps(clean, ensure_ascii=True, sort_keys=True, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        return
 
 
 def sync_assistant_library_context(assistant_view, library_view, active_items: list[dict[str, str]]) -> None:
@@ -164,6 +201,38 @@ class LibraryWorkflowController:
         self._on_tab_change = on_tab_change
         self._set_daily_activity = set_daily_activity
         self._log_launcher_event = log_launcher_event
+        self._workspace_default_sources: dict[str, str] = _load_workspace_defaults()
+
+    def _active_workspace_name(self) -> str:
+        return str(self._get_active_instance_name() or "guppy-primary").strip() or "guppy-primary"
+
+    def _workspace_default_title(self) -> str:
+        return str(self._workspace_default_sources.get(self._active_workspace_name(), "") or "").strip()
+
+    def _set_workspace_default_title(self, title: str) -> None:
+        workspace = self._active_workspace_name()
+        normalized = str(title or "").strip()
+        if normalized:
+            self._workspace_default_sources[workspace] = normalized
+        elif workspace in self._workspace_default_sources:
+            self._workspace_default_sources.pop(workspace, None)
+        _save_workspace_defaults(self._workspace_default_sources)
+
+    def _prioritize_workspace_default(self, items: list[dict[str, str]]) -> list[dict[str, str]]:
+        default_title = self._workspace_default_title()
+        if not default_title:
+            return items[:3]
+        match = None
+        remainder: list[dict[str, str]] = []
+        for item in items:
+            title = str(item.get("title", "") or "").strip()
+            if match is None and title == default_title:
+                match = item
+                continue
+            remainder.append(item)
+        if match is None:
+            return items[:3]
+        return [match, *remainder][:3]
 
     def sync(self, library_view=None) -> None:
         sync_assistant_library_context(
@@ -171,6 +240,8 @@ class LibraryWorkflowController:
             library_view if library_view is not None else self._get_library_view(),
             self._get_active_items(),
         )
+        if hasattr(self._assistant_view, "set_default_context_source"):
+            self._assistant_view.set_default_context_source(self._workspace_default_title())
 
     def handle_context_requested(self, title: str, item_path: str, item_kind: str, prompt: str) -> None:
         title_text = str(title or "").strip() or "Selected library item"
@@ -187,6 +258,7 @@ class LibraryWorkflowController:
                 if str(item.get("title", "")).strip() != title_text
             ],
         ][:3]
+        next_items = self._prioritize_workspace_default(next_items)
         self._set_active_items(next_items)
         if hasattr(self._assistant_view, "set_active_context_items"):
             self._assistant_view.set_active_context_items(next_items)
@@ -220,6 +292,8 @@ class LibraryWorkflowController:
             for item in self._get_active_items()
             if str(item.get("title", "")).strip() != title_text
         ]
+        if self._workspace_default_title() == title_text:
+            self._set_workspace_default_title("")
         self._set_active_items(next_items)
         self.sync()
         self._status_panel.append_syslog(f"library context removed: {title_text}")
@@ -249,12 +323,74 @@ class LibraryWorkflowController:
         self._set_daily_activity(f"Library focus set to: {title_text}")
         self._log_launcher_event("library_context_focused", title=title_text)
 
+    def handle_default_source_requested(self, title: str) -> None:
+        title_text = str(title or "").strip()
+        if not title_text:
+            self._status_panel.append_syslog("default source rejected: missing title")
+            self._log_launcher_event("library_default_source_rejected", reason="missing_title")
+            return
+        active_titles = {
+            str(item.get("title", "") or "").strip()
+            for item in self._get_active_items()
+            if isinstance(item, dict)
+        }
+        if title_text not in active_titles:
+            self._status_panel.append_syslog(f"default source rejected: not attached ({title_text})")
+            self._log_launcher_event(
+                "library_default_source_rejected",
+                reason="title_not_attached",
+                title=title_text,
+            )
+            return
+        self._set_workspace_default_title(title_text)
+        next_items = self._prioritize_workspace_default(self._get_active_items())
+        self._set_active_items(next_items)
+        self.sync()
+        self._assistant_view.set_status("Default source pinned")
+        if hasattr(self._assistant_view, "set_background_event"):
+            self._assistant_view.set_background_event(f"Default source pinned for this workspace: {title_text}")
+        if hasattr(self._assistant_view, "set_default_context_source"):
+            self._assistant_view.set_default_context_source(title_text)
+        self._status_panel.append_syslog(f"default source pinned: {title_text}")
+        self._set_daily_activity(f"Default source pinned: {title_text}")
+        self._log_launcher_event("library_default_source_pinned", title=title_text)
+
     def handle_root_requested(self, root_path: str, label: str) -> None:
-        saved = upsert_approved_root(root_path, label=label, source="library_ui", enabled=True)
+        library_view = self._get_library_view()
+        raw_path = str(root_path or "").strip()
+        if not raw_path:
+            self._status_panel.append_syslog("approved root rejected: missing path")
+            self._set_daily_activity("Library root rejected: missing path")
+            self._log_launcher_event("library_root_rejected", reason="missing_path")
+            if library_view is not None and hasattr(library_view, "set_root_feedback"):
+                library_view.set_root_feedback("Root rejected: missing path.", is_error=True)
+            return
+        candidate = Path(raw_path).expanduser()
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            self._status_panel.append_syslog("approved root rejected: unreadable path")
+            self._set_daily_activity("Library root rejected: unreadable path")
+            self._log_launcher_event("library_root_rejected", reason="unreadable_path", root_path=raw_path)
+            if library_view is not None and hasattr(library_view, "set_root_feedback"):
+                library_view.set_root_feedback("Root rejected: unreadable path.", is_error=True)
+            return
+        if not resolved.exists() or not resolved.is_dir():
+            self._status_panel.append_syslog("approved root rejected: folder not found")
+            self._set_daily_activity("Library root rejected: folder not found")
+            self._log_launcher_event("library_root_rejected", reason="missing_folder", root_path=str(resolved))
+            if library_view is not None and hasattr(library_view, "set_root_feedback"):
+                library_view.set_root_feedback("Root rejected: folder not found.", is_error=True)
+            return
+        normalized_path = str(resolved)
+        root_label = str(label or "").strip() or (resolved.name.strip() if resolved.name else "Approved root")
+        saved = upsert_approved_root(normalized_path, label=root_label, source="library_ui", enabled=True)
         self._refresh_library_surface()
         self._status_panel.append_syslog(f"approved root saved: {saved['label']}")
         self._set_daily_activity(f"Library root saved: {saved['label']}")
         self._log_launcher_event("library_root_saved", label=saved["label"], root_path=saved["root_path"])
+        if library_view is not None and hasattr(library_view, "set_root_feedback"):
+            library_view.set_root_feedback(f"Approved root saved: {saved['label']}", is_error=False)
 
     def handle_note_requested(self, title: str, summary: str) -> None:
         saved = save_workspace_library_item(
@@ -324,6 +460,8 @@ class LibraryWorkflowController:
         if not delete_workspace_library_item(item_id):
             self._status_panel.append_syslog(f"library delete failed: {title_text}")
             return
+        if self._workspace_default_title() == title_text:
+            self._set_workspace_default_title("")
         next_items = [
             item
             for item in self._get_active_items()
@@ -418,6 +556,7 @@ class LibraryWorkflowController:
                 if str(existing.get("title", "")).strip() != item["title"]
             ],
         ][:3]
+        next_items = self._prioritize_workspace_default(next_items)
         self._set_active_items(next_items)
         self.sync()
         self._assistant_view.set_status("Output attached")

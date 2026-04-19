@@ -40,6 +40,9 @@ _FALLBACK_RUNTIME_SETTINGS: dict[str, Any] = {
     "lemonade_teach_model": "",
     "lemonade_code_model": "",
     "lemonade_vault_model": "",
+    "local_main_model": "",
+    "local_sub_model_a": "",
+    "local_sub_model_b": "",
 }
 
 try:

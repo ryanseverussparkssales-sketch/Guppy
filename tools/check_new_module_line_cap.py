@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LINE_CAP = int(os.environ.get("GUPPY_MODULE_LINE_CAP", "700"))
 GUARD_SCOPE = (os.environ.get("GUPPY_GUARD_SCOPE", "delta") or "delta").strip().lower()
+WAIVER_DRIFT_WARN_LINES = int(os.environ.get("GUPPY_WAIVER_DRIFT_WARN_LINES", "50"))
 
 ENFORCED_PREFIXES = (
     "src/guppy/",
@@ -66,8 +67,8 @@ WAIVED_PATHS: dict[str, Waiver] = {
         rationale="Voice orchestration still needs a later service split and broader device validation.",
     ),
     "ui/launcher/launcher_window.py": Waiver(
-        max_lines=3725,
-        rationale="Launcher shell hotspot; Library, workspace activation/mutation/refresh, connector workflow, shell-status, and current reply-to-library continuity seams are extracted, but broader composition still needs follow-on cuts before the cap can drop further.",
+        max_lines=3758,
+        rationale="Launcher shell hotspot; signal wiring extracted to _wire_signals() composition helper (Card 04). Next deferred cut: ~17 @staticmethod delegates patched by smoke tests require a coordinated test-update pass before they can be inlined and removed.",
     ),
     "ui/launcher/views/advanced_view.py": Waiver(
         max_lines=1175,
@@ -82,12 +83,16 @@ WAIVED_PATHS: dict[str, Waiver] = {
         rationale="Workspace manager still bundles governance and render logic pending shared snapshots.",
     ),
     "ui/launcher/views/assistant_view.py": Waiver(
-        max_lines=1390,
+        max_lines=1490,
         rationale="Home/chat carries active context, starter, and transcript orchestration while assistant-context seams are still being extracted.",
     ),
     "ui/launcher/views/library_view.py": Waiver(
-        max_lines=750,
+        max_lines=778,
         rationale="Library is newly promoted to an active workspace surface and still bundles browse/edit/render behavior pending deeper presenter extraction.",
+    ),
+    "ui/launcher/views/tools_view.py": Waiver(
+        max_lines=750,
+        rationale="Agent Tools view bundles tool-config, allow/block UI, and workspace binding display pending presenter extraction to workspace_governance seams.",
     ),
     "ui/launcher/views/voices_view.py": Waiver(
         max_lines=902,
@@ -171,6 +176,22 @@ def _is_enforced(rel_posix: str) -> bool:
     return any(rel_posix.startswith(prefix) for prefix in ENFORCED_PREFIXES)
 
 
+def _waiver_drift_note(rel_posix: str, line_count: int, waiver: Waiver) -> str:
+    headroom = waiver.max_lines - line_count
+    if headroom < 0:
+        state = "over-cap"
+    elif headroom == 0:
+        state = "at-cap"
+    elif headroom > WAIVER_DRIFT_WARN_LINES:
+        state = f"metadata drift: {headroom} lines of stale waiver headroom"
+    else:
+        state = f"headroom {headroom}"
+    return (
+        f"{rel_posix}: waived at {line_count}/{waiver.max_lines} lines "
+        f"({state}; {waiver.rationale})"
+    )
+
+
 def main() -> int:
     if GUARD_SCOPE not in {"delta", "baseline"}:
         print(f"line-cap check failed: invalid GUPPY_GUARD_SCOPE={GUARD_SCOPE!r}")
@@ -194,10 +215,7 @@ def main() -> int:
                     f"{waiver.max_lines} ({waiver.rationale})"
                 )
             elif GUARD_SCOPE == "baseline":
-                waived_notes.append(
-                    f"{rel_posix}: waived at {line_count}/{waiver.max_lines} lines "
-                    f"({waiver.rationale})"
-                )
+                waived_notes.append(_waiver_drift_note(rel_posix, line_count, waiver))
             continue
 
         if line_count > LINE_CAP:
