@@ -84,6 +84,8 @@ from src.guppy.launcher_application import (
     windows_ops_guidance,
     windows_service_snapshot_changes,
     workspace_default_purpose,
+    workspace_first_run_recipe,
+    workspace_onboarding_ready_message,
     workspace_role_label,
     write_windows_release_receipt,
     write_windows_release_summary,
@@ -118,14 +120,20 @@ from src.guppy.workspace_governance import (
     set_instance_tool_permission_policy,
 )
 
-try:
-    from utils import secret_store as _secret_store
-    _SECRET_STORE_AVAILABLE = True
-except Exception:
-    _secret_store = None  # type: ignore[assignment]
-    _SECRET_STORE_AVAILABLE = False
+connector_inventory = fetch_connector_inventory
 
-from utils.safe_io import append_jsonl, read_json_dict, read_jsonl_tail, write_json_atomic
+from src.guppy.launcher_application.storage_io import (
+    append_instance_log,
+    append_jsonl,
+    get_secret,
+    instance_logger_backend_available,
+    read_instance_log_tail,
+    read_json_dict,
+    read_jsonl_tail,
+    secret_store_client,
+    secret_store_backend_available,
+    write_json_atomic,
+)
 
 from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import (
@@ -157,18 +165,9 @@ from .views import (
 )
 
 _PERSONALIZATION_BOOTSTRAP_AVAILABLE = personalization_backend_available()
-
-try:
-    from utils.instance_logger import append_instance_log, read_instance_log_tail
-    _INSTANCE_LOGGER_AVAILABLE = True
-except Exception:
-    _INSTANCE_LOGGER_AVAILABLE = False
-
-    def append_instance_log(*_args, **_kwargs):
-        return None
-
-    def read_instance_log_tail(*_args, **_kwargs):
-        return []
+_INSTANCE_LOGGER_AVAILABLE = instance_logger_backend_available()
+_SECRET_STORE_AVAILABLE = secret_store_backend_available()
+_secret_store = secret_store_client()
 
 _INSTANCE_GOVERNANCE_BACKEND = instance_policy_backend_available()
 
@@ -188,12 +187,14 @@ _AUTOMATION_TEST_VALIDATION_COMMAND = (
     ".venv\\Scripts\\python.exe -m pytest tests/unit/test_offhours_builder.py tests/unit/test_instance_controls.py -q"
 )
 _AUTOMATION_REPORT_PATH = _RUNTIME / "offhours_builder_report.json"
+_SETTINGS_VIEW_INDEX = 4
+_ADVANCED_VIEW_INDEX = 5
 _START_DESTINATION_TO_TAB = {
     "home": 0,
     "library": 2,
     "tools": 3,
-    "appmgmt": 4,
-    "automation-test": 4,
+    "appmgmt": _ADVANCED_VIEW_INDEX,
+    "automation-test": _ADVANCED_VIEW_INDEX,
 }
 
 
@@ -275,6 +276,7 @@ class LauncherWindow(QMainWindow):
         self._mic_capture_active = False
         self._notification_badge_mtime = 0.0
         self._recovery_outcome_mtime = 0.0
+        self._home_drawer_open = False
         self._log_launcher_event("startup_phase", phase="window_init_enter")
 
         self._build_ui()
@@ -324,9 +326,9 @@ class LauncherWindow(QMainWindow):
         self._instance_manager_view = InstanceManagerView(self)
         self._library_view    = LibraryView(self)
         self._tools_view      = ToolsView(self)
+        self._settings_view   = SettingsView(self)
         self._advanced_view   = AdvancedView(self)
         self._my_pc_view      = MyPCView(self)
-        self._settings_view   = SettingsView(self)
         self._local_llm_view  = LocalLLMView(self)
         self._models_view     = ModelsView(self)
         self._runtime_view    = RuntimeRoutingView(self)
@@ -338,6 +340,7 @@ class LauncherWindow(QMainWindow):
             self._instance_manager_view,
             self._library_view,
             self._tools_view,
+            self._settings_view,
             self._advanced_view,
             self._my_pc_view,
             self._local_llm_view,
@@ -350,10 +353,10 @@ class LauncherWindow(QMainWindow):
         body.addWidget(self._stack, stretch=1)
 
         # Thin vertical divider
-        sdiv2 = QFrame()
-        sdiv2.setFixedWidth(1)
-        sdiv2.setStyleSheet(f"background: {T.BORDER};")
-        body.addWidget(sdiv2)
+        self._status_divider = QFrame()
+        self._status_divider.setFixedWidth(1)
+        self._status_divider.setStyleSheet(f"background: {T.BORDER};")
+        body.addWidget(self._status_divider)
 
         self._status_panel = StatusPanel(self)
         body.addWidget(self._status_panel)
@@ -434,6 +437,9 @@ class LauncherWindow(QMainWindow):
         self._status_panel.agent_init_requested.connect(self._on_agent_init_requested)
         self._assistant_view.set_session_id(self._chat_session_id)
         self._topbar.set_launcher_summary("AUTO / GUPPY / LIGHT [EDIT]")
+        self._sidebar.set_collapsed(True)
+        self._topbar.set_sidebar_collapsed(True)
+        self._set_status_panel_visible(False)
         self._bootstrap_instance_switcher()
         self._refresh_personalization_state()
         self._sync_automation_test_state()
@@ -885,23 +891,47 @@ class LauncherWindow(QMainWindow):
         self._stack.setCurrentIndex(index)
         self._topbar.set_active_tab(index)
         self._sidebar.set_active(index)
-        if index == 4:
+        if index == _ADVANCED_VIEW_INDEX:
             self._sync_automation_test_state()
+        if index == 0 and not self._sidebar.is_collapsed():
+            self._sidebar.set_collapsed(True)
+            self._topbar.set_sidebar_collapsed(True)
+        self._set_status_panel_visible(index != 0 or self._home_drawer_open)
 
     def _apply_start_destination(self) -> None:
         target = self._start_destination
         if target not in _START_DESTINATION_TO_TAB:
             return
-        self._on_tab_change(_START_DESTINATION_TO_TAB[target])
+        target_index = _START_DESTINATION_TO_TAB[target]
+        if target == "automation-test" and not hasattr(self, "_stack"):
+            target_index = 3
+        self._on_tab_change(target_index)
         if target == "automation-test":
             note = (
                 "Test flow ready: use Settings & System to verify readiness, queue one safe check, review it, approve it, and run validation."
             )
             self._advanced_view.focus_automation_test(note=note)
             self._assistant_view.set_background_event(note)
-            self._set_daily_activity("Test flow opened Settings & System")
+            self._set_daily_activity("Test flow opened Setup & Health / Settings & System")
             self._status_panel.append_syslog("automation test start intent opened Settings & System")
         self._log_launcher_event("start_destination_applied", destination=target)
+
+    def _set_status_panel_visible(self, visible: bool) -> None:
+        self._status_divider.setVisible(visible)
+        self._status_panel.setVisible(visible)
+        self._topbar.set_drawer_open(visible)
+
+    def _toggle_status_panel(self) -> None:
+        if self._stack.currentIndex() == 0:
+            self._home_drawer_open = not self._home_drawer_open
+            self._set_status_panel_visible(self._home_drawer_open)
+            return
+        self._set_status_panel_visible(not self._status_panel.isVisible())
+
+    def _toggle_sidebar(self) -> None:
+        collapsed = not self._sidebar.is_collapsed()
+        self._sidebar.set_collapsed(collapsed)
+        self._topbar.set_sidebar_collapsed(collapsed)
 
     def _instances_config_path(self) -> Path:
         return _CONFIG / "instances.json"
@@ -1211,7 +1241,7 @@ class LauncherWindow(QMainWindow):
             self,
             schedule_single_shot=QTimer.singleShot,
             monotonic=time.monotonic,
-            fetch_connector_inventory=fetch_connector_inventory,
+            fetch_connector_inventory=connector_inventory,
         )
 
     def _snapshot_active_instance_history(self) -> None:
@@ -1365,6 +1395,26 @@ class LauncherWindow(QMainWindow):
     @staticmethod
     def _summarize_release_dry_run_report(report: dict[str, object]) -> dict[str, object]:
         return summarize_release_dry_run_report(report)
+
+    @staticmethod
+    def _route_evidence_summary(payload: dict[str, object]) -> str:
+        return route_evidence_summary(payload, runtime_path=_RUNTIME)
+
+    @staticmethod
+    def _workspace_role_label(workspace_type: str) -> str:
+        normalized = str(workspace_type or "user_instance").strip().lower() or "user_instance"
+        return {
+            "builder_instance": "Builder collaborator workspace",
+            "admin_instance": "Operations workspace",
+        }.get(normalized, workspace_role_label(workspace_type))
+
+    @staticmethod
+    def _workspace_first_run_recipe(workspace_type: str) -> str:
+        return workspace_first_run_recipe(workspace_type)
+
+    @staticmethod
+    def _workspace_onboarding_ready_message(name: str, workspace_type: str) -> str:
+        return workspace_onboarding_ready_message(name, workspace_type)
 
     def _release_dry_run_gate_details(self) -> dict[str, object]:
         return release_dry_run_gate_details(_RUNTIME)
@@ -2223,10 +2273,13 @@ class LauncherWindow(QMainWindow):
         stress_report_path: str = "",
         recent_events: str = "",
     ) -> dict[str, str]:
-        from src.guppy.launcher_application.builder_workflow import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, build_builder_report
+        from src.guppy.launcher_application.builder_workflow import build_builder_report, metrics_path, queue_path, results_path
 
-        report = build_builder_report(queue_path=QUEUE_PATH, results_path=RESULTS_PATH, metrics_path=METRICS_PATH)
-        queue_payload = read_json_dict(QUEUE_PATH)
+        queue_file = queue_path()
+        results_file = results_path()
+        metrics_file = metrics_path()
+        report = build_builder_report(queue_path=queue_file, results_path=results_file, metrics_path=metrics_file)
+        queue_payload = read_json_dict(queue_file)
         tasks = [
             item for item in queue_payload.get("tasks", [])
             if isinstance(item, dict)
@@ -2370,9 +2423,9 @@ class LauncherWindow(QMainWindow):
         return task
 
     def _write_automation_report(self) -> Path:
-        from src.guppy.launcher_application.builder_workflow import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, build_builder_report
+        from src.guppy.launcher_application.builder_workflow import build_builder_report, metrics_path, queue_path, results_path
 
-        report = build_builder_report(queue_path=QUEUE_PATH, results_path=RESULTS_PATH, metrics_path=METRICS_PATH)
+        report = build_builder_report(queue_path=queue_path(), results_path=results_path(), metrics_path=metrics_path())
         payload = {
             **report,
             "active_workspace": self._active_instance_name,
@@ -2384,9 +2437,12 @@ class LauncherWindow(QMainWindow):
         return _AUTOMATION_REPORT_PATH
 
     def _approve_latest_builder_task(self) -> dict[str, object]:
-        from src.guppy.launcher_application.builder_workflow import QUEUE_PATH, RESULTS_PATH, METRICS_PATH, approve_builder_task
+        from src.guppy.launcher_application.builder_workflow import approve_builder_task, metrics_path, queue_path, results_path
 
-        queue_payload = read_json_dict(QUEUE_PATH)
+        queue_file = queue_path()
+        results_file = results_path()
+        metrics_file = metrics_path()
+        queue_payload = read_json_dict(queue_file)
         tasks = [
             item for item in queue_payload.get("tasks", [])
             if isinstance(item, dict)
@@ -2403,9 +2459,9 @@ class LauncherWindow(QMainWindow):
             raise ValueError("No staged builder task is awaiting approval.")
         return approve_builder_task(
             str(pending_task.get("id", "")).strip(),
-            queue_path=QUEUE_PATH,
-            results_path=RESULTS_PATH,
-            metrics_path=METRICS_PATH,
+            queue_path=queue_file,
+            results_path=results_file,
+            metrics_path=metrics_file,
             approved_by=self._active_instance_name or "launcher",
         )
 
@@ -2598,7 +2654,10 @@ class LauncherWindow(QMainWindow):
         # Prefer OS credential store (same account, no file exposure).
         if _SECRET_STORE_AVAILABLE and _secret_store is not None:
             try:
-                ks_token = _secret_store.get_secret("repair_token")
+                if hasattr(_secret_store, "get_secret"):
+                    ks_token = _secret_store.get_secret("repair_token")
+                else:
+                    ks_token = get_secret("repair_token")
                 if ks_token and launcher_app.is_valid_repair_token(ks_token):
                     return ks_token
             except Exception:
@@ -3569,8 +3628,14 @@ class LauncherWindow(QMainWindow):
 
     def _on_quick_action(self, action: str) -> None:
         target = (action or "").strip().lower()
+        if target == "toggle_sidebar":
+            self._toggle_sidebar()
+            return
+        if target == "toggle_drawer":
+            self._toggle_status_panel()
+            return
         if target == "notifications":
-            self._on_tab_change(4)
+            self._on_tab_change(_ADVANCED_VIEW_INDEX)
             self._advanced_view.focus_operator_logs(
                 "WARN",
                 note="Top bar notifications opened launcher warnings and recovery events.",
@@ -3580,7 +3645,7 @@ class LauncherWindow(QMainWindow):
             self._log_launcher_event("quick_action", action="notifications")
             return
         if target == "terminal":
-            self._on_tab_change(4)
+            self._on_tab_change(_ADVANCED_VIEW_INDEX)
             note = "Top bar terminal opened operator logs"
             if self._last_command:
                 note += f". Last command: {self._last_command}"

@@ -24,6 +24,7 @@ if str(_ROOT) not in sys.path:
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
+from src.guppy.apps.process_guard import acquire_process_guard
 from ui.launcher import LauncherWindow
 from ui.launcher.components import create_guppy_fish_icon
 
@@ -163,30 +164,59 @@ def _start_hub() -> None:
 
 
 def main() -> int:
+    lock = acquire_process_guard(
+        _ROOT / "runtime" / "launcher.lock",
+        process_markers=("guppy_launcher.py", "src.guppy.apps.launcher_app", "src\\guppy\\apps\\launcher_app"),
+    )
+    if lock is None:
+        logger.info("Launcher already running - skipping duplicate start")
+        _append_launcher_event("startup_phase", phase="launcher_duplicate_instance")
+        return 0
+
     _append_launcher_event("startup_phase", phase="launcher_enter")
     startup_budget_ms = int(os.environ.get("GUPPY_STARTUP_PHASE_WARN_MS", "3000"))
+    try:
+        app = QApplication(sys.argv)
+        app.setApplicationName("Guppy AI")
+        app.setApplicationDisplayName("COMMAND_INTERFACE")
+        app.setApplicationVersion("5.0")
+        app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+        app.setWindowIcon(create_guppy_fish_icon())
 
-    app = QApplication(sys.argv)
-    app.setApplicationName("Guppy AI")
-    app.setApplicationDisplayName("COMMAND_INTERFACE")
-    app.setApplicationVersion("5.0")
-    app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
-    app.setWindowIcon(create_guppy_fish_icon())
+        window = LauncherWindow()
+        window.setWindowIcon(create_guppy_fish_icon())
+        window.show()
+        _append_launcher_event("startup_phase", phase="window_shown")
 
-    window = LauncherWindow()
-    window.setWindowIcon(create_guppy_fish_icon())
-    window.show()
-    _append_launcher_event("startup_phase", phase="window_shown")
+        def _bootstrap_services() -> None:
+            t0 = time.monotonic()
+            _append_launcher_event("startup_phase", phase="bootstrap_services_begin")
+            skip_all = os.environ.get("GUPPY_SKIP_ALL_BOOTSTRAP", "0").strip().lower() in {
+                "1", "true", "yes", "on"
+            }
+            if skip_all:
+                logger.info("All background bootstrap skipped by GUPPY_SKIP_ALL_BOOTSTRAP")
+                _append_launcher_event("startup_phase", phase="bootstrap_services_skipped_all")
+                dur_ms = int((time.monotonic() - t0) * 1000)
+                _append_launcher_event(
+                    "startup_phase_duration",
+                    phase="bootstrap_services",
+                    duration_ms=dur_ms,
+                    budget_ms=startup_budget_ms,
+                    over_budget=dur_ms > startup_budget_ms,
+                )
+                return
 
-    def _bootstrap_services() -> None:
-        t0 = time.monotonic()
-        _append_launcher_event("startup_phase", phase="bootstrap_services_begin")
-        skip_all = os.environ.get("GUPPY_SKIP_ALL_BOOTSTRAP", "0").strip().lower() in {
-            "1", "true", "yes", "on"
-        }
-        if skip_all:
-            logger.info("All background bootstrap skipped by GUPPY_SKIP_ALL_BOOTSTRAP")
-            _append_launcher_event("startup_phase", phase="bootstrap_services_skipped_all")
+            _start_api()
+            skip_hub = os.environ.get("GUPPY_SKIP_HUB_AUTOSTART", "0").strip().lower() in {
+                "1", "true", "yes", "on"
+            }
+            if skip_hub:
+                logger.info("Hub autostart skipped by GUPPY_SKIP_HUB_AUTOSTART")
+                _append_launcher_event("startup_phase", phase="hub_autostart_skipped")
+            else:
+                _start_hub()
+            _append_launcher_event("startup_phase", phase="bootstrap_services_complete")
             dur_ms = int((time.monotonic() - t0) * 1000)
             _append_launcher_event(
                 "startup_phase_duration",
@@ -195,37 +225,19 @@ def main() -> int:
                 budget_ms=startup_budget_ms,
                 over_budget=dur_ms > startup_budget_ms,
             )
-            return
+            if dur_ms > startup_budget_ms:
+                _append_launcher_event(
+                    "startup_phase_over_budget",
+                    phase="bootstrap_services",
+                    duration_ms=dur_ms,
+                    budget_ms=startup_budget_ms,
+                )
 
-        _start_api()
-        skip_hub = os.environ.get("GUPPY_SKIP_HUB_AUTOSTART", "0").strip().lower() in {
-            "1", "true", "yes", "on"
-        }
-        if skip_hub:
-            logger.info("Hub autostart skipped by GUPPY_SKIP_HUB_AUTOSTART")
-            _append_launcher_event("startup_phase", phase="hub_autostart_skipped")
-        else:
-            _start_hub()
-        _append_launcher_event("startup_phase", phase="bootstrap_services_complete")
-        dur_ms = int((time.monotonic() - t0) * 1000)
-        _append_launcher_event(
-            "startup_phase_duration",
-            phase="bootstrap_services",
-            duration_ms=dur_ms,
-            budget_ms=startup_budget_ms,
-            over_budget=dur_ms > startup_budget_ms,
-        )
-        if dur_ms > startup_budget_ms:
-            _append_launcher_event(
-                "startup_phase_over_budget",
-                phase="bootstrap_services",
-                duration_ms=dur_ms,
-                budget_ms=startup_budget_ms,
-            )
+        threading.Thread(target=_bootstrap_services, daemon=True).start()
 
-    threading.Thread(target=_bootstrap_services, daemon=True).start()
-
-    return app.exec()
+        return app.exec()
+    finally:
+        lock.release()
 
 
 if __name__ == "__main__":

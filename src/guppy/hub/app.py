@@ -9,6 +9,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
+from src.guppy.apps.process_guard import acquire_process_guard
 from src.guppy.hub.manager import HubManager
 from src.guppy.hub.runtime_checks import (
     check_api_server,
@@ -139,6 +140,14 @@ def _tail_session_events(limit: int = 200) -> list[dict]:
 def main() -> int:
     logger.info("Omnissiah starting...")
 
+    lock = acquire_process_guard(
+        _RUNTIME / "hub.lock",
+        process_markers=("guppy_hub.py", "src.guppy.hub.app", "src\\guppy\\hub\\app"),
+    )
+    if lock is None:
+        logger.info("Omnissiah already running - exiting duplicate hub start")
+        return 0
+
     pid_path = _RUNTIME / "hub.pid"
     try:
         _RUNTIME.mkdir(parents=True, exist_ok=True)
@@ -203,3 +212,4 @@ def main() -> int:
             pid_path.unlink(missing_ok=True)
         except Exception:
             pass
+        lock.release()

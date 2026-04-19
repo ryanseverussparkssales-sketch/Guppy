@@ -105,3 +105,11 @@ class LauncherAppBootstrapTests(unittest.TestCase):
                 self.assertTrue(launcher_app._hub_running())
 
             self.assertTrue(pid_path.exists())
+
+    def test_main_exits_when_launcher_instance_is_already_running(self):
+        with patch.object(launcher_app, "acquire_process_guard", return_value=None), patch.object(
+            launcher_app, "QApplication"
+        ) as app_cls:
+            self.assertEqual(launcher_app.main(), 0)
+
+        app_cls.assert_not_called()

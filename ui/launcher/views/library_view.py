@@ -51,7 +51,6 @@ class LibraryView(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -220,7 +219,7 @@ class LibraryView(QWidget):
         self._roots_header = _mono("APPROVED ROOTS", T.PRIMARY, T.FS_TINY, True)
         layout.addWidget(self._roots_header)
         self._roots_hint = _body(
-            "Choose which folders Guppy may browse. Nothing outside approved roots is scanned.",
+            "Choose which folders Guppy may browse. Nothing outside approved roots is scanned, and Library only reuses files from these approved locations.",
             color=T.DIM,
         )
         layout.addWidget(self._roots_hint)
@@ -274,7 +273,7 @@ class LibraryView(QWidget):
         self._recent_header = _mono("READY TO USE IN CHAT", T.PRIMARY, T.FS_TINY, True)
         layout.addWidget(self._recent_header)
         self._recent_hint = _body(
-            "Recent files and Library saves show up here first. USE IN CHAT attaches one as source context for the next reply.",
+            "Recent files and Library saves show up here first. USE IN CHAT attaches one as source context for the next reply and sends it back to Home.",
             color=T.DIM,
         )
         layout.addWidget(self._recent_hint)
@@ -423,7 +422,7 @@ class LibraryView(QWidget):
         if not roots:
             self._roots_layout.addWidget(
                 _body(
-                    "No approved roots match this search yet." if self._search_query else "No approved roots yet. Guppy stays folder-scoped by design, so new locations should be added explicitly.",
+                    "No approved roots match this search yet." if self._search_query else "No approved roots yet. Add one folder first so Library has a safe place to browse and reuse files from.",
                     color=T.DIM,
                 )
             )
@@ -477,7 +476,7 @@ class LibraryView(QWidget):
         if not cards:
             self._browse_layout.addWidget(
                 _body(
-                    "No browsable files match this search for the selected root." if self._search_query else "No browsable files yet for the current root. Pick a different approved root or add files to this folder, then use USE IN CHAT from here.",
+                    "No browsable files match this search for the selected root." if self._search_query else "No browsable files yet for the current root. Pick a different approved root or add files here, then use USE IN CHAT to send one to Home.",
                     color=T.DIM,
                 )
             )
@@ -513,7 +512,7 @@ class LibraryView(QWidget):
             layout.addLayout(top)
             layout.addWidget(_body(title, color=T.INK, size=T.FS_LABEL))
             layout.addWidget(_body(detail, color=T.DIM))
-            layout.addWidget(_body("USE IN CHAT makes this the source context for your next reply.", color=T.TERTIARY))
+            layout.addWidget(_body("USE IN CHAT sends this to Home as the source context for your next reply.", color=T.TERTIARY))
             self._browse_layout.addWidget(card)
 
     def _rebuild_recent_cards(self) -> None:
@@ -526,7 +525,7 @@ class LibraryView(QWidget):
         if not cards:
             self._recent_layout.addWidget(
                 _body(
-                    "No recent Library items match this search." if self._search_query else "Recent files, study notes, and coding artifacts from approved roots will show up here once Guppy has something useful to reuse in chat.",
+                    "No recent Library items match this search." if self._search_query else "Recent files, study notes, and coding artifacts from approved roots will show up here after you browse, save, or reuse something from Library.",
                     color=T.DIM,
                 )
             )
@@ -569,7 +568,7 @@ class LibraryView(QWidget):
             )
             layout.addWidget(title_lbl)
             layout.addWidget(_body(detail, color=T.DIM))
-            layout.addWidget(_body("USE IN CHAT keeps this available as source context on Home.", color=T.TERTIARY))
+            layout.addWidget(_body("USE IN CHAT keeps this available on Home as source context for the next reply.", color=T.TERTIARY))
             self._recent_layout.addWidget(card)
 
     def _rebuild_saved_cards(self) -> None:
@@ -587,7 +586,7 @@ class LibraryView(QWidget):
         if not cards:
             self._saved_layout.addWidget(
                 _body(
-                    "No pinned notes or artifacts match this search." if self._search_query else "Pinned notes and saved artifacts stay here until you edit, reuse, or remove them.",
+                    "No pinned notes or artifacts match this search." if self._search_query else "Pinned notes and saved artifacts stay here until you edit them, send them to Home with USE IN CHAT, or remove them.",
                     color=T.DIM,
                 )
             )

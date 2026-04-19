@@ -80,18 +80,18 @@ class StatusPanel(QFrame):
         )
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(14, 18, 14, 12)
-        outer.setSpacing(12)
+        outer.setContentsMargins(10, 14, 10, 10)
+        outer.setSpacing(10)
 
         title_row = QHBoxLayout()
         title = QLabel("WORKSPACE")
         title.setStyleSheet(
             f"color: {T.INK}; font-family: '{T.FF_HEAD}';"
-            f"font-size: {T.FS_TITLE + 1}pt; font-weight: bold;"
+            f"font-size: {T.FS_TITLE}pt; font-weight: bold;"
         )
         title_row.addWidget(title)
         title_row.addStretch()
-        self._extras_btn = QPushButton("DETAILS")
+        self._extras_btn = QPushButton("SHOW MORE")
         self._extras_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._extras_btn.setStyleSheet(
             f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
@@ -102,7 +102,7 @@ class StatusPanel(QFrame):
         title_row.addWidget(self._extras_btn)
         outer.addLayout(title_row)
 
-        self._workspace_lbl = _mono("WORKSPACE / GUPPY-PRIMARY", T.TEXT, T.FS_TINY, True)
+        self._workspace_lbl = _mono("GUPPY-PRIMARY / DAILY", T.TEXT, T.FS_TINY, True)
         self._tray_status_lbl = _mono("READY", T.GREEN, T.FS_TINY, True)
         self._activity_lbl = _mono("Latest: Workspace ready", T.DIM, T.FS_TINY)
         self._activity_lbl.setWordWrap(True)
@@ -123,9 +123,9 @@ class StatusPanel(QFrame):
             "}"
         )
         tools_layout = QVBoxLayout(tools_frame)
-        tools_layout.setContentsMargins(12, 12, 12, 10)
-        tools_layout.setSpacing(8)
-        tools_layout.addWidget(_mono("READY NOW", T.PRIMARY, T.FS_TINY, True))
+        tools_layout.setContentsMargins(10, 10, 10, 8)
+        tools_layout.setSpacing(6)
+        tools_layout.addWidget(_mono("UTILITIES", T.PRIMARY, T.FS_TINY, True))
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -133,7 +133,7 @@ class StatusPanel(QFrame):
         grid.setVerticalSpacing(8)
         for index, (tool_key, short_label, tooltip) in enumerate(_PRIMARY_TRAY_TOOLS):
             btn = QPushButton(short_label)
-            btn.setFixedSize(52, 44)
+            btn.setFixedSize(44, 38)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(tooltip)
             btn.setStyleSheet(self._tool_button_style(True))
@@ -143,7 +143,7 @@ class StatusPanel(QFrame):
         tools_layout.addLayout(grid)
 
         self._tool_hint_lbl = _mono(
-            "Start with files, screenshots, quick questions, or safe debug details.",
+            "Files, screenshots, quick questions, and debug stay here.",
             T.DIM,
             T.FS_TINY,
         )
@@ -166,8 +166,8 @@ class StatusPanel(QFrame):
             "}"
         )
         spaces_layout = QVBoxLayout(spaces_frame)
-        spaces_layout.setContentsMargins(12, 12, 12, 10)
-        spaces_layout.setSpacing(8)
+        spaces_layout.setContentsMargins(10, 10, 10, 8)
+        spaces_layout.setSpacing(6)
 
         spaces_head = QHBoxLayout()
         spaces_head.addWidget(_mono("MORE ACTIONS", T.PRIMARY, T.FS_TINY, True))
@@ -176,7 +176,7 @@ class StatusPanel(QFrame):
         spaces_layout.addLayout(spaces_head)
 
         self._spaces_summary_lbl = _mono(
-            "Open the heavier workspace actions only when you need to build or mutate something.",
+            "Open these only when you need to write or run code.",
             T.DIM,
             T.FS_TINY,
         )
@@ -311,7 +311,7 @@ class StatusPanel(QFrame):
     def _toggle_extras(self) -> None:
         self._extras_visible = not self._extras_visible
         self._extras_host.setVisible(self._extras_visible)
-        self._extras_btn.setText("HIDE DETAILS" if self._extras_visible else "DETAILS")
+        self._extras_btn.setText("HIDE MORE" if self._extras_visible else "SHOW MORE")
 
     def set_tool_states(self, states: dict[str, str]) -> None:
         for tool_key, button in self._tool_buttons.items():

@@ -76,6 +76,7 @@ def build_library_surface_state(
     mode: str = "auto",
     last_message: str = "",
     selected_root_path: str = "",
+    include_root_file_cards: bool = True,
 ) -> LibrarySurfaceState:
     name = str(workspace_name or "guppy-primary").strip() or "guppy-primary"
     kind = str(workspace_type or "user_instance").strip().lower() or "user_instance"
@@ -133,7 +134,7 @@ def build_library_surface_state(
         "",
     )
     root_file_cards: list[dict[str, str]] = []
-    if selected_root:
+    if selected_root and include_root_file_cards:
         for item in list_root_files(selected_root, limit=8):
             if not isinstance(item, dict):
                 continue

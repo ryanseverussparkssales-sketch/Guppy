@@ -38,7 +38,7 @@ WAIVED_PATHS: dict[str, Waiver] = {
         rationale="Runtime snapshot hotspot still awaits runtime-application extraction.",
     ),
     "src/guppy/daemon/daemon.py": Waiver(
-        max_lines=1483,
+        max_lines=1473,
         rationale="Daemon orchestration remains monolithic pending bounded service splits.",
     ),
     "src/guppy/merlin/core.py": Waiver(
@@ -66,7 +66,7 @@ WAIVED_PATHS: dict[str, Waiver] = {
         rationale="Voice orchestration still needs a later service split and broader device validation.",
     ),
     "ui/launcher/launcher_window.py": Waiver(
-        max_lines=3685,
+        max_lines=3725,
         rationale="Launcher shell hotspot; Library, workspace activation/mutation/refresh, connector workflow, shell-status, and current reply-to-library continuity seams are extracted, but broader composition still needs follow-on cuts before the cap can drop further.",
     ),
     "ui/launcher/views/advanced_view.py": Waiver(

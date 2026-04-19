@@ -19,7 +19,7 @@ from .. import tokens as T
 
 _NAV: list[tuple[str, str]] = [
     ("\u2302", "HOME"),
-    ("\U0001F310", "WORKSPACES"),
+    ("\U0001F310", "SPACES"),
     ("\U0001F4DA", "LIBRARY"),
     ("\u2692", "TOOLS"),
     ("\u2699", "SETTINGS"),
@@ -134,6 +134,7 @@ class _NavItem(QWidget):
         layout.addWidget(self._btn, alignment=Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self._label)
         self._apply_style(active=False)
+        self.set_compact(False)
 
     def _apply_style(self, active: bool) -> None:
         if active:
@@ -159,12 +160,18 @@ class _NavItem(QWidget):
     def set_active(self, v: bool) -> None:
         self._apply_style(v)
 
+    def set_compact(self, compact: bool) -> None:
+        self._label.setVisible(not compact)
+        self._btn.setFixedSize(44 if compact else 58, 40 if compact else 44)
+        self.layout().setSpacing(0 if compact else 2)
+
 
 class Sidebar(QFrame):
     tab_changed = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._collapsed = False
         self.setFixedWidth(T.SIDEBAR_W)
         self.setObjectName("sidebar")
         self.setStyleSheet(
@@ -175,31 +182,42 @@ class Sidebar(QFrame):
         root.setContentsMargins(0, 16, 0, 16)
         root.setSpacing(0)
 
-        art_card = QFrame()
-        art_card.setStyleSheet(
+        self._art_card = QFrame()
+        self._art_card.setStyleSheet(
             f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 {T.ART_RED}, stop:0.55 {T.ART_GOLD}, stop:1 {T.ART_PLUM});"
             "border-radius: 22px; margin: 0 14px;"
         )
-        art_layout = QVBoxLayout(art_card)
+        art_layout = QVBoxLayout(self._art_card)
         art_layout.setContentsMargins(10, 10, 10, 10)
         art_layout.setSpacing(4)
         art_layout.addWidget(_GuppyBadge(), alignment=Qt.AlignmentFlag.AlignHCenter)
-        deck = QLabel("GUPPY")
-        deck.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        deck.setStyleSheet(
+        self._deck = QLabel("GUPPY")
+        self._deck.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self._deck.setStyleSheet(
             f"color: rgba(255,255,255,0.88); font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;"
         )
-        art_layout.addWidget(deck)
-        root.addWidget(art_card)
+        art_layout.addWidget(self._deck)
+        root.addWidget(self._art_card)
         root.addSpacing(16)
 
-        primary_lbl = QLabel("DAILY PATH")
-        primary_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        primary_lbl.setStyleSheet(
+        self._primary_lbl = QLabel("DAILY PATH")
+        self._primary_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self._primary_lbl.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 3px;"
         )
-        root.addWidget(primary_lbl)
+        root.addWidget(self._primary_lbl)
         root.addSpacing(10)
+
+        self._collapse_btn = QPushButton("COLLAPSE")
+        self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._collapse_btn.setStyleSheet(
+            f"QPushButton {{ background-color: rgba(255,255,255,0.88); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.64);"
+            f" border-radius: 14px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; }}"
+            f"QPushButton:hover {{ color: {T.TERTIARY}; border-color: {T.TERTIARY}; background-color: #ffffff; }}"
+        )
+        self._collapse_btn.clicked.connect(self.toggle_collapsed)
+        root.addWidget(self._collapse_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
+        root.addSpacing(12)
 
         self._items: list[_NavItem] = []
         self._advanced_items: list[_NavItem] = []
@@ -243,12 +261,12 @@ class Sidebar(QFrame):
 
         root.addStretch()
 
-        sys_lbl = QLabel("SYSTEM")
-        sys_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        sys_lbl.setStyleSheet(
+        self._sys_lbl = QLabel("SYSTEM")
+        self._sys_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self._sys_lbl.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 3px;"
         )
-        root.addWidget(sys_lbl)
+        root.addWidget(self._sys_lbl)
 
         self._items[0].set_active(True)
         self._sync_advanced_section()
@@ -261,7 +279,10 @@ class Sidebar(QFrame):
         has_advanced = bool(self._advanced_items)
         self._advanced_divider.setVisible(has_advanced)
         self._advanced_toggle.setVisible(has_advanced)
-        self._advanced_toggle.setText("HIDE SURFACES" if self._advanced_expanded else "MORE SURFACES")
+        if self._collapsed:
+            self._advanced_toggle.setText("LESS" if self._advanced_expanded else "MORE")
+        else:
+            self._advanced_toggle.setText("HIDE SURFACES" if self._advanced_expanded else "MORE SURFACES")
         self._advanced_host.setVisible(has_advanced and self._advanced_expanded)
 
     def _on_nav_click(self, index: int) -> None:
@@ -278,3 +299,21 @@ class Sidebar(QFrame):
             self._sync_advanced_section()
         for i, item in enumerate(self._items):
             item.set_active(i == index)
+
+    def toggle_collapsed(self) -> None:
+        self.set_collapsed(not self._collapsed)
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        self._collapsed = bool(collapsed)
+        self.setFixedWidth(T.SIDEBAR_W_COLLAPSED if self._collapsed else T.SIDEBAR_W_EXPANDED)
+        self._deck.setVisible(not self._collapsed)
+        self._primary_lbl.setVisible(not self._collapsed)
+        self._sys_lbl.setVisible(not self._collapsed)
+        self._collapse_btn.setText(">" if self._collapsed else "COLLAPSE")
+        self._collapse_btn.setToolTip("Expand navigation" if self._collapsed else "Collapse navigation")
+        for item in self._items:
+            item.set_compact(self._collapsed)
+        self._sync_advanced_section()
+
+    def is_collapsed(self) -> bool:
+        return self._collapsed

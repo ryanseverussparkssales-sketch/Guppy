@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -250,9 +251,10 @@ class _ToolCard(QFrame):
 
         actions = QHBoxLayout()
         self._hint_btn = QPushButton("PRIME HOME")
+        self._hint_btn.setToolTip("Send a starter hint for this tool to Home")
         self._hint_btn.setStyleSheet(
             f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER};"
-            f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f" padding: 4px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
             f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; }}"
             f"QPushButton:disabled {{ color: {T.BORDER}; border-color: {T.BORDER}; }}"
         )
@@ -480,6 +482,26 @@ class ToolsView(QWidget):
         self._execution_lbl.setWordWrap(True)
         layout.addWidget(self._execution_lbl)
 
+        self._sections = QTabWidget()
+        self._sections.setDocumentMode(True)
+        self._sections.setStyleSheet(
+            f"QTabWidget::pane {{ border: 1px solid {T.BORDER}; background: rgba(255,255,255,0.42); }}"
+            f"QTabBar::tab {{ background: rgba(255,255,255,0.86); color: {T.DIM}; border: 1px solid {T.BORDER};"
+            f" padding: 4px 8px; margin-right: 4px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QTabBar::tab:selected {{ color: {T.INK}; border-color: {T.PRIMARY}; background: rgba(242,202,80,0.14); }}"
+        )
+        self._quick_tab = QWidget()
+        self._quick_layout = QVBoxLayout(self._quick_tab)
+        self._quick_layout.setContentsMargins(10, 10, 10, 10)
+        self._quick_layout.setSpacing(10)
+        self._catalog_tab = QWidget()
+        self._catalog_layout = QVBoxLayout(self._catalog_tab)
+        self._catalog_layout.setContentsMargins(10, 10, 10, 10)
+        self._catalog_layout.setSpacing(10)
+        self._sections.addTab(self._quick_tab, "Quick")
+        self._sections.addTab(self._catalog_tab, "Tools")
+        layout.addWidget(self._sections)
+
         filters = QHBoxLayout()
         self._search = QLineEdit()
         self._search.setPlaceholderText("Find a workspace tool...")
@@ -496,9 +518,20 @@ class ToolsView(QWidget):
             f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
         )
         self._filter_cb.currentTextChanged.connect(self._apply_filters)
+        self._type_tabs = QTabWidget()
+        self._type_tabs.setDocumentMode(True)
+        self._type_tabs.setMaximumHeight(34)
+        self._type_tabs.setStyleSheet(
+            f"QTabWidget::pane {{ border: none; }}"
+            f"QTabBar::tab {{ background: rgba(255,255,255,0.86); color: {T.DIM}; border: 1px solid {T.BORDER};"
+            f" padding: 3px 8px; margin-right: 4px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QTabBar::tab:selected {{ color: {T.INK}; border-color: {T.PRIMARY}; background: rgba(242,202,80,0.14); }}"
+        )
+        for label in ("All", "Read", "Write", "Code", "Connect", "Restricted"):
+            self._type_tabs.addTab(QWidget(), label)
+        self._type_tabs.currentChanged.connect(self._apply_type_tab_filter)
         filters.addWidget(self._search, stretch=1)
-        filters.addWidget(self._filter_cb)
-        layout.addLayout(filters)
+        filters.addWidget(self._type_tabs)
 
         self._banner = QFrame()
         self._banner.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
@@ -514,7 +547,7 @@ class ToolsView(QWidget):
             )
         )
         self._tray_notice_lbl = _mono(
-            "Use the workspace drawer for common moves. Show details when you want the longer access explanation.",
+            "Use the workspace drawer or tray for common moves. Show details when you want the longer access explanation.",
             T.DIM,
             T.FS_SMALL,
         )
@@ -550,6 +583,24 @@ class ToolsView(QWidget):
         self._empty_state_lbl.setWordWrap(True)
         self._empty_state_lbl.setVisible(False)
         layout.addWidget(self._empty_state_lbl)
+
+        # Move dense blocks into tabs to keep the tools surface calmer by default.
+        layout.removeWidget(self._builder_panel)
+        layout.removeWidget(self._banner)
+        layout.removeWidget(self._cards_host)
+        layout.removeWidget(self._empty_state_lbl)
+        layout.removeWidget(self._boundary_lbl)
+        layout.removeWidget(self._execution_lbl)
+        self._quick_layout.addWidget(self._builder_panel)
+        self._quick_layout.addWidget(self._boundary_lbl)
+        self._quick_layout.addWidget(self._execution_lbl)
+        self._quick_layout.addWidget(self._banner)
+        self._quick_layout.addStretch()
+
+        self._catalog_layout.addLayout(filters)
+        self._catalog_layout.addWidget(self._cards_host)
+        self._catalog_layout.addWidget(self._empty_state_lbl)
+        self._catalog_layout.addStretch()
 
         layout.addStretch()
         self._register_scroll_proxy(content)
@@ -611,10 +662,10 @@ class ToolsView(QWidget):
             limits_text += " | COLLABORATOR CAP REACHED"
         self._limits_lbl.setText(limits_text)
         self._boundary_lbl.setText(
-            f"Use the workspace drawer for fast moves in {name}. Open Settings for setup, recovery, diagnostics, and logs."
+            f"Use the workspace drawer for fast moves in {name}. Open App Management or Settings for setup, recovery, diagnostics, and logs."
         )
         self._tray_notice_lbl.setText(
-            f"{name} can launch common actions from the workspace drawer. This page keeps richer task context and optional access detail."
+            f"{name} can launch common actions from the workspace drawer or tray. This page keeps richer task context and optional access detail."
         )
         self._execution_lbl.setText(
             f"{name} can only use tools that match its workspace role and sign-in state. Show details for the exact rules."
@@ -668,6 +719,22 @@ class ToolsView(QWidget):
         self._details_btn.setText("HIDE DETAILS" if self._details_visible else "SHOW DETAILS")
         for card in self._tool_cards.values():
             card.set_details_visible(self._details_visible)
+
+    def _apply_type_tab_filter(self, index: int) -> None:
+        mapping = {
+            0: "ALL",
+            1: "READ",
+            2: "WRITE",
+            3: "CODE",
+            4: "CONNECTOR",
+            5: "RESTRICTED",
+        }
+        target = mapping.get(index, "ALL")
+        filter_index = self._filter_cb.findText(target)
+        if filter_index >= 0:
+            self._filter_cb.setCurrentIndex(filter_index)
+        else:
+            self._filter_cb.setCurrentIndex(0)
 
     def get_states(self) -> dict[str, bool]:
         return dict(self._tool_states)

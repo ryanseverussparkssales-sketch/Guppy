@@ -16,7 +16,7 @@ def _context_origin_label(item: dict[str, str]) -> str:
 
 def format_active_context_summary(items: list[dict[str, str]], *, used_for_latest_reply: bool = False) -> str:
     if not items:
-        return "Current sources from Library will be used for the next reply."
+        return "No Library sources attached yet. Open Library and use USE IN CHAT to ground the next reply."
     primary = items[0]
     primary_title = str(primary.get("title", "") or "").strip() or "current source"
     primary_label = _context_origin_label(primary)
@@ -25,7 +25,7 @@ def format_active_context_summary(items: list[dict[str, str]], *, used_for_lates
         for item in items[1:3]
         if str(item.get("title", "") or "").strip()
     ]
-    prefix = "Current sources were used for the latest reply." if used_for_latest_reply else f"Current sources: {len(items)} attached."
+    prefix = "Current sources were used for the latest reply." if used_for_latest_reply else f"Current sources: {len(items)} attached and ready."
     summary = f"{prefix} Primary source: {primary_title} ({primary_label})."
     if attached_titles:
         summary += f" Also attached: {', '.join(attached_titles)}."
@@ -117,6 +117,7 @@ def refresh_resource_context(owner) -> None:
         description=owner._workspace_purpose,
         mode=owner.selected_mode(),
         last_message=owner._conversation_history[-1]["content"] if owner._conversation_history else "",
+        include_root_file_cards=False,
     )
     owner.set_resource_context(
         files=state.files_summary,

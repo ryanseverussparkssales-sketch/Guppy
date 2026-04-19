@@ -39,15 +39,15 @@ class LaunchCliTests(unittest.TestCase):
             with patch.object(launch_cli, "setup_env") as setup_env, patch.object(
                 launch_cli, "start_hub_background"
             ) as start_hub, patch.object(
-                launch_cli.subprocess, "run", return_value=SimpleNamespace(returncode=0)
-            ) as run:
+                launch_cli, "_launch_gui_surface", return_value=0
+            ) as launch_gui:
                 rc = launch_cli.main(["launcher", "--start", "automation-test", "--no-hub"])
 
             self.assertEqual(rc, 0)
             self.assertEqual(os.environ.get("GUPPY_START_DESTINATION"), "automation-test")
             setup_env.assert_called_once()
             start_hub.assert_not_called()
-            run.assert_called_once()
+            launch_gui.assert_called_once()
         finally:
             if prior is None:
                 os.environ.pop("GUPPY_START_DESTINATION", None)
@@ -67,27 +67,54 @@ class LaunchCliTests(unittest.TestCase):
             with patch.object(launch_cli, "ROOT", root), patch.object(
                 launch_cli, "setup_env"
             ) as setup_env, patch.object(
-                launch_cli.subprocess, "run", return_value=SimpleNamespace(returncode=0)
-            ) as run:
+                launch_cli, "_launch_gui_surface", return_value=0
+            ) as launch_gui:
                 rc = launch_cli.main(["launcher", "--no-hub"])
 
             self.assertEqual(rc, 0)
             setup_env.assert_called_once_with(root, profile="standard")
-            run.assert_called_once_with([str(pythonw), "guppy_launcher.py"], cwd=str(root))
+            launch_gui.assert_called_once_with(str(pythonw), "guppy_launcher.py")
+
+    def test_launcher_surface_does_not_prestart_hub_from_cli(self):
+        with patch.object(launch_cli, "setup_env") as setup_env, patch.object(
+            launch_cli, "start_hub_background"
+        ) as start_hub, patch.object(
+            launch_cli, "_launch_gui_surface", return_value=0
+        ) as launch_gui, patch("builtins.print") as print_mock:
+            rc = launch_cli.main(["launcher"])
+
+        self.assertEqual(rc, 0)
+        setup_env.assert_called_once()
+        start_hub.assert_not_called()
+        launch_gui.assert_called_once()
+        self.assertIn(
+            call("[launch] Launcher surface manages hub bootstrap internally; skipping pre-launch hub spawn"),
+            print_mock.mock_calls,
+        )
+
+    def test_hub_surface_uses_detached_gui_launch_path(self):
+        with patch.object(launch_cli, "setup_env") as setup_env, patch.object(
+            launch_cli, "_launch_gui_surface", return_value=0
+        ) as launch_gui:
+            rc = launch_cli.main(["hub", "--no-hub"])
+
+        self.assertEqual(rc, 0)
+        setup_env.assert_called_once()
+        launch_gui.assert_called_once()
 
     def test_launcher_without_start_clears_destination_env(self):
         prior = os.environ.get("GUPPY_START_DESTINATION")
         try:
             os.environ["GUPPY_START_DESTINATION"] = "automation-test"
             with patch.object(launch_cli, "setup_env") as setup_env, patch.object(
-                launch_cli.subprocess, "run", return_value=SimpleNamespace(returncode=0)
-            ) as run:
+                launch_cli, "_launch_gui_surface", return_value=0
+            ) as launch_gui:
                 rc = launch_cli.main(["launcher", "--no-hub"])
 
             self.assertEqual(rc, 0)
             self.assertNotIn("GUPPY_START_DESTINATION", os.environ)
             setup_env.assert_called_once()
-            run.assert_called_once()
+            launch_gui.assert_called_once()
         finally:
             if prior is None:
                 os.environ.pop("GUPPY_START_DESTINATION", None)
@@ -99,14 +126,14 @@ class LaunchCliTests(unittest.TestCase):
         try:
             os.environ.pop("GUPPY_START_DESTINATION", None)
             with patch.object(launch_cli, "setup_env") as setup_env, patch.object(
-                launch_cli.subprocess, "run", return_value=SimpleNamespace(returncode=0)
-            ) as run, patch("builtins.print") as print_mock:
+                launch_cli, "_launch_gui_surface", return_value=0
+            ) as launch_gui, patch("builtins.print") as print_mock:
                 rc = launch_cli.main(["hub", "--start", "automation-test", "--no-hub"])
 
             self.assertEqual(rc, 0)
             self.assertNotIn("GUPPY_START_DESTINATION", os.environ)
             setup_env.assert_called_once()
-            run.assert_called_once()
+            launch_gui.assert_called_once()
             self.assertIn(
                 call("[launch] WARNING: --start only applies to launcher surfaces; ignoring 'automation-test' for hub"),
                 print_mock.mock_calls,

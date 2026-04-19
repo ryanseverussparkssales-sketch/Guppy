@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 try:
+    import utils.offhours_builder as _builder_backend
+
     from utils.offhours_builder import (
         QUEUE_PATH as _QUEUE_PATH,
         RESULTS_PATH as _RESULTS_PATH,
@@ -16,12 +18,14 @@ try:
         approve_builder_task as _approve_builder_task,
         build_builder_report as _build_builder_report,
         enqueue_builder_task as _enqueue_builder_task,
+        load_builder_templates as _load_builder_templates,
         render_builder_task as _render_builder_task,
     )
 
     _BACKEND = True
 except Exception:
     _BACKEND = False
+    _builder_backend = None  # type: ignore[assignment]
 
     _ROOT = Path(__file__).resolve().parents[3]
     _RUNTIME = _ROOT / "runtime"
@@ -46,10 +50,31 @@ except Exception:
     def _approve_builder_task(_task_id: str, **_kwargs: Any) -> dict[str, Any]:  # type: ignore[misc]
         return {}
 
+    def _load_builder_templates() -> list[dict[str, Any]]:  # type: ignore[misc]
+        return []
+
 
 QUEUE_PATH: Path = _QUEUE_PATH
 RESULTS_PATH: Path = _RESULTS_PATH
 METRICS_PATH: Path = _METRICS_PATH
+
+
+def queue_path() -> Path:
+    if _BACKEND and _builder_backend is not None:
+        return Path(getattr(_builder_backend, "QUEUE_PATH", QUEUE_PATH))
+    return QUEUE_PATH
+
+
+def results_path() -> Path:
+    if _BACKEND and _builder_backend is not None:
+        return Path(getattr(_builder_backend, "RESULTS_PATH", RESULTS_PATH))
+    return RESULTS_PATH
+
+
+def metrics_path() -> Path:
+    if _BACKEND and _builder_backend is not None:
+        return Path(getattr(_builder_backend, "METRICS_PATH", METRICS_PATH))
+    return METRICS_PATH
 
 
 def build_builder_report(
@@ -59,9 +84,9 @@ def build_builder_report(
     metrics_path: Path | None = None,
 ) -> dict[str, Any]:
     return _build_builder_report(
-        queue_path=queue_path if queue_path is not None else QUEUE_PATH,
-        results_path=results_path if results_path is not None else RESULTS_PATH,
-        metrics_path=metrics_path if metrics_path is not None else METRICS_PATH,
+        queue_path=queue_path if queue_path is not None else globals()["queue_path"](),
+        results_path=results_path if results_path is not None else globals()["results_path"](),
+        metrics_path=metrics_path if metrics_path is not None else globals()["metrics_path"](),
     )
 
 
@@ -84,6 +109,11 @@ def render_builder_task(
 
 def approve_builder_task(task_id: str, **kwargs: Any) -> dict[str, Any]:
     return _approve_builder_task(task_id, **kwargs)
+
+
+def load_builder_templates() -> list[dict[str, Any]]:
+    templates = _load_builder_templates()
+    return templates if isinstance(templates, list) else []
 
 
 def builder_backend_available() -> bool:

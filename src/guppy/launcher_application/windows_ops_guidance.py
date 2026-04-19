@@ -73,7 +73,7 @@ def windows_ops_guidance(action: str, *, ok: bool, phase: str = "completed") -> 
                 "next_step": "Release-check and the dry-run bundle both passed. Review the dry-run report, receipt, and summary in that order, then package or hand off the reviewer bundle.",
                 "fix_target": "tools/dev_workflow.py release-check -> runtime/beta_release_dry_run_report.json",
                 "docs_hint": "docs/PACKAGING.md",
-                "entry_point": "python tools/dev_workflow.py release-check",
+                "entry_point": "python tools/beta_release_dry_run.py",
             },
             "start_supervised_api": {
                 "next_step": "Supervised API launch passed. Run VERIFY next if you want fresh runtime evidence from inside App Mgmt.",
@@ -120,7 +120,7 @@ def windows_ops_guidance(action: str, *, ok: bool, phase: str = "completed") -> 
                 "next_step": "Open the terminal evidence, fix the failing preflight or missing handoff file, then rerun RELEASE DRY RUN.",
                 "fix_target": "tools/dev_workflow.py release-check / tools/beta_release_dry_run.py / tools/pilot_exit_check.py / docs/REMOTE_BETA_EXE_POLICY.md",
                 "docs_hint": "docs/PACKAGING.md",
-                "entry_point": "python tools/dev_workflow.py release-check",
+                "entry_point": "python tools/beta_release_dry_run.py",
             },
             "start_supervised_api": {
                 "next_step": "Check the supervised launch script and API startup prerequisites, then rerun START API or fall back to REPAIR.",

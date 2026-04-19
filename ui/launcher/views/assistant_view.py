@@ -62,10 +62,10 @@ def _dropdown(options: list[str]) -> QComboBox:
 def _hero_subtitle_for_workspace(workspace_type: str) -> str:
     key = str(workspace_type or "").strip().lower()
     return {
-        "builder_instance": "Use the composer below to plan, review, or build in this workspace. Starters are optional.",
-        "read_only_instance": "Use the composer below to inspect files, notes, and saved context. Starters are optional.",
-        "admin_instance": "Use the composer below for setup, recovery, and supervised changes. Starters are optional.",
-    }.get(key, "Use the composer below for the main action. Starters are optional.")
+        "builder_instance": "Plan, review, or build here. Starters are optional.",
+        "read_only_instance": "Inspect files, notes, and saved context here. Starters are optional.",
+        "admin_instance": "Use this workspace for setup and recovery. Starters are optional.",
+    }.get(key, "Start with the next clear ask. Starters are optional.")
 
 
 class AssistantView(QWidget):
@@ -109,12 +109,51 @@ class AssistantView(QWidget):
         self._latest_saved_output: dict[str, str] = {}
         self._latest_assistant_reply_text = ""
         self._swap_source_target_title = ""
+        self._workspace_details_expanded = False
+        self._starters_expanded = False
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(22, 20, 22, 16)
-        root.setSpacing(14)
+        root.setContentsMargins(16, 12, 16, 12)
+        root.setSpacing(8)
 
-        self._hero_title = QLabel("One clear ask at a time.")
+        self._identity_frame = QFrame()
+        self._identity_frame.setObjectName("home_identity")
+        self._identity_frame.setStyleSheet(
+            "QFrame#home_identity { background-color: rgba(255,255,255,0.54); border: 1px solid rgba(214,197,174,0.42); border-radius: 18px; }"
+        )
+        identity_row = QHBoxLayout(self._identity_frame)
+        identity_row.setContentsMargins(12, 8, 12, 8)
+        identity_row.setSpacing(8)
+        self._identity_workspace_chip = QLabel("WORKSPACE · GUPPY-PRIMARY")
+        self._identity_workspace_chip.setStyleSheet(
+            f"color: {T.SECONDARY}; background: rgba(47,111,122,0.10); border: 1px solid rgba(214,197,174,0.40);"
+            f" border-radius: 12px; padding: 5px 9px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        self._identity_mode_chip = QLabel("AUTO / LIGHT")
+        self._identity_mode_chip.setStyleSheet(
+            f"color: {T.TERTIARY}; background: rgba(70,98,199,0.10); border: 1px solid rgba(214,197,174,0.40);"
+            f" border-radius: 12px; padding: 5px 9px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        self._identity_note = QLabel("Ask one clear question and send it.")
+        self._identity_note.setWordWrap(True)
+        self._identity_note.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
+        )
+        self._identity_details_btn = QPushButton("DETAILS")
+        self._identity_details_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._identity_details_btn.setStyleSheet(
+            f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
+            f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton:hover {{ border-color: rgba(70,98,199,0.46); color: {T.TERTIARY}; background: #ffffff; }}"
+        )
+        self._identity_details_btn.clicked.connect(self._toggle_workspace_details)
+        identity_row.addWidget(self._identity_workspace_chip)
+        identity_row.addWidget(self._identity_mode_chip)
+        identity_row.addWidget(self._identity_note, stretch=1)
+        identity_row.addWidget(self._identity_details_btn)
+        root.addWidget(self._identity_frame)
+
+        self._hero_title = QLabel("Start with one ask.")
         self._hero_subtitle = QLabel(_hero_subtitle_for_workspace("user_instance"))
         self._rec_chip = QLabel("RECOMMENDED / STANDARD")
         self._instance_chip = QLabel("WORKSPACE / GUPPY-PRIMARY")
@@ -182,7 +221,7 @@ class AssistantView(QWidget):
         self._starter_summary.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
         )
-        self._starter_summary.setVisible(True)
+        self._starter_summary.setVisible(False)
         self._starter_row = QHBoxLayout()
         self._starter_row.setSpacing(8)
         for starter_id, title, mode, prompt in self._starter_templates():
@@ -203,22 +242,22 @@ class AssistantView(QWidget):
         hero = QFrame()
         hero.setObjectName("home_hero")
         hero.setStyleSheet(
-            f"QFrame#home_hero {{ background-color: rgba(255,255,255,0.54); border: 1px solid rgba(214,197,174,0.46); border-radius: 28px; }}"
+            f"QFrame#home_hero {{ background-color: rgba(255,255,255,0.48); border: 1px solid rgba(214,197,174,0.40); border-radius: 22px; }}"
         )
         hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(20, 18, 20, 16)
-        hero_layout.setSpacing(10)
+        hero_layout.setContentsMargins(16, 14, 16, 12)
+        hero_layout.setSpacing(8)
 
         hero_top = QHBoxLayout()
         hero_top.setSpacing(12)
         hero_text = QVBoxLayout()
         hero_text.setSpacing(4)
         self._hero_title.setStyleSheet(
-            f"color: {T.INK}; font-family: '{T.FF_HEAD}'; font-size: 26pt; font-weight: 700;"
+            f"color: {T.INK}; font-family: '{T.FF_HEAD}'; font-size: 20pt; font-weight: 700;"
         )
         self._hero_subtitle.setWordWrap(True)
         self._hero_subtitle.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_LABEL}pt;"
+            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
         )
         hero_text.addWidget(self._hero_title)
         hero_text.addWidget(self._hero_subtitle)
@@ -237,6 +276,8 @@ class AssistantView(QWidget):
                 f" border-radius: 14px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
             )
             chip_row.addWidget(chip)
+        self._rec_chip.hide()
+        self._background_chip.hide()
         chip_row.addStretch()
         hero_layout.addLayout(chip_row)
 
@@ -247,6 +288,38 @@ class AssistantView(QWidget):
         hero_layout.addWidget(self._entry_hint)
         hero_layout.addWidget(self._context_bar)
         root.addWidget(hero)
+        hero.hide()
+
+        self._workspace_details_strip = QFrame()
+        self._workspace_details_strip.setObjectName("workspace_details_strip")
+        self._workspace_details_strip.setStyleSheet(
+            "QFrame#workspace_details_strip { background-color: rgba(255,255,255,0.48); border: 1px solid rgba(214,197,174,0.36); border-radius: 18px; }"
+        )
+        details_strip_layout = QHBoxLayout(self._workspace_details_strip)
+        details_strip_layout.setContentsMargins(12, 8, 12, 8)
+        details_strip_layout.setSpacing(8)
+        self._workspace_details_summary = QLabel("")
+        self._workspace_details_summary.setWordWrap(True)
+        self._workspace_details_summary.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_TINY}pt;"
+        )
+        self._workspace_details_btn = QPushButton("DETAILS")
+        self._workspace_details_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._workspace_details_btn.setStyleSheet(
+            f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
+            f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton:hover {{ border-color: rgba(70,98,199,0.46); color: {T.TERTIARY}; background: #ffffff; }}"
+        )
+        self._workspace_details_btn.clicked.connect(self._toggle_workspace_details)
+        details_strip_layout.addWidget(self._workspace_details_summary, stretch=1)
+        details_strip_layout.addWidget(self._workspace_details_btn)
+        root.addWidget(self._workspace_details_strip)
+        self._workspace_details_strip.hide()
+
+        self._workspace_details_host = QWidget()
+        workspace_details_layout = QVBoxLayout(self._workspace_details_host)
+        workspace_details_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_details_layout.setSpacing(10)
 
         self._workspace_dock = QFrame()
         self._workspace_dock.setObjectName("workspace_dock")
@@ -278,7 +351,7 @@ class AssistantView(QWidget):
             )
             card_layout.addWidget(target)
             dock_layout.addWidget(card, stretch=1)
-        root.addWidget(self._workspace_dock)
+        workspace_details_layout.addWidget(self._workspace_dock)
 
         self._latest_output_host = QFrame()
         self._latest_output_host.setObjectName("latest_output_host")
@@ -313,7 +386,7 @@ class AssistantView(QWidget):
         latest_output_layout.addWidget(self._latest_output_library_btn)
         latest_output_layout.addWidget(self._latest_output_attach_btn)
         self._latest_output_host.setVisible(False)
-        root.addWidget(self._latest_output_host)
+        workspace_details_layout.addWidget(self._latest_output_host)
 
         self._active_context_host = QFrame()
         self._active_context_host.setObjectName("active_context_host")
@@ -328,7 +401,7 @@ class AssistantView(QWidget):
         self._active_context_title = _lbl("CURRENT SOURCES", T.PRIMARY, T.FS_TINY, True)
         active_context_top.addWidget(self._active_context_title)
         active_context_top.addStretch()
-        self._active_context_clear_btn = QPushButton("CLEAR CONTEXT")
+        self._active_context_clear_btn = QPushButton("CLEAR SOURCES")
         self._active_context_clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._active_context_clear_btn.setStyleSheet(
             f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.ERROR}; border: 1px solid rgba(214,197,174,0.54);"
@@ -345,7 +418,7 @@ class AssistantView(QWidget):
         )
         self._active_context_refresh_btn.clicked.connect(self._emit_active_context_refresh_requested)
         self._active_context_refresh_btn.setVisible(False)
-        self._active_context_swap_btn = QPushButton("MAKE FILE PRIMARY")
+        self._active_context_swap_btn = QPushButton("MAKE PRIMARY SOURCE")
         self._active_context_swap_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._active_context_swap_btn.setStyleSheet(
             f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.TERTIARY}; border: 1px solid rgba(214,197,174,0.54);"
@@ -358,7 +431,7 @@ class AssistantView(QWidget):
         active_context_top.addWidget(self._active_context_swap_btn)
         active_context_top.addWidget(self._active_context_clear_btn)
         active_context_layout.addLayout(active_context_top)
-        self._active_context_summary = QLabel("Current sources from Library will be used for the next reply.")
+        self._active_context_summary = QLabel("No Library sources attached yet. Open Library and use USE IN CHAT to ground the next reply.")
         self._active_context_summary.setWordWrap(True)
         self._active_context_summary.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
@@ -371,7 +444,8 @@ class AssistantView(QWidget):
         self._last_context_notice = ""
         self._focused_context_title = ""
         self._previewed_context_title = ""
-        root.addWidget(self._active_context_host)
+        workspace_details_layout.addWidget(self._active_context_host)
+        root.addWidget(self._workspace_details_host)
 
         transcript = QFrame()
         transcript.setObjectName("chat_surface")
@@ -426,11 +500,25 @@ class AssistantView(QWidget):
         composer_col.setContentsMargins(14, 12, 14, 10)
         composer_col.setSpacing(8)
 
-        starter_strip = QHBoxLayout()
+        starter_summary_row = QHBoxLayout()
+        starter_summary_row.setSpacing(8)
+        starter_summary_row.addWidget(self._starter_summary, stretch=1)
+        self._starters_btn = QPushButton("STARTERS")
+        self._starters_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._starters_btn.setStyleSheet(
+            f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
+            f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton:hover {{ border-color: rgba(70,98,199,0.46); color: {T.TERTIARY}; background: #ffffff; }}"
+        )
+        self._starters_btn.clicked.connect(self._toggle_starters)
+        starter_summary_row.addWidget(self._starters_btn)
+        composer_col.addLayout(starter_summary_row)
+        self._starter_buttons_host = QWidget()
+        starter_strip = QHBoxLayout(self._starter_buttons_host)
+        starter_strip.setContentsMargins(0, 0, 0, 0)
         starter_strip.setSpacing(8)
-        composer_col.addWidget(self._starter_summary)
         starter_strip.addLayout(self._starter_row, stretch=1)
-        composer_col.addLayout(starter_strip)
+        composer_col.addWidget(self._starter_buttons_host)
 
         self._launcher_panel = QFrame()
         self._launcher_panel.setObjectName("launcher_panel")
@@ -536,12 +624,41 @@ class AssistantView(QWidget):
         self._refresh_empty_state()
         self._sync_context_bar_visibility()
         self._refresh_composer_guidance()
+        self._update_workspace_details_visibility()
+        self._update_starter_visibility()
 
     def _sync_context_bar_visibility(self) -> None:
         context_sync_context_bar_visibility(self)
 
     def _toggle_context_details(self) -> None:
         context_toggle_context_details(self)
+
+    def _toggle_workspace_details(self) -> None:
+        self._workspace_details_expanded = not self._workspace_details_expanded
+        self._update_workspace_details_visibility()
+
+    def _toggle_starters(self) -> None:
+        self._starters_expanded = not self._starters_expanded
+        self._update_starter_visibility()
+
+    def _update_workspace_details_visibility(self) -> None:
+        has_saved_output = bool(self._latest_saved_output)
+        has_sources = bool(self._active_context_items)
+        summary = "Files and saved context are tucked away here."
+        if has_sources and has_saved_output:
+            summary = "Attached sources and saved output are available here."
+        elif has_sources:
+            summary = "Attached sources are available here."
+        elif has_saved_output:
+            summary = "Saved output is available here."
+        self._workspace_details_summary.setText(summary)
+        self._workspace_details_btn.setText("HIDE DETAILS" if self._workspace_details_expanded else "DETAILS")
+        self._identity_details_btn.setText("HIDE DETAILS" if self._workspace_details_expanded else "DETAILS")
+        self._workspace_details_host.setVisible(self._workspace_details_expanded)
+
+    def _update_starter_visibility(self) -> None:
+        self._starter_buttons_host.setVisible(self._starters_expanded)
+        self._starters_btn.setText("HIDE STARTERS" if self._starters_expanded else "STARTERS")
 
     def _build_empty_state(self) -> QFrame:
         frame = QFrame()
@@ -602,8 +719,8 @@ class AssistantView(QWidget):
         titles = self._active_context_titles()
         if titles:
             joined = ", ".join(titles)
-            subtitle = f"{subtitle} Attached sources are already ready: {joined}."
-            recipe = f"{recipe} Or start from the attached sources: {joined}."
+            subtitle = f"{subtitle} Library sources are already attached: {joined}."
+            recipe = f"{recipe} Or ask the next thing using these attached sources: {joined}."
         self._empty_state_title_text = title
         self._empty_state_subtitle_text = subtitle
         self._empty_state_recipe_text = recipe
@@ -685,26 +802,30 @@ class AssistantView(QWidget):
             actions = QHBoxLayout()
             actions.setSpacing(6)
             actions.addStretch()
-            for label, attach_next in (
-                ("SAVE TO LIBRARY", False),
-                ("ATTACH NEXT", True),
+            for icon_label, hover_text, attach_next in (
+                ("\u267b", "Save this reply to Library", False),
+                ("\U0001F4CE", "Attach this reply as source for the next turn", True),
             ):
-                action_btn = QPushButton(label)
+                action_btn = QPushButton(icon_label)
                 action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                action_btn.setToolTip(hover_text)
+                action_btn.setFixedSize(28, 24)
                 action_btn.setStyleSheet(
                     f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.TERTIARY}; border: 1px solid rgba(214,197,174,0.44);"
-                    f" border-radius: 10px; padding: 4px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+                    f" border-radius: 9px; padding: 0; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
                     f"QPushButton:hover {{ border-color: rgba(70,98,199,0.42); background: #ffffff; }}"
                 )
                 action_btn.clicked.connect(
                     lambda _=False, content=text, should_attach=attach_next: self.assistant_reply_library_requested.emit(content, should_attach)
                 )
                 actions.addWidget(action_btn)
-            artifact_btn = QPushButton("SAVE AS ARTIFACT")
+            artifact_btn = QPushButton("\u2B22")
             artifact_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            artifact_btn.setToolTip("Save this reply as an artifact")
+            artifact_btn.setFixedSize(28, 24)
             artifact_btn.setStyleSheet(
                 f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.PRIMARY}; border: 1px solid rgba(214,197,174,0.44);"
-                f" border-radius: 10px; padding: 4px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+                f" border-radius: 9px; padding: 0; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
                 f"QPushButton:hover {{ border-color: rgba(242,202,80,0.62); background: #ffffff; }}"
             )
             artifact_btn.clicked.connect(
@@ -792,6 +913,7 @@ class AssistantView(QWidget):
         persona = self._cb_persona.currentText().strip().upper() or "GUPPY"
         profile = self._cb_profile.currentText().strip().upper() or "LIGHT"
         suffix = "OPEN" if self._launcher_panel.isVisible() else "EDIT"
+        self._identity_mode_chip.setText(f"{mode} / {profile}")
         self.launcher_summary_changed.emit(f"{mode} / {persona} / {profile} [{suffix}]")
 
     def activate_agent(self, agent: str) -> None:
@@ -925,6 +1047,8 @@ class AssistantView(QWidget):
         self._base_starter_summary = starter.starter_summary
         self._refresh_composer_guidance()
         self.set_status(starter.status)
+        self._starters_expanded = False
+        self._update_starter_visibility()
         self.starter_requested.emit(starter.starter_id, starter.prompt)
 
     def set_status(self, text: str) -> None:
@@ -974,6 +1098,8 @@ class AssistantView(QWidget):
         self._base_input_placeholder = state.input_placeholder
         self._refresh_composer_guidance()
         self._instance_chip.setText(f"WORKSPACE · {name.upper()}")
+        self._identity_workspace_chip.setText(f"WORKSPACE · {name.upper()}")
+        self._identity_note.setText(state.entry_hint)
         self._workspace_summary.setText(state.workspace_summary)
         self._workspace_summary.setVisible(True)
         self._hero_subtitle.setText(_hero_subtitle_for_workspace(self._workspace_type))
@@ -1103,11 +1229,13 @@ class AssistantView(QWidget):
             f"{title_text}. {summary_text}" if summary_text else title_text
         )
         self._latest_output_host.setVisible(True)
+        self._update_workspace_details_visibility()
 
     def clear_latest_saved_output(self) -> None:
         self._latest_saved_output = {}
         self._latest_output_summary.setText("")
         self._latest_output_host.setVisible(False)
+        self._update_workspace_details_visibility()
 
     def _emit_latest_saved_output_attach(self) -> None:
         if not self._latest_saved_output:
@@ -1154,6 +1282,7 @@ class AssistantView(QWidget):
             self._refresh_starter_buttons()
             self._refresh_composer_guidance()
             self._refresh_empty_state_guidance()
+            self._update_workspace_details_visibility()
             return
         primary_title = self._active_context_items[0]["title"]
         previous_focus = self._focused_context_title
@@ -1169,7 +1298,7 @@ class AssistantView(QWidget):
                     break
         self._active_context_refresh_btn.setVisible(bool(primary_origin in saved_origins and self._latest_assistant_reply_text))
         self._active_context_swap_btn.setVisible(bool(self._swap_source_target_title))
-        self._active_context_swap_btn.setText("MAKE FILE PRIMARY" if self._swap_source_target_title else "MAKE FILE PRIMARY")
+        self._active_context_swap_btn.setText("MAKE PRIMARY SOURCE" if self._swap_source_target_title else "MAKE PRIMARY SOURCE")
         available_titles = {item["title"] for item in self._active_context_items}
         if previous_focus != primary_title or self._previewed_context_title not in available_titles:
             self._previewed_context_title = primary_title
@@ -1270,6 +1399,7 @@ class AssistantView(QWidget):
         self._refresh_starter_buttons()
         self._refresh_composer_guidance()
         self._refresh_empty_state_guidance()
+        self._update_workspace_details_visibility()
 
     def _toggle_active_context_preview(self, title: str) -> None:
         title_text = str(title or "").strip()
@@ -1303,6 +1433,7 @@ class AssistantView(QWidget):
                 context_format_active_context_summary(self._active_context_items, used_for_latest_reply=True)
             )
             self._active_context_host.setVisible(True)
+            self._update_workspace_details_visibility()
         self._refresh_grounding_cue()
         self._refresh_composer_guidance()
         self.add_system_message(notice)

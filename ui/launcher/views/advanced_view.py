@@ -418,6 +418,7 @@ class AdvancedView(QWidget):
             widget.setWordWrap(True)
             connectors_layout.addWidget(widget)
         layout.addWidget(self._connectors_frame)
+        self._detail_frames.append(self._connectors_frame)
 
         self._automation_frame = QFrame()
         self._automation_frame.setStyleSheet(
@@ -952,6 +953,21 @@ class AdvancedView(QWidget):
         recipe_context: dict[str, object] | None = None,
     ) -> bool:
         return self._run_terminal_commands(commands, label=label, recipe_context=recipe_context)
+
+    def _build_tracked_recipe_commands(
+        self,
+        commands: list[str],
+        *,
+        label: str,
+        recipe_context: dict[str, object] | None = None,
+    ) -> tuple[str, tuple[str, ...]]:
+        plan = build_tracked_terminal_recipe(
+            commands,
+            label=label,
+            recipe_context=recipe_context or {},
+        )
+        self._terminal_recipes[plan.recipe_id] = dict(plan.context)
+        return plan.recipe_id, plan.wrapped_commands
 
     def _apply_workflow_panel_state(self, state) -> None:
         panel_apply_workflow_panel_state(self, state)

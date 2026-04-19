@@ -40,6 +40,7 @@ from src.guppy.experience_config import (
     validate_persona_config,
 )
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
+from .. import tokens as T
 _PROFILE_BACKEND = runtime_settings_backend_available()
 
 _DEFAULT_PERSONA_CONFIG: dict[str, Any] = {
@@ -119,6 +120,8 @@ class SettingsView(QWidget):
         self._persona_config = _deepcopy_json(_DEFAULT_PERSONA_CONFIG)
         self._current_persona_id = "main_guppy"
         self._loading_persona = False
+        self._settings_section = "runtime"
+        self._section_buttons: dict[str, QPushButton] = {}
         self._build_ui()
         self._load()
 
@@ -144,8 +147,19 @@ class SettingsView(QWidget):
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
 
-        runtime_frame = QFrame()
-        runtime_layout = QVBoxLayout(runtime_frame)
+        section_row = QHBoxLayout()
+        section_row.setSpacing(8)
+        for key, label in (("runtime", "RUNTIME"), ("personas", "PERSONAS"), ("advanced", "ADVANCED")):
+            btn = QPushButton(label)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _=False, section=key: self._set_settings_section(section))
+            self._section_buttons[key] = btn
+            section_row.addWidget(btn)
+        section_row.addStretch()
+        layout.addLayout(section_row)
+
+        self._runtime_frame = QFrame()
+        runtime_layout = QVBoxLayout(self._runtime_frame)
         runtime_layout.setContentsMargins(14, 12, 14, 12)
         runtime_layout.setSpacing(10)
         runtime_layout.addWidget(QLabel("Runtime Defaults"))
@@ -175,10 +189,10 @@ class SettingsView(QWidget):
         for label in [self._hw_lbl, self._recovery_status, self._last_mod_lbl, self._save_confirm]:
             label.setWordWrap(True)
             runtime_layout.addWidget(label)
-        layout.addWidget(runtime_frame)
+        layout.addWidget(self._runtime_frame)
 
-        persona_frame = QFrame()
-        persona_layout = QVBoxLayout(persona_frame)
+        self._persona_frame = QFrame()
+        persona_layout = QVBoxLayout(self._persona_frame)
         persona_layout.setContentsMargins(14, 12, 14, 12)
         persona_layout.setSpacing(10)
         persona_layout.addWidget(QLabel("Persona Builder v1"))
@@ -264,7 +278,19 @@ class SettingsView(QWidget):
         self._persona_diag_lbl = QLabel("")
         self._persona_diag_lbl.setWordWrap(True)
         persona_layout.addWidget(self._persona_diag_lbl)
-        layout.addWidget(persona_frame)
+        layout.addWidget(self._persona_frame)
+
+        self._advanced_frame = QFrame()
+        advanced_layout = QVBoxLayout(self._advanced_frame)
+        advanced_layout.setContentsMargins(14, 12, 14, 12)
+        advanced_layout.setSpacing(10)
+        advanced_layout.addWidget(QLabel("Advanced Surfaces"))
+        advanced_note = QLabel(
+            "Diagnostics, runtime controls, operator logs, and recovery flows live in the dedicated advanced surface. Settings stays focused on durable defaults and persona configuration."
+        )
+        advanced_note.setWordWrap(True)
+        advanced_layout.addWidget(advanced_note)
+        layout.addWidget(self._advanced_frame)
 
         self._persona_status_lbl = QLabel("")
         self._persona_status_lbl.setWordWrap(True)
@@ -280,6 +306,28 @@ class SettingsView(QWidget):
 
         scroll.setWidget(content)
         outer.addWidget(scroll)
+        self._set_settings_section("runtime")
+
+    def _set_settings_section(self, section: str) -> None:
+        target = str(section or "runtime").strip().lower() or "runtime"
+        self._settings_section = target
+        self._runtime_frame.setVisible(target == "runtime")
+        self._persona_frame.setVisible(target == "personas")
+        self._advanced_frame.setVisible(target == "advanced")
+        for key, button in self._section_buttons.items():
+            active = key == target
+            button.setStyleSheet(
+                (
+                    f"QPushButton {{ background-color: {T.INK}; color: white; border: none; border-radius: 14px;"
+                    f" padding: 6px 12px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; }}"
+                )
+                if active
+                else (
+                    f"QPushButton {{ background-color: rgba(244,239,231,0.90); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.64); border-radius: 14px;"
+                    f" padding: 6px 12px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; }}"
+                    f"QPushButton:hover {{ color: {T.TERTIARY}; border-color: {T.TERTIARY}; background-color: #ffffff; }}"
+                )
+            )
 
     def _build_slider_row(self, layout: QVBoxLayout, label_text: str, on_change) -> tuple[QSlider, QLabel]:
         row = QHBoxLayout()

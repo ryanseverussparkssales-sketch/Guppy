@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QPlainTextEdit,
     QScrollArea,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -169,23 +170,43 @@ class InstanceManagerView(QWidget):
             f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: 26pt; font-weight: 900;"
         )
         layout.addWidget(title)
-        layout.addWidget(
-            _mono(
-                "Choose the right workspace for the task. Workspaces keep purpose, memory, persona, voice, and recent context together.",
-                T.DIM,
-                T.FS_SMALL,
-            )
-        )
-        guide = _mono(
-            "Daily = everyday help | Builder = study and coding support | Read-only = safe reference | Ops = recovery and diagnostics",
-            T.DIM,
-            T.FS_TINY,
-        )
-        guide.setWordWrap(True)
-        layout.addWidget(guide)
-
         self._status_lbl = _mono("Ready to review saved workspaces, defaults, and workspace memory.", T.DIM, T.FS_TINY)
         layout.addWidget(self._status_lbl)
+
+        self._sections = QTabWidget()
+        self._sections.setDocumentMode(True)
+        self._sections.setStyleSheet(
+            f"QTabWidget::pane {{ border: 1px solid {T.BORDER}; background: rgba(255,255,255,0.42); }}"
+            f"QTabBar::tab {{ background: rgba(255,255,255,0.86); color: {T.DIM}; border: 1px solid {T.BORDER};"
+            f" padding: 4px 8px; margin-right: 4px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QTabBar::tab:selected {{ color: {T.INK}; border-color: {T.PRIMARY}; background: rgba(242,202,80,0.14); }}"
+        )
+        self._overview_tab = QWidget()
+        self._overview_layout = QVBoxLayout(self._overview_tab)
+        self._overview_layout.setContentsMargins(10, 10, 10, 10)
+        self._overview_layout.setSpacing(10)
+        self._create_tab = QWidget()
+        self._create_layout = QVBoxLayout(self._create_tab)
+        self._create_layout.setContentsMargins(10, 10, 10, 10)
+        self._create_layout.setSpacing(10)
+        self._access_tab = QWidget()
+        self._access_layout = QVBoxLayout(self._access_tab)
+        self._access_layout.setContentsMargins(10, 10, 10, 10)
+        self._access_layout.setSpacing(10)
+        self._connector_tab = QWidget()
+        self._connector_layout = QVBoxLayout(self._connector_tab)
+        self._connector_layout.setContentsMargins(10, 10, 10, 10)
+        self._connector_layout.setSpacing(10)
+        self._activity_tab = QWidget()
+        self._activity_layout = QVBoxLayout(self._activity_tab)
+        self._activity_layout.setContentsMargins(10, 10, 10, 10)
+        self._activity_layout.setSpacing(10)
+        self._sections.addTab(self._overview_tab, "Overview")
+        self._sections.addTab(self._create_tab, "Create")
+        self._sections.addTab(self._access_tab, "Access")
+        self._sections.addTab(self._connector_tab, "Connectors")
+        self._sections.addTab(self._activity_tab, "Activity")
+        layout.addWidget(self._sections)
 
         form = QFrame()
         form.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
@@ -270,7 +291,6 @@ class InstanceManagerView(QWidget):
         collapse_row.addWidget(self._governance_toggle_btn)
         collapse_row.addWidget(self._connector_toggle_btn)
         collapse_row.addStretch()
-        layout.addLayout(collapse_row)
 
         self._governance_frame = QFrame()
         self._governance_frame.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
@@ -492,6 +512,43 @@ class InstanceManagerView(QWidget):
         )
         logs_layout.addWidget(self._logs)
         layout.addWidget(logs_frame)
+
+        # Move dense sections into tabs so only one workspace surface is visible at a time.
+        for widget in (
+            self._limits_lbl,
+            self._summary_lbl,
+            self._role_mix_lbl,
+            self._collab_lbl,
+            self._recurring_lbl,
+            self._empty_state_lbl,
+            self._cards_host,
+        ):
+            layout.removeWidget(widget)
+            self._overview_layout.addWidget(widget)
+        self._overview_layout.addStretch()
+
+        layout.removeWidget(form)
+        self._create_layout.addWidget(form)
+        self._create_layout.addStretch()
+
+        layout.removeWidget(self._governance_frame)
+        _access_btn_row = QHBoxLayout()
+        _access_btn_row.addWidget(self._governance_toggle_btn)
+        _access_btn_row.addStretch()
+        self._access_layout.addLayout(_access_btn_row)
+        self._access_layout.addWidget(self._governance_frame)
+        self._access_layout.addStretch()
+        layout.removeWidget(self._connectors_frame)
+        _conn_btn_row = QHBoxLayout()
+        _conn_btn_row.addWidget(self._connector_toggle_btn)
+        _conn_btn_row.addStretch()
+        self._connector_layout.addLayout(_conn_btn_row)
+        self._connector_layout.addWidget(self._connectors_frame)
+        self._connector_layout.addStretch()
+
+        layout.removeWidget(logs_frame)
+        self._activity_layout.addWidget(logs_frame)
+        self._activity_layout.addStretch()
 
         layout.addStretch()
         scroll.setWidget(content)
