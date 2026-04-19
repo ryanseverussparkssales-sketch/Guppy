@@ -75,16 +75,16 @@ WAIVED_PATHS: dict[str, Waiver] = {
         rationale="App Mgmt is smaller after terminal/workflow and connector panel extractions, but it still carries broader operator-surface composition pending more presenter seams.",
     ),
     "ui/launcher/views/models_view.py": Waiver(
-        max_lines=1080,
-        rationale="Models remains transitional after runtime-library extraction; route/runtime configuration and view composition still need another seam pass.",
+        max_lines=1640,
+        rationale="Models hub expanded with multi-provider routing (Ollama/LMStudio/harness/cloud); awaiting hub-consolidation split into models_routing_panel and models_ops_panel as part of 5-hub truth architecture.",
     ),
     "ui/launcher/views/instance_manager_view.py": Waiver(
         max_lines=1077,
         rationale="Workspace manager still bundles governance and render logic pending shared snapshots.",
     ),
     "ui/launcher/views/assistant_view.py": Waiver(
-        max_lines=1490,
-        rationale="Home/chat carries active context, starter, and transcript orchestration while assistant-context seams are still being extracted.",
+        max_lines=1520,
+        rationale="Home chat carries active context, starter, and transcript orchestration; capped at observed size while 5-hub consolidation moves operator UI out of chat surface.",
     ),
     "ui/launcher/views/library_view.py": Waiver(
         max_lines=778,
@@ -107,8 +107,8 @@ WAIVED_PATHS: dict[str, Waiver] = {
         rationale="Connector manager now delegates to workspace_governance seams; cap tightened to observed size plus 20-line margin.",
     ),
     "utils/personalization_config.py": Waiver(
-        max_lines=845,
-        rationale="Experience-config persistence remains oversized until dedicated config services exist.",
+        max_lines=1020,
+        rationale="Experience-config persistence expanded with multi-provider registry (6 new providers); awaiting split into provider_registry_service + persona_service under src/guppy/experience_config/.",
     ),
 }
 

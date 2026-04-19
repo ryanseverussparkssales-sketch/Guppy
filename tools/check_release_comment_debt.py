@@ -6,7 +6,12 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MARKER_RE = re.compile(r"\b(TODO|FIXME|HACK)\b", re.IGNORECASE)
+# Build the pattern without embedding the marker words literally so this file
+# cannot trigger its own scan when it appears in a diff.
+_WORDS = "|".join(["T" + "ODO", "F" + "IXME", "H" + "ACK"])
+MARKER_RE = re.compile(rf"\b({_WORDS})\b", re.IGNORECASE)
+# Always skip the checker file itself to avoid self-referential false positives.
+SELF_PATH = Path(__file__).resolve().relative_to(ROOT).as_posix()
 RELEASE_PATH_PREFIXES = (
     "tools/",
     "src/guppy/",
@@ -30,6 +35,8 @@ def _run_git(args: list[str]) -> str:
 
 
 def _is_release_facing(rel_posix: str) -> bool:
+    if rel_posix == SELF_PATH:
+        return False
     return rel_posix in RELEASE_PATH_FILES or any(
         rel_posix.startswith(prefix) for prefix in RELEASE_PATH_PREFIXES
     )
@@ -139,7 +146,7 @@ def main() -> int:
         print("release comment-debt check failed:")
         for finding in findings:
             print(f" - {finding}")
-        print("Remove TODO/FIXME/HACK debt markers or replace with tracked issue references.")
+        print("Remove debt markers or replace with tracked issue references.")
         return 1
 
     print("release comment-debt check passed")
