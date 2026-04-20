@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QApplication, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from src.guppy.experience_config import (
     apply_runtime_settings_to_env as apply_settings_to_env,
@@ -21,6 +21,7 @@ from src.guppy.experience_config import (
     validate_provider_registry,
 )
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY, resolve_ui_route
+from src.guppy.launcher_application.models_route_support import latest_runtime_latency, parse_fallback_chain, route_targets_from_registry
 from src.guppy.launcher_application.models_presenter import (
     build_models_active_identity_text,
     build_models_library_hint_text,
@@ -39,8 +40,9 @@ from src.guppy.launcher_application.models_presenter import (
     normalize_models_policy,
 )
 from .. import tokens as T
+from .models_library_panel import build_models_library_panel
 from .models_runtime_workers import LocalRuntimeFetchThread, ModelHealthCheckThread, ModelWarmSpawnThread, OllamaModelOpThread
-from .models_sections import _ColumnHeader, _ModelCard, build_models_loadout_section, build_models_route_section, build_models_runtime_section
+from .models_sections import _ModelCard, build_models_route_section, build_models_runtime_section
 from .models_runtime_library import (
     assign_runtime_model as runtime_library_assign_runtime_model,
     refresh_runtime_library as runtime_library_refresh_runtime_library,
@@ -88,11 +90,17 @@ _MIX_ROUTE_FIELDS = [
     ("mix_sub_route_a", "SPAWNED ROUTE A"),
     ("mix_sub_route_b", "SPAWNED ROUTE B"),
 ]
-_DEFAULT_LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
-_DEFAULT_LOCAL_HARNESS_BASE_URL = "http://127.0.0.1:8001"
 class ModelsView(QWidget):
     model_selected = Signal(str)
     runtime_settings_saved = Signal(dict)
+
+    @staticmethod
+    def _route_targets_from_registry(registry: dict[str, Any]) -> list[str]:
+        return route_targets_from_registry(registry)
+
+    @staticmethod
+    def _parse_fallback_chain(raw: str) -> list[str]:
+        return parse_fallback_chain(raw)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -163,46 +171,43 @@ class ModelsView(QWidget):
         tb.addWidget(self._title_lbl); tb.addStretch(); tb.addWidget(self._active_lbl); tb.addSpacing(16); tb.addWidget(self._active_runtime_lbl); tb.addSpacing(16); tb.addWidget(self._refresh_btn)
         root.addWidget(topbar)
 
-        self._library_summary_frame = QFrame()
-        self._library_summary_frame.setStyleSheet(f"background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER};")
-        library_shell = QVBoxLayout(self._library_summary_frame)
-        library_shell.setContentsMargins(28, 14, 28, 14)
-        library_shell.setSpacing(8)
-        self._library_summary_lbl = QLabel("")
-        self._library_summary_lbl.setWordWrap(True)
-        self._library_summary_lbl.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 10px;")
-        search_row = QHBoxLayout()
-        search_row.setSpacing(10)
-        self._library_search = QLineEdit()
-        self._library_search.setPlaceholderText("Search local and cloud models")
-        self._library_search.setMinimumWidth(320)
-        self._library_search.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 6px 8px;")
-        self._library_search.textChanged.connect(lambda _=None: self._apply_library_filter())
-        self._library_hint_lbl = QLabel(build_models_library_hint_text())
-        self._library_hint_lbl.setWordWrap(True)
-        self._library_hint_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
-        search_row.addWidget(self._library_search)
-        search_row.addWidget(self._library_hint_lbl, stretch=1)
-        library_shell.addWidget(self._library_summary_lbl)
-        library_shell.addLayout(search_row)
-
-        loadout_section = build_models_loadout_section(
+        library_panel = build_models_library_panel(
             loadout_fields=_LOADOUT_FIELDS,
+            cloud_models=CLOUD_MODELS,
+            on_search_changed=self._apply_library_filter,
             on_loadout_changed=self._on_loadout_changed,
             on_apply_loadout=self._apply_model_loadout,
             on_spawn_main=lambda: self._spawn_loadout_models(include_main=True, include_subs=False),
             on_spawn_subs=lambda: self._spawn_loadout_models(include_main=False, include_subs=True),
             on_spawn_all=lambda: self._spawn_loadout_models(include_main=True, include_subs=True),
+            on_model_selected=self._on_model_selected,
         )
-        self._loadout_frame = loadout_section.frame
-        self._loadout_status_lbl = loadout_section.status_label
-        self._loadout_inputs = loadout_section.inputs
-        self._apply_loadout_btn = loadout_section.apply_button
-        self._spawn_main_btn = loadout_section.spawn_main_button
-        self._spawn_subs_btn = loadout_section.spawn_subs_button
-        self._spawn_all_btn = loadout_section.spawn_all_button
-        self._loadout_help_lbl = loadout_section.help_label
-        library_shell.addWidget(self._loadout_frame)
+        self._library_summary_frame = library_panel.summary_frame
+        self._library_summary_lbl = library_panel.summary_label
+        self._library_search = library_panel.search_input
+        self._library_hint_lbl = library_panel.hint_label
+        self._loadout_frame = library_panel.loadout_frame
+        self._loadout_status_lbl = library_panel.loadout_status_label
+        self._loadout_inputs = library_panel.loadout_inputs
+        self._apply_loadout_btn = library_panel.apply_loadout_button
+        self._spawn_main_btn = library_panel.spawn_main_button
+        self._spawn_subs_btn = library_panel.spawn_subs_button
+        self._spawn_all_btn = library_panel.spawn_all_button
+        self._loadout_help_lbl = library_panel.loadout_help_label
+        self._library_scroll = library_panel.scroll
+        self._grid = library_panel.grid
+        self._local_header = library_panel.local_header
+        self._cloud_header = library_panel.cloud_header
+        self._local_host = library_panel.local_host
+        self._local_layout = library_panel.local_layout
+        self._local_sections = library_panel.local_sections
+        self._local_section_layouts = library_panel.local_section_layouts
+        self._local_section_cards = library_panel.local_section_cards
+        self._local_placeholder = library_panel.local_placeholder
+        self._cloud_host = library_panel.cloud_host
+        self._cloud_layout = library_panel.cloud_layout
+        self._cloud_cards = library_panel.cloud_cards
+        self._library_hint_lbl.setText(build_models_library_hint_text())
         root.addWidget(self._library_summary_frame)
 
         runtime_section = build_models_runtime_section(
@@ -269,90 +274,6 @@ class ModelsView(QWidget):
         self._route_preview_lbl.setText(build_models_route_preview_hint_text())
         root.addWidget(self._route_bar)
 
-        self._library_scroll = QScrollArea()
-        self._library_scroll.setWidgetResizable(True)
-        self._library_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._library_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
-        self._content = QWidget()
-        self._content.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self._grid = QGridLayout(self._content)
-        self._grid.setContentsMargins(28, 24, 28, 24)
-        self._grid.setSpacing(16)
-        self._grid.setColumnStretch(0, 1); self._grid.setColumnStretch(1, 1)
-        self._local_header = _ColumnHeader("ON THIS PC")
-        self._grid.addWidget(self._local_header, 0, 0)
-        self._cloud_header = _ColumnHeader("CLOUD OPTIONS")
-        self._grid.addWidget(self._cloud_header, 0, 1)
-        self._local_host = QWidget()
-        self._local_layout = QVBoxLayout(self._local_host)
-        self._local_layout.setContentsMargins(0, 0, 0, 0)
-        self._local_layout.setSpacing(16)
-        self._local_sections: dict[str, QWidget] = {}
-        self._local_section_layouts: dict[str, QVBoxLayout] = {}
-        self._local_section_cards: dict[str, list[_ModelCard]] = {
-            "recommended": [],
-            "installed": [],
-            "advanced": [],
-        }
-        for key, title, subtitle in [
-            ("recommended", "RECOMMENDED", "Start here for the best everyday fit on this PC."),
-            ("installed", "INSTALLED ON THIS PC", "Other local models you can still use this session."),
-            ("advanced", "ADVANCED / EXPERIMENTAL", "More specialized or heavier picks when you want to explore."),
-        ]:
-            section = QFrame()
-            if key == "recommended":
-                section.setStyleSheet(
-                    f"background-color: {T.BG1}; border: 1px solid {T.PRIMARY};"
-                )
-            else:
-                section.setStyleSheet(
-                    f"background-color: {T.BG1}; border: 1px solid {T.BORDER};"
-                )
-            section_layout = QVBoxLayout(section)
-            section_layout.setContentsMargins(14, 12, 14, 14)
-            section_layout.setSpacing(10)
-            header = _ColumnHeader(title)
-            if key == "recommended":
-                header.setStyleSheet(
-                    f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; "
-                    f"font-weight: bold; letter-spacing: 2px; border-bottom: 1px solid {T.PRIMARY}; padding-bottom: 4px;"
-                )
-            section_layout.addWidget(header)
-            subtitle_lbl = QLabel(subtitle)
-            subtitle_lbl.setWordWrap(True)
-            subtitle_lbl.setStyleSheet(
-                f"color: {T.TEXT if key == 'recommended' else T.DIM}; font-family: '{T.FF_BODY}'; "
-                f"font-size: {T.FS_SMALL}pt;"
-            )
-            section_layout.addWidget(subtitle_lbl)
-            cards_host = QWidget()
-            cards_layout = QVBoxLayout(cards_host)
-            cards_layout.setContentsMargins(0, 0, 0, 0)
-            cards_layout.setSpacing(16)
-            section_layout.addWidget(cards_host)
-            self._local_sections[key] = section
-            self._local_section_layouts[key] = cards_layout
-            self._local_layout.addWidget(section)
-            section.setVisible(False)
-        for i, model in enumerate(CLOUD_MODELS):
-            card = _ModelCard(model["name"], model["display"], model["tier"], model["context"], model["note"])
-            card.set_active.connect(self._on_model_selected)
-            self._cloud_cards.append(card)
-        self._cloud_host = QWidget()
-        self._cloud_layout = QVBoxLayout(self._cloud_host)
-        self._cloud_layout.setContentsMargins(0, 0, 0, 0)
-        self._cloud_layout.setSpacing(16)
-        for card in self._cloud_cards:
-            self._cloud_layout.addWidget(card)
-        self._cloud_layout.addStretch(1)
-        self._local_placeholder = QLabel("Fetching local models...")
-        self._local_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._local_placeholder.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; letter-spacing: 1px; padding: 24px;")
-        self._local_layout.addWidget(self._local_placeholder)
-        self._local_layout.addStretch(1)
-        self._grid.addWidget(self._local_host, 1, 0)
-        self._grid.addWidget(self._cloud_host, 1, 1)
-        self._library_scroll.setWidget(self._content)
         root.addWidget(self._library_scroll)
 
     @staticmethod
@@ -928,7 +849,7 @@ class ModelsView(QWidget):
             ensure_personalization_scaffold()
             registry = load_provider_registry()
             self._provider_registry = registry if isinstance(registry, dict) else {}
-            self._route_options = self._route_targets_from_registry(self._provider_registry)
+            self._route_options = route_targets_from_registry(self._provider_registry)
             for cb in [self._simple_route_cb, self._complex_route_cb, self._teaching_route_cb]:
                 cb.clear(); cb.addItems(self._route_options)
             routes = self._provider_registry.get("routes", {}) if isinstance(self._provider_registry, dict) else {}
@@ -945,26 +866,6 @@ class ModelsView(QWidget):
         except Exception as exc:
             self._set_route_status(f"Route load failed: {exc}", ok=False)
 
-    @staticmethod
-    def _route_targets_from_registry(registry: dict[str, Any]) -> list[str]:
-        options = []
-        providers = registry.get("providers", []) if isinstance(registry, dict) else []
-        for provider in providers if isinstance(providers, list) else []:
-            if not isinstance(provider, dict):
-                continue
-            pid, models = provider.get("id"), provider.get("models", [])
-            if not isinstance(pid, str) or not isinstance(models, list):
-                continue
-            for model in models:
-                mid = model.get("id") if isinstance(model, dict) else None
-                if isinstance(mid, str) and mid:
-                    options.append(f"{pid}/{mid}")
-        return sorted(set(options))
-
-    @staticmethod
-    def _parse_fallback_chain(raw: str) -> list[str]:
-        return [part.strip() for part in (raw or "").split(",") if part.strip()]
-
     def _preferred_local_route_target(self) -> str:
         preferred = (
             self._model_loadout.get("local_main_model", "")
@@ -979,7 +880,7 @@ class ModelsView(QWidget):
             combo.setCurrentIndex(idx)
 
     def _refresh_route_summary(self) -> None:
-        fallback = self._parse_fallback_chain(self._fallback_chain_input.text())
+        fallback = parse_fallback_chain(self._fallback_chain_input.text())
         health = self._route_health_summary()
         summary, evidence = build_models_route_summary_text(
             simple_target=friendly_models_route_target(self._simple_route_cb.currentText()),
@@ -994,7 +895,7 @@ class ModelsView(QWidget):
     def _route_health_summary(self) -> str:
         api_key = bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip())
         local_count = max(0, len(self._local_cards))
-        latency = self._latest_runtime_latency()
+        latency = latest_runtime_latency(_RUNTIME)
         heartbeat_path = _RUNTIME / "guppy.heartbeat"
         heartbeat = False
         if heartbeat_path.exists():
@@ -1027,12 +928,7 @@ class ModelsView(QWidget):
             return
         try:
             decision = resolve_ui_route(user_text=sample, mode=self._route_mode_cb.currentText().strip().lower(), api_key_available=bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip()))
-            self._route_preview_lbl.setText(
-                build_models_route_preview_text(
-                    decision,
-                    health_summary=self._route_health_summary(),
-                )
-            )
+            self._route_preview_lbl.setText(build_models_route_preview_text(decision, health_summary=self._route_health_summary()))
         except Exception as exc:
             self._route_preview_lbl.setText(f"Route preview failed: {exc}")
 
@@ -1045,13 +941,13 @@ class ModelsView(QWidget):
             if not isinstance(registry, dict):
                 self._set_route_status("Provider registry is invalid", ok=False)
                 return
-            valid_targets = set(self._route_targets_from_registry(registry))
+            valid_targets = set(route_targets_from_registry(registry))
             simple, complex_route, teaching = self._simple_route_cb.currentText().strip(), self._complex_route_cb.currentText().strip(), self._teaching_route_cb.currentText().strip()
             for label, value in [("simple", simple), ("complex", complex_route), ("teaching", teaching)]:
                 if value not in valid_targets:
                     self._set_route_status(f"Invalid {label} target: {value}", ok=False)
                     return
-            fallback = self._parse_fallback_chain(self._fallback_chain_input.text())
+            fallback = parse_fallback_chain(self._fallback_chain_input.text())
             invalid_fallback = [item for item in fallback if item not in valid_targets]
             if invalid_fallback:
                 self._set_route_status(f"Invalid fallback target: {invalid_fallback[0]}", ok=False)

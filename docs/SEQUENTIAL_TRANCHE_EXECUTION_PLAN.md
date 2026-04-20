@@ -1184,6 +1184,10 @@ Follow-on tranche set:
 6. `FR3-T6` Merlin specialist runtime disposition
 7. `FR3-T7` guardrail reset and freeze candidate closeout
 
+Checkpoint (April 20, 2026, FR3-T4 / FR3-T6):
+1. `settings_operations_panel.py` now delegates the desktop runtime, connected services, and automation assembly blocks to `settings_operations_sections.py`.
+2. Merlin is explicitly retained as a bounded specialist runtime, with extracted helper support living in `src/guppy/merlin/specialist_support.py` while dispatch stays in `merlin/core.py`.
+
 Execution order:
 
 1. Run `FR3-T1` and `FR3-T2` first as the highest-centrality core shells.
@@ -1206,6 +1210,30 @@ Acceptance bar:
 2. Remaining waived files, if any, read as bounded shells rather than mixed-concern monoliths.
 3. `release-check` stays green after the integrated wave.
 4. The repo exits with a short and honest remaining-hotspot list suitable for freeze-candidate review.
+
+Integrated closeout (April 20, 2026):
+
+1. `FR3-T1` complete: `server_runtime_snapshot.py` now delegates realtime assembly to `snapshot_realtime_support.py`.
+2. `FR3-T2` complete: `launcher_window.py` now delegates workspace snapshot/bootstrap coordination to `workspace_snapshot_support.py`.
+3. `FR3-T3` complete: `models_view.py` now delegates library/search/loadout panel construction to `models_library_panel.py`, with shared route parsing in `models_route_support.py`.
+4. `FR3-T4` complete: `settings_operations_panel.py` now composes extracted section builders from `settings_operations_sections.py`.
+5. `FR3-T5` complete: `instance_manager_view.py` now delegates dense workspace shell assembly to `instance_manager_sections.py` and is no longer waived.
+6. `FR3-T6` complete: `merlin/core.py` is now explicitly retained as a bounded specialist runtime over `specialist_support.py`.
+7. `FR3-T7` complete: waiver caps were tightened to the measured post-split sizes and the remaining hotspot list dropped to five files.
+
+Measured post-wave sizes:
+
+1. `src/guppy/api/server_runtime_snapshot.py` -> `1419`
+2. `src/guppy/merlin/core.py` -> `1071`
+3. `ui/launcher/launcher_window.py` -> `2648`
+4. `ui/launcher/views/models_view.py` -> `969`
+5. `ui/launcher/views/settings_operations_panel.py` -> `738`
+6. `ui/launcher/views/instance_manager_view.py` -> `370`
+
+Freeze-candidate note:
+
+1. The tranche materially reduced the remaining hotspot field and removed `instance_manager_view.py` from the waiver list.
+2. The remaining debt is now concentrated in five named bounded shells, which is a credible freeze-candidate state for this tranche set.
 
 ---
 

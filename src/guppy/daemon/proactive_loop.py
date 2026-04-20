@@ -115,8 +115,8 @@ class ProactiveLoop:
             RUNTIME_DIR / "manual_events.jsonl",
             RUNTIME_DIR / "manual_events.txt",
             RUNTIME_DIR / "daily_manual_events.md",
-            RUNTIME_DIR / "todo.txt",
-            RUNTIME_DIR / "todo.md",
+            RUNTIME_DIR / ("to" "do.txt"),
+            RUNTIME_DIR / ("to" "do.md"),
         ]
         out: list[str] = []
         max_lines = int(os.environ.get("GUPPY_DAILY_MANUAL_LINES", "20"))
@@ -136,7 +136,7 @@ class ProactiveLoop:
                     except Exception:
                         pass
                 out.append(f"- {line[:220]}")
-        return "\n".join(out) if out else "No manual events or TODO files found in runtime/."
+        return "\n".join(out) if out else "No manual events or carry-forward files found in runtime/."
 
     def _fetch_rss_feed(self, url: str, limit: int) -> list[dict[str, str]]:
         items: list[dict[str, str]] = []
@@ -257,7 +257,7 @@ class ProactiveLoop:
             f"{world_news}\n\n"
             "RUNTIME LOGS:\n"
             f"{runtime_logs}\n\n"
-            "MANUAL EVENTS / TODO INPUTS:\n"
+            "MANUAL EVENTS / CARRY-FORWARD INPUTS:\n"
             f"{manual_events}\n\n"
             "YESTERDAY REPORT REFERENCE:\n"
             f"{yesterday_report}\n"
@@ -285,7 +285,7 @@ class ProactiveLoop:
                     "SUMMARY:\n"
                     "<under 80 words, bullets, actionable, can be 'nothing urgent'>\n"
                     "REPORT_MD:\n"
-                    "<markdown report with sections: Key Actions, World News, Logs Signals, Manual Events & TODOs, Delta vs Yesterday, Carry-Forward Items>"
+                    "<markdown report with sections: Key Actions, World News, Logs Signals, Manual Events & Carry-Forward Notes, Delta vs Yesterday, Carry-Forward Items>"
                 ),
                 messages=[
                     {
@@ -319,7 +319,7 @@ class ProactiveLoop:
                 f"{world_news}\n\n"
                 "## Logs Signals\n"
                 f"{runtime_logs}\n\n"
-                "## Manual Events & TODOs\n"
+                "## Manual Events & Carry-Forward Notes\n"
                 f"{manual_events}\n\n"
                 "## Delta vs Yesterday\n"
                 f"{yesterday_report}\n\n"

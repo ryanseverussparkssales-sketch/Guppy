@@ -35,28 +35,24 @@ class Waiver:
 # current strangler work still needs to land.
 WAIVED_PATHS: dict[str, Waiver] = {
     "src/guppy/api/server_runtime_snapshot.py": Waiver(
-        max_lines=1712,
-        rationale="Runtime snapshot hotspot is materially smaller after instance/governance payload extraction plus earlier briefing/telemetry splits, but still awaits chat/request and telemetry/report decomposition.",
+        max_lines=1419,
+        rationale="Runtime snapshot compatibility shell is materially smaller after instance/governance, telemetry, and realtime-route extraction, but it still carries the assembled compatibility surface pending one more bounded decomposition pass.",
     ),
     "src/guppy/merlin/core.py": Waiver(
-        max_lines=1115,
-        rationale="Legacy specialist runtime remains in transition and is not part of this tranche.",
+        max_lines=1071,
+        rationale="Merlin is now a bounded retained specialist surface over specialist_support, but the spell catalog and system prompt contract still keep the core module above the base cap.",
     ),
     "ui/launcher/launcher_window.py": Waiver(
-        max_lines=2800,
-        rationale="Launcher shell hotspot is smaller after assistant command flow extraction and earlier coordination splits, but the five-hub shell still carries status sync, windows-ops orchestration, and top-level request routing pressure pending the next bounded split.",
+        max_lines=2648,
+        rationale="Launcher shell is materially smaller after workspace snapshot coordination extraction and earlier shell splits, but it still carries top-level hub orchestration and request routing pressure pending the next bounded pass.",
     ),
     "ui/launcher/views/settings_operations_panel.py": Waiver(
-        max_lines=1008,
-        rationale="Settings operations is smaller after presenter-backed density/label shaping, but it still bundles diagnostics, recovery, automation, and workflow section assembly pending dedicated subviews.",
+        max_lines=738,
+        rationale="Settings operations is now mostly a composition shell, but diagnostics, recovery, and workflow ownership still keep it slightly above the base cap pending one more reduction pass.",
     ),
     "ui/launcher/views/models_view.py": Waiver(
-        max_lines=1073,
-        rationale="Models hub is materially smaller after worker-thread and section-builder extraction, but route/mixed-loadout and model-ops coordination still keep the main view oversized pending the next panel split.",
-    ),
-    "ui/launcher/views/instance_manager_view.py": Waiver(
-        max_lines=869,
-        rationale="Workspace manager still bundles governance and render logic pending shared snapshots.",
+        max_lines=969,
+        rationale="Models hub is materially smaller after library/panel extraction, but route and runtime-ops coordination still keep the main view above the base cap pending the next bounded split.",
     ),
 }
 

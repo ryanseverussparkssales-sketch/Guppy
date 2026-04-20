@@ -7,13 +7,10 @@ management via uTorrent WebAPI, and framework stubs for Plex and VPN.
 Spell names map to guppy_core tool names via SPELL_MAP.
 """
 
-import base64
-import hashlib
-import os
-import subprocess
-import urllib.parse
-from pathlib import Path
 from guppy_core import run_tool as _run_tool, _mem, _MEM
+from src.guppy.merlin import specialist_support as _specialist_support
+
+merlin_clear_cache = _specialist_support.merlin_clear_cache
 
 try:
     from src.guppy.memory.semantic import build_semantic_prompt_context as _build_semantic_prompt_context
@@ -21,41 +18,11 @@ except Exception:
     _build_semantic_prompt_context = None
 
 # ── Analysis caching for code review efficiency ──────────────────────────────
-_ANALYSIS_CACHE = {}  # {file_hash: analysis_result}
-
-
-def _hash_file(filepath: str) -> str:
-    """MD5 hash of file contents for cache keying."""
-    try:
-        content = Path(filepath).read_bytes()
-        return hashlib.md5(content).hexdigest()
-    except Exception:
-        return ""
-
-def _get_analysis_cached(filepath: str, force_fresh: bool = False) -> dict:
-    """Read file with caching. Returns {hash, full_path, content}."""
-    if not force_fresh:
-        fhash = _hash_file(filepath)
-        if fhash in _ANALYSIS_CACHE:
-            return _ANALYSIS_CACHE[fhash]
-
-    try:
-        full_path = Path(filepath).resolve()
-        content = full_path.read_text(encoding='utf-8')
-        fhash = hashlib.md5(content.encode()).hexdigest()
-        result = {"hash": fhash, "path": str(full_path), "content": content}
-        _ANALYSIS_CACHE[fhash] = result
-        return result
-    except Exception as e:
-        return {"hash": "", "path": filepath, "content": f"Error reading file: {e}"}
-
-def merlin_clear_cache():
-    """Clear the analysis cache when starting fresh reviews."""
-    _ANALYSIS_CACHE.clear()
-    return "Analysis cache cleared."
-
-
 # ── Merlin base system prompt ──────────────────────────────────────────────────
+# Retained specialist surface note:
+# Merlin is a bounded compatibility runtime, not a product surface.
+# New heavy helper logic should land in specialist_support.py, leaving this file
+# to own only the spell catalog, dispatch rules, and startup prompt assembly.
 # Keep in sync with Modelfile_Merlin
 
 MERLIN_SYSTEM = """You are Merlin — ancient wizard, reluctant scholar, and mentor to Ryan (your Apprentice).
@@ -658,26 +625,6 @@ MERLIN_TOOLS = [
 
 # ── Clipboard spells ──────────────────────────────────────────────────────────
 
-def _get_clipboard() -> str:
-    """Read the Windows clipboard via PowerShell."""
-    try:
-        extra: dict[str, object] = {}
-        if os.name == "nt":
-            extra["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
-            startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
-            extra["startupinfo"] = startupinfo
-        r = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
-            capture_output=True, text=True, timeout=5,
-            **extra,
-        )
-        return r.stdout.strip() or "(clipboard is empty)"
-    except Exception as e:
-        return f"Failed to read clipboard: {e}"
-
-
 def _set_clipboard(text: str) -> str:
     """Write text to the Windows clipboard — base64-encoded to avoid quoting issues."""
     try:
@@ -1043,27 +990,36 @@ def run_spells_parallel(spells_and_args: list) -> dict:
 def run_spell(name: str, inp: dict):
     """Translate a spell name to its implementation and execute it."""
     if name == "research":
-        return _research(inp.get("query", ""), inp.get("url", ""))
+        return _specialist_support._research(inp.get("query", ""), inp.get("url", ""))
     if name == "scry_clipboard":
-        return _get_clipboard()
+        return _specialist_support._get_clipboard()
     if name == "fill_clipboard":
-        return _set_clipboard(inp.get("text", ""))
+        return _specialist_support._set_clipboard(inp.get("text", ""))
     if name == "seek_torrent":
-        return _seek_torrent(inp.get("query", ""), inp.get("category", "all"))
+        return _specialist_support._seek_torrent(inp.get("query", ""), inp.get("category", "all"))
     if name == "summon_torrent":
-        return _summon_torrent(inp.get("url", ""))
+        return _specialist_support._summon_torrent(inp.get("url", ""))
     if name == "view_torrents":
-        return _view_torrents()
+        return _specialist_support._view_torrents()
     if name == "banish_torrent":
-        return _banish_torrent(inp.get("hash", ""), inp.get("delete_data", False))
+        return _specialist_support._banish_torrent(inp.get("hash", ""), inp.get("delete_data", False))
     if name == "analyze_python":
-        return _analyze_python(inp.get("filepath", ""), inp.get("check_syntax", True), inp.get("extract_structure", True))
+        return _specialist_support._analyze_python(
+            inp.get("filepath", ""),
+            inp.get("check_syntax", True),
+            inp.get("extract_structure", True),
+        )
     if name == "generate_patch":
-        return _generate_patch(inp.get("filepath", ""), inp.get("old_code", ""), inp.get("new_code", ""), inp.get("reason", "Code improvement"))
+        return _specialist_support._generate_patch(
+            inp.get("filepath", ""),
+            inp.get("old_code", ""),
+            inp.get("new_code", ""),
+            inp.get("reason", "Code improvement"),
+        )
     if name == "plex_status":
-        return _plex_status()
+        return _specialist_support._plex_status()
     if name == "vpn_status":
-        return _vpn_status()
+        return _specialist_support._vpn_status()
     if name == "chronicle_scroll":
         return _run_tool("draft_email", inp)
     if name == "forge_report":

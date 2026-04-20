@@ -579,6 +579,10 @@ What ships:
    - Update the active truth docs with the final remaining hotspot picture and whether the worktree is ready for freeze candidate status.
    - Acceptance: the waiver list is smaller or tighter, `release-check` is green, and the branch can be described honestly as freeze-candidate or not.
 
+Lane checkpoint (April 20, 2026, FR3-T4 / FR3-T6):
+- `settings_operations_panel.py` now composes the desktop runtime, connected services, and automation sections through `settings_operations_sections.py` instead of building those clusters inline.
+- Merlin is now treated as a bounded retained specialist runtime: dispatch remains in `merlin/core.py`, while extracted helper support lives in `src/guppy/merlin/specialist_support.py`.
+
 Recommended execution order:
 
 1. Start with `FR3-T1` and `FR3-T2` because the API snapshot and launcher shell are the highest centrality hotspots.
@@ -601,6 +605,30 @@ Success metrics:
 2. The remaining waived modules, if any, read as intentional shells rather than mixed-concern monoliths.
 3. `release-check` stays green after the integrated wave.
 4. The repo can be described with a short remaining-hotspots list and a credible freeze-candidate statement.
+
+Integrated closeout (April 20, 2026, FR3-T1 through FR3-T7):
+
+- `FR3-T1` is complete: `server_runtime_snapshot.py` now delegates realtime request/route assembly through `src/guppy/api/snapshot_realtime_support.py`.
+- `FR3-T2` is complete: `launcher_window.py` now delegates workspace snapshot/bootstrap coordination through `src/guppy/launcher_application/workspace_snapshot_support.py`.
+- `FR3-T3` is complete: `models_view.py` now delegates the library/search/loadout panel cluster through `ui/launcher/views/models_library_panel.py`, with shared route parsing in `src/guppy/launcher_application/models_route_support.py`.
+- `FR3-T4` is complete: `settings_operations_panel.py` is now a composition shell over `ui/launcher/views/settings_operations_sections.py`.
+- `FR3-T5` is complete: `instance_manager_view.py` now delegates dense card and section assembly through `ui/launcher/views/instance_manager_sections.py` and is no longer waived.
+- `FR3-T6` is complete: `src/guppy/merlin/core.py` is now explicitly a bounded retained specialist runtime over `src/guppy/merlin/specialist_support.py`, not an ambiguous live hub surface.
+- `FR3-T7` is complete: waivers were tightened to the measured post-split sizes and the remaining hotspot list is now down to five files.
+
+Measured post-wave sizes:
+
+- `src/guppy/api/server_runtime_snapshot.py` -> `1419`
+- `src/guppy/merlin/core.py` -> `1071`
+- `ui/launcher/launcher_window.py` -> `2648`
+- `ui/launcher/views/models_view.py` -> `969`
+- `ui/launcher/views/settings_operations_panel.py` -> `738`
+- `ui/launcher/views/instance_manager_view.py` -> `370`
+
+Freeze-readiness call:
+
+- This wave materially lowered the remaining hotspot pressure and removed `instance_manager_view.py` from the waiver set.
+- The branch is now a credible freeze-candidate worktree for this tranche set, with the remaining debt narrowed to five explicit bounded shells rather than a broader mixed-concern cluster.
 
 ---
 
