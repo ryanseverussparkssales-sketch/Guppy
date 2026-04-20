@@ -1,6 +1,6 @@
 # Legacy Quarantine Protocol
 
-Last updated: 2026-04-17
+Last updated: 2026-04-20
 
 ## Purpose
 
@@ -27,6 +27,8 @@ what is compatibility-only, and what is ready for removal.
   `compat_shims/legacy_surfaces/`
 - Thin wrappers that should stay thin until removal:
   root launch wrappers only
+- Debug console ownership:
+  `src/guppy/debug/` remains the canonical debug-console surface for supported desktop entrypoints.
 
 ## Initial Classification
 
@@ -55,3 +57,4 @@ what is compatibility-only, and what is ready for removal.
 - Runtime artifact cleanup happens before structural deletion so git noise does not mask real migration work.
 - The next phase will use reference scans to classify each legacy entry as active, compatibility-only, or removable.
 - April 17, 2026: reference scan found no live code imports of the non-UI `compat_shims/*` aliases, so those shim files are now removable. Only `compat_shims/legacy_surfaces/` plus the root launch wrappers remain in the compatibility lane.
+- April 20, 2026: wrapper-integrity checks now verify that supported root wrappers do not reference `compat_shims`, and the `compat_shims/legacy_surfaces/` package marker explicitly labels that area as quarantined.

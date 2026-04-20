@@ -3,9 +3,147 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from .. import tokens as T
+
+
+def _fmt_size(num_bytes: int) -> str:
+    if not num_bytes:
+        return "-"
+    gb = num_bytes / (1024 ** 3)
+    return f"{gb:.1f} GB" if gb >= 1 else f"{num_bytes / (1024 ** 2):.0f} MB"
+
+
+def _model_use_hint(name: str, display: str, tier: str, context: str = "", note: str = "") -> str:
+    joined = " ".join(str(part or "").lower() for part in (name, display, context, note))
+    if "haiku" in joined or "fast" in joined:
+        return "Good for quick everyday help and lighter tasks."
+    if "sonnet" in joined:
+        return "Good default for balanced quality and speed."
+    if "opus" in joined:
+        return "Good for the hardest writing and reasoning work."
+    if "vault" in joined:
+        return "Good for document lookup and extraction work."
+    if "code" in joined or "coder" in joined or "merlin" in joined:
+        return "Good for coding, repo work, and technical tasks."
+    if "teach" in joined:
+        return "Good for guided explanations and teaching-style help."
+    if "small" in joined or "1b" in joined or "3b" in joined:
+        return "Good for lighter local tasks and quick experiments."
+    if "30b" in joined or "32b" in joined or "24b" in joined:
+        return "Good for heavier work when you can trade speed for depth."
+    return "Use this when it best fits the work you are doing."
+
+
+class _ModelCard(QFrame):
+    set_active = Signal(str)
+
+    def __init__(self, name: str, display: str, tier: str, context: str = "-", note: str = "", size_bytes: int = 0, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._model_name = name
+        self._tier = tier
+        self._is_active = False
+        self._is_recommended = False
+        self._search_text = " ".join(
+            part.strip().lower()
+            for part in [name, display, tier, context, note]
+            if isinstance(part, str) and part.strip()
+        )
+        self.setObjectName("model_card")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(4)
+        top = QHBoxLayout()
+        self._name_lbl = QLabel(display)
+        self._name_lbl.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_LABEL}pt; font-weight: bold;")
+        self._badge_lbl = QLabel(tier)
+        top.addWidget(self._name_lbl)
+        top.addStretch()
+        top.addWidget(self._badge_lbl)
+        layout.addLayout(top)
+        self._id_lbl = QLabel(name)
+        self._id_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+        layout.addWidget(self._id_lbl)
+        self._use_lbl = QLabel(_model_use_hint(name, display, tier, context, note))
+        self._use_lbl.setWordWrap(True)
+        self._use_lbl.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;")
+        layout.addWidget(self._use_lbl)
+        meta = QHBoxLayout()
+        meta.setSpacing(12)
+        for text in (([_fmt_size(size_bytes)] if size_bytes else []) + ([context] if context else [])):
+            chip = QLabel(text)
+            chip.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
+            meta.addWidget(chip)
+        meta.addStretch()
+        layout.addLayout(meta)
+        layout.addSpacing(10)
+        act = QHBoxLayout()
+        self._status_lbl = QLabel("AVAILABLE")
+        self._set_btn = QPushButton("USE THIS SESSION")
+        self._set_btn.setFixedHeight(28)
+        self._set_btn.setToolTip("Use this model for the current chat session")
+        self._set_btn.clicked.connect(lambda: self.set_active.emit(self._model_name))
+        act.addWidget(self._status_lbl)
+        act.addStretch()
+        act.addWidget(self._set_btn)
+        layout.addLayout(act)
+        self._apply_card_style()
+
+    def _apply_card_style(self) -> None:
+        border = T.PRIMARY if self._is_recommended else T.BORDER
+        background = T.BG0 if self._is_recommended else T.BG1
+        self.setStyleSheet(f"QFrame#model_card {{ background-color: {background}; border: 1px solid {border}; }}")
+        badge_text = f"{self._tier} PICK" if self._is_recommended else self._tier
+        badge_color = T.PRIMARY if self._tier == "LOCAL" else T.SECONDARY
+        badge_border = T.PRIMARY if self._is_recommended else badge_color
+        badge_fill = T.BG0 if self._is_recommended else "transparent"
+        self._badge_lbl.setText(badge_text)
+        self._badge_lbl.setStyleSheet(
+            f"color: {badge_border}; background: {badge_fill}; font-family: '{T.FF_MONO}'; "
+            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px; padding: 1px 4px; border: 1px solid {badge_border};"
+        )
+        self._name_lbl.setStyleSheet(
+            f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_LABEL}pt; "
+            f"font-weight: {'800' if self._is_recommended else 'bold'};"
+        )
+        self._use_lbl.setStyleSheet(
+            f"color: {T.TEXT}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; "
+            f"font-weight: {'bold' if self._is_recommended else 'normal'};"
+        )
+        status_color = T.PRIMARY if self._is_active else T.GREEN
+        self._status_lbl.setStyleSheet(
+            f"color: {status_color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        button_border = T.PRIMARY if self._is_recommended else T.BORDER
+        button_bg = T.BG0 if self._is_recommended else T.BG1
+        button_color = T.PRIMARY if self._is_recommended else T.TEXT
+        self._set_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {button_bg}; color: {button_color}; border: 1px solid {button_border}; "
+            f"padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton:disabled {{ color: {T.DIM}; border-color: {T.BORDER}; }}"
+        )
+
+    def set_recommended(self, recommended: bool) -> None:
+        self._is_recommended = recommended
+        self._apply_card_style()
+
+    def mark_active(self, active: bool) -> None:
+        self._is_active = active
+        self._status_lbl.setText("IN USE" if active else "AVAILABLE")
+        self._set_btn.setEnabled(not active)
+        self._apply_card_style()
+
+    def matches_query(self, query: str) -> bool:
+        needle = (query or "").strip().lower()
+        return not needle or needle in self._search_text
+
+
+class _ColumnHeader(QLabel):
+    def __init__(self, text: str) -> None:
+        super().__init__(text)
+        self.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px; border-bottom: 1px solid {T.BORDER}; padding-bottom: 4px;")
 
 
 @dataclass(slots=True)
@@ -40,6 +178,32 @@ class ModelsRuntimeSection:
     runtime_status_label: QLabel
 
 
+@dataclass(slots=True)
+class ModelsRouteSection:
+    frame: QFrame
+    simple_route_combo: QComboBox
+    complex_route_combo: QComboBox
+    teaching_route_combo: QComboBox
+    fallback_chain_input: QLineEdit
+    apply_routes_button: QPushButton
+    mix_status_label: QLabel
+    mix_route_inputs: dict[str, QComboBox]
+    apply_mix_button: QPushButton
+    ops_toggle_button: QPushButton
+    ops_panel: QFrame
+    ops_model_input: QLineEdit
+    ops_download_button: QPushButton
+    ops_uninstall_button: QPushButton
+    ops_health_button: QPushButton
+    ops_status_label: QLabel
+    route_status_label: QLabel
+    route_summary_label: QLabel
+    route_evidence_label: QLabel
+    route_mode_combo: QComboBox
+    route_input: QLineEdit
+    route_preview_label: QLabel
+
+
 def build_models_loadout_section(
     *,
     loadout_fields: list[tuple[str, str]],
@@ -56,9 +220,9 @@ def build_models_loadout_section(
     loadout_layout.setSpacing(8)
 
     loadout_header = QHBoxLayout()
-    loadout_title = QLabel("LOCAL LOADOUT (MAIN + 2 SUB MODELS)")
+    loadout_title = QLabel("LOCAL MODEL LOADOUT (MAIN + 2 SPAWNED MODELS)")
     loadout_title.setStyleSheet(f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
-    status_label = QLabel("Set a main model and two spawnable sub models")
+    status_label = QLabel("Set the main assistant model and two spawned secondary models")
     status_label.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
     loadout_header.addWidget(loadout_title)
     loadout_header.addStretch()
@@ -187,7 +351,7 @@ def build_models_runtime_section(
     library_hdr = QHBoxLayout()
     runtime_library_title = QLabel("LEMONADE MODEL PICKER")
     runtime_library_title.setStyleSheet(f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
-    runtime_library_target_label = QLabel("Assigning to FAST")
+    runtime_library_target_label = QLabel("Assigning to DAILY SLOT")
     runtime_library_target_label.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
     library_hdr.addWidget(runtime_library_title)
     library_hdr.addStretch()
@@ -244,4 +408,233 @@ def build_models_runtime_section(
         runtime_policy_label=runtime_policy_label,
         runtime_live_label=runtime_live_label,
         runtime_status_label=runtime_status_label,
+    )
+
+
+def build_models_route_section(
+    *,
+    mix_route_fields: list[tuple[str, str]],
+    route_modes: list[str],
+    on_route_changed: Callable[[], None],
+    on_apply_routes: Callable[[], None],
+    on_apply_mix: Callable[[], None],
+    on_toggle_ops: Callable[[], None],
+    on_download: Callable[[], None],
+    on_uninstall: Callable[[], None],
+    on_check_health: Callable[[], None],
+    on_route_mode_changed: Callable[[str], None],
+    on_route_input_changed: Callable[[str], None],
+) -> ModelsRouteSection:
+    frame = QFrame()
+    frame.setStyleSheet(f"background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER};")
+    layout = QVBoxLayout(frame)
+    layout.setContentsMargins(28, 10, 28, 10)
+    layout.setSpacing(8)
+
+    route_row = QHBoxLayout()
+    route_row.setSpacing(10)
+
+    def _task_combo(label_text: str) -> QComboBox:
+        route_row.addWidget(QLabel(label_text))
+        combo = QComboBox()
+        combo.setFixedWidth(300)
+        combo.currentTextChanged.connect(lambda _=None: on_route_changed())
+        route_row.addWidget(combo)
+        return combo
+
+    simple_route_combo = _task_combo("TASK: SIMPLE")
+    complex_route_combo = _task_combo("TASK: COMPLEX")
+    teaching_route_combo = _task_combo("TASK: TEACHING")
+    route_row.addStretch()
+    layout.addLayout(route_row)
+
+    fallback_row = QHBoxLayout()
+    fallback_row.setSpacing(10)
+    fallback_row.addWidget(QLabel("FALLBACK CHAIN"))
+    fallback_chain_input = QLineEdit("")
+    fallback_chain_input.textChanged.connect(lambda _=None: on_route_changed())
+    fallback_chain_input.setMinimumWidth(620)
+    fallback_chain_input.setStyleSheet(
+        f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; "
+        f"background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 6px 8px;"
+    )
+    apply_routes_button = QPushButton("APPLY ROUTES")
+    apply_routes_button.setFixedHeight(28)
+    apply_routes_button.setToolTip("Save the current task-to-model route assignments and fallback chain")
+    apply_routes_button.clicked.connect(on_apply_routes)
+    fallback_row.addWidget(fallback_chain_input)
+    fallback_row.addWidget(apply_routes_button)
+    fallback_row.addStretch()
+    layout.addLayout(fallback_row)
+
+    mix_routes_frame = QFrame()
+    mix_routes_frame.setStyleSheet(f"background-color: {T.BG1}; border: 1px solid {T.BORDER};")
+    mix_layout = QVBoxLayout(mix_routes_frame)
+    mix_layout.setContentsMargins(10, 10, 10, 10)
+    mix_layout.setSpacing(8)
+    mix_header = QHBoxLayout()
+    mix_title = QLabel("MIXED ROUTE LOADOUT")
+    mix_title.setStyleSheet(f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
+    mix_status_label = QLabel("Mix local, cloud, and API providers by route target")
+    mix_status_label.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+    mix_header.addWidget(mix_title)
+    mix_header.addStretch()
+    mix_header.addWidget(mix_status_label)
+    mix_layout.addLayout(mix_header)
+    mix_grid = QGridLayout()
+    mix_grid.setHorizontalSpacing(10)
+    mix_grid.setVerticalSpacing(8)
+    mix_route_inputs: dict[str, QComboBox] = {}
+    for index, (field_name, label_text) in enumerate(mix_route_fields):
+        label = QLabel(label_text)
+        label.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
+        combo = QComboBox()
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        combo.setMinimumWidth(320)
+        combo.setStyleSheet(
+            f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; "
+            f"background-color: {T.BG0}; border: 1px solid {T.BORDER}; padding: 4px 6px;"
+        )
+        mix_grid.addWidget(label, index, 0)
+        mix_grid.addWidget(combo, index, 1)
+        mix_route_inputs[field_name] = combo
+    mix_layout.addLayout(mix_grid)
+    mix_actions = QHBoxLayout()
+    apply_mix_button = QPushButton("APPLY MIX")
+    apply_mix_button.setFixedHeight(28)
+    apply_mix_button.setToolTip("Save the mixed route assignments for the main assistant and spawned models")
+    apply_mix_button.clicked.connect(on_apply_mix)
+    mix_actions.addWidget(apply_mix_button)
+    mix_actions.addStretch()
+    mix_layout.addLayout(mix_actions)
+    layout.addWidget(mix_routes_frame)
+
+    ops_toggle_button = QPushButton("MODEL HEALTH + READINESS")
+    ops_toggle_button.setFixedHeight(28)
+    ops_toggle_button.setToolTip("Show or hide local runtime health, download, and uninstall controls")
+    ops_toggle_button.clicked.connect(on_toggle_ops)
+    layout.addWidget(ops_toggle_button)
+
+    ops_panel = QFrame()
+    ops_panel.setVisible(False)
+    ops_panel.setStyleSheet(f"background-color: {T.BG1}; border: 1px solid {T.BORDER};")
+    ops_layout = QVBoxLayout(ops_panel)
+    ops_layout.setContentsMargins(10, 10, 10, 10)
+    ops_layout.setSpacing(8)
+    endpoints_lbl = QLabel(
+        "Runtime readiness lives here, but provider accounts and API-key storage stay unified in Settings. "
+        "Hidden endpoints remain environment-driven: LM Studio (GUPPY_LMSTUDIO_BASE_URL), local harness (GUPPY_LOCAL_HARNESS_BASE_URL), and any cloud-provider API keys."
+    )
+    endpoints_lbl.setWordWrap(True)
+    endpoints_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+    ops_layout.addWidget(endpoints_lbl)
+    connector_note_lbl = QLabel(
+        "Connector lane: Ollama install/uninstall and warm-spawn are live here. "
+        "LM Studio is discovery/readiness-only today. Local harness is a development and benchmark lane. "
+        "Hugging Face local is planned behind the harness/OpenAI-compatible adapter path before it becomes a saved runtime backend."
+    )
+    connector_note_lbl.setWordWrap(True)
+    connector_note_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+    ops_layout.addWidget(connector_note_lbl)
+    ops_row = QHBoxLayout()
+    ops_row.setSpacing(8)
+    ops_model_input = QLineEdit()
+    ops_model_input.setPlaceholderText("model id e.g. llama3.2:3b")
+    ops_model_input.setMinimumWidth(260)
+    ops_model_input.setStyleSheet(
+        f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; "
+        f"background-color: {T.BG0}; border: 1px solid {T.BORDER}; padding: 6px 8px;"
+    )
+    ops_download_button = QPushButton("DOWNLOAD")
+    ops_download_button.setFixedHeight(28)
+    ops_download_button.setToolTip("Download this model to the local Ollama runtime (ollama pull)")
+    ops_download_button.clicked.connect(on_download)
+    ops_uninstall_button = QPushButton("UNINSTALL")
+    ops_uninstall_button.setFixedHeight(28)
+    ops_uninstall_button.setToolTip("Remove this model from the local Ollama runtime (ollama rm)")
+    ops_uninstall_button.clicked.connect(on_uninstall)
+    ops_health_button = QPushButton("CHECK HEALTH")
+    ops_health_button.setFixedHeight(28)
+    ops_health_button.setToolTip("Run a quick health check against the active local runtime")
+    ops_health_button.clicked.connect(on_check_health)
+    ops_row.addWidget(ops_model_input)
+    ops_row.addWidget(ops_download_button)
+    ops_row.addWidget(ops_uninstall_button)
+    ops_row.addWidget(ops_health_button)
+    ops_row.addStretch()
+    ops_layout.addLayout(ops_row)
+    ops_status_label = QLabel("Health and provider readiness are hidden by default")
+    ops_status_label.setWordWrap(True)
+    ops_status_label.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+    ops_layout.addWidget(ops_status_label)
+    layout.addWidget(ops_panel)
+
+    route_status_label = QLabel("Route strategy ready")
+    route_status_label.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
+    route_summary_label = QLabel("")
+    route_summary_label.setWordWrap(True)
+    route_summary_label.setStyleSheet(
+        f"color: {T.PRIMARY_DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; "
+        f"background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;"
+    )
+    route_evidence_label = QLabel("")
+    route_evidence_label.setWordWrap(True)
+    route_evidence_label.setStyleSheet(
+        f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; "
+        f"background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;"
+    )
+    layout.addWidget(route_status_label)
+    layout.addWidget(route_summary_label)
+    layout.addWidget(route_evidence_label)
+
+    preview_row = QHBoxLayout()
+    preview_row.setSpacing(10)
+    preview_row.addWidget(QLabel("WHY THIS MODEL WAS CHOSEN"))
+    route_mode_combo = QComboBox()
+    route_mode_combo.addItems(route_modes)
+    route_mode_combo.setFixedWidth(150)
+    route_mode_combo.currentTextChanged.connect(on_route_mode_changed)
+    route_input = QLineEdit()
+    route_input.setPlaceholderText("Type a sample request to preview task classification and route choice")
+    route_input.textChanged.connect(on_route_input_changed)
+    route_input.setStyleSheet(
+        f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; "
+        f"background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 6px 8px;"
+    )
+    preview_row.addWidget(route_mode_combo)
+    preview_row.addWidget(route_input, stretch=1)
+    layout.addLayout(preview_row)
+
+    route_preview_label = QLabel("")
+    route_preview_label.setWordWrap(True)
+    route_preview_label.setStyleSheet(
+        f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; "
+        f"background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;"
+    )
+    layout.addWidget(route_preview_label)
+
+    return ModelsRouteSection(
+        frame=frame,
+        simple_route_combo=simple_route_combo,
+        complex_route_combo=complex_route_combo,
+        teaching_route_combo=teaching_route_combo,
+        fallback_chain_input=fallback_chain_input,
+        apply_routes_button=apply_routes_button,
+        mix_status_label=mix_status_label,
+        mix_route_inputs=mix_route_inputs,
+        apply_mix_button=apply_mix_button,
+        ops_toggle_button=ops_toggle_button,
+        ops_panel=ops_panel,
+        ops_model_input=ops_model_input,
+        ops_download_button=ops_download_button,
+        ops_uninstall_button=ops_uninstall_button,
+        ops_health_button=ops_health_button,
+        ops_status_label=ops_status_label,
+        route_status_label=route_status_label,
+        route_summary_label=route_summary_label,
+        route_evidence_label=route_evidence_label,
+        route_mode_combo=route_mode_combo,
+        route_input=route_input,
+        route_preview_label=route_preview_label,
     )

@@ -157,7 +157,7 @@ class LibraryWorkflowControllerTests(unittest.TestCase):
         controller, active_items, _ = self._build_controller(status_panel, log_event)
 
         with patch(
-            "src.guppy.launcher_application.library_workflow.list_workspace_library_items",
+            "src.guppy.launcher_application.library_context_support.list_workspace_library_items",
             return_value=[
                 {
                     "title": "Review packet",
@@ -179,7 +179,7 @@ class LibraryWorkflowControllerTests(unittest.TestCase):
         controller, active_items, _ = self._build_controller(status_panel, log_event)
 
         with patch(
-            "src.guppy.launcher_application.library_workflow.list_workspace_library_items",
+            "src.guppy.launcher_application.library_context_support.list_workspace_library_items",
             return_value=[
                 {
                     "id": 14,
@@ -224,7 +224,7 @@ class LibraryWorkflowControllerTests(unittest.TestCase):
         controller, active_items, _ = self._build_controller(status_panel, log_event)
 
         with patch(
-            "src.guppy.launcher_application.library_workflow.list_workspace_library_items",
+            "src.guppy.launcher_application.library_context_support.list_workspace_library_items",
             return_value=[
                 {
                     "title": "Release review artifact",
@@ -251,7 +251,7 @@ class LibraryWorkflowControllerTests(unittest.TestCase):
         controller, active_items, _ = self._build_controller(status_panel, log_event)
 
         with patch(
-            "src.guppy.launcher_application.library_workflow.list_approved_roots",
+            "src.guppy.launcher_application.library_context_support.list_approved_roots",
             return_value=[
                 {
                     "label": "Current Guppy repo",

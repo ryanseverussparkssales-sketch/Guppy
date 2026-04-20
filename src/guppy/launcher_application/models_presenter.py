@@ -12,6 +12,33 @@ class ModelsTextState:
     tone: str = "info"
 
 
+def build_models_active_identity_text(active_model: str) -> str:
+    selected = str(active_model or "").strip() or "not set"
+    return f"CURRENT MODEL: {selected}"
+
+
+def build_models_runtime_identity_text(runtime_backend: str) -> str:
+    backend = _normalized_backend(runtime_backend).upper()
+    return f"LOCAL RUNTIME: {backend}"
+
+
+def build_models_library_hint_text(
+    *,
+    query: str = "",
+    local_matches: int = 0,
+    cloud_matches: int = 0,
+) -> str:
+    if str(query or "").strip():
+        return (
+            f"Showing {local_matches} local and {cloud_matches} cloud matches. "
+            "Open Runtime only if you want to change the local engine or route slots."
+        )
+    return (
+        "Pick the model for this assistant session. "
+        "Persona and assistant naming stay separate in Settings."
+    )
+
+
 def _normalized_backend(value: str) -> str:
     cleaned = str(value or "ollama").strip().lower()
     return "lemonade" if cleaned == "lemonade" else "ollama"
@@ -26,6 +53,25 @@ def _string_list(values: object, *, upper: bool = False) -> list[str]:
         return []
     items = [str(item).strip() for item in values if str(item).strip()]
     return [item.upper() for item in items] if upper else items
+
+
+def _friendly_slot_label(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    return {
+        "fast": "DAILY SLOT",
+        "complex": "HEAVY SLOT",
+        "teach": "TEACHING SLOT",
+        "teaching": "TEACHING SLOT",
+        "code": "CODING SLOT",
+        "vault": "RESEARCH SLOT",
+        "sub_a": "SPAWNED MODEL A",
+        "sub_b": "SPAWNED MODEL B",
+        "main": "MAIN MODEL",
+    }.get(normalized, str(value or "").strip().upper())
+
+
+def _slot_list(values: object) -> list[str]:
+    return [_friendly_slot_label(item) for item in _string_list(values)]
 
 
 def normalize_models_policy(payload: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -85,7 +131,7 @@ def build_models_runtime_summary_text(
     pending_save = editor != saved
 
     if editor == "lemonade":
-        text = "Lemonade is opt-in for the local lane. Map Guppy's role aliases to downloaded Lemonade model ids here."
+        text = "Lemonade is opt-in for the local lane. Map the saved runtime slots to downloaded Lemonade model ids here."
         text += "\nCurrent Lemonade mapping: " + (" | ".join(mapping) if mapping else "none saved yet")
         if names:
             text += f"\nDownloaded Lemonade models visible now: {', '.join(names[:6])}"
@@ -131,10 +177,11 @@ def build_models_loadout_help_text(
     sub_b_model: str,
 ) -> str:
     return (
-        "Directed lanes: "
-        f"complex/default -> {str(main_model or 'unset').strip() or 'unset'} | "
-        f"simple/fast -> {str(sub_a_model or 'unset').strip() or 'unset'} | "
-        f"code specialist -> {str(sub_b_model or 'unset').strip() or 'unset'}."
+        "Saved slots: "
+        f"main assistant model -> {str(main_model or 'unset').strip() or 'unset'} | "
+        f"spawned model A -> {str(sub_a_model or 'unset').strip() or 'unset'} | "
+        f"spawned model B -> {str(sub_b_model or 'unset').strip() or 'unset'}. "
+        "Persona stays attached separately."
     )
 
 
@@ -152,7 +199,7 @@ def build_models_route_summary_text(
         f"Simple requests start with {simple_target}.\n"
         f"Complex requests start with {complex_target}.\n"
         f"Teaching requests start with {teaching_target}.\n"
-        f"If the first choice is unavailable, Guppy falls back to {', '.join(fallback) if fallback else 'the built-in defaults'}."
+        f"If the first choice is unavailable, the launcher falls back to {', '.join(fallback) if fallback else 'the built-in defaults'}."
     )
     return summary, f"Live evidence: {health_summary}"
 
@@ -195,7 +242,7 @@ def build_models_route_decision_text(decision: Mapping[str, Any] | None) -> str:
         f"{friendly_models_route_target(model or friendly_models_route_name(route))}."
     )
     if executor:
-        summary += f" Guppy will execute it through {executor.upper()}."
+        summary += f" The current assistant will execute it through {executor.upper()}."
     details = ([f"Backup: {friendly_models_route_target(backup)}"] if backup else []) + [f"Why: {reason}"]
     return summary + ("\n" + " ".join(details) if details else "")
 
@@ -279,8 +326,8 @@ def build_models_runtime_evidence_state(
     resolved_model = str(runtime.get("resolved_model", "") or "").strip()
     base_url = str(runtime.get("base_url", "") or "").strip()
     tool_loop = str(runtime.get("tool_loop", "") or "").strip()
-    available_roles = _string_list(runtime.get("available_roles", []), upper=True)
-    missing_roles = _string_list(runtime.get("missing_roles", []), upper=True)
+    available_roles = _slot_list(runtime.get("available_roles", []))
+    missing_roles = _slot_list(runtime.get("missing_roles", []))
     chat_ready = bool(runtime.get("chat_ready", False))
     chat_state = str(runtime.get("chat_state", "UNKNOWN") or "UNKNOWN").strip().upper()
     chat_detail = str(runtime.get("chat_detail", "") or "").strip()

@@ -1,6 +1,6 @@
 """
 ui/launcher/views/settings_view.py
-Runtime settings plus Persona Builder v1 for the unified launcher.
+Runtime settings plus assistant/persona configuration for the unified launcher.
 """
 from __future__ import annotations
 
@@ -39,6 +39,7 @@ from src.guppy.experience_config import (
     save_runtime_settings as save_app_settings,
     validate_persona_config,
 )
+from src.guppy.experience_config.personalization_defaults import DEFAULT_ASSISTANT_NAME, DEFAULT_PERSONA_CONFIG
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
 from src.guppy.launcher_application.settings_persona_presenter import (
     build_assignment_summary_text,
@@ -46,44 +47,6 @@ from src.guppy.launcher_application.settings_persona_presenter import (
 )
 from .. import tokens as T
 _PROFILE_BACKEND = runtime_settings_backend_available()
-
-_DEFAULT_PERSONA_CONFIG: dict[str, Any] = {
-    "version": 1,
-    "default_persona_id": "main_guppy",
-    "personas": [
-        {
-            "id": "main_guppy",
-            "name": "Main Guppy",
-            "scope": "global",
-            "system_prompt": (
-                "You are Main Guppy, Ryan's primary day-to-day assistant. "
-                "Be calm, dependable, practical, and quietly confident. "
-                "Keep the Jarvis-like feel understated and never theatrical."
-            ),
-            "traits": {
-                "tone": "butler",
-                "verbosity": "medium",
-                "response_style": "direct",
-            },
-            "teaching": {
-                "enabled": True,
-                "socratic_bias": 35,
-                "example_bias": 60,
-            },
-            "profile_summary": (
-                "- Ryan prefers concise, high-signal answers with low filler.\n"
-                "- Keep the tone calm, exact, proactive, and quietly confident. Aim for a Jarvis-like feel without theatrical phrasing.\n"
-                "- Preserve continuity across coding, launcher UX, automation, and workspace work so progress feels cumulative.\n"
-                "- Keep Home calm and chat-first. Move heavier runtime, routing, recovery, and logs detail into App Mgmt or dedicated surfaces.\n"
-                "- Never pretend an action, tool result, or state change happened unless it was actually executed."
-            ),
-        }
-    ],
-    "assignments": {
-        "global": "main_guppy",
-        "by_model": {},
-    },
-}
 
 _PERSONALIZATION_BACKEND = personalization_backend_available()
 
@@ -121,7 +84,7 @@ class SettingsView(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._persona_config = _deepcopy_json(_DEFAULT_PERSONA_CONFIG)
+        self._persona_config = _deepcopy_json(DEFAULT_PERSONA_CONFIG)
         self._current_persona_id = "main_guppy"
         self._loading_persona = False
         self._settings_section = "runtime"
@@ -147,7 +110,7 @@ class SettingsView(QWidget):
         title = QLabel("Settings")
         title.setStyleSheet("font-size: 26pt; font-weight: 900;")
         layout.addWidget(title)
-        subtitle = QLabel("Runtime defaults and Persona Builder v1 for launcher-local behavior.")
+        subtitle = QLabel("Runtime defaults plus assistant naming and persona behavior for launcher-local use.")
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
 
@@ -199,7 +162,7 @@ class SettingsView(QWidget):
         persona_layout = QVBoxLayout(self._persona_frame)
         persona_layout.setContentsMargins(14, 12, 14, 12)
         persona_layout.setSpacing(10)
-        persona_layout.addWidget(QLabel("Persona Builder v1"))
+        persona_layout.addWidget(QLabel("Assistant & Persona Builder"))
 
         picker_row = QHBoxLayout()
         self._persona_picker = QComboBox()
@@ -215,7 +178,7 @@ class SettingsView(QWidget):
 
         identity_row = QHBoxLayout()
         self._persona_name = QLineEdit()
-        self._persona_name.setPlaceholderText("Persona name")
+        self._persona_name.setPlaceholderText("Assistant name")
         self._persona_name.textChanged.connect(self._refresh_preview)
         self._scope_cb = QComboBox()
         self._scope_cb.addItems(["GLOBAL", "MODEL"])
@@ -226,7 +189,12 @@ class SettingsView(QWidget):
         identity_row.addWidget(self._persona_name, stretch=2)
         identity_row.addWidget(self._scope_cb)
         identity_row.addWidget(self._model_binding_cb, stretch=1)
+        self._assistant_name_note = QLabel(
+            "Platform name stays Guppy. Change the default assistant name here; model identity stays in Models."
+        )
+        self._assistant_name_note.setWordWrap(True)
         persona_layout.addLayout(identity_row)
+        persona_layout.addWidget(self._assistant_name_note)
 
         traits_row = QHBoxLayout()
         self._tone_cb = QComboBox()
@@ -290,7 +258,7 @@ class SettingsView(QWidget):
         advanced_layout.setSpacing(10)
         advanced_layout.addWidget(QLabel("Advanced Surfaces"))
         advanced_note = QLabel(
-            "Diagnostics, runtime controls, operator logs, and recovery flows live in the dedicated advanced surface. Settings stays focused on durable defaults and persona configuration."
+            "Diagnostics, runtime controls, operator logs, and recovery flows live in the dedicated advanced surface. Settings stays focused on durable defaults, assistant naming, and persona configuration."
         )
         advanced_note.setWordWrap(True)
         advanced_layout.addWidget(advanced_note)
@@ -375,7 +343,7 @@ class SettingsView(QWidget):
     def _load_persona_settings(self) -> None:
         if not _PERSONALIZATION_BACKEND:
             self._set_persona_controls_enabled(False)
-            self._persona_status_lbl.setText("Persona Builder unavailable: personalization backend not loaded.")
+            self._persona_status_lbl.setText("Assistant & Persona Builder unavailable: personalization backend not loaded.")
             self._refresh_preview()
             return
 
@@ -385,7 +353,7 @@ class SettingsView(QWidget):
             config, diagnostics = load_persona_config_with_diagnostics()
         except Exception as exc:
             self._set_persona_controls_enabled(False)
-            self._persona_status_lbl.setText(f"Persona Builder failed to load: {exc}")
+            self._persona_status_lbl.setText(f"Assistant & Persona Builder failed to load: {exc}")
             self._refresh_preview()
             return
 
@@ -399,7 +367,7 @@ class SettingsView(QWidget):
             or self._persona_config.get("assignments", {}).get("global", "main_guppy")
         )
         self._refresh_persona_lists(select_id)
-        self._persona_status_lbl.setText("Persona Builder ready")
+        self._persona_status_lbl.setText("Assistant & Persona Builder ready")
 
     def _load_model_binding_options(self) -> None:
         options = list_model_ids(load_provider_registry())
@@ -439,7 +407,7 @@ class SettingsView(QWidget):
     def _refresh_persona_lists(self, select_id: str = "") -> None:
         personas = self._persona_items()
         if not personas:
-            self._persona_config = _deepcopy_json(_DEFAULT_PERSONA_CONFIG)
+            self._persona_config = _deepcopy_json(DEFAULT_PERSONA_CONFIG)
             personas = self._persona_items()
 
         target = select_id or str(personas[0].get("id", "main_guppy"))
@@ -523,7 +491,7 @@ class SettingsView(QWidget):
     def _create_persona(self) -> None:
         if not _PERSONALIZATION_BACKEND:
             return
-        name = f"Custom Persona {len(self._persona_items()) + 1}"
+        name = f"Custom Assistant {len(self._persona_items()) + 1}"
         persona_id = self._next_persona_id(name)
         self._persona_config.setdefault("personas", []).append(
             {
@@ -544,7 +512,7 @@ class SettingsView(QWidget):
             }
         )
         self._refresh_persona_lists(persona_id)
-        self._persona_status_lbl.setText(f"Draft persona created: {name}")
+        self._persona_status_lbl.setText(f"Draft assistant persona created: {name}")
 
     def _delete_persona(self) -> None:
         personas = self._persona_items()
@@ -560,7 +528,7 @@ class SettingsView(QWidget):
             assignments["global"] = str(keep[0].get("id", "main_guppy"))
         self._persona_config["default_persona_id"] = assignments["global"]
         self._refresh_persona_lists(str(keep[0].get("id", "main_guppy")))
-        self._persona_status_lbl.setText("Persona removed from draft config")
+        self._persona_status_lbl.setText("Assistant persona removed from draft config")
 
     def _build_persona_config(self) -> tuple[dict[str, Any], dict[str, Any]]:
         cfg = _deepcopy_json(self._persona_config)
@@ -568,7 +536,7 @@ class SettingsView(QWidget):
         persona_id = self._current_persona_id or self._next_persona_id(self._persona_name.text().strip())
         name = self._persona_name.text().strip()
         if not name:
-            raise ValueError("Persona name is required")
+            raise ValueError("Assistant name is required")
         scope = self._scope_cb.currentText().strip().lower()
         model_name = self._model_binding_cb.currentText().strip()
         if scope == "model" and not model_name:
@@ -678,7 +646,7 @@ class SettingsView(QWidget):
                     raise ValueError("; ".join(errors[:3]))
             except Exception as exc:
                 self._save_confirm.setText("")
-                self._persona_status_lbl.setText(f"Persona save blocked: {exc}")
+                self._persona_status_lbl.setText(f"Assistant save blocked: {exc}")
                 return
 
         previous_persona_config = _deepcopy_json(self._persona_config)
@@ -718,7 +686,7 @@ class SettingsView(QWidget):
                 }
             )
             self._persona_status_lbl.setText(
-                f"Persona saved: {active_persona.get('name', 'persona')}"
+                f"Assistant saved: {active_persona.get('name', DEFAULT_ASSISTANT_NAME)}"
             )
 
         self._last_mod_lbl.setText(f"Last saved: {ts}")

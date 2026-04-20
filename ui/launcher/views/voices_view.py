@@ -45,6 +45,7 @@ from src.guppy.launcher_application.voice_catalog_support import (
     engine_is_available,
 )
 from .. import tokens as T
+from .voices_sections import build_voices_ui
 
 try:
     from src.guppy.voice.voice import GuppyVoice
@@ -265,214 +266,13 @@ class VoicesView(QWidget):
         self._populate_voices(self._active_engine)
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        # ── Top control bar ───────────────────────────────────────────────────
-        bar = QFrame()
-        bar.setFixedHeight(64)
-        bar.setObjectName("voices_topbar")
-        bar.setStyleSheet(
-            f"QFrame#voices_topbar {{"
-            f"  background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER};"
-            f"}}"
+        build_voices_ui(
+            self,
+            engines=ENGINES,
+            persona_options=_PERSONA_OPTIONS,
+            model_options=_MODEL_OPTIONS,
+            preview_phrase=_PREVIEW_PHRASE,
         )
-        bl = QHBoxLayout(bar)
-        bl.setContentsMargins(28, 0, 28, 0)
-        bl.setSpacing(20)
-
-        title = QLabel("VOICE LIBRARY")
-        title.setStyleSheet(
-            f"color: {T.PRIMARY}; font-family: '{T.FF_HEAD}';"
-            f"font-size: {T.FS_TITLE}pt; font-weight: bold; letter-spacing: 2px;"
-        )
-        bl.addWidget(title)
-        bl.addSpacing(24)
-
-        engine_lbl = QLabel("ENGINE")
-        engine_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 2px;"
-        )
-        bl.addWidget(engine_lbl)
-
-        self._engine_cb = QComboBox()
-        self._engine_cb.addItems(list(ENGINES.keys()))
-        self._engine_cb.setFixedWidth(180)
-        self._engine_cb.currentTextChanged.connect(self._populate_voices)
-        bl.addWidget(self._engine_cb)
-
-        self._engine_status_lbl = QLabel("ENGINES: probing...")
-        self._engine_status_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        bl.addWidget(self._engine_status_lbl)
-        bl.addStretch()
-
-        self._default_lbl = QLabel("DEFAULT VOICE: loading...")
-        self._default_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        bl.addWidget(self._default_lbl)
-        bl.addSpacing(14)
-
-        self._active_lbl = QLabel(f"ACTIVE VOICE: {self._describe_voice_choice(self._active_engine, self._active_voice)}")
-        self._active_lbl.setStyleSheet(
-            f"color: {T.PRIMARY_DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 2px;"
-        )
-        bl.addWidget(self._active_lbl)
-
-        self._save_default_btn = QPushButton("SAVE AS DEFAULT")
-        self._save_default_btn.setFixedHeight(28)
-        self._save_default_btn.clicked.connect(self._save_default_voice)
-        bl.addSpacing(12)
-        bl.addWidget(self._save_default_btn)
-
-        root.addWidget(bar)
-
-        # ── Guided assignment strip (persona/model) ─────────────────────────
-        assign_bar = QFrame()
-        assign_bar.setFixedHeight(62)
-        assign_bar.setStyleSheet(
-            f"QFrame {{ background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER}; }}"
-        )
-        ab = QHBoxLayout(assign_bar)
-        ab.setContentsMargins(28, 0, 28, 0)
-        ab.setSpacing(10)
-
-        p_lbl = QLabel("ASSIGN TO PERSONA")
-        p_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        ab.addWidget(p_lbl)
-        self._persona_cb = QComboBox()
-        self._persona_cb.addItems(_PERSONA_OPTIONS)
-        self._persona_cb.setFixedWidth(140)
-        ab.addWidget(self._persona_cb)
-        self._assign_persona_btn = QPushButton("ASSIGN")
-        self._assign_persona_btn.setFixedHeight(28)
-        self._assign_persona_btn.clicked.connect(self._assign_persona_voice)
-        ab.addWidget(self._assign_persona_btn)
-
-        ab.addSpacing(18)
-
-        m_lbl = QLabel("ASSIGN TO MODEL")
-        m_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        ab.addWidget(m_lbl)
-        self._model_cb = QComboBox()
-        self._model_cb.addItems(_MODEL_OPTIONS)
-        self._model_cb.setFixedWidth(210)
-        ab.addWidget(self._model_cb)
-        self._assign_model_btn = QPushButton("ASSIGN")
-        self._assign_model_btn.setFixedHeight(28)
-        self._assign_model_btn.clicked.connect(self._assign_model_voice)
-        ab.addWidget(self._assign_model_btn)
-
-        ab.addStretch()
-        self._assign_status = QLabel("Voice bindings ready")
-        self._assign_status.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        self.preview_status.connect(self._assign_status.setText)
-        ab.addWidget(self._assign_status)
-        root.addWidget(assign_bar)
-
-        manage_bar = QFrame()
-        manage_bar.setStyleSheet(
-            f"QFrame {{ background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER}; }}"
-        )
-        mb = QVBoxLayout(manage_bar)
-        mb.setContentsMargins(28, 10, 28, 10)
-        mb.setSpacing(8)
-
-        preview_row = QHBoxLayout()
-        preview_row.setSpacing(10)
-        preview_lbl = QLabel("PREVIEW PHRASE")
-        preview_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        preview_row.addWidget(preview_lbl)
-        self._preview_phrase_input = QLineEdit(_PREVIEW_PHRASE)
-        self._preview_phrase_input.setStyleSheet(
-            f"QLineEdit {{ background: {T.BG1}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
-            f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; padding: 4px 8px; }}"
-        )
-        preview_row.addWidget(self._preview_phrase_input, stretch=1)
-        self._stop_preview_btn = QPushButton("STOP PREVIEW")
-        self._stop_preview_btn.setFixedHeight(28)
-        self._stop_preview_btn.clicked.connect(self._cancel_preview)
-        preview_row.addWidget(self._stop_preview_btn)
-        mb.addLayout(preview_row)
-
-        import_row = QHBoxLayout()
-        import_row.setSpacing(10)
-        import_lbl = QLabel("IMPORT VOICE")
-        import_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        import_row.addWidget(import_lbl)
-        self._import_engine_cb = QComboBox()
-        self._import_engine_cb.addItems(list(ENGINES.keys()))
-        import_row.addWidget(self._import_engine_cb)
-        self._import_voice_id = QLineEdit()
-        self._import_voice_id.setPlaceholderText("voice id")
-        self._import_label = QLineEdit()
-        self._import_label.setPlaceholderText("display label (optional)")
-        for widget in (self._import_voice_id, self._import_label):
-            widget.setStyleSheet(
-                f"QLineEdit {{ background: {T.BG1}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
-                f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; padding: 4px 8px; }}"
-            )
-        import_row.addWidget(self._import_voice_id)
-        import_row.addWidget(self._import_label)
-        self._import_btn = QPushButton("IMPORT")
-        self._import_btn.setFixedHeight(28)
-        self._import_btn.clicked.connect(self._import_voice)
-        import_row.addWidget(self._import_btn)
-        mb.addLayout(import_row)
-
-        self._bindings_summary_lbl = QLabel("Voice sources: Using the default voice for everything right now.")
-        self._bindings_summary_lbl.setWordWrap(True)
-        self._bindings_summary_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        mb.addWidget(self._bindings_summary_lbl)
-        self._voice_evidence_lbl = QLabel("Voice readiness appears here once Guppy loads bindings and engine status.")
-        self._voice_evidence_lbl.setWordWrap(True)
-        self._voice_evidence_lbl.setStyleSheet(
-            f"color: {T.PRIMARY_DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        mb.addWidget(self._voice_evidence_lbl)
-        root.addWidget(manage_bar)
-
-        # ── Voice list scrollable area ────────────────────────────────────────
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
-
-        self._list_widget = QWidget()
-        self._list_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self._list_layout = QVBoxLayout(self._list_widget)
-        self._list_layout.setContentsMargins(28, 20, 28, 24)
-        self._list_layout.setSpacing(6)
-        self._list_layout.addStretch()
-
-        scroll.setWidget(self._list_widget)
-        root.addWidget(scroll, stretch=1)
 
     def _refresh_engine_capabilities(self) -> None:
         self._engine_capabilities = build_engine_capabilities(ENGINES)
@@ -864,3 +664,4 @@ class VoicesView(QWidget):
                 engine_capabilities=self._engine_capabilities,
             )
         )
+

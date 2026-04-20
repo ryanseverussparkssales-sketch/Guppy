@@ -81,7 +81,7 @@ RULES = (
     BoundaryRule(
         rule_id="legacy-root-import",
         description="imports legacy root launcher/hub/surface module",
-        pattern=re.compile(r"^(from|import)\s+(guppy_ui|merlin_ui|council_ui|guppy_hub|guppy_launcher)\b"),
+        pattern=re.compile(r"^(from|import)\s+(guppy_ui|merlin_ui|council_ui|guppy_hub|guppy_launcher|guppy_api)\b"),
         path_prefixes=ENFORCED_PREFIXES,
     ),
     BoundaryRule(

@@ -25,6 +25,7 @@ from src.guppy.launcher_application.app_mgmt_presenter import (
     build_instance_snapshot_state,
 )
 from src.guppy.launcher_application.operator_logs import build_operator_log_lines, read_launcher_events
+from src.guppy.launcher_application.settings_operations_presenter import build_operations_density_state
 from src.guppy.launcher_application.terminal_recipes import build_tracked_terminal_recipe
 from src.guppy.launcher_application.windows_ops_presenter import (
     apply_windows_ops_feedback,
@@ -750,45 +751,20 @@ class SettingsOperationsPanel(QWidget):
             self._apply_density_mode(event.size().width())
 
     def _apply_density_mode(self, width: int) -> None:
-        compact = width <= 1180
-        tight = width <= 980
-        self._header_scope_lbl.setVisible(not tight)
-        self._details_btn.setText(
-            "LESS ADVANCED" if self._details_visible and not tight else
-            "LESS" if self._details_visible else
-            "ADVANCED" if not tight else
-            "DETAILS"
-        )
-        self._automation_summary_lbl.setVisible(not tight)
-        self._workflow_evidence_lbl.setVisible(not tight)
-        self._terminal_input.setPlaceholderText(
-            "Enter a PowerShell command"
-            if tight
-            else "Enter a PowerShell command to run inside the launcher terminal"
-        )
-        for action, text in {
-            "health_snapshot": "SNAPSHOT",
-            "warmup": "WARMUP",
-            "restart_daemon": "RESTART" if compact else "RESTART DAEMON",
-            "audit_runtime": "AUDIT" if compact else "AUDIT RUNTIME",
-        }.items():
+        density = build_operations_density_state(width, self._details_visible)
+        self._header_scope_lbl.setVisible(density.header_scope_visible)
+        self._details_btn.setText(density.details_button_text)
+        self._automation_summary_lbl.setVisible(density.automation_summary_visible)
+        self._workflow_evidence_lbl.setVisible(density.workflow_evidence_visible)
+        self._terminal_input.setPlaceholderText(density.terminal_placeholder)
+        for action, text in density.quick_fix_labels.items():
             self._quick_fix_buttons[action].setText(text)
-        for action, text in {
-            "release_dry_run": "DRY RUN" if compact else "RELEASE DRY RUN",
-            "start_supervised_api": "START" if tight else "START API",
-        }.items():
+        for action, text in density.windows_action_labels.items():
             self._windows_action_buttons[action].setText(text)
-        for action, text in {
-            "verify_now": "VERIFY" if tight else "VERIFY NOW",
-            "switch_builder_workspace": "BUILDER" if tight else "SWITCH TO BUILDER WORKSPACE",
-            "queue_dry_run": "DRY RUN",
-            "open_latest_report": "REFRESH" if tight else "REFRESH EVIDENCE PACK",
-            "approve_latest_staged_task": "APPROVE" if tight else "APPROVE LATEST STAGED TASK",
-            "run_validation": "VALIDATE" if tight else "RUN VALIDATION",
-        }.items():
+        for action, text in density.automation_action_labels.items():
             self._automation_action_buttons[action].setText(text)
-        self._workflow_load_btn.setText("LOAD" if compact else "LOAD FIRST CMD")
-        self._workflow_run_btn.setText("RUN" if compact else "RUN ALL")
+        self._workflow_load_btn.setText(density.workflow_load_text)
+        self._workflow_run_btn.setText(density.workflow_run_text)
 
     def _toggle_details(self) -> None:
         self._details_visible = not self._details_visible

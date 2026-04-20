@@ -43,7 +43,7 @@ def build_persona_preview_text(
     return (
         " | ".join(
             [
-                f"Persona: {(persona_name.strip() or 'Untitled').upper()}",
+                f"Assistant: {(persona_name.strip() or 'Untitled').upper()}",
                 scope_line,
                 f"Tone: {str(tone or 'BUTLER').strip().upper()}",
                 f"Verbosity: {str(verbosity or 'MEDIUM').strip().upper()}",

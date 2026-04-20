@@ -35,84 +35,28 @@ class Waiver:
 # current strangler work still needs to land.
 WAIVED_PATHS: dict[str, Waiver] = {
     "src/guppy/api/server_runtime_snapshot.py": Waiver(
-        max_lines=3098,
-        rationale="Runtime snapshot hotspot is smaller after shared briefing and telemetry extractions, but still awaits deeper runtime-application splits.",
-    ),
-    "src/guppy/daemon/daemon.py": Waiver(
-        max_lines=1473,
-        rationale="Daemon orchestration remains monolithic pending bounded service splits.",
+        max_lines=1712,
+        rationale="Runtime snapshot hotspot is materially smaller after instance/governance payload extraction plus earlier briefing/telemetry splits, but still awaits chat/request and telemetry/report decomposition.",
     ),
     "src/guppy/merlin/core.py": Waiver(
         max_lines=1115,
         rationale="Legacy specialist runtime remains in transition and is not part of this tranche.",
     ),
-    "src/guppy/memory/memory.py": Waiver(
-        max_lines=944,
-        rationale="Memory service still exceeds the cap until dedicated persistence/service seams land.",
-    ),
-    "src/guppy/api/services_realtime.py": Waiver(
-        max_lines=713,
-        rationale="Realtime API service still bundles too many behaviors pending runtime decomposition.",
-    ),
-    "src/guppy/api/server_runtime.py": Waiver(
-        max_lines=741,
-        rationale="Runtime shell now binds extracted startup, briefing, and auth/request helpers directly, but route and request orchestration still keep the API surface above the cap pending the next bounded split.",
-    ),
-    "src/guppy/launcher_application/library_workflow.py": Waiver(
-        max_lines=777,
-        rationale="Library workflow now carries richer source-origin shaping, default-source ordering, saved-output reuse, and the follow-through N3 context handoff contract; deeper controller/presenter extraction is still pending.",
-    ),
-    "src/guppy/debug/console.py": Waiver(
-        max_lines=717,
-        rationale="Debug console remains oversized but out of scope for the current build tranche.",
-    ),
-    "src/guppy/voice/voice.py": Waiver(
-        max_lines=704,
-        rationale="Voice orchestration still needs a later service split and broader device validation.",
-    ),
     "ui/launcher/launcher_window.py": Waiver(
-        max_lines=3471,
-        rationale="Launcher shell hotspot; automation-test coordination, windows-ops completion coordination, and the current C38/C39 launcher chrome and command-start hardening are now extracted or integrated, but the five-hub shell still carries workspace-access, request routing, and top-level orchestration pressure pending the next bounded split.",
+        max_lines=2800,
+        rationale="Launcher shell hotspot is smaller after assistant command flow extraction and earlier coordination splits, but the five-hub shell still carries status sync, windows-ops orchestration, and top-level request routing pressure pending the next bounded split.",
     ),
     "ui/launcher/views/settings_operations_panel.py": Waiver(
-        max_lines=1032,
-        rationale="Settings operations now also carries the broader PL-C11/PL-C12 clarity pass and the current launcher-facing packaging/runtime follow-through, but it still bundles diagnostics, recovery, connector-ops, and terminal workflow rendering pending a later presenter split.",
-    ),
-    "ui/launcher/views/settings_device_accounts_panel.py": Waiver(
-        max_lines=824,
-        rationale="Device & Accounts now owns direct connector focus, Settings-routed remediation follow-through, expanded provider field rendering, and registry-backed lifecycle wording/tooltips for onboarding, but the panel still bundles inventory, verify, and action render logic pending a later split.",
+        max_lines=1008,
+        rationale="Settings operations is smaller after presenter-backed density/label shaping, but it still bundles diagnostics, recovery, automation, and workflow section assembly pending dedicated subviews.",
     ),
     "ui/launcher/views/models_view.py": Waiver(
-        max_lines=1542,
-        rationale="Models hub now routes some runtime and readiness shaping through a presenter seam, but multi-provider routing and harness evidence still keep the main view oversized pending a later panel split. PL-C3 clarity pass added tooltips to SPAWN, APPLY, DOWNLOAD, UNINSTALL, CHECK HEALTH, REFRESH, SAVE RUNTIME, USE THIS SESSION, APPLY ROUTES, APPLY MIX, and MODEL HEALTH buttons.",
+        max_lines=1073,
+        rationale="Models hub is materially smaller after worker-thread and section-builder extraction, but route/mixed-loadout and model-ops coordination still keep the main view oversized pending the next panel split.",
     ),
     "ui/launcher/views/instance_manager_view.py": Waiver(
         max_lines=869,
         rationale="Workspace manager still bundles governance and render logic pending shared snapshots.",
-    ),
-    "ui/launcher/views/assistant_view.py": Waiver(
-        max_lines=1394,
-        rationale="Home chat now also surfaces first-run guidance and tighter small-window density behavior while still carrying active context, starter, and transcript orchestration; capped at the current observed size until a later Home split moves more onboarding/responsive logic into dedicated helpers. PL-C3 clarity pass added hub-purpose label and tooltips for send, starters, details, IN LIBRARY, and ATTACH NOW buttons.",
-    ),
-    "ui/launcher/views/library_view.py": Waiver(
-        max_lines=961,
-        rationale="Library now owns multiline note editing, inline approved-root switching, local media handoff/control, and the first narrow-width compacting pass while still bundling browse/edit/render behavior; the dedicated media panel reduced some pressure, but deeper presenter extraction is still pending. PL-C3 and the current PL-C11 sweep added purpose/tooltip coverage plus smaller-window label compaction for root, note, and artifact controls.",
-    ),
-    "ui/launcher/views/voices_view.py": Waiver(
-        max_lines=866,
-        rationale="Voice management remains oversized until experience-config services feed the UI. PL-C3 clarity pass bumped PREVIEW and SELECT button heights to 28px minimum and added tooltips.",
-    ),
-    "ui/launcher/views/settings_view.py": Waiver(
-        max_lines=732,
-        rationale="Settings remains transitional while configuration ownership moves out of the UI layer.",
-    ),
-    "utils/connector_manager.py": Waiver(
-        max_lines=670,
-        rationale="Connector readiness and workspace binding evidence now route through a dedicated connector-workspace seam; remaining action/auth orchestration still keeps the compatibility facade oversized.",
-    ),
-    "utils/personalization_config.py": Waiver(
-        max_lines=1035,
-        rationale="Experience-config persistence expanded with multi-provider registry (6 new providers); awaiting split into provider_registry_service + persona_service under src/guppy/experience_config/.",
     ),
 }
 

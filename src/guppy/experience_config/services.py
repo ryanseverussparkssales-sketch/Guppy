@@ -6,13 +6,18 @@ import os
 from pathlib import Path
 from typing import Any
 
+from src.guppy.experience_config.personalization_defaults import (
+    DEFAULT_ASSISTANT_NAME,
+    DEFAULT_PERSONA_CONFIG,
+)
+
 _FALLBACK_PERSONA_CONFIG: dict[str, Any] = {
     "version": 1,
     "default_persona_id": "main_guppy",
     "personas": [
         {
             "id": "main_guppy",
-            "name": "Main Guppy",
+            "name": DEFAULT_ASSISTANT_NAME,
             "scope": "global",
             "system_prompt": "",
             "traits": {"tone": "butler", "verbosity": "medium", "response_style": "direct"},
@@ -103,7 +108,9 @@ except Exception:
         return []
 
     def _list_persona_choices(_persona_config=None) -> list[dict[str, str]]:
-        return [{"id": "main_guppy", "name": "Main Guppy", "scope": "global", "model": "", "label": "Main Guppy [GLOBAL]"}]
+        default_persona = DEFAULT_PERSONA_CONFIG["personas"][0]
+        name = str(default_persona.get("name", DEFAULT_ASSISTANT_NAME) or DEFAULT_ASSISTANT_NAME)
+        return [{"id": "main_guppy", "name": name, "scope": "global", "model": "", "label": f"{name} [GLOBAL]"}]
 
     def _load_persona_config() -> dict[str, Any]:
         return dict(_FALLBACK_PERSONA_CONFIG)

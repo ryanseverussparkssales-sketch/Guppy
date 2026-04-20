@@ -311,6 +311,297 @@ Success metrics:
 4. The biggest UI coordinators become composition shells rather than implementation monoliths.
 5. Freeze-readiness ends with current waiver caps, current docs, and no stale release/tranche truth drift.
 
+Execution checkpoint (April 20, 2026 first freeze-reduction wave):
+
+1. `FR-C1` landed an API snapshot split: `src/guppy/api/server_runtime_snapshot.py` now delegates instance/governance/connector/log payload assembly into `src/guppy/api/snapshot_instances_support.py`, with focused coverage in `tests/unit/test_snapshot_instances_support.py`.
+2. `FR-C2` landed a launcher-shell split: `ui/launcher/launcher_window.py` now delegates assistant request submission/orchestration and topbar model summary shaping into `src/guppy/launcher_application/launcher_command_flow.py`, with focused coverage in `tests/unit/test_launcher_command_flow.py`.
+3. `FR-C3` landed a Models-hub split: `ui/launcher/views/models_view.py` now delegates runtime/model worker threads to `ui/launcher/views/models_runtime_workers.py` and section construction to `ui/launcher/views/models_sections.py`, with focused coverage in `tests/unit/test_models_sections.py`.
+4. Current observed hotspot reductions in this branch:
+   - `server_runtime_snapshot.py`: `2232` -> `1990`
+   - `launcher_window.py`: `3354` -> `3069`
+   - `models_view.py`: `1542` -> `1298`
+5. `FR-C9` also landed an API request-lane split: `src/guppy/api/services_realtime.py` now delegates the heavy realtime inference execution tree into `src/guppy/api/realtime_inference_support.py`, with focused coverage in `tests/unit/test_realtime_inference_support.py`.
+6. The connector/config extraction wave is also live in this branch:
+   - `utils/connector_manager.py` now delegates runtime/action behavior through `src/guppy/launcher_application/connector_state_service.py` and `connector_action_service.py`
+   - `utils/personalization_config.py` now acts as a backward-compatible wrapper over `src/guppy/experience_config/personalization_defaults.py`, `personalization_storage.py`, and `personalization_resolution.py`
+   - `ui/launcher/views/settings_device_accounts_panel.py` now routes panel shaping through a dedicated presenter seam and has dropped under the base cap
+7. `services_realtime.py`, `server_runtime.py`, `settings_device_accounts_panel.py`, `connector_manager.py`, and `personalization_config.py` are now all below the base cap, so their transitional waivers were removed from `tools/check_new_module_line_cap.py`.
+8. `server_runtime.py` also got a shell-support split into `src/guppy/api/server_runtime_shell_support.py`, moving FastAPI shell construction, `ServerContext` assembly, and voice-backend probing out of the module and dropping it to `403` lines.
+9. The Home/Library/Voices reduction wave is also live in this branch:
+   - `assistant_view.py` now delegates shell/chrome/composer/transcript assembly into `ui/launcher/views/assistant_shell_sections.py`
+   - `library_view.py` now delegates root/browse/recent/saved card rendering into `ui/launcher/views/library_card_sections.py`
+   - `voices_view.py` now delegates section construction into `ui/launcher/views/voices_sections.py`
+10. `voices_view.py` is now below the base cap and its transitional waiver was removed.
+11. `assistant_view.py` and `library_view.py` are materially smaller, but still slightly above the base cap after the integrated merge state, so their waiver caps were reset to the actual current branch sizes instead of the smaller worker-local estimates.
+12. `settings_operations_panel.py` now routes compact-mode label/state shaping through `src/guppy/launcher_application/settings_operations_presenter.py`, and its waiver cap was reduced to the new observed size.
+13. Transitional waiver caps were refreshed for the remaining touched hotspots so the freeze-readiness program cannot silently give back that ground.
+14. Freeze-readiness validation is now green again after the integrated merge state:
+   - `ui/launcher/launcher_window.py` had a small follow-through regression fixed by restoring the local `re` import used by auth/repair error-code extraction
+   - the remaining library seam was revalidated against `src/guppy/launcher_application/library_context_support.py` and `library_workflow.py`, and the focused library workflow/context tests are green on the extracted boundary
+   - `tools/check_new_module_line_cap.py` was refreshed to the actual observed launcher size (`3070`) so the guardrails match the branch honestly instead of carrying stale headroom
+15. Current release evidence for the freeze-reduction wave is `release-check-20260420-163159`, with `8/8` gates passing, `575 passed` in the default suite, and `138 passed` in product smoke.
+
+---
+
+## Freeze-Down Minimization Program (Post Freeze Wave)
+
+Execution note (April 20, 2026):
+
+- The repo is release-green again, but it is not yet at the "freezable branch" standard for a stabilization handoff.
+- The tracked tree is `571` files, so the remaining debt is now mainly hotspot concentration, compatibility drag, stale legacy wording, and doc/archive noise rather than uncontrolled repo sprawl.
+- This program follows `FR-C1` through `FR-C10` and focuses on three goals together:
+  1. reduce the last oversized coordinators into bounded working components
+  2. clean legacy and compatibility mentions down to explicit quarantine-only references
+  3. pare the tracked tree down to files that are actually needed for product, validation, packaging, or explicit retained history
+
+Top-level naming and product rule:
+
+1. The platform is named `Guppy`.
+2. The default assistant is also currently named `Guppy`, but that assistant name must become clearly user-editable.
+3. Model surfaces should stop showing old assistant/loadout labels such as `guppy`, `merlin`, `fast`, and `vault` as if they were model identities.
+4. Model selectors should show the actual model/runtime name, and customization should come from the attached persona rather than from legacy tab naming.
+
+Current live debt targets:
+
+1. `src/guppy/api/server_runtime_snapshot.py` `1912`
+2. `ui/launcher/launcher_window.py` `3070`
+3. `src/guppy/daemon/daemon.py` `1473`
+4. `ui/launcher/views/models_view.py` `1298`
+5. `src/guppy/merlin/core.py` `1115`
+6. `ui/launcher/views/settings_operations_panel.py` `1008`
+7. `src/guppy/memory/memory.py` `944`
+8. `ui/launcher/views/instance_manager_view.py` `869`
+9. `ui/launcher/views/assistant_view.py` `839`
+10. `src/guppy/launcher_application/library_workflow.py` `502` with stale waiver headroom to `777`
+11. `ui/launcher/views/library_view.py` `747`
+12. `ui/launcher/views/settings_view.py` `732`
+13. `src/guppy/debug/console.py` `717`
+14. `src/guppy/voice/voice.py` `704`
+
+Current cleanup findings:
+
+1. `compat_shims/legacy_surfaces/` is already a very small quarantine set and should stay compatibility-only until the last supported legacy launch hooks are gone.
+2. Root wrappers such as `guppy_launcher.py`, `guppy_hub.py`, and `guppy_api.py` still belong in the tracked tree, but only as thin compatibility shims.
+3. `docs/archive/` and `docs/generated/` are the main pare-down candidates, but only after active references, tests, and release flows stop depending on specific files there.
+4. Several active docs still carry older hotspot counts or ambient transition wording; that language now needs its own cleanup tranche.
+5. "Needed files only" must be defined by retention class, not by ad hoc deletion:
+   - ship code and config
+   - validation and release tooling
+   - active truth docs
+   - explicit compatibility shims
+   - explicit retained history
+   - current runtime and release evidence contracts
+
+Program tranches:
+
+1. `FR2-T1 - Naming, freeze contract, and retention baseline`
+   - Lock the live hotspot inventory, stale waiver headroom, assistant/platform naming rules, compatibility rules, and file-retention classes from current branch state.
+   - Include the model-label cleanup contract: show model names, not old persona/loadout labels, and make assistant naming explicitly user-editable.
+   - Acceptance: one current source of truth exists for hotspot sizes, naming rules, legacy boundaries, and what counts as a required tracked file.
+
+2. `FR2-T2 - API snapshot final decomposition`
+   - Continue splitting `server_runtime_snapshot.py` into route groups and bounded support modules for prompt context, request orchestration, startup/readiness, ops routes, and instance/diagnostic shaping.
+   - Acceptance: `server_runtime_snapshot.py` becomes a bounded shell instead of a catch-all coordinator.
+
+3. `FR2-T3 - Launcher shell second-stage extraction`
+   - Move hub routing, startup phase handling, status sync, view-to-workflow handoffs, and command/action dispatch out of `launcher_window.py` into `src/guppy/launcher_application/`.
+   - Acceptance: the launcher shell is clearly the composition root, not the implementation home for workflow logic.
+
+4. `FR2-T4 - Models surface normalization and panel dispersion`
+   - Split `models_view.py` into bounded panels for runtime status, route preview, local model library, provider/loadout controls, and persona attachment.
+   - Remove visible `guppy`, `merlin`, `fast`, and `vault` label treatment from model surfaces and replace it with actual model/runtime names plus persona context.
+   - Acceptance: Models shows model identity cleanly, assistant naming is not conflated with model identity, and the main view drops materially in size.
+
+5. `FR2-T5 - Settings surfaces split`
+   - Split `settings_operations_panel.py` into diagnostics, recovery, terminal, and automation/workflow subpanels; split `settings_view.py` into smaller settings editors backed by presenters.
+   - Acceptance: Settings panels stop bundling unrelated operator flows into one class each.
+
+6. `FR2-T6 - Home and Library final UI cleanup`
+   - Reduce `assistant_view.py` and `library_view.py` by moving remaining density/refresh/transcript/editor wiring into stable helpers and subviews.
+   - Keep `library_workflow.py` as a controller shell and clean its stale waiver headroom.
+   - Acceptance: Home and Library become smaller render/composition surfaces with clearer controller seams.
+
+7. `FR2-T7 - Daemon service separation`
+   - Split `daemon.py` into notifier, window watcher, scheduler, proactive loop, ambient watcher, and manager seams.
+   - Acceptance: the daemon becomes a smaller orchestration shell with explicit service modules.
+
+8. `FR2-T8 - Memory, Voice, and specialist runtime reduction`
+   - Split `memory.py` into repository/service/extractor seams, `voice.py` into backend adapters plus recorder/playback orchestration, and decide whether `merlin/core.py` remains a quarantined specialist runtime or gets a deeper extraction.
+   - Acceptance: these modules stop blocking freeze readiness through size and mixed concerns alone.
+
+9. `FR2-T9 - Debug console and low-risk legacy wording cleanup`
+   - Split `debug/console.py` tab bodies into dedicated widgets, remove stale "legacy" copy and broken-encoding headers in live modules, and clean references that no longer reflect the current product surface.
+   - Acceptance: low-risk but high-noise debt is gone from the live code and docs.
+
+10. `FR2-T10 - Wrapper slimming and compatibility quarantine hardening`
+    - Audit `guppy_launcher.py`, `guppy_hub.py`, `guppy_api.py`, and `compat_shims/legacy_surfaces/` end to end.
+    - Remove accidental behavior ownership from wrappers, verify quarantine boundaries, and tighten tests/guards around what still remains.
+    - Acceptance: supported entrypoints are thin and compatibility surfaces are clearly bounded.
+
+11. `FR2-T11 - Docs/archive/generated pare-down sweep`
+    - Classify `docs/archive/`, `docs/generated/`, and stale planning/cleanup docs into active, historical keep, generated keep, and removable-after-reference-cleanup buckets.
+    - Acceptance: the doc tree is lighter and less noisy without breaking release, smoke, or operator flows.
+
+12. `FR2-T12 - Repo file retention and delete tranche`
+    - Execute the first real removal pass for files proven unnecessary by the retention contract.
+    - Include stale tracked artifacts, obsolete docs, and compatibility leftovers that no supported path still references.
+    - Acceptance: tracked file count drops below the current `571` without losing build, test, packaging, or retained-history truth.
+
+13. `FR2-T13 - Guardrail, waiver, and freeze closeout`
+    - Remove stale waiver headroom, tighten architecture-boundary and wrapper-integrity rules, clean tests that still encode outdated transition assumptions, and close with full guarded validation.
+    - Acceptance: the branch is small enough, clear enough, and validated enough to freeze for stabilization or release-candidate work.
+
+Recommended execution order:
+
+1. `FR2-T1` first to lock the naming rule, live baseline, and file-retention contract.
+2. Run `FR2-T2`, `FR2-T3`, and `FR2-T5` as the first high-value parallel wave.
+3. Start `FR2-T4` as soon as the launcher/model interfaces are stable enough to normalize model naming cleanly.
+4. Follow with `FR2-T6`, `FR2-T7`, and `FR2-T8`.
+5. Use `FR2-T9` and `FR2-T10` to strip stale wording and compatibility drag after the main seams have moved.
+6. Finish with `FR2-T11`, `FR2-T12`, and `FR2-T13`.
+
+Recommended agent lanes:
+
+1. Lane A: runtime/backend debt (`FR2-T2`, `FR2-T7`)
+2. Lane B: launcher/settings/workspace shells (`FR2-T3`, parts of `FR2-T5`)
+3. Lane C: Models/Home/Library/Voice UI reduction and naming cleanup (`FR2-T4`, `FR2-T6`, parts of `FR2-T8`)
+4. Lane D: memory/debug/specialist runtime and low-risk legacy cleanup (`FR2-T8`, `FR2-T9`)
+5. Lane E: wrappers, compatibility quarantine, docs/generated/archive, and file-retention sweep (`FR2-T10`, `FR2-T11`, `FR2-T12`)
+6. Lead lane: guardrails, waiver reset, integration, and freeze closeout (`FR2-T13`)
+
+Success metrics:
+
+1. At least half of the remaining waived hotspots either drop below the cap or lose enough responsibility that their waivers shrink materially.
+2. `release-check` stays green after each integrated execution wave.
+3. The tracked tree shrinks below the current `571` files without losing build, test, packaging, or retained-history truth.
+4. Active docs stop describing the product through transition language unless the reference is intentionally compatibility-only.
+5. Model surfaces show actual model/runtime names, while assistant naming becomes user-editable and persona-driven.
+6. Root wrappers remain thin, `compat_shims/legacy_surfaces/` becomes an obvious compatibility island, and the repo ends the program with current docs, current waivers, and current release receipts.
+
+Execution checkpoint (April 20, 2026 first freeze-down wave):
+
+1. `FR2-T1` is now materially in place:
+   - the active truth docs now distinguish the platform name (`Guppy`) from the default assistant name
+   - the default assistant name is now treated as user-editable in Settings rather than as a fixed product label
+   - `tools/check_architecture_boundaries.py` now also blocks direct live-code imports of the root `guppy_api` shim
+2. `FR2-T2` landed an API snapshot reduction:
+   - `src/guppy/api/server_runtime_snapshot.py` now delegates the remaining snapshot-only route behavior into `src/guppy/api/snapshot_route_support.py`
+   - the snapshot shell is down to `1712` lines
+3. `FR2-T3` landed another launcher shell extraction:
+   - `ui/launcher/launcher_window.py` now delegates API/runtime control flow into `src/guppy/launcher_application/launcher_api_runtime_control.py`
+   - the launcher shell is down to `2800` lines
+4. `FR2-T4` materially advanced the Models surface:
+   - `ui/launcher/views/models_view.py` is down to `1073` lines after more section/panel extraction
+   - visible model/loadout surfaces now frame actual model/runtime identity, while persona remains separate customization state
+   - old visible slot language no longer presents `guppy`, `merlin`, `fast`, or `vault` as model identities
+5. `FR2-T5` materially advanced the Settings lane:
+   - `ui/launcher/views/settings_view.py` now speaks in assistant-name terms instead of treating the default persona as a fixed `Main Guppy` label
+   - shared personalization defaults now seed the default assistant as `Guppy`, and Settings exposes that as editable assistant/persona configuration
+   - `ui/launcher/views/settings_view.py` is down to `700` lines
+6. Transitional waiver metadata was tightened to the current observed sizes for:
+   - `server_runtime_snapshot.py` -> `1712`
+   - `launcher_window.py` -> `2800`
+   - `models_view.py` -> `1073`
+   - `settings_view.py` -> `700`
+   - `library_workflow.py` -> `502`
+7. Current integrated validation is green:
+   - `python tools/dev_workflow.py dev-check --guard-scope delta` passed
+   - `python tools/dev_workflow.py release-check` passed with ref `release-check-20260420-165643`
+   - current release counts are `583 passed` in the default suite and `138 passed` in product smoke
+8. The next natural freeze-down wave is `FR2-T6` through `FR2-T8`: Home/Library cleanup, daemon service separation, and Memory/Voice/specialist runtime reduction.
+
+Execution checkpoint (April 20, 2026 follow-through wave):
+
+1. Vercel Python discovery is now explicit through `api/index.py`, which exports the supported FastAPI app from `src.guppy.api.server_runtime`.
+2. `FR2-T6` is materially complete:
+   - `ui/launcher/views/assistant_view.py` is down to `614` lines after moving state/context/first-run density behavior into `ui/launcher/views/assistant_behavior_support.py`
+   - `ui/launcher/views/library_view.py` is down to `619` lines after moving editor/root-path behavior into `ui/launcher/views/library_editor_support.py`
+3. `FR2-T7` is materially complete in the live code:
+   - `src/guppy/daemon/daemon.py` is now a thin compatibility shell over `ambient_watcher.py`, `manager.py`, `notifier.py`, `proactive_loop.py`, `scheduler.py`, `support.py`, and `window_watcher.py`
+4. `FR2-T8` already has the memory/debug/voice split in place:
+   - `src/guppy/memory/memory.py` is down to `316` lines with the store/support seams carrying the heavier persistence and extraction logic
+   - `src/guppy/debug/console.py` is now a thin shell over `src/guppy/debug/_tabs.py` and `src/guppy/debug/_ui.py`
+   - `src/guppy/voice/voice.py` is now a thin orchestration surface over `voice_runtime.py` and `voice_support.py`
+5. `FR2-T9` live wording cleanup advanced:
+   - the supported debug surface now presents `Guppy Debug & Emergency Console` instead of framing Merlin as a live peer desktop shell
+6. `FR2-T11` and `FR2-T12` are materially advanced:
+   - `docs/generated/` was reduced from `20` files to `10` live files by deleting stale April 14-17 one-off audit artifacts
+   - the current tracked-existing file count is now `562`, down from the previous `571` baseline
+7. `FR2-T13` guardrail tightening advanced:
+   - stale waivers were removed for `daemon.py`, `memory.py`, `library_workflow.py`, `debug/console.py`, `voice.py`, `assistant_view.py`, `library_view.py`, and `settings_view.py`
+   - the remaining waiver list now focuses on the real oversized hotspots still above the base cap
+8. `FR2-T6` through `FR2-T13` are now effectively complete for this freeze-down wave:
+   - the remaining baseline waiver set is narrowed to `server_runtime_snapshot.py`, `merlin/core.py`, `launcher_window.py`, `instance_manager_view.py`, `models_view.py`, and `settings_operations_panel.py`
+   - release validation is green with the slimmer docs/generated tree, the explicit Vercel API entrypoint, and the post-split daemon/memory/voice/debug wrapper surfaces
+
+## Remaining Hotspot Reduction Tranches (April 20, 2026)
+
+Execution note:
+
+- The next freeze-readiness wave is now narrowed to the six baseline-waived files still above the base cap.
+- Current observed sizes are:
+  - `src/guppy/api/server_runtime_snapshot.py` -> `1712`
+  - `src/guppy/merlin/core.py` -> `1115`
+  - `ui/launcher/launcher_window.py` -> `2800`
+  - `ui/launcher/views/instance_manager_view.py` -> `869`
+  - `ui/launcher/views/models_view.py` -> `1073`
+  - `ui/launcher/views/settings_operations_panel.py` -> `1008`
+- The goal of this tranche set is freezeability, not feature expansion: each card must materially reduce ownership concentration or prove the remaining surface is an intentional bounded shell.
+
+What ships:
+
+1. `FR3-T1 - Snapshot route and telemetry final split`
+   - Reduce `server_runtime_snapshot.py` by pushing the remaining chat/request assembly, telemetry shaping, and report composition into named support modules.
+   - Preserve the supported import surface and route behavior while making snapshot assembly legible by concern.
+   - Acceptance: `server_runtime_snapshot.py` becomes a smaller composition shell and loses at least one major responsibility cluster.
+2. `FR3-T2 - Launcher shell fourth extraction`
+   - Reduce `launcher_window.py` by moving another bounded action family into `src/guppy/launcher_application/`.
+   - Preferred targets are top-level request routing, tab/hub orchestration helpers, and any remaining shell-local coordination that is not pure view composition.
+   - Acceptance: `launcher_window.py` drops again and launcher-side orchestration moves through named support seams rather than direct inline shell methods.
+3. `FR3-T3 - Models hub final panel split`
+   - Reduce `models_view.py` by extracting the remaining mixed loadout/runtime operations and any dense panel builders into dedicated view/support modules.
+   - Keep model identity separate from persona/customization and do not reintroduce legacy labels as runtime names.
+   - Acceptance: `models_view.py` becomes a smaller hub shell with panel/state wiring delegated cleanly.
+4. `FR3-T4 - Settings Operations split`
+   - Reduce `settings_operations_panel.py` by separating diagnostics, recovery, automation, and machine-operation sections into dedicated subviews or presenters.
+   - Preserve the current Settings ownership model while lowering density and improving testable seams.
+   - Acceptance: the operations panel becomes a composition surface rather than the single owner of all operational section assembly.
+5. `FR3-T5 - Workspace manager reduction`
+   - Reduce `instance_manager_view.py` by moving governance summary shaping, filtering, and repeated card/section composition into support modules.
+   - Keep workspace governance ownership intact, but remove unnecessary render-plus-policy coupling from the widget.
+   - Acceptance: workspace management remains behavior-compatible while the main view drops under less pressure and gains clearer seams.
+6. `FR3-T6 - Merlin specialist runtime disposition`
+   - Decide whether `src/guppy/merlin/core.py` remains a bounded quarantined specialist runtime or gets one more extraction pass.
+   - If it stays, tighten quarantine/ownership docs and guards; if it moves, extract the largest mixed concern into a support seam.
+   - Acceptance: `merlin/core.py` stops being ambiguous debt and becomes either an explicitly bounded retained specialist surface or a materially smaller module.
+7. `FR3-T7 - Guardrail reset and freeze candidate closeout`
+   - Refresh the waiver file to match the new observed sizes, remove any waiver that is no longer justified, and run the full guarded validation lane.
+   - Update the active truth docs with the final remaining hotspot picture and whether the worktree is ready for freeze candidate status.
+   - Acceptance: the waiver list is smaller or tighter, `release-check` is green, and the branch can be described honestly as freeze-candidate or not.
+
+Recommended execution order:
+
+1. Start with `FR3-T1` and `FR3-T2` because the API snapshot and launcher shell are the highest centrality hotspots.
+2. Run `FR3-T3`, `FR3-T4`, and `FR3-T5` as the parallel UI-shell wave once the integration lane is stable.
+3. Use `FR3-T6` as a bounded decision tranche after the main live hubs are reduced.
+4. Finish with `FR3-T7` as the freeze-candidate guardrail pass.
+
+Recommended agent lanes:
+
+1. Lane A: API/runtime hotspot (`FR3-T1`)
+2. Lane B: launcher shell hotspot (`FR3-T2`)
+3. Lane C: Models and workspace UI shells (`FR3-T3`, `FR3-T5`)
+4. Lane D: Settings Operations hotspot (`FR3-T4`)
+5. Lane E: specialist runtime disposition and guardrail/doc cleanup (`FR3-T6`, `FR3-T7`)
+6. Lead lane: integration, waiver tightening, validation, and freeze-candidate call
+
+Success metrics:
+
+1. At least three of the six remaining waived modules either lose their waiver entirely or drop by a meaningful bounded amount.
+2. The remaining waived modules, if any, read as intentional shells rather than mixed-concern monoliths.
+3. `release-check` stays green after the integrated wave.
+4. The repo can be described with a short remaining-hotspots list and a credible freeze-candidate statement.
+
 ---
 
 ## Pre-Launch Work Roadmap Additions (April 19, 2026)

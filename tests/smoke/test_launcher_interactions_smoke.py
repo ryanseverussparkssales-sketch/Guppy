@@ -302,14 +302,14 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertFalse(view._library_scroll.isHidden())
         self.assertEqual(view._title_lbl.text(), "MODELS")
         self.assertTrue(view._active_lbl.text().startswith("CURRENT MODEL:"))
-        self.assertTrue(view._active_runtime_lbl.text().startswith("LOCAL ENGINE:"))
+        self.assertTrue(view._active_runtime_lbl.text().startswith("LOCAL RUNTIME:"))
         self.assertEqual(view._local_header.text(), "ON THIS PC")
         self.assertEqual(view._cloud_header.text(), "CLOUD OPTIONS")
         labels = [child.text() for child in view.findChildren(type(view._local_header))]
         self.assertIn("RECOMMENDED", labels)
         self.assertIn("INSTALLED ON THIS PC", labels)
         self.assertIn("ADVANCED / EXPERIMENTAL", labels)
-        self.assertIn("Pick the model Guppy should use for this session", view._library_hint_lbl.text())
+        self.assertIn("Pick the model for this assistant session", view._library_hint_lbl.text())
         self.assertIn("Recommended default:", view._library_summary_lbl.text())
         self.assertIn("Heavier local option:", view._library_summary_lbl.text())
 
@@ -1736,7 +1736,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                 view._lemonade_role_inputs["lemonade_complex_model"].currentText(),
                 "DeepSeek-Qwen3-8B-GGUF",
             )
-            self.assertIn("Assigning to COMPLEX", view._runtime_library_target_lbl.text())
+            self.assertIn("Assigning to HEAVY SLOT", view._runtime_library_target_lbl.text())
         finally:
             models_view_module.ModelsView._refresh = old_refresh
 
@@ -1772,8 +1772,8 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
 
             self.assertIn("LIVE LANE: PARTIAL", view._runtime_live_lbl.text())
             self.assertIn("server runtime LEMONADE", view._runtime_live_lbl.text())
-            self.assertIn("Missing mapped roles: COMPLEX, TEACHING, VAULT", view._runtime_live_lbl.text())
-            self.assertIn("Available mapped roles: FAST, CODE", view._runtime_live_lbl.text())
+            self.assertIn("Missing mapped roles: HEAVY SLOT, TEACHING SLOT, RESEARCH SLOT", view._runtime_live_lbl.text())
+            self.assertIn("Available mapped roles: DAILY SLOT, CODING SLOT", view._runtime_live_lbl.text())
             self.assertIn("runtime baseline OLLAMA", view._runtime_policy_lbl.text())
             self.assertIn("daily lane candidate qwen3:8b", view._runtime_policy_lbl.text())
             self.assertIn("qwen3:30b, qwen2.5:32b", view._runtime_policy_lbl.text())

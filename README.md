@@ -175,6 +175,10 @@ The remote/API layer already exists and should be treated as alpha, not planned 
 - Chat: `POST /chat`, `POST /chat/voice`, `WebSocket /ws`
 - Business reporting: `GET /revenue/dashboard`
 
+For Vercel Python deployment discovery, the supported ASGI entrypoint is:
+
+- `api/index.py` → `src.guppy.api.server_runtime:app`
+
 Recommended validation paths:
 
 ```powershell

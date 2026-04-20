@@ -1,4 +1,6 @@
 from src.guppy.launcher_application.models_presenter import (
+    build_models_active_identity_text,
+    build_models_library_hint_text,
     build_models_loadout_help_text,
     build_models_route_decision_text,
     build_models_route_evidence_text,
@@ -6,6 +8,7 @@ from src.guppy.launcher_application.models_presenter import (
     build_models_route_preview_text,
     build_models_provider_readiness_state,
     build_models_route_summary_text,
+    build_models_runtime_identity_text,
     build_models_runtime_evidence_state,
     friendly_models_route_target,
 )
@@ -36,7 +39,7 @@ def test_runtime_evidence_state_surfaces_chat_harness_and_warning_tone() -> None
 
     assert state.tone == "warning"
     assert "Chat harness WARMING" in state.text
-    assert "Missing mapped roles: SUB_B" in state.text
+    assert "Missing mapped roles: SPAWNED MODEL B" in state.text
 
 
 def test_provider_readiness_state_flags_active_backend_failure() -> None:
@@ -66,9 +69,10 @@ def test_loadout_help_text_surfaces_role_assignments() -> None:
         sub_b_model="qwen-code",
     )
 
-    assert "complex/default -> qwen-main" in text
-    assert "simple/fast -> qwen-fast" in text
-    assert "code specialist -> qwen-code" in text
+    assert "main assistant model -> qwen-main" in text
+    assert "spawned model A -> qwen-fast" in text
+    assert "spawned model B -> qwen-code" in text
+    assert "Persona stays attached separately." in text
 
 
 def test_route_summary_text_includes_fallback_and_live_evidence() -> None:
@@ -82,6 +86,7 @@ def test_route_summary_text_includes_fallback_and_live_evidence() -> None:
 
     assert "Simple requests start with Claude Haiku." in summary
     assert "Complex requests start with Claude Sonnet." in summary
+    assert "the launcher falls back to" in summary
     assert "Claude Opus, LOCAL / guppy" in summary
     assert evidence == "Live evidence: Cloud path configured | Local runtime OLLAMA heartbeat seen"
 
@@ -99,7 +104,7 @@ def test_route_decision_text_surfaces_reason_and_models() -> None:
     )
 
     assert "Simple work will start with Claude Haiku 4 5 20251001." in text
-    assert "through CLAUDE" in text
+    assert "current assistant will execute it through CLAUDE" in text
     assert "Backup: Claude Sonnet 4 6" in text
     assert "Why: simple task classification" in text
 
@@ -129,3 +134,14 @@ def test_route_evidence_text_uses_launcher_prefix_for_unknown_routes() -> None:
 
 def test_route_preview_hint_text_matches_chat_first_guidance() -> None:
     assert "Try the kind of question" in build_models_route_preview_hint_text()
+
+
+def test_active_and_runtime_identity_text_use_exact_runtime_values() -> None:
+    assert build_models_active_identity_text("qwen2.5:7b") == "CURRENT MODEL: qwen2.5:7b"
+    assert build_models_runtime_identity_text("lemonade") == "LOCAL RUNTIME: LEMONADE"
+
+
+def test_library_hint_text_keeps_model_and_persona_distinct() -> None:
+    assert "Persona and assistant naming stay separate in Settings." in build_models_library_hint_text()
+    filtered = build_models_library_hint_text(query="qwen", local_matches=2, cloud_matches=1)
+    assert "Showing 2 local and 1 cloud matches." in filtered

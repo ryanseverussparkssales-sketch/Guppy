@@ -44,8 +44,7 @@ from typing import Optional, AsyncGenerator, Any, Dict, List
 from pathlib import Path
 from collections import Counter
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Depends
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Depends
 import uvicorn
 from jose import JWTError, jwt
 import urllib.request
@@ -274,13 +273,16 @@ from src.guppy.api.routes_instances import build_instances_router
 from src.guppy.api.routes_ops import build_ops_router
 from src.guppy.api.routes_realtime import build_realtime_router
 from src.guppy.api.runtime_state import ServerRuntimeState
-from src.guppy.api.server_context import ServerContext
 from src.guppy.api.server_paths import ServerPathConfig
 from src.guppy.api.server_runtime_startup_support import (
     bind_startup_support,
     build_lifespan,
 )
 from src.guppy.api.server_runtime_auth_request_support import bind_auth_request_support
+from src.guppy.api.server_runtime_shell_support import (
+    build_server_shell,
+    detect_voice_backends,
+)
 from src.guppy.api.server_runtime_bindings import (
     bind_owner,
     bind_owner_async,
@@ -346,43 +348,13 @@ _status_cache = _runtime_state.status_cache
 _startup_check_cache = _runtime_state.startup_check_cache
 _startup_check_cache_lock = _runtime_state.startup_check_cache_lock
 
-# Detect voice backends once at module load so /status never pays import probe cost
-def _detect_voice_backends() -> tuple[str, str, list[str]]:
-    tts, stt, details = "sapi", "none", []
-    try:
-        if importlib.util.find_spec("kokoro") is not None:
-            tts = "kokoro"
-            details.append("kokoro module found")
-        else:
-            details.append("kokoro unavailable -> sapi fallback")
-    except Exception:
-        details.append("kokoro unavailable -> sapi fallback")
-
-    probe_whisper = os.environ.get("GUPPY_API_PROBE_WHISPER", "0").strip().lower() in {"1", "true", "yes", "on"}
-    try:
-        # Avoid importing native torch/ctranslate stacks at module import-time by default.
-        if importlib.util.find_spec("faster_whisper") is not None:
-            if probe_whisper:
-                from faster_whisper import WhisperModel as _WM  # noqa: F401
-                stt = "whisper"
-                details.append("faster-whisper import ok")
-            else:
-                stt = "whisper"
-                details.append("faster-whisper module found (lazy import)")
-        else:
-            raise ImportError("faster_whisper module not found")
-    except Exception:
-        try:
-            if importlib.util.find_spec("speech_recognition") is not None:
-                stt = "google"
-                details.append("speech_recognition module found")
-            else:
-                details.append("no transcription backend available")
-        except Exception:
-            details.append("no transcription backend available")
-    return tts, stt, details
-
-_VOICE_TTS_BACKEND, _VOICE_STT_BACKEND, _VOICE_BACKEND_DETAILS = _detect_voice_backends()
+_voice_backends = detect_voice_backends(
+    environ=os.environ,
+    find_spec=importlib.util.find_spec,
+)
+_VOICE_TTS_BACKEND = _voice_backends.tts_backend
+_VOICE_STT_BACKEND = _voice_backends.stt_backend
+_VOICE_BACKEND_DETAILS = _voice_backends.details
 
 _api_metrics_lock = _runtime_state.api_metrics_lock
 _api_metrics = _runtime_state.api_metrics
@@ -442,24 +414,14 @@ lifespan = build_lifespan(
     shutdown_host=services_host.shutdown_host,
 )
 
-
-app = FastAPI(
-    title="Guppy API",
-    description="Remote access API for Guppy AI assistant",
-    version="1.0.0",
+_server_shell = build_server_shell(
+    owner=sys.modules[__name__],
+    allowed_origins=ALLOWED_ORIGINS,
     lifespan=lifespan,
+    auth_request_support=_auth_request_support,
+    voice_probe=_voice_backends,
 )
-
-# CORS middleware for web access
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Repair-Token", "X-Turnstile-Token"],
-)
-
-app.middleware("http")(_auth_request_support.request_timing_middleware)
+app = _server_shell.app
 
 # === END _server_fragment_ops.py ===
 
@@ -477,91 +439,7 @@ _LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_LOCAL_RUNTIME_
 _local_runtime_warm_cache = _runtime_state.local_runtime_warm_cache
 _local_runtime_warm_lock = _runtime_state.local_runtime_warm_lock
 
-_server_context = ServerContext(
-    app=app,
-    owner=sys.modules[__name__],
-    require_rate_limit=_auth_request_support.require_rate_limit,
-    require_auth_rate_limit=_auth_request_support.require_auth_rate_limit,
-    require_repair_token=None,
-    verify_turnstile_token_auth=_auth_request_support.verify_turnstile_token_auth,
-    create_access_token=_auth_request_support.create_access_token,
-    access_token_expire_minutes=_auth_request_support.access_token_expire_minutes,
-    dev_mode=bool(DEV_MODE),
-    guppy_core_available=GUPPY_CORE_AVAILABLE,
-    core=core,
-    guppy_daemon_available=GUPPY_DAEMON_AVAILABLE,
-    get_daemon_manager=get_daemon_manager,
-    status_include_window_context=STATUS_INCLUDE_WINDOW_CONTEXT,
-    guppy_voice_available=GUPPY_VOICE_AVAILABLE,
-    voice_tts_backend=_VOICE_TTS_BACKEND,
-    voice_stt_backend=_VOICE_STT_BACKEND,
-    voice_backend_details=_VOICE_BACKEND_DETAILS,
-    guppy_memory_available=GUPPY_MEMORY_AVAILABLE,
-    status_cache=_status_cache,
-    status_cache_ttl_seconds=STATUS_CACHE_TTL_SECONDS,
-    startup_readiness_cached_or_unknown=_startup_readiness_cached_or_unknown,
-    startup_readiness_snapshot=_startup_readiness_snapshot,
-    startup_readiness_cache_expired=_startup_readiness_cache_expired,
-    trigger_startup_readiness_refresh=_trigger_startup_readiness_refresh,
-    build_local_runtime_status=_build_local_runtime_status,
-    read_resource_envelope_status=_read_resource_envelope_status,
-    api_metrics_lock=_api_metrics_lock,
-    api_metrics=_api_metrics,
-    log_session_event=log_session_event,
-    logger=logger,
-    paths=_path_config,
-    read_window_context=_read_window_context,
-    read_daemon_runtime_status=_read_daemon_runtime_status,
-    tail_session_events=tail_session_events,
-    read_jsonl_tail=_read_jsonl_tail,
-    query_sqlite_telemetry=_query_sqlite_telemetry,
-    query_jsonl_telemetry=_query_jsonl_telemetry,
-    build_telemetry_report=_build_telemetry_report,
-    read_repair_token=_read_repair_token,
-    do_repair_action=_do_repair_action,
-    load_normalized_instance_bundle=_load_normalized_instance_bundle,
-    load_instances_config=_load_instances_config,
-    normalize_instances_config=_normalize_instances_config,
-    upsert_instance_config=_upsert_instance_config,
-    save_instances_config=_save_instances_config,
-    instance_names=_instance_names,
-    load_instance_state=_load_instance_state,
-    normalize_instance_state=_normalize_instance_state,
-    default_instance_state=_default_instance_state,
-    activate_instance_state=_activate_instance_state,
-    save_instance_state=_save_instance_state,
-    get_instance_entry=_get_instance_entry,
-    governance_summary_payload=_governance_summary_payload,
-    workspace_connector_payload=_workspace_connector_payload,
-    connector_inventory_payload=_connector_inventory_payload,
-    instance_limits_payload=_instance_limits_payload,
-    run_connector_action=run_connector_action,
-    save_workspace_connector_binding=save_workspace_connector_binding,
-    resolve_instance_permissions=resolve_instance_permissions,
-    set_instance_tool_permission_policy=set_instance_tool_permission_policy,
-    check_instance_tool_permission=partial(_call_module_attr, "check_instance_tool_permission"),
-    instance_logger_available=_INSTANCE_LOGGER_AVAILABLE,
-    append_instance_log=append_instance_log,
-    delete_instance_log=delete_instance_log,
-    read_instance_log_tail=read_instance_log_tail,
-    read_instance_log_summary=read_instance_log_summary,
-    instance_query_lock=_instance_query_lock,
-    build_chat_request_fingerprint=_build_chat_request_fingerprint,
-    register_chat_idempotency_key=_register_chat_idempotency_key,
-    resolve_chat_idempotency_key=_resolve_chat_idempotency_key,
-    takeover_chat_idempotency_key=_takeover_chat_idempotency_key,
-    complete_chat_idempotency_key=_complete_chat_idempotency_key,
-    get_active_instance_context=_get_active_instance_context,
-    request_is_morning_brief=_request_is_morning_brief,
-    build_morning_brief_response=_build_morning_brief_response,
-    latest_daily_report_path=_latest_daily_report_path,
-    build_chat_system_prompt=_build_chat_system_prompt,
-    request_is_cacheable=_request_is_cacheable,
-    run_blocking=_run_blocking,
-    call_unified_inference=partial(_call_module_attr, "_call_unified_inference"),
-    save_voice_upload_tempfile=_save_voice_upload_tempfile,
-    stream_chunks=_stream_chunks,
-)
+_server_context = _server_shell.server_context
 
 app.include_router(build_core_router(_server_context))
 

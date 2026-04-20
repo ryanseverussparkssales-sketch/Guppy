@@ -1,9 +1,13 @@
-"""Snapshot of the legacy fragment-stitched FastAPI server module.
+"""Compatibility snapshot of the assembled FastAPI server module.
 
-This file is for inspection only.
-The canonical server now lives in explicit imported modules under src/guppy/api/.
+This module preserves the fully assembled server shape for inspection and
+rebuild workflows. The canonical runtime behavior now lives in explicit
+helpers under ``src/guppy/api/``.
 """
 
+# Compatibility note: this snapshot keeps the assembled module import surface
+# available for inspection and rebuild tools, while the canonical runtime lives
+# in smaller helpers under src/guppy/api/.
 # === BEGIN _server_fragment_bootstrap.py ===
 """
 guppy_api.py â€” FastAPI server for remote Guppy access
@@ -291,15 +295,17 @@ from src.guppy.api import (
     services_ops,
     services_realtime,
     services_runtime,
+    snapshot_route_support,
     services_telemetry,
     snapshot_instances_support,
+    snapshot_telemetry_support,
 )
 from src.guppy.api.status_support import (
     build_startup_check_response,
     build_status_response,
 )
 
-# â”€â”€ Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Configuration
 
 # JWT settings (now imported from auth module)
 from src.guppy.api.auth import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, DEV_MODE
@@ -1282,146 +1288,8 @@ async def query_instance(
     request: InstanceQueryRequest,
     user_id: str = Depends(require_rate_limit),
 ):
-    """Contract-first M2 endpoint: bounded synchronous inter-instance query.
-
-    M2.0 semantics:
-    - single in-flight cross-instance query globally
-    - returns status=busy if another query is running
-    - returns status=timeout for bounded timeout exhaustion
-    """
     del user_id
-    target = (name or "").strip()
-    if not target:
-        raise HTTPException(status_code=400, detail="instance name is required")
-    if not GUPPY_CORE_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Guppy core not available")
-
-    config, state, _config_warnings, _state_warnings = _load_normalized_instance_bundle(persist_repairs=True)
-    names = _instance_names(config)
-    if target not in names:
-        raise HTTPException(status_code=404, detail=f"unknown instance: {target}")
-    target_entry = _get_instance_entry(config, target) or {}
-    target_type = str(target_entry.get("type", "user_instance") or "user_instance").strip() or "user_instance"
-    source_instance = (request.source_instance or "launcher").strip() or "launcher"
-    if source_instance != "launcher":
-        if source_instance not in names:
-            raise HTTPException(status_code=404, detail=f"unknown source instance: {source_instance}")
-        source_entry = _get_instance_entry(config, source_instance) or {}
-        source_type = str(source_entry.get("type", "user_instance") or "user_instance").strip() or "user_instance"
-        allowed, reason, _permissions = check_instance_tool_permission(
-            "query_instance",
-            instance_name=source_instance,
-            instance_type=source_type,
-            endpoint=f"instance://{target}",
-            metadata={"target_instance": target},
-        )
-        if not allowed:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    f"workspace {source_instance} cannot use cross-workspace query right now: "
-                    f"{reason or 'query permission denied'}"
-                ),
-            )
-
-    if not _instance_query_lock.acquire(blocking=False):
-        return {
-            "status": "busy",
-            "source_instance": source_instance,
-            "target_instance": target,
-            "response": "",
-            "tokens_used": 0,
-            "model": "",
-            "duration_ms": 0,
-        }
-
-    started = time.perf_counter()
-    try:
-        timeout_s = max(0.5, min(float(request.timeout_s or 5.0), 5.0))
-        query_text = (request.message or "").strip()
-        if not query_text:
-            raise HTTPException(status_code=400, detail="message is required")
-
-        mode = "auto"
-        for item in config.get("instances", []):
-            if isinstance(item, dict) and str(item.get("name", "")).strip() == target:
-                mode = str(item.get("mode", "auto") or "auto").strip().lower()
-                break
-
-        system_prompt = _build_chat_system_prompt(
-            session_id=f"instance-{target}",
-            message=query_text,
-            mode=mode,
-            persona=str(target_entry.get("persona", "guppy") or "guppy").strip() or "guppy",
-            model_id="",
-        )
-        try:
-            response = await _run_blocking(
-                _call_unified_inference,
-                query_text,
-                system_prompt,
-                mode,
-                None,
-                instance_name=target,
-                instance_type=target_type,
-                timeout_seconds=timeout_s,
-            )
-            status = "ok"
-        except HTTPException as e:
-            if e.status_code == 504:
-                response = ""
-                status = "timeout"
-            else:
-                raise
-
-        duration_ms = int((time.perf_counter() - started) * 1000)
-
-        instances = state.setdefault("instances", {}) if isinstance(state, dict) else {}
-        if isinstance(instances, dict):
-            inst = instances.setdefault(target, {})
-            if isinstance(inst, dict):
-                inst["status"] = "busy" if status == "busy" else "running"
-                inst["last_message"] = query_text[:200]
-                inst["last_updated"] = datetime.now(timezone.utc).isoformat()
-                inst["message_count"] = int(inst.get("message_count", 0) or 0) + 1
-                inst["model_currently_using"] = mode
-            _save_instance_state(state)
-
-        if _INSTANCE_LOGGER_AVAILABLE:
-            append_instance_log(
-                target,
-                {
-                    "role": "user",
-                    "source_instance": source_instance,
-                    "message": query_text,
-                    "status": status,
-                    "model": mode,
-                },
-            )
-            if response:
-                append_instance_log(
-                    target,
-                    {
-                        "role": "assistant",
-                        "source_instance": target,
-                        "message": response,
-                        "status": status,
-                        "model": mode,
-                        "duration_ms": duration_ms,
-                    },
-                )
-
-        return {
-            "status": status,
-            "source_instance": source_instance,
-            "target_instance": target,
-            "response": response,
-            "tokens_used": max(1, len(response) // 4) if response else 0,
-            "model": mode,
-            "duration_ms": duration_ms,
-        }
-    finally:
-        _instance_query_lock.release()
+    return await snapshot_route_support.query_instance_response(_module_owner(), name, request)
 
 
 @app.get("/logs/recent")
@@ -1429,15 +1297,8 @@ async def get_recent_logs(
     limit: int = 100,
     user_id: str = Depends(require_rate_limit),
 ):
-    """Return recent structured events for fast review during active sessions."""
     del user_id
-    lim = max(1, min(int(limit), 300))
-    runtime_dir = _runtime_dir
-    return {
-        "session_events": tail_session_events(limit=lim),
-        "agent_performance": _read_jsonl_tail(runtime_dir / "agent_performance.jsonl", limit=lim),
-        "integration_events": _read_jsonl_tail(runtime_dir / "integration_events.jsonl", limit=lim),
-    }
+    return snapshot_route_support.recent_logs_response(_module_owner(), limit=limit)
 
 
 @app.get("/telemetry/query")
@@ -1452,54 +1313,15 @@ async def telemetry_query(
 ):
     """Query operational telemetry with filters (SQLite-first with JSONL fallback)."""
     del user_id
-    lim = max(1, min(int(limit), 1000))
-    since = max(0, int(since_minutes))
-    stream_key = (stream or "").strip() or None
-    event_key = (event or "").strip() or None
-    level_key = (level or "").strip().lower() or None
-    backend_key = (backend or "auto").strip().lower()
-    if backend_key not in {"auto", "sqlite", "jsonl"}:
-        raise HTTPException(status_code=400, detail="backend must be one of: auto, sqlite, jsonl")
-
-    events: list[dict[str, Any]] = []
-    source = backend_key
-    if backend_key in {"auto", "sqlite"}:
-        events = services_telemetry.query_sqlite_telemetry(
-            db_path=_ops_telemetry_db,
-            timeout_seconds=_SQLITE_TIMEOUT_SECONDS,
-            busy_timeout_ms=_SQLITE_BUSY_TIMEOUT_MS,
-            stream=stream_key,
-            event=event_key,
-            level=level_key,
-            since_minutes=since,
-            limit=lim,
-        )
-        source = "sqlite"
-
-    if backend_key == "jsonl" or (backend_key == "auto" and not events):
-        events = services_telemetry.query_jsonl_telemetry(
-            stream_jsonl_map=_stream_jsonl_map,
-            read_jsonl_tail=_read_jsonl_tail,
-            stream=stream_key,
-            event=event_key,
-            level=level_key,
-            since_minutes=since,
-            limit=lim,
-        )
-        source = "jsonl"
-
-    return {
-        "source": source,
-        "count": len(events),
-        "filters": {
-            "stream": stream_key,
-            "event": event_key,
-            "level": level_key,
-            "since_minutes": since,
-            "limit": lim,
-        },
-        "events": events,
-    }
+    return snapshot_telemetry_support.build_telemetry_query_response(
+        _module_owner(),
+        stream=stream,
+        event=event,
+        level=level,
+        since_minutes=since_minutes,
+        limit=limit,
+        backend=backend,
+    )
 
 
 @app.get("/telemetry/report")
@@ -1512,53 +1334,13 @@ async def telemetry_report(
 ):
     """Return summarized telemetry report for dashboards and ops checks."""
     del user_id
-    lim = max(1, min(int(limit), 2000))
-    since = max(0, int(since_minutes))
-    stream_key = (stream or "").strip() or None
-    backend_key = (backend or "auto").strip().lower()
-    if backend_key not in {"auto", "sqlite", "jsonl"}:
-        raise HTTPException(status_code=400, detail="backend must be one of: auto, sqlite, jsonl")
-
-    events: list[dict[str, Any]] = []
-    source = backend_key
-    if backend_key in {"auto", "sqlite"}:
-        events = services_telemetry.query_sqlite_telemetry(
-            db_path=_ops_telemetry_db,
-            timeout_seconds=_SQLITE_TIMEOUT_SECONDS,
-            busy_timeout_ms=_SQLITE_BUSY_TIMEOUT_MS,
-            stream=stream_key,
-            event=None,
-            level=None,
-            since_minutes=since,
-            limit=lim,
-        )
-        source = "sqlite"
-
-    if backend_key == "jsonl" or (backend_key == "auto" and not events):
-        events = services_telemetry.query_jsonl_telemetry(
-            stream_jsonl_map=_stream_jsonl_map,
-            read_jsonl_tail=_read_jsonl_tail,
-            stream=stream_key,
-            event=None,
-            level=None,
-            since_minutes=since,
-            limit=lim,
-        )
-        source = "jsonl"
-
-    report = services_telemetry.build_telemetry_report(
-        events,
-        slow_request_ms=SLOW_REQUEST_MS,
+    return snapshot_telemetry_support.build_telemetry_report_response(
+        _module_owner(),
+        stream=stream,
+        since_minutes=since_minutes,
+        limit=limit,
+        backend=backend,
     )
-    return {
-        "source": source,
-        "window": {
-            "stream": stream_key,
-            "since_minutes": since,
-            "limit": lim,
-        },
-        "report": report,
-    }
 
 
 def _require_repair_token(request: Request) -> None:
@@ -1568,41 +1350,8 @@ def _require_repair_token(request: Request) -> None:
 
 @app.get("/repair-token/refresh")
 async def repair_token_refresh(_req: Request):
-    """
-    Re-read the current repair token from the OS credential store (or fallback file)
-    and return it to a local caller.
-
-    Security: localhost-only. Only 127.0.0.1 may call this endpoint.
-    Purpose: allows the launcher to recover after an API restart rotates the token
-    in cases where the OS keyring read in the launcher fails or races.
-    The endpoint itself carries no auth requirement because it is the auth source.
-    """
     client_ip = _req.client.host if _req.client else ""
-    if client_ip not in ("127.0.0.1", "::1", "localhost", ""):
-        log_session_event(
-            "api", "repair_token_refresh_rejected",
-            level="warning", client_ip=client_ip,
-        )
-        raise HTTPException(status_code=403, detail="localhost only")
-
-    # Prefer the active in-memory token first. Keyring/file can lag behind restarts.
-    token = _REPAIR_TOKEN or ""
-    if _SECRET_STORE_AVAILABLE and _secret_store is not None:
-        try:
-            token = token or (_secret_store.get_secret("repair_token") or "")
-        except Exception:
-            pass
-    if not token and _REPAIR_TOKEN_FILE.exists():
-        try:
-            token = _REPAIR_TOKEN_FILE.read_text(encoding="utf-8").strip()
-        except Exception:
-            pass
-
-    log_session_event(
-        "api", "repair_token_refresh",
-        level="info", client_ip=client_ip, has_token=bool(token),
-    )
-    return {"repair_token": token}
+    return snapshot_route_support.repair_token_refresh_response(_module_owner(), client_ip)
 
 
 @app.post("/repair")
@@ -1612,41 +1361,14 @@ async def repair_runtime(
     user_id: str = Depends(require_rate_limit),
     _tok: None = Depends(_require_repair_token),
 ):
-    """Guarded internal repair entrypoint for launcher/operator flows."""
     del user_id
-    action = (request.action or "").strip().lower()
-    dry_run = bool(request.dry_run)
-    result = await asyncio.to_thread(_do_repair_action, action, dry_run)
-    log_session_event(
-        "api",
-        "repair_runtime",
-        level="info",
-        action=action,
-        dry_run=dry_run,
-        ok=bool(result.get("ok", False)),
-        summary=str(result.get("summary", "")),
-    )
-    return {
-        "action": action,
-        "dry_run": dry_run,
-        **result,
-    }
+    return await snapshot_route_support.repair_runtime_response(_module_owner(), request)
 
 
 @app.get("/revenue/dashboard")
 async def get_revenue_dashboard(user_id: str = Depends(require_rate_limit)):
-    """Return structured revenue and pipeline dashboard data."""
     del user_id
-    if not GUPPY_MEMORY_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Memory module not available")
-    if not hasattr(memory, "get_revenue_dashboard_data"):
-        raise HTTPException(status_code=503, detail="Revenue dashboard not configured")
-
-    try:
-        return memory.get_revenue_dashboard_data()
-    except Exception as e:
-        logger.error(f"Revenue dashboard failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return snapshot_route_support.revenue_dashboard_response(_module_owner())
 
 @app.post("/chat")
 async def chat(request: ChatRequest, user_id: str = Depends(require_rate_limit)):

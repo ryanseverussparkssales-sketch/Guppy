@@ -40,6 +40,9 @@ def _validate_wrapper(path: Path, required_import: str) -> list[str]:
     if text.count("Compatibility wrapper") != 1:
         errs.append(f"{path.name} should contain exactly one wrapper docstring header")
 
+    if "compat_shims" in text:
+        errs.append(f"{path.name} must not import or reference compat_shims")
+
     return errs
 
 
@@ -67,10 +70,27 @@ def _validate_shim(path: Path, canonical: str) -> list[str]:
     if "Compatibility shim" not in text:
         errs.append(f"{path.name} should contain 'Compatibility shim' in docstring")
 
+    if "compat_shims" in text:
+        errs.append(f"{path.name} must not import or reference compat_shims")
+
     main_guard_count = text.count('if __name__ == "__main__":')
     if main_guard_count != 1:
         errs.append(f"{path.name} must contain exactly one main guard (found {main_guard_count})")
 
+    return errs
+
+
+def _validate_legacy_surface_package(path: Path) -> list[str]:
+    errs: list[str] = []
+    if not path.exists():
+        errs.append(f"missing legacy surface package marker: {path}")
+        return errs
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if "Quarantined legacy desktop surfaces" not in text:
+        errs.append(f"{path.name} must clearly mark legacy surfaces as quarantined")
+    if "__all__" not in text:
+        errs.append(f"{path.name} should define an explicit __all__")
     return errs
 
 
@@ -79,6 +99,7 @@ def main() -> int:
     for rel, required_import in WRAPPERS.items():
         failures.extend(_validate_wrapper(ROOT / rel, required_import))
     failures.extend(_validate_shim(ROOT / "guppy_api.py", "src.guppy.api.server"))
+    failures.extend(_validate_legacy_surface_package(COMPAT / "legacy_surfaces" / "__init__.py"))
 
     if failures:
         print("wrapper integrity check failed:")

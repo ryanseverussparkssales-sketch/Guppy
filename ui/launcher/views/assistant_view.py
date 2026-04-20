@@ -27,16 +27,12 @@ from src.guppy.launcher_application.home_presenter import (
 )
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
 from .. import tokens as T
+from . import assistant_behavior_support as behavior
 from .assistant_first_run_banner import FirstRunBanner
-from .assistant_active_context import clear_active_context_row, populate_active_context_row
 from .assistant_context import (
     active_context_titles as context_active_context_titles,
-    build_composer_guidance as context_build_composer_guidance,
-    build_grounding_cue as context_build_grounding_cue,
     context_aware_starter_prompt as context_context_aware_starter_prompt,
     context_aware_starter_title as context_context_aware_starter_title,
-    format_active_context_summary as context_format_active_context_summary,
-    normalize_context_items as context_normalize_context_items,
     refresh_resource_context as context_refresh_resource_context,
     set_background_event as context_set_background_event,
     set_background_status as context_set_background_status,
@@ -46,6 +42,7 @@ from .assistant_context import (
     sync_context_bar_visibility as context_sync_context_bar_visibility,
     toggle_context_details as context_toggle_context_details,
 )
+from .assistant_shell_sections import build_assistant_shell
 from .assistant_transcript import build_transcript_row, clear_transcript_layout
 
 
@@ -126,568 +123,12 @@ class AssistantView(QWidget):
         self._launcher_context_controls_enabled = False
         self._first_run_banner_visible = False
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(18, 14, 18, 14)
-        root.setSpacing(10)
-
-        self._identity_frame = QFrame()
-        self._identity_frame.setObjectName("home_identity")
-        self._identity_frame.setStyleSheet(
-            "QFrame#home_identity { background-color: rgba(255,255,255,0.54); border: 1px solid rgba(214,197,174,0.42); border-radius: 18px; }"
+        build_assistant_shell(
+            self,
+            label_factory=_lbl,
+            dropdown_factory=_dropdown,
+            hero_subtitle_for_workspace=_hero_subtitle_for_workspace,
         )
-        identity_row = QHBoxLayout(self._identity_frame)
-        identity_row.setContentsMargins(14, 10, 14, 10)
-        identity_row.setSpacing(10)
-        self._identity_workspace_chip = QLabel("WORKSPACE · GUPPY-PRIMARY")
-        self._identity_workspace_chip.setStyleSheet(
-            f"color: {T.SECONDARY}; background: rgba(47,111,122,0.10); border: 1px solid rgba(214,197,174,0.40);"
-            f" border-radius: 12px; padding: 5px 9px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        self._identity_mode_chip = QLabel("AUTO / LIGHT")
-        self._identity_mode_chip.setStyleSheet(
-            f"color: {T.TERTIARY}; background: rgba(70,98,199,0.10); border: 1px solid rgba(214,197,174,0.40);"
-            f" border-radius: 12px; padding: 5px 9px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        self._identity_note = QLabel("Ask one clear question and send it.")
-        self._identity_note.setWordWrap(True)
-        self._identity_note.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
-        )
-        self._identity_details_btn = QPushButton("DETAILS")
-        self._identity_details_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._identity_details_btn.setToolTip("Show or hide workspace details, attached sources, and saved output")
-        self._identity_details_btn.setStyleSheet(
-            f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
-            f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: rgba(70,98,199,0.46); color: {T.TERTIARY}; background: #ffffff; }}"
-        )
-        self._identity_details_btn.clicked.connect(self._toggle_workspace_details)
-        identity_row.addWidget(self._identity_workspace_chip)
-        identity_row.addWidget(self._identity_mode_chip)
-        identity_row.addWidget(self._identity_note, stretch=1)
-        identity_row.addWidget(self._identity_details_btn)
-        self._purpose_lbl = QLabel("HOME — Chat with your assistant, attach sources from Library, and send one clear request at a time.")
-        self._purpose_lbl.setObjectName("hub-purpose")
-        self._purpose_lbl.setWordWrap(True)
-        self._purpose_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        root.addWidget(self._purpose_lbl)
-        root.addWidget(self._identity_frame)
-
-        self._first_run_frame = FirstRunBanner(self)
-        self._first_run_frame.settings_requested.connect(lambda: self.first_run_action_requested.emit("settings"))
-        self._first_run_frame.models_requested.connect(lambda: self.first_run_action_requested.emit("models"))
-        self._first_run_frame.focus_input_requested.connect(lambda: self._input.setFocus(Qt.FocusReason.OtherFocusReason))
-        self._first_run_summary = self._first_run_frame._summary_lbl
-        self._first_run_install_chip = self._first_run_frame._install_chip
-        root.addWidget(self._first_run_frame)
-
-        self._hero_title = QLabel("Start with one ask.")
-        self._hero_subtitle = QLabel(_hero_subtitle_for_workspace("user_instance"))
-        self._rec_chip = QLabel("RECOMMENDED / STANDARD")
-        self._instance_chip = QLabel("WORKSPACE / GUPPY-PRIMARY")
-        self._background_chip = QLabel("READY")
-        self._entry_hint = QLabel("Primary action: type one short request and press Send.")
-        self._background_event = QLabel("Latest activity: workspace ready", self)
-        self._background_event.setVisible(False)
-        self._workspace_summary = QLabel("Active workspace: Daily assistant workspace. General help, chat, and quick tasks.", self)
-        self._workspace_summary.setVisible(False)
-        self._runtime_facts = QLabel("Ready now: Standard profile, Guppy model, Edge voice.", self)
-        self._runtime_facts.setVisible(False)
-        self._route_facts = QLabel("Next reply: waiting for your next message.", self)
-        self._route_facts.setVisible(False)
-        self._recovery_summary = QLabel("System health: stable", self)
-        self._recovery_summary.setVisible(False)
-        self._context_bar = QFrame()
-        self._context_bar.setObjectName("home_context_bar")
-        self._context_bar.setStyleSheet(
-            f"QFrame#home_context_bar {{ background-color: rgba(255,255,255,0.62); border: 1px solid rgba(214,197,174,0.44); border-radius: 18px; }}"
-        )
-        context_bar_layout = QVBoxLayout(self._context_bar)
-        context_bar_layout.setContentsMargins(12, 10, 12, 10)
-        context_bar_layout.setSpacing(6)
-        for widget in (
-            self._background_event,
-            self._workspace_summary,
-        ):
-            widget.setWordWrap(True)
-            widget.setStyleSheet(
-                f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-            )
-            context_bar_layout.addWidget(widget)
-        self._context_details_btn = QPushButton("DETAILS")
-        self._context_details_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._context_details_btn.setStyleSheet(
-            f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
-            f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: rgba(70,98,199,0.46); color: {T.TERTIARY}; background: #ffffff; }}"
-        )
-        self._context_details_btn.clicked.connect(self._toggle_context_details)
-        self._context_details_btn.setVisible(False)
-        context_bar_layout.addWidget(self._context_details_btn, alignment=Qt.AlignmentFlag.AlignLeft)
-        self._context_details_host = QWidget()
-        self._context_details_host.setVisible(False)
-        details_layout = QVBoxLayout(self._context_details_host)
-        details_layout.setContentsMargins(0, 0, 0, 0)
-        details_layout.setSpacing(4)
-        for widget in (
-            self._runtime_facts,
-            self._route_facts,
-            self._recovery_summary,
-        ):
-            widget.setWordWrap(True)
-            widget.setStyleSheet(
-                f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-            )
-            details_layout.addWidget(widget)
-        context_bar_layout.addWidget(self._context_details_host)
-        self._context_details_visible = False
-        self._context_bar.setVisible(False)
-
-        self._starter_summary = QLabel(self._base_starter_summary)
-        self._starter_summary.setWordWrap(True)
-        self._starter_summary.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._starter_summary.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
-        )
-        self._starter_summary.setVisible(False)
-        self._starter_row = QHBoxLayout()
-        self._starter_row.setSpacing(8)
-        for starter_id, title, mode, prompt in self._starter_templates():
-            btn = QPushButton(title)
-            btn.setToolTip(prompt)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet(
-                f"QPushButton {{ background: {T.BG0}; color: {T.TEXT}; border: 1px solid {T.BORDER};"
-                f" border-radius: 11px; padding: 5px 9px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-                f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; background: rgba(242,202,80,0.05); }}"
-            )
-            btn.clicked.connect(lambda _=False, sid=starter_id: self._load_starter_by_id(sid))
-            self._starter_buttons[starter_id] = btn
-            self._starter_row.addWidget(btn)
-        self._starter_row.addStretch()
-        self._refresh_starter_buttons()
-
-        hero = QFrame()
-        hero.setObjectName("home_hero")
-        hero.setStyleSheet(
-            f"QFrame#home_hero {{ background-color: rgba(255,255,255,0.48); border: 1px solid rgba(214,197,174,0.40); border-radius: 22px; }}"
-        )
-        hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(18, 16, 18, 14)
-        hero_layout.setSpacing(10)
-
-        hero_top = QHBoxLayout()
-        hero_top.setSpacing(14)
-        hero_text = QVBoxLayout()
-        hero_text.setSpacing(4)
-        self._hero_title.setStyleSheet(
-            f"color: {T.INK}; font-family: '{T.FF_HEAD}'; font-size: 20pt; font-weight: 700;"
-        )
-        self._hero_subtitle.setWordWrap(True)
-        self._hero_subtitle.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
-        )
-        hero_text.addWidget(self._hero_title)
-        hero_text.addWidget(self._hero_subtitle)
-        hero_top.addLayout(hero_text, stretch=1)
-        hero_layout.addLayout(hero_top)
-
-        chip_row = QHBoxLayout()
-        chip_row.setSpacing(8)
-        for chip, bg, fg in (
-            (self._rec_chip, "rgba(70,98,199,0.10)", T.TERTIARY),
-            (self._instance_chip, "rgba(47,111,122,0.10)", T.SECONDARY),
-            (self._background_chip, "rgba(44,123,89,0.10)", T.GREEN),
-        ):
-            chip.setStyleSheet(
-                f"color: {fg}; background: {bg}; border: 1px solid rgba(214,197,174,0.40);"
-                f" border-radius: 14px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-            )
-            chip_row.addWidget(chip)
-        self._rec_chip.hide()
-        self._background_chip.hide()
-        chip_row.addStretch()
-        hero_layout.addLayout(chip_row)
-
-        self._entry_hint.setWordWrap(True)
-        self._entry_hint.setStyleSheet(
-            f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        hero_layout.addWidget(self._entry_hint)
-        hero_layout.addWidget(self._context_bar)
-        root.addWidget(hero)
-        hero.hide()
-
-        self._workspace_details_strip = QFrame()
-        self._workspace_details_strip.setObjectName("workspace_details_strip")
-        self._workspace_details_strip.setStyleSheet(
-            "QFrame#workspace_details_strip { background-color: rgba(255,255,255,0.48); border: 1px solid rgba(214,197,174,0.36); border-radius: 18px; }"
-        )
-        details_strip_layout = QHBoxLayout(self._workspace_details_strip)
-        details_strip_layout.setContentsMargins(14, 10, 14, 10)
-        details_strip_layout.setSpacing(10)
-        self._workspace_details_summary = QLabel("")
-        self._workspace_details_summary.setWordWrap(True)
-        self._workspace_details_summary.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_TINY}pt;"
-        )
-        self._workspace_details_btn = QPushButton("DETAILS")
-        self._workspace_details_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._workspace_details_btn.setStyleSheet(
-            f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
-            f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: rgba(70,98,199,0.46); color: {T.TERTIARY}; background: #ffffff; }}"
-        )
-        self._workspace_details_btn.clicked.connect(self._toggle_workspace_details)
-        details_strip_layout.addWidget(self._workspace_details_summary, stretch=1)
-        details_strip_layout.addWidget(self._workspace_details_btn)
-        root.addWidget(self._workspace_details_strip)
-        self._workspace_details_strip.hide()
-
-        self._workspace_details_host = QWidget()
-        workspace_details_layout = QVBoxLayout(self._workspace_details_host)
-        workspace_details_layout.setContentsMargins(0, 0, 0, 0)
-        workspace_details_layout.setSpacing(10)
-
-        self._workspace_dock = QFrame()
-        self._workspace_dock.setObjectName("workspace_dock")
-        self._workspace_dock.setStyleSheet(
-            "QFrame#workspace_dock { background-color: rgba(255,255,255,0.56); border: 1px solid rgba(214,197,174,0.42); border-radius: 24px; }"
-        )
-        dock_layout = QHBoxLayout(self._workspace_dock)
-        dock_layout.setContentsMargins(14, 14, 14, 14)
-        dock_layout.setSpacing(12)
-        self._files_context_lbl = QLabel("")
-        self._study_context_lbl = QLabel("")
-        self._coding_context_lbl = QLabel("")
-        for title, target in (
-            ("FILES", self._files_context_lbl),
-            ("STUDY", self._study_context_lbl),
-            ("BUILD", self._coding_context_lbl),
-        ):
-            card = QFrame()
-            card.setStyleSheet(
-                "QFrame { background-color: rgba(255,255,255,0.72); border: 1px solid rgba(214,197,174,0.40); border-radius: 18px; }"
-            )
-            card_layout = QVBoxLayout(card)
-            card_layout.setContentsMargins(12, 10, 12, 10)
-            card_layout.setSpacing(6)
-            card_layout.addWidget(_lbl(title, T.PRIMARY, T.FS_TINY, True))
-            target.setWordWrap(True)
-            target.setStyleSheet(
-                f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
-            )
-            card_layout.addWidget(target)
-            dock_layout.addWidget(card, stretch=1)
-        workspace_details_layout.addWidget(self._workspace_dock)
-
-        self._latest_output_host = QFrame()
-        self._latest_output_host.setObjectName("latest_output_host")
-        self._latest_output_host.setStyleSheet(
-            "QFrame#latest_output_host { background-color: rgba(255,255,255,0.54); border: 1px solid rgba(214,197,174,0.40); border-radius: 18px; }"
-        )
-        latest_output_layout = QHBoxLayout(self._latest_output_host)
-        latest_output_layout.setContentsMargins(14, 12, 14, 12)
-        latest_output_layout.setSpacing(12)
-        latest_output_text = QVBoxLayout()
-        latest_output_text.setSpacing(4)
-        self._latest_output_title = _lbl("LATEST SAVED OUTPUT", T.PRIMARY, T.FS_TINY, True)
-        self._latest_output_summary = QLabel("")
-        self._latest_output_summary.setWordWrap(True)
-        self._latest_output_summary.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
-        )
-        latest_output_text.addWidget(self._latest_output_title)
-        latest_output_text.addWidget(self._latest_output_summary)
-        latest_output_layout.addLayout(latest_output_text, stretch=1)
-        self._latest_output_library_btn = QPushButton("IN LIBRARY")
-        self._latest_output_library_btn.setToolTip("Open this saved output in the Library view")
-        self._latest_output_attach_btn = QPushButton("ATTACH NOW")
-        self._latest_output_attach_btn.setToolTip("Attach this saved output as context for the next reply")
-        for button in (self._latest_output_library_btn, self._latest_output_attach_btn):
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setStyleSheet(
-                f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.TERTIARY}; border: 1px solid rgba(214,197,174,0.44);"
-                f" border-radius: 10px; padding: 4px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-                f"QPushButton:hover {{ border-color: rgba(70,98,199,0.42); background: #ffffff; }}"
-            )
-        self._latest_output_library_btn.clicked.connect(self._emit_latest_saved_output_library)
-        self._latest_output_attach_btn.clicked.connect(self._emit_latest_saved_output_attach)
-        latest_output_layout.addWidget(self._latest_output_library_btn)
-        latest_output_layout.addWidget(self._latest_output_attach_btn)
-        self._latest_output_host.setVisible(False)
-        workspace_details_layout.addWidget(self._latest_output_host)
-
-        self._active_context_host = QFrame()
-        self._active_context_host.setObjectName("active_context_host")
-        self._active_context_host.setStyleSheet(
-            "QFrame#active_context_host { background-color: rgba(255,255,255,0.52); border: 1px solid rgba(214,197,174,0.38); border-radius: 20px; }"
-        )
-        active_context_layout = QVBoxLayout(self._active_context_host)
-        active_context_layout.setContentsMargins(16, 14, 16, 14)
-        active_context_layout.setSpacing(10)
-        active_context_top = QHBoxLayout()
-        active_context_top.setSpacing(10)
-        self._active_context_title = _lbl("CURRENT SOURCES", T.PRIMARY, T.FS_TINY, True)
-        active_context_top.addWidget(self._active_context_title)
-        active_context_top.addStretch()
-        self._active_context_clear_btn = QPushButton("CLEAR SOURCES")
-        self._active_context_clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._active_context_clear_btn.setToolTip("Remove all currently attached sources")
-        self._active_context_clear_btn.setAccessibleName("Clear attached sources")
-        self._active_context_clear_btn.setAccessibleDescription("Clears all active context sources")
-        self._active_context_clear_btn.setStyleSheet(
-            f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.ERROR}; border: 1px solid rgba(214,197,174,0.54);"
-            f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: rgba(200,75,68,0.42); background: #ffffff; }}"
-        )
-        self._active_context_clear_btn.clicked.connect(self.active_context_clear_requested.emit)
-        self._active_context_refresh_btn = QPushButton("REFRESH SAVED SOURCE")
-        self._active_context_refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._active_context_refresh_btn.setToolTip("Refresh the primary saved source using the latest assistant reply")
-        self._active_context_refresh_btn.setAccessibleName("Refresh saved source")
-        self._active_context_refresh_btn.setAccessibleDescription("Refreshes the primary saved source")
-        self._active_context_refresh_btn.setStyleSheet(
-            f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.TERTIARY}; border: 1px solid rgba(214,197,174,0.54);"
-            f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: rgba(70,98,199,0.42); background: #ffffff; }}"
-        )
-        self._active_context_refresh_btn.clicked.connect(self._emit_active_context_refresh_requested)
-        self._active_context_refresh_btn.setVisible(False)
-        self._active_context_pin_default_btn = QPushButton("PIN PRIMARY")
-        self._active_context_pin_default_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._active_context_pin_default_btn.setToolTip("Pin the primary source as this workspace default")
-        self._active_context_pin_default_btn.setAccessibleName("Pin default source")
-        self._active_context_pin_default_btn.setAccessibleDescription("Pins the primary source for this workspace")
-        self._active_context_pin_default_btn.setStyleSheet(
-            f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.SECONDARY}; border: 1px solid rgba(214,197,174,0.54);"
-            f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: rgba(47,111,122,0.42); background: #ffffff; }}"
-        )
-        self._active_context_pin_default_btn.clicked.connect(self._emit_active_context_default_requested)
-        self._active_context_pin_default_btn.setVisible(False)
-        self._active_context_swap_btn = QPushButton("MAKE PRIMARY SOURCE")
-        self._active_context_swap_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._active_context_swap_btn.setToolTip("Promote another attached source to primary")
-        self._active_context_swap_btn.setAccessibleName("Make primary source")
-        self._active_context_swap_btn.setAccessibleDescription("Promotes a non-primary source to primary")
-        self._active_context_swap_btn.setStyleSheet(
-            f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.TERTIARY}; border: 1px solid rgba(214,197,174,0.54);"
-            f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: rgba(70,98,199,0.42); background: #ffffff; }}"
-        )
-        self._active_context_swap_btn.clicked.connect(self._emit_active_context_swap_requested)
-        self._active_context_swap_btn.setVisible(False)
-        active_context_top.addWidget(self._active_context_refresh_btn)
-        active_context_top.addWidget(self._active_context_pin_default_btn)
-        active_context_top.addWidget(self._active_context_swap_btn)
-        active_context_top.addWidget(self._active_context_clear_btn)
-        active_context_layout.addLayout(active_context_top)
-        self._active_context_summary = QLabel("No Library sources attached yet. Open Library and use USE IN CHAT to ground the next reply.")
-        self._active_context_summary.setWordWrap(True)
-        self._active_context_summary.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
-        )
-        active_context_layout.addWidget(self._active_context_summary)
-        self._active_context_row = QHBoxLayout()
-        self._active_context_row.setSpacing(10)
-        active_context_layout.addLayout(self._active_context_row)
-        self._active_context_host.setVisible(False)
-        self._last_context_notice = ""
-        self._focused_context_title = ""
-        self._previewed_context_title = ""
-        self._default_context_source_title = ""
-        workspace_details_layout.addWidget(self._active_context_host)
-        root.addWidget(self._workspace_details_host)
-
-        transcript = QFrame()
-        transcript.setObjectName("chat_surface")
-        transcript.setStyleSheet(
-            f"QFrame#chat_surface {{ background-color: rgba(255,255,255,0.58); border: 1px solid rgba(214,197,174,0.50); border-radius: 30px; }}"
-        )
-        tcol = QVBoxLayout(transcript)
-        tcol.setContentsMargins(20, 18, 20, 18)
-        tcol.setSpacing(14)
-
-        transcript_hdr = QHBoxLayout()
-        transcript_hdr.setSpacing(8)
-        transcript_hdr.addWidget(_lbl("CONVERSATION", T.DIM, T.FS_TINY, True))
-        self._grounding_chip = QLabel("")
-        self._grounding_chip.setVisible(False)
-        self._grounding_chip.setStyleSheet(
-            f"color: {T.TERTIARY}; background: rgba(70,98,199,0.12); border: 1px solid rgba(214,197,174,0.40);"
-            f" border-radius: 12px; padding: 4px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        transcript_hdr.addWidget(self._grounding_chip)
-        self._status_strip = QLabel("READY")
-        self._status_strip.setStyleSheet(
-            f"color: {T.GREEN}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        transcript_hdr.addStretch()
-        transcript_hdr.addWidget(self._status_strip)
-        tcol.addLayout(transcript_hdr)
-
-        self._chat_scroll = QScrollArea()
-        self._chat_scroll.setWidgetResizable(True)
-        self._chat_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._chat_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
-
-        self._chat_content = QWidget()
-        self._chat_content.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self._chat_layout = QVBoxLayout(self._chat_content)
-        self._chat_layout.setContentsMargins(10, 6, 10, 6)
-        self._chat_layout.setSpacing(20)
-        self._empty_state = self._build_empty_state()
-        self._chat_layout.addWidget(self._empty_state)
-        self._chat_layout.addStretch()
-        self._chat_scroll.setWidget(self._chat_content)
-        tcol.addWidget(self._chat_scroll, stretch=1)
-        root.addWidget(transcript, stretch=1)
-
-        composer = QFrame()
-        composer.setObjectName("chat_composer")
-        composer.setStyleSheet(
-            f"QFrame#chat_composer {{ background-color: rgba(255,255,255,0.64); border: 1px solid rgba(214,197,174,0.46); border-radius: 30px; }}"
-        )
-        composer_col = QVBoxLayout(composer)
-        composer_col.setContentsMargins(16, 14, 16, 12)
-        composer_col.setSpacing(10)
-
-        starter_summary_row = QHBoxLayout()
-        starter_summary_row.setSpacing(10)
-        starter_summary_row.addWidget(self._starter_summary, stretch=1)
-        self._starters_btn = QPushButton("STARTERS")
-        self._starters_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._starters_btn.setToolTip("Show or hide ready-made starter prompts for this workspace")
-        self._starters_btn.setStyleSheet(
-            f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
-            f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: rgba(70,98,199,0.46); color: {T.TERTIARY}; background: #ffffff; }}"
-        )
-        self._starters_btn.clicked.connect(self._toggle_starters)
-        starter_summary_row.addWidget(self._starters_btn)
-        composer_col.addLayout(starter_summary_row)
-        self._starter_buttons_host = QWidget()
-        starter_strip = QHBoxLayout(self._starter_buttons_host)
-        starter_strip.setContentsMargins(0, 0, 0, 0)
-        starter_strip.setSpacing(10)
-        starter_strip.addLayout(self._starter_row, stretch=1)
-        composer_col.addWidget(self._starter_buttons_host)
-
-        self._launcher_panel = QFrame()
-        self._launcher_panel.setObjectName("launcher_panel")
-        self._launcher_panel.setStyleSheet(
-            f"QFrame#launcher_panel {{ background-color: rgba(244,239,231,0.88); border: 1px solid rgba(214,197,174,0.66); border-radius: 18px; }}"
-        )
-        launcher_panel_col = QVBoxLayout(self._launcher_panel)
-        launcher_panel_col.setContentsMargins(14, 12, 14, 12)
-        launcher_panel_col.setSpacing(10)
-
-        controls = QHBoxLayout()
-        controls.setSpacing(10)
-        for header, opts, cb_attr in [
-            ("MODE", list(LAUNCHER_MODES_DISPLAY), "_cb_mode"),
-            ("PERSONA", ["GUPPY"], "_cb_persona"),
-            ("PROFILE", ["LIGHT", "STANDARD", "POWER"], "_cb_profile"),
-        ]:
-            col = QVBoxLayout()
-            col.setSpacing(4)
-            col.addWidget(_lbl(header))
-            cb = _dropdown(opts)
-            cb.setStyleSheet(
-                f"QComboBox {{ background: {T.BG0}; color: {T.TEXT}; border: 1px solid {T.BORDER};"
-                f" border-radius: 10px; padding: 4px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            )
-            setattr(self, cb_attr, cb)
-            col.addWidget(cb)
-            controls.addLayout(col)
-        controls.addStretch()
-        launcher_panel_col.addLayout(controls)
-        composer_col.addWidget(self._launcher_panel)
-        self._launcher_panel.setVisible(False)
-
-        input_shell = QFrame()
-        input_shell.setObjectName("composer_shell")
-        input_shell.setStyleSheet(
-            f"QFrame#composer_shell {{ background-color: rgba(255,255,255,0.90); border: 1px solid rgba(214,197,174,0.46); border-radius: 30px; }}"
-        )
-        input_row = QHBoxLayout(input_shell)
-        input_row.setContentsMargins(16, 8, 8, 8)
-        input_row.setSpacing(8)
-
-        self._input = QLineEdit()
-        self._input.setPlaceholderText(self._base_input_placeholder)
-        self._input.setStyleSheet(
-            f"QLineEdit {{ background: transparent; border: none; color: {T.TEXT};"
-            f" font-family: '{T.FF_BODY}'; font-size: {T.FS_LABEL}pt; padding: 2px 0; }}"
-        )
-        self._input.returnPressed.connect(self._submit)
-        input_row.addWidget(self._input, stretch=1)
-
-        self._mic_btn = QPushButton("\u25cf")
-        self._mic_btn.setFixedSize(32, 32)
-        self._mic_btn.setToolTip("Push to talk. Click again while listening to stop capture.")
-        self._mic_btn.setStyleSheet(
-            f"QPushButton {{ border: 1px solid rgba(205,181,154,0.34); border-radius: 16px; background: rgba(255,250,243,0.92); color: {T.PRIMARY}; font-size: 10pt; }}"
-            f"QPushButton:hover {{ border-color: rgba(255,107,61,0.55); background: #ffffff; }}"
-        )
-        self._mic_btn.clicked.connect(self.mic_requested.emit)
-
-        self._cancel_btn = QPushButton("\u25a0")
-        self._cancel_btn.setFixedSize(32, 32)
-        self._cancel_btn.setEnabled(False)
-        self._cancel_btn.setToolTip("Cancel the in-flight request")
-        self._cancel_btn.setStyleSheet(
-            f"QPushButton {{ border: 1px solid rgba(200,75,68,0.42); border-radius: 16px; background: rgba(255,250,243,0.80); color: {T.ERROR}; font-size: 8pt; }}"
-            f"QPushButton:hover {{ background: rgba(200,75,68,0.10); }}"
-        )
-        self._cancel_btn.clicked.connect(self.cancel_requested.emit)
-
-        self._send_btn = QPushButton("\u25b6")
-        self._send_btn.setFixedSize(36, 36)
-        self._send_btn.setToolTip("Send your message to the assistant")
-        self._send_btn.setStyleSheet(
-            f"QPushButton {{ border: none; border-radius: 18px; background: {T.PRIMARY}; color: {T.BG}; font-size: 10pt; }}"
-            f"QPushButton:hover {{ background: {T.PRIMARY_DIM}; }}"
-        )
-        self._send_btn.clicked.connect(self._submit)
-
-        input_row.addWidget(self._mic_btn)
-        input_row.addWidget(self._cancel_btn)
-        input_row.addWidget(self._send_btn)
-        composer_col.addWidget(input_shell)
-
-        footer = QHBoxLayout()
-        footer.setSpacing(8)
-        self._session_strip = _lbl("SESSION: --")
-        self._session_strip.setStyleSheet(
-            f"color: rgba(115,96,79,0.72); font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        footer.addWidget(self._session_strip)
-        footer.addStretch()
-        composer_col.addLayout(footer)
-        root.addWidget(composer)
-
-        self._cb_mode.currentTextChanged.connect(self._emit_context_changed)
-        self._cb_persona.currentTextChanged.connect(self._emit_context_changed)
-        self._cb_mode.currentTextChanged.connect(self._sync_launcher_summary)
-        self._cb_persona.currentTextChanged.connect(self._sync_launcher_summary)
-        self._cb_profile.currentTextChanged.connect(self._sync_launcher_summary)
-        self.set_persona_options([("GUPPY", "guppy")], selected="guppy")
-        self._sync_launcher_summary()
-        self._refresh_resource_context()
-        self._refresh_empty_state()
-        self._sync_context_bar_visibility()
-        self._refresh_composer_guidance()
-        self._update_workspace_details_visibility()
-        self._update_starter_visibility()
-        self._apply_density_mode(self.width())
-        self._launcher_panel.setVisible(False)
-        self._identity_details_btn.setVisible(False)
-        self._workspace_details_strip.setVisible(False)
-        self._workspace_details_host.setVisible(False)
 
     def _sync_context_bar_visibility(self) -> None:
         context_sync_context_bar_visibility(self)
@@ -994,16 +435,7 @@ class AssistantView(QWidget):
         self.starter_requested.emit(starter.starter_id, starter.prompt)
 
     def set_status(self, text: str) -> None:
-        status = (text or "Ready").strip().upper()
-        self._status_strip.setText(status)
-        color = T.PRIMARY
-        if "ERROR" in status:
-            color = T.ERROR
-        elif "READY" in status:
-            color = T.GREEN
-        self._status_strip.setStyleSheet(
-            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;"
-        )
+        behavior.set_status(self, text)
 
     def set_active_instance(
         self,
@@ -1016,12 +448,9 @@ class AssistantView(QWidget):
         voice: str = "default",
         last_message: str = "",
     ) -> None:
-        name = (instance or "guppy-primary").strip() or "guppy-primary"
-        if name != self._workspace_name:
-            self.set_active_context_items([])
-            self.clear_latest_saved_output()
-        state = build_home_workspace_state(
-            name,
+        behavior.set_active_instance(
+            self,
+            instance,
             workspace_type=workspace_type,
             description=description,
             mode=mode,
@@ -1029,25 +458,6 @@ class AssistantView(QWidget):
             voice=voice,
             last_message=last_message,
         )
-        self._workspace_name = name
-        self._workspace_type = (workspace_type or "user_instance").strip().lower() or "user_instance"
-        self._workspace_role = state.role_label
-        self._workspace_purpose = state.purpose
-        self.set_chat_context(mode, persona)
-        self._refresh_empty_state_copy()
-        self._refresh_starter_buttons()
-        self._base_starter_summary = state.starter_summary
-        self._base_input_placeholder = state.input_placeholder
-        self._refresh_composer_guidance()
-        self._instance_chip.setText(f"WORKSPACE · {name.upper()}")
-        self._identity_workspace_chip.setText(f"WORKSPACE · {name.upper()}")
-        self._identity_note.setText(state.entry_hint)
-        self._workspace_summary.setText(state.workspace_summary)
-        self._workspace_summary.setVisible(self._home_operator_details_enabled)
-        self._hero_subtitle.setText(_hero_subtitle_for_workspace(self._workspace_type))
-        self._entry_hint.setText(state.entry_hint)
-        self._refresh_resource_context()
-        self._sync_context_bar_visibility()
 
     def set_background_status(self, text: str, healthy: bool = True) -> None:
         context_set_background_status(self, text, healthy=healthy)
@@ -1077,28 +487,13 @@ class AssistantView(QWidget):
         context_set_recovery_summary(self, text, healthy=healthy)
 
     def set_request_in_flight(self, in_flight: bool) -> None:
-        self._request_in_flight_ui = in_flight
-        self._input.setEnabled(not in_flight)
-        self._send_btn.setEnabled(not in_flight)
-        self._cancel_btn.setEnabled(in_flight)
-        self._mic_btn.setEnabled(self._mic_capture_active or not in_flight)
+        behavior.set_request_in_flight(self, in_flight)
 
     def set_mic_capture_state(self, listening: bool) -> None:
-        self._mic_capture_active = listening
-        if listening:
-            self._mic_btn.setText("\u25c9")
-            self._mic_btn.setToolTip("Listening now. Click to stop capture.")
-            self._status_strip.setText("LISTENING")
-            self._mic_btn.setEnabled(True)
-            return
-        self._mic_btn.setText("\u25cf")
-        self._mic_btn.setToolTip("Push to talk. Click again while listening to stop capture.")
-        self._mic_btn.setEnabled(not self._request_in_flight_ui)
+        behavior.set_mic_capture_state(self, listening)
 
     def set_session_id(self, session_id: str) -> None:
-        sid = (session_id or "").strip()
-        suffix = sid[-8:] if sid else "--"
-        self._session_strip.setText(f"SESSION: {suffix}")
+        behavior.set_session_id(self, session_id)
 
     def reset_live_history(self) -> None:
         self._conversation_history.clear()
@@ -1110,20 +505,7 @@ class AssistantView(QWidget):
         self.reset_live_history()
 
     def restore_history(self, history: list[dict[str, str]]) -> None:
-        self.clear_transcript()
-        for item in history:
-            if not isinstance(item, dict):
-                continue
-            role = str(item.get("role", "")).strip().lower()
-            content = str(item.get("content", "") or "").strip()
-            if not content:
-                continue
-            if role == "user":
-                self.add_user_message(content)
-            elif role == "assistant":
-                self.add_assistant_message(content)
-        self._refresh_resource_context()
-        self._refresh_empty_state()
+        behavior.restore_history(self, history)
 
     def recent_history(self, limit: int = 12) -> list[dict[str, str]]:
         if limit <= 0:
@@ -1132,199 +514,52 @@ class AssistantView(QWidget):
         return [dict(item) for item in trimmed if item.get("role") in {"user", "assistant"}]
 
     def set_chat_context(self, mode: str, persona: str) -> None:
-        mode_key = (mode or "").strip().lower()
-        persona_key = (persona or "").strip().lower()
-
-        for idx in range(self._cb_mode.count()):
-            if self._cb_mode.itemText(idx).strip().lower() == mode_key:
-                self._cb_mode.setCurrentIndex(idx)
-                break
-
-        for idx in range(self._cb_persona.count()):
-            option_key = str(self._cb_persona.itemData(idx) or self._cb_persona.itemText(idx)).strip().lower()
-            if option_key == persona_key:
-                self._cb_persona.setCurrentIndex(idx)
-                break
-        self._refresh_resource_context()
+        behavior.set_chat_context(self, mode, persona)
 
     def chat_context(self) -> tuple[str, str]:
         return self.selected_mode(), self.selected_persona()
 
     def set_resource_context(self, *, files: str, study: str, coding: str) -> None:
-        self._files_context_lbl.setText(files)
-        self._study_context_lbl.setText(study)
-        self._coding_context_lbl.setText(coding)
+        behavior.set_resource_context(self, files=files, study=study, coding=coding)
 
     def set_latest_saved_output(self, *, title: str, summary: str, source_label: str = "Saved reply artifact") -> None:
-        title_text = str(title or "").strip()
-        summary_text = str(summary or "").strip()
-        if not title_text:
-            self.clear_latest_saved_output()
-            return
-        self._latest_saved_output = {
-            "title": title_text,
-            "summary": summary_text,
-            "source_label": str(source_label or "Saved reply artifact").strip() or "Saved reply artifact",
-        }
-        self._latest_output_title.setText(str(self._latest_saved_output["source_label"]).upper())
-        self._latest_output_summary.setText(
-            f"{title_text}. {summary_text}" if summary_text else title_text
-        )
-        self._latest_output_host.setVisible(True)
-        self._update_workspace_details_visibility()
+        behavior.set_latest_saved_output(self, title=title, summary=summary, source_label=source_label)
 
     def clear_latest_saved_output(self) -> None:
-        self._latest_saved_output = {}
-        self._latest_output_summary.setText("")
-        self._latest_output_host.setVisible(False)
-        self._update_workspace_details_visibility()
+        behavior.clear_latest_saved_output(self)
 
     def _emit_latest_saved_output_attach(self) -> None:
-        if not self._latest_saved_output:
-            return
-        self.latest_saved_output_attach_requested.emit(
-            str(self._latest_saved_output.get("title", "")),
-            str(self._latest_saved_output.get("summary", "")),
-        )
+        behavior.emit_latest_saved_output_attach(self)
 
     def _emit_latest_saved_output_library(self) -> None:
-        if not self._latest_saved_output:
-            return
-        self.latest_saved_output_library_requested.emit(str(self._latest_saved_output.get("title", "")))
+        behavior.emit_latest_saved_output_library(self)
 
     def set_active_context_items(self, items: list[dict[str, str]]) -> None:
-        self._active_context_items = context_normalize_context_items(items)
-        clear_active_context_row(self._active_context_row)
-        if not self._active_context_items:
-            self._last_context_notice = ""
-            self._focused_context_title = ""
-            self._previewed_context_title = ""
-            self._swap_source_target_title = ""
-            self._active_context_refresh_btn.setVisible(False)
-            self._active_context_pin_default_btn.setVisible(False)
-            self._active_context_swap_btn.setVisible(False)
-            self._active_context_host.setVisible(False)
-            self._refresh_grounding_cue()
-            self._refresh_starter_buttons()
-            self._refresh_composer_guidance()
-            self._refresh_empty_state_guidance()
-            self._update_workspace_details_visibility()
-            return
-        primary_title = self._active_context_items[0]["title"]
-        previous_focus = self._focused_context_title
-        self._focused_context_title = primary_title
-        primary_origin = str(self._active_context_items[0].get("origin", "") or "").strip().lower()
-        saved_origins = {"assistant_reply", "assistant_reply_artifact"}
-        self._swap_source_target_title = ""
-        if primary_origin in saved_origins:
-            for item in self._active_context_items[1:]:
-                item_origin = str(item.get("origin", "") or "").strip().lower()
-                if item_origin not in saved_origins and str(item.get("title", "") or "").strip():
-                    self._swap_source_target_title = str(item.get("title", "") or "").strip()
-                    break
-        self._active_context_refresh_btn.setVisible(bool(primary_origin in saved_origins and self._latest_assistant_reply_text))
-        self._active_context_pin_default_btn.setVisible(bool(primary_title))
-        pinned_default = primary_title == self._default_context_source_title
-        self._active_context_pin_default_btn.setText("DEFAULT PINNED" if pinned_default else "PIN PRIMARY")
-        self._active_context_pin_default_btn.setEnabled(not pinned_default)
-        self._active_context_pin_default_btn.setToolTip(
-            "This source is already the workspace default"
-            if pinned_default
-            else "Pin the primary source as this workspace default"
-        )
-        self._active_context_swap_btn.setVisible(bool(self._swap_source_target_title))
-        self._active_context_swap_btn.setText("MAKE PRIMARY SOURCE")
-        available_titles = {item["title"] for item in self._active_context_items}
-        if previous_focus != primary_title or self._previewed_context_title not in available_titles:
-            self._previewed_context_title = primary_title
-        self._active_context_summary.setText(context_format_active_context_summary(self._active_context_items))
-        populate_active_context_row(
-            self._active_context_row,
-            items=self._active_context_items,
-            primary_title=primary_title,
-            default_title=self._default_context_source_title,
-            previewed_title=self._previewed_context_title,
-            on_toggle_preview=self._toggle_active_context_preview,
-            on_focus=self.active_context_focus_requested.emit,
-            on_open_library=self.active_context_library_requested.emit,
-            on_remove=self.active_context_remove_requested.emit,
-        )
-        self._active_context_host.setVisible(True)
-        self._refresh_grounding_cue()
-        self._refresh_starter_buttons()
-        self._refresh_composer_guidance()
-        self._refresh_empty_state_guidance()
-        self._update_workspace_details_visibility()
+        behavior.set_active_context_items(self, items)
 
     def _toggle_active_context_preview(self, title: str) -> None:
-        title_text = str(title or "").strip()
-        if not title_text:
-            return
-        self._previewed_context_title = "" if self._previewed_context_title == title_text else title_text
-        self.set_active_context_items(self._active_context_items)
+        behavior.toggle_active_context_preview(self, title)
 
     def _emit_active_context_refresh_requested(self) -> None:
-        if not self._active_context_items:
-            return
-        latest_reply = str(self._latest_assistant_reply_text or "").strip()
-        if not latest_reply:
-            return
-        origin = str(self._active_context_items[0].get("origin", "") or "").strip().lower()
-        self.active_context_refresh_requested.emit(latest_reply, origin == "assistant_reply_artifact")
+        behavior.emit_active_context_refresh_requested(self)
 
     def _emit_active_context_swap_requested(self) -> None:
-        title = str(self._swap_source_target_title or "").strip()
-        if not title:
-            return
-        self.active_context_focus_requested.emit(title)
+        behavior.emit_active_context_swap_requested(self)
 
     def _emit_active_context_default_requested(self) -> None:
-        if not self._active_context_items:
-            return
-        primary_title = str(self._active_context_items[0].get("title", "") or "").strip()
-        if not primary_title:
-            return
-        self.active_context_default_requested.emit(primary_title)
+        behavior.emit_active_context_default_requested(self)
 
     def set_default_context_source(self, title: str) -> None:
-        self._default_context_source_title = str(title or "").strip()
-        if self._active_context_items:
-            self.set_active_context_items(self._active_context_items)
+        behavior.set_default_context_source(self, title)
 
     def note_active_context_submission(self, text: str) -> None:
-        notice = str(text or "").strip()
-        if not notice:
-            return
-        self._last_context_notice = notice
-        if self._active_context_items:
-            self._active_context_summary.setText(
-                context_format_active_context_summary(self._active_context_items, used_for_latest_reply=True)
-            )
-            self._active_context_host.setVisible(True)
-            self._update_workspace_details_visibility()
-        self._refresh_grounding_cue()
-        self._refresh_composer_guidance()
-        self.add_system_message(notice)
+        behavior.note_active_context_submission(self, text)
 
     def _refresh_grounding_cue(self) -> None:
-        if not self._active_context_items:
-            self._grounding_chip.clear()
-            self._grounding_chip.setToolTip("")
-            self._grounding_chip.setVisible(False)
-            return
-        label, tooltip = context_build_grounding_cue(self._active_context_items[0])
-        self._grounding_chip.setText(label)
-        self._grounding_chip.setToolTip(tooltip)
-        self._grounding_chip.setVisible(True)
+        behavior.refresh_grounding_cue(self)
 
     def _refresh_composer_guidance(self) -> None:
-        placeholder, starter_summary = context_build_composer_guidance(
-            self._base_input_placeholder,
-            self._base_starter_summary,
-            self._active_context_items,
-        )
-        self._input.setPlaceholderText(placeholder)
-        self._starter_summary.setText(starter_summary)
+        behavior.refresh_composer_guidance(self)
 
     def _focus_input_for_first_run(self) -> None:
         self._input.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -1339,8 +574,8 @@ class AssistantView(QWidget):
         model_status: str = "pending",
         request_status: str = "pending",
     ) -> None:
-        self._first_run_banner_visible = bool(visible)
-        self._first_run_frame.set_status(
+        behavior.set_first_run_status(
+            self,
             visible=visible,
             summary=summary,
             detail=detail,
@@ -1348,7 +583,6 @@ class AssistantView(QWidget):
             model_status=model_status,
             request_status=request_status,
         )
-        self._apply_density_mode(self.width())
 
     def showEvent(self, event: QShowEvent) -> None:  # type: ignore[override]
         super().showEvent(event)
@@ -1359,28 +593,14 @@ class AssistantView(QWidget):
         self._apply_density_mode(event.size().width())
 
     def _apply_density_mode(self, width: int) -> None:
-        width = max(int(width or 0), 0)
-        compact = width < 1120
-        tight = width < 920
-        ultra = width < 780
-        self._identity_mode_chip.setVisible(not ultra)
-        self._instance_chip.setVisible(not tight)
-        self._starter_summary.setVisible(not tight)
-        self._starter_buttons_host.setVisible(self._starters_expanded and not tight)
-        self._first_run_frame.apply_density_mode(width)
-        self._workspace_details_btn.setText(
-            "OPEN"
-            if compact and not self._workspace_details_expanded
-            else ("HIDE DETAILS" if self._workspace_details_expanded else "DETAILS")
-        )
-        self._identity_details_btn.setText(
-            "OPEN"
-            if compact and not self._workspace_details_expanded
-            else ("HIDE DETAILS" if self._workspace_details_expanded else "DETAILS")
-        )
+        behavior.apply_density_mode(self, width)
 
     def _emit_context_changed(self, _text: str) -> None:
         self.chat_context_changed.emit(self.selected_mode(), self.selected_persona())
+
+    @staticmethod
+    def _hero_subtitle_for_workspace(workspace_type: str) -> str:
+        return _hero_subtitle_for_workspace(workspace_type)
 
     @staticmethod
     def _starter_button_style(primary: bool = False) -> str:

@@ -4,8 +4,6 @@ LIBRARY tab - saved files, study material, and coding context for the active wor
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
@@ -26,9 +24,15 @@ from PySide6.QtWidgets import (
 from src.guppy.launcher_application.library_presenter import (
     LibrarySurfaceState,
     build_library_surface_state,
-    validate_library_root,
 )
 from .. import tokens as T
+from . import library_editor_support as editor
+from .library_card_sections import (
+    rebuild_browse_cards as render_browse_cards,
+    rebuild_recent_cards as render_recent_cards,
+    rebuild_root_cards as render_root_cards,
+    rebuild_saved_cards as render_saved_cards,
+)
 from .library_media_panel import LibraryMediaPanel
 from .library_view_components import body_label as _body
 from .library_view_components import build_summary_card as _build_summary_card
@@ -362,32 +366,7 @@ class LibraryView(QWidget):
         self._refresh_note_editor_state()
 
     def _apply_density_mode(self, width: int) -> None:
-        compact = width <= 1120
-        tight = width <= 920
-        self._search.setPlaceholderText(
-            "Search Library" if tight else "Search files, notes, and saved workspace context"
-        )
-        self._root_repo_btn.setText("REPO" if tight else "USE REPO")
-        self._root_browse_btn.setText("FOLDER" if tight else "PICK FOLDER")
-        self._root_save_btn.setText("SAVE" if compact else "SAVE ROOT")
-        self._note_save_btn.setText(
-            "UPDATE" if self._editing_note_id > 0 and tight else
-            "UPDATE NOTE" if self._editing_note_id > 0 else
-            "SAVE NOTE" if compact else
-            "PIN NOTE"
-        )
-        self._note_cancel_btn.setText("CANCEL" if compact else "CANCEL EDIT")
-        self._artifact_browse_btn.setText("FILE" if compact else "PICK FILE")
-        self._artifact_save_btn.setText(
-            "UPDATE" if self._editing_artifact_id > 0 and compact else
-            "UPDATE ARTIFACT" if self._editing_artifact_id > 0 else
-            "SAVE" if compact else
-            "SAVE ARTIFACT"
-        )
-        self._artifact_cancel_btn.setText("CANCEL" if compact else "CANCEL EDIT")
-        self._roots_hint.setVisible(not tight)
-        self._recent_hint.setVisible(not tight)
-        self._saved_hint.setVisible(not tight)
+        editor.apply_density_mode(self, width)
 
     def showEvent(self, event: QShowEvent) -> None:  # type: ignore[override]
         super().showEvent(event)
@@ -409,32 +388,13 @@ class LibraryView(QWidget):
                 widget.deleteLater()
 
     def _fill_repo_root(self) -> None:
-        for root in self._state.approved_roots:
-            if str(root.get("label", "")).strip().lower() == "current guppy repo":
-                self._root_label.setText(str(root.get("label", "") or "").strip())
-                self._root_path.setText(str(root.get("root_path", "") or "").strip())
-                self._set_root_feedback("", is_error=False)
-                return
+        editor.fill_repo_root(self)
 
     def _choose_root_path(self) -> None:
-        current = self._root_path.text().strip() or self._selected_root_path
-        chosen = QFileDialog.getExistingDirectory(self, "Select approved root", current)
-        chosen = str(chosen or "").strip()
-        if not chosen:
-            return
-        self._root_path.setText(chosen)
-        if not self._root_label.text().strip():
-            normalized = chosen.replace("\\", "/").rstrip("/")
-            default_label = normalized.rsplit("/", 1)[-1].strip() or "Approved root"
-            self._root_label.setText(default_label)
-        self._set_root_feedback("", is_error=False)
+        editor.choose_root_path(self)
 
     def _choose_artifact_path(self) -> None:
-        current = self._artifact_path.text().strip() or self._root_path.text().strip()
-        chosen, _ = QFileDialog.getOpenFileName(self, "Select artifact file", current)
-        chosen = str(chosen or "").strip()
-        if chosen:
-            self._artifact_path.setText(chosen)
+        editor.choose_artifact_path(self)
 
     def _rebuild_state(self) -> None:
         self._state = build_library_surface_state(
@@ -460,65 +420,22 @@ class LibraryView(QWidget):
         self._apply_state()
 
     def _begin_note_edit(self, item_id: int, title: str, summary: str) -> None:
-        self._editing_note_id = max(0, int(item_id or 0))
-        self._note_title.setText(title)
-        self._note_body.setPlainText(summary)
-        self._refresh_note_editor_state()
-        if self.isVisible():
-            self._apply_density_mode(self.width())
-        self._note_body.setFocus(Qt.FocusReason.OtherFocusReason)
+        editor.begin_note_edit(self, item_id, title, summary)
 
     def _begin_artifact_edit(self, item_id: int, title: str, item_path: str) -> None:
-        self._editing_artifact_id = max(0, int(item_id or 0))
-        self._artifact_title.setText(title)
-        self._artifact_path.setText(item_path)
-        self._artifact_save_btn.setText("UPDATE ARTIFACT")
-        self._artifact_cancel_btn.setVisible(True)
-        if self.isVisible():
-            self._apply_density_mode(self.width())
+        editor.begin_artifact_edit(self, item_id, title, item_path)
 
     def _reset_note_editor(self) -> None:
-        self._editing_note_id = 0
-        self._note_title.clear()
-        self._note_body.clear()
-        self._refresh_note_editor_state()
-        if self.isVisible():
-            self._apply_density_mode(self.width())
+        editor.reset_note_editor(self)
 
     def _reset_artifact_editor(self) -> None:
-        self._editing_artifact_id = 0
-        self._artifact_title.clear()
-        self._artifact_path.clear()
-        self._artifact_save_btn.setText("SAVE ARTIFACT")
-        self._artifact_cancel_btn.setVisible(False)
-        if self.isVisible():
-            self._apply_density_mode(self.width())
+        editor.reset_artifact_editor(self)
 
     def _emit_root_request(self) -> None:
-        raw_path = self._root_path.text().strip()
-        label = self._root_label.text().strip() or "Approved root"
-        ok, msg = validate_library_root(raw_path)
-        if not ok:
-            self._set_root_feedback(msg or "Invalid path.", is_error=True)
-            return
-        resolved = str(Path(raw_path).expanduser().resolve())
-        self.approved_root_requested.emit(resolved, label)
-        self._root_path.clear()
-        self._root_label.clear()
-        self._set_root_feedback("Root save requested. Confirmation will appear in status.", is_error=False)
+        editor.emit_root_request(self)
 
     def _set_root_feedback(self, message: str, *, is_error: bool) -> None:
-        text = str(message or "").strip()
-        if not text:
-            self._root_feedback_lbl.clear()
-            self._root_feedback_lbl.setVisible(False)
-            return
-        color = T.ERROR if is_error else T.GREEN
-        self._root_feedback_lbl.setText(text)
-        self._root_feedback_lbl.setStyleSheet(
-            f"color: {color}; font-family: '{T.FF_BODY}'; font-size: {T.FS_TINY}pt;"
-        )
-        self._root_feedback_lbl.setVisible(True)
+        editor.set_root_feedback(self, message, is_error=is_error)
 
     def set_root_feedback(self, message: str, *, is_error: bool = False) -> None:
         self._set_root_feedback(message, is_error=is_error)
@@ -532,48 +449,10 @@ class LibraryView(QWidget):
         self._browse_root(root_path)
 
     def _sync_root_picker(self) -> None:
-        self._root_picker.blockSignals(True)
-        try:
-            self._root_picker.clear()
-            for root in self._state.approved_roots:
-                label = str(root.get("label", "") or "Approved root").strip() or "Approved root"
-                detail = str(root.get("detail", "") or "").strip()
-                text = label if not detail else f"{label} - {detail}"
-                self._root_picker.addItem(text, str(root.get("root_path", "") or "").strip())
-            if self._root_picker.count() > 0:
-                selected_index = next(
-                    (
-                        index
-                        for index, root in enumerate(self._state.approved_roots)
-                        if str(root.get("root_path", "") or "").strip() == self._selected_root_path
-                    ),
-                    0,
-                )
-                self._root_picker.setCurrentIndex(max(0, min(selected_index, self._root_picker.count() - 1)))
-        finally:
-            self._root_picker.blockSignals(False)
-        self._root_picker.setVisible(self._root_picker.count() > 0)
+        editor.sync_root_picker(self)
 
     def _refresh_note_editor_state(self) -> None:
-        editing = self._editing_note_id > 0
-        title = self._note_title.text().strip()
-        body_text = self._note_body.toPlainText()
-        stripped_body = body_text.strip()
-        line_count = len([line for line in body_text.splitlines() if line.strip()])
-        self._note_save_btn.setText("UPDATE NOTE" if editing else "PIN NOTE")
-        self._note_cancel_btn.setVisible(editing)
-        self._note_save_btn.setEnabled(bool(title))
-        if editing:
-            hint = f"Editing pinned note: {title or 'untitled note'}."
-            if stripped_body:
-                hint += f" Body ready: {len(stripped_body)} chars across {max(1, line_count)} line(s)."
-            else:
-                hint += " Add or revise the body, then update it in place."
-        elif stripped_body:
-            hint = f"New pinned note draft: {len(stripped_body)} chars across {max(1, line_count)} line(s)."
-        else:
-            hint = "Multiline notes stay in Library and can be reused in Home with USE IN CHAT."
-        self._note_editor_hint.setText(hint)
+        editor.refresh_note_editor_state(self)
 
     def _add_media_action(self, header: QHBoxLayout, card_state: dict[str, str]) -> None:
         if not bool(card_state.get("is_media")):
@@ -618,237 +497,16 @@ class LibraryView(QWidget):
         self._reset_artifact_editor()
 
     def _rebuild_roots(self) -> None:
-        self._clear_dynamic_layout(self._roots_layout)
-        roots = [
-            root
-            for root in self._state.approved_roots
-            if self._matches_query(str(root.get("label", "") or ""), str(root.get("detail", "") or ""))
-        ]
-        if not roots:
-            self._roots_layout.addWidget(
-                _body(
-                    "No approved roots match this search yet." if self._search_query else "No approved roots yet. Add one folder first so Library has a safe place to browse and reuse files from.",
-                    color=T.DIM,
-                )
-            )
-            return
-        for root in roots:
-            root_path = str(root.get("root_path", "") or "").strip()
-            is_selected = root_path == self._selected_root_path
-            card = QFrame()
-            card.setStyleSheet(
-                (
-                    "QFrame { background-color: rgba(255,255,255,0.80); border: 1px solid rgba(70,98,199,0.34); border-radius: 18px; }"
-                    if is_selected
-                    else "QFrame { background-color: rgba(255,255,255,0.64); border: 1px solid rgba(214,197,174,0.44); border-radius: 18px; }"
-                )
-            )
-            layout = QVBoxLayout(card)
-            layout.setContentsMargins(14, 12, 14, 12)
-            layout.setSpacing(6)
-            header = QHBoxLayout()
-            header.setSpacing(8)
-            if is_selected:
-                header.addWidget(_mono("ACTIVE ROOT", T.TERTIARY, T.FS_TINY, True))
-            header.addWidget(_mono(str(root.get("label", "") or "Approved root"), T.PRIMARY, T.FS_TINY, True))
-            header.addStretch()
-            browse_btn = QPushButton("BROWSE")
-            browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            browse_btn.setStyleSheet(
-                f"QPushButton {{ background: {T.BG0}; color: {T.PRIMARY}; border: 1px solid {T.BORDER};"
-                f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-                f"QPushButton:hover {{ border-color: {T.PRIMARY}; background: #ffffff; }}"
-            )
-            browse_btn.clicked.connect(lambda _=False, path=root_path: self._browse_root(path))
-            header.addWidget(browse_btn)
-            layout.addLayout(header)
-            layout.addWidget(_body(str(root.get("detail", "") or "")))
-            if is_selected:
-                layout.addWidget(_body("This is the current folder Guppy will browse for the file lane below.", color=T.TERTIARY))
-            self._roots_layout.addWidget(card)
+        render_root_cards(self)
 
     def _rebuild_browse_cards(self) -> None:
-        self._clear_dynamic_layout(self._browse_layout)
-        root_name = self._state.selected_root_label or "Approved root"
-        self._selected_root_status.setText(f"CURRENT ROOT · {root_name.upper()}")
-        self._selected_root_status.setVisible(bool(self._selected_root_path or self._state.root_file_cards))
-        self._browse_hint.setText(self._state.selected_root_hint)
-        cards = [
-            card
-            for card in self._state.root_file_cards
-            if self._matches_query(str(card.get("title", "") or ""), str(card.get("detail", "") or ""), str(card.get("kind", "") or ""))
-        ]
-        if not cards:
-            self._browse_layout.addWidget(
-                _body(
-                    "No browsable files match this search for the selected root." if self._search_query else "No browsable files yet for the current root. Pick a different approved root or add files here, then use USE IN CHAT to send one to Home.",
-                    color=T.DIM,
-                )
-            )
-            return
-        for card_state in cards:
-            card = QFrame()
-            card.setStyleSheet(
-                "QFrame { background-color: rgba(255,255,255,0.72); border: 1px solid rgba(214,197,174,0.46); border-radius: 20px; }"
-            )
-            layout = QVBoxLayout(card)
-            layout.setContentsMargins(14, 12, 14, 12)
-            layout.setSpacing(8)
-            top = QHBoxLayout()
-            top.setSpacing(8)
-            top.addWidget(_mono(str(card_state.get("kind", "file") or "file").upper(), T.SECONDARY, T.FS_TINY, True))
-            top.addStretch()
-            action = QPushButton(str(card_state.get("action_label", "USE IN CHAT") or "USE IN CHAT"))
-            action.setCursor(Qt.CursorShape.PointingHandCursor)
-            action.setStyleSheet(
-                f"QPushButton {{ background: {T.BG0}; color: {T.PRIMARY}; border: 1px solid {T.BORDER};"
-                f" border-radius: 12px; padding: 5px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-                f"QPushButton:hover {{ border-color: {T.PRIMARY}; background: #ffffff; }}"
-            )
-            title = str(card_state.get("title", "") or "").strip()
-            detail = str(card_state.get("detail", "") or "").strip()
-            item_path = str(card_state.get("item_path", "") or "").strip()
-            context_ref = str(card_state.get("context_ref", "") or "").strip() or item_path
-            prompt = str(card_state.get("prompt", "") or "").strip()
-            kind = str(card_state.get("kind", "file") or "file").strip()
-            action.clicked.connect(
-                lambda _=False, t=title, p=context_ref, k=kind, prompt_text=prompt: self.context_requested.emit(t, p, k, prompt_text)
-            )
-            top.addWidget(action)
-            self._add_media_action(top, card_state)
-            layout.addLayout(top)
-            layout.addWidget(_body(title, color=T.INK, size=T.FS_LABEL))
-            layout.addWidget(_body(detail, color=T.DIM))
-            layout.addWidget(_body("USE IN CHAT sends this to Home as the source context for your next reply.", color=T.TERTIARY))
-            self._browse_layout.addWidget(card)
+        render_browse_cards(self)
 
     def _rebuild_recent_cards(self) -> None:
-        self._clear_dynamic_layout(self._recent_layout)
-        cards = [
-            card
-            for card in self._state.recent_cards
-            if self._matches_query(str(card.get("title", "") or ""), str(card.get("detail", "") or ""), str(card.get("kind", "") or ""))
-        ]
-        if not cards:
-            self._recent_layout.addWidget(
-                _body(
-                    "No recent Library items match this search." if self._search_query else "Recent files, study notes, and coding artifacts from approved roots will show up here after you browse, save, or reuse something from Library.",
-                    color=T.DIM,
-                )
-            )
-            return
-        for card_state in cards:
-            card = QFrame()
-            card.setStyleSheet(
-                "QFrame { background-color: rgba(255,255,255,0.72); border: 1px solid rgba(214,197,174,0.46); border-radius: 20px; }"
-            )
-            layout = QVBoxLayout(card)
-            layout.setContentsMargins(14, 12, 14, 12)
-            layout.setSpacing(8)
-
-            top = QHBoxLayout()
-            top.setSpacing(8)
-            top.addWidget(_mono(str(card_state.get("kind", "file") or "file").upper(), T.SECONDARY, T.FS_TINY, True))
-            top.addStretch()
-            action = QPushButton(str(card_state.get("action_label", "USE IN CHAT") or "USE IN CHAT"))
-            action.setCursor(Qt.CursorShape.PointingHandCursor)
-            action.setStyleSheet(
-                f"QPushButton {{ background: {T.BG0}; color: {T.PRIMARY}; border: 1px solid {T.BORDER};"
-                f" border-radius: 12px; padding: 5px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-                f"QPushButton:hover {{ border-color: {T.PRIMARY}; background: #ffffff; }}"
-            )
-            title = str(card_state.get("title", "") or "").strip()
-            detail = str(card_state.get("detail", "") or "").strip()
-            item_path = str(card_state.get("item_path", "") or "").strip()
-            context_ref = str(card_state.get("context_ref", "") or "").strip() or item_path
-            prompt = str(card_state.get("prompt", "") or "").strip()
-            kind = str(card_state.get("kind", "file") or "file").strip()
-            action.clicked.connect(
-                lambda _=False, t=title, p=context_ref, k=kind, prompt_text=prompt: self.context_requested.emit(t, p, k, prompt_text)
-            )
-            top.addWidget(action)
-            self._add_media_action(top, card_state)
-            layout.addLayout(top)
-
-            title_lbl = QLabel(title)
-            title_lbl.setWordWrap(True)
-            title_lbl.setStyleSheet(
-                f"color: {T.INK}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_LABEL}pt; font-weight: 700;"
-            )
-            layout.addWidget(title_lbl)
-            layout.addWidget(_body(detail, color=T.DIM))
-            layout.addWidget(_body("USE IN CHAT keeps this available on Home as source context for the next reply.", color=T.TERTIARY))
-            self._recent_layout.addWidget(card)
+        render_recent_cards(self)
 
     def _rebuild_saved_cards(self) -> None:
-        self._clear_dynamic_layout(self._saved_layout)
-        cards = [
-            card
-            for card in self._state.saved_item_cards
-            if self._matches_query(
-                str(card.get("title", "") or ""),
-                str(card.get("detail", "") or ""),
-                str(card.get("kind", "") or ""),
-                str(card.get("summary", "") or ""),
-            )
-        ]
-        if not cards:
-            self._saved_layout.addWidget(
-                _body(
-                    "No pinned notes or artifacts match this search." if self._search_query else "Pinned notes and saved artifacts stay here until you edit them, send them to Home with USE IN CHAT, or remove them.",
-                    color=T.DIM,
-                )
-            )
-            return
-        for card_state in cards:
-            card = QFrame()
-            card.setStyleSheet(
-                "QFrame { background-color: rgba(255,255,255,0.72); border: 1px solid rgba(214,197,174,0.46); border-radius: 20px; }"
-            )
-            layout = QVBoxLayout(card)
-            layout.setContentsMargins(14, 12, 14, 12)
-            layout.setSpacing(8)
-            top = QHBoxLayout()
-            top.setSpacing(8)
-            top.addWidget(_mono(str(card_state.get("kind", "note") or "note").upper(), T.SECONDARY, T.FS_TINY, True))
-            top.addStretch()
-            use_btn = QPushButton("USE IN CHAT")
-            edit_btn = QPushButton("EDIT")
-            delete_btn = QPushButton("DELETE")
-            for button in (use_btn, edit_btn, delete_btn):
-                button.setCursor(Qt.CursorShape.PointingHandCursor)
-                button.setStyleSheet(
-                    f"QPushButton {{ background: {T.BG0}; color: {T.PRIMARY}; border: 1px solid {T.BORDER};"
-                    f" border-radius: 12px; padding: 5px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-                    f"QPushButton:hover {{ border-color: {T.PRIMARY}; background: #ffffff; }}"
-                )
-            item_id = int(str(card_state.get("id", "0") or "0"))
-            title = str(card_state.get("full_title", card_state.get("title", "")) or "").strip()
-            detail = str(card_state.get("detail", "") or "").strip()
-            item_path = str(card_state.get("item_path", "") or "").strip()
-            context_ref = str(card_state.get("context_ref", "") or "").strip() or item_path
-            summary = str(card_state.get("summary", "") or "").strip()
-            prompt = str(card_state.get("prompt", "") or "").strip()
-            kind = str(card_state.get("kind", "note") or "note").strip()
-            use_btn.clicked.connect(
-                lambda _=False, t=title, p=context_ref, k=kind, prompt_text=prompt: self.context_requested.emit(t, p, k, prompt_text)
-            )
-            if kind == "note":
-                edit_btn.clicked.connect(lambda _=False, i=item_id, t=title, s=summary: self._begin_note_edit(i, t, s))
-            else:
-                edit_btn.clicked.connect(lambda _=False, i=item_id, t=title, p=item_path: self._begin_artifact_edit(i, t, p))
-            delete_btn.clicked.connect(
-                lambda _=False, i=item_id, t=title: self.library_item_delete_requested.emit(i, t)
-            )
-            top.addWidget(use_btn)
-            self._add_media_action(top, card_state)
-            top.addWidget(edit_btn)
-            top.addWidget(delete_btn)
-            layout.addLayout(top)
-            layout.addWidget(_body(title, color=T.INK, size=T.FS_LABEL))
-            layout.addWidget(_body(detail, color=T.DIM))
-            layout.addWidget(_body("USE IN CHAT makes this note or artifact available on Home without leaving the current session.", color=T.TERTIARY))
-            self._saved_layout.addWidget(card)
+        render_saved_cards(self)
 
     def _apply_state(self) -> None:
         self._workspace_chip.setText(self._state.workspace_label.upper())
@@ -959,3 +617,4 @@ class LibraryView(QWidget):
             "study": self._current_source_summary("study", self._state.study_summary),
             "coding": self._current_source_summary("coding", self._state.coding_summary),
         }
+

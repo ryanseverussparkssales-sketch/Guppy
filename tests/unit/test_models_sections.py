@@ -6,7 +6,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication
 
-from ui.launcher.views.models_sections import build_models_loadout_section, build_models_runtime_section
+from ui.launcher.views.models_sections import build_models_loadout_section, build_models_route_section, build_models_runtime_section
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -50,8 +50,8 @@ def test_build_models_runtime_section_creates_backend_and_role_controls() -> Non
     actions: list[str] = []
     section = build_models_runtime_section(
         lemonade_role_fields=[
-            ("lemonade_fast_model", "FAST"),
-            ("lemonade_complex_model", "COMPLEX"),
+            ("lemonade_fast_model", "DAILY SLOT"),
+            ("lemonade_complex_model", "HEAVY SLOT"),
         ],
         default_lemonade_base_url="http://localhost:13305/api/v1",
         on_runtime_backend_changed=lambda text: backend_changes.append(text),
@@ -72,3 +72,41 @@ def test_build_models_runtime_section_creates_backend_and_role_controls() -> Non
     assert "LEMONADE" in backend_changes
     assert actions == ["save", "refresh_library"]
     assert "lemonade_fast_model" in role_changes
+
+
+def test_build_models_route_section_creates_route_and_ops_controls() -> None:
+    callbacks: list[str] = []
+    section = build_models_route_section(
+        mix_route_fields=[
+            ("mix_main_route", "MAIN ROUTE"),
+            ("mix_sub_route_a", "SPAWNED ROUTE A"),
+        ],
+        route_modes=["AUTO", "CLAUDE"],
+        on_route_changed=lambda: callbacks.append("route_changed"),
+        on_apply_routes=lambda: callbacks.append("apply_routes"),
+        on_apply_mix=lambda: callbacks.append("apply_mix"),
+        on_toggle_ops=lambda: callbacks.append("toggle_ops"),
+        on_download=lambda: callbacks.append("download"),
+        on_uninstall=lambda: callbacks.append("uninstall"),
+        on_check_health=lambda: callbacks.append("check_health"),
+        on_route_mode_changed=lambda _text: callbacks.append("route_mode"),
+        on_route_input_changed=lambda _text: callbacks.append("route_input"),
+    )
+
+    section.simple_route_combo.addItem("local/qwen2.5:7b")
+    section.simple_route_combo.setCurrentText("local/qwen2.5:7b")
+    section.route_mode_combo.setCurrentText("CLAUDE")
+    section.route_input.setText("Write a summary")
+    section.apply_routes_button.click()
+    section.apply_mix_button.click()
+    section.ops_toggle_button.click()
+    section.ops_download_button.click()
+    section.ops_uninstall_button.click()
+    section.ops_health_button.click()
+
+    assert set(section.mix_route_inputs) == {"mix_main_route", "mix_sub_route_a"}
+    assert section.route_preview_label is not None
+    assert callbacks.count("route_changed") >= 1
+    assert callbacks.count("route_mode") >= 1
+    assert callbacks.count("route_input") >= 1
+    assert callbacks[-6:] == ["apply_routes", "apply_mix", "toggle_ops", "download", "uninstall", "check_health"]

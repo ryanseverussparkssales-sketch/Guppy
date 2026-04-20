@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -95,7 +96,6 @@ from src.guppy.experience_config import (
 from src.guppy.runtime_application import (
     RuntimeHealthSnapshot,
     build_local_bearer_token,
-    fetch_startup_readiness,
     route_evidence_summary,
     summarize_startup_readiness,
 )
@@ -149,11 +149,6 @@ from src.guppy.launcher_application.automation_test_coordination import (
     write_launcher_automation_report,
     write_launcher_user_test_evidence_pack,
 )
-from src.guppy.launcher_application.launch_attempt_guard import (
-    clear_launch_attempt,
-    launch_attempt_recent,
-    mark_launch_attempt,
-)
 from src.guppy.launcher_application.first_run_wizard import FirstRunWizard
 from src.guppy.launcher_application.status_poll import (
     build_launcher_status_poll_snapshot,
@@ -169,6 +164,20 @@ from src.guppy.launcher_application.launcher_command_flow import (
     build_shell_model_loadout_summary,
     derive_topbar_model_context,
     handle_assistant_command,
+)
+from src.guppy.launcher_application.launcher_api_runtime_control import (
+    api_base_url,
+    api_reachable,
+    api_reachability_status,
+    ensure_api_reachable_for_command,
+    http_json,
+    read_repair_token,
+    refresh_api_auth_state,
+    refresh_repair_token_from_api,
+    run_auth_self_check,
+    start_api_subprocess,
+    start_supervised_api_subprocess,
+    startup_readiness_status,
 )
 from src.guppy.launcher_application.windows_ops_coordination import (
     WindowsOpsStateRecord,
@@ -2460,9 +2469,12 @@ class LauncherWindow(QMainWindow):
         )
         self._log_launcher_event("agent_init_result", agent=aid, ok=ok, summary=summary)
 
+    @staticmethod
+    def _api_port() -> str:
+        return os.environ.get("GUPPY_API_PORT", "8081").strip() or "8081"
+
     def _api_base_url(self) -> str:
-        port = os.environ.get("GUPPY_API_PORT", "8081").strip() or "8081"
-        return f"http://127.0.0.1:{port}"
+        return api_base_url(self)
 
     def _build_local_bearer_token(self) -> str:
         token, token_source = build_local_bearer_token()
@@ -2470,17 +2482,7 @@ class LauncherWindow(QMainWindow):
         return token
 
     def _refresh_api_auth_state(self, reason: str) -> str:
-        self._api_bearer_token = self._build_local_bearer_token()
-        self._auth_self_check_ok = False
-        self._auth_self_check_inflight = False
-        self._auth_self_check_last_attempt = 0.0
-        self._log_launcher_event(
-            "auth_token_refreshed",
-            reason=reason,
-            token_source=self._api_token_source,
-            has_token=bool(self._api_bearer_token),
-        )
-        return self._api_bearer_token
+        return refresh_api_auth_state(self, reason)
 
     @staticmethod
     def _is_unauthorized_error(error_text: str) -> bool:
@@ -2494,26 +2496,13 @@ class LauncherWindow(QMainWindow):
         return match.group(1) if match else ""
 
     def _read_repair_token(self) -> str:
-        # Prefer OS credential store (same account, no file exposure).
-        if _SECRET_STORE_AVAILABLE and _secret_store is not None:
-            try:
-                if hasattr(_secret_store, "get_secret"):
-                    ks_token = _secret_store.get_secret("repair_token")
-                else:
-                    ks_token = get_secret("repair_token")
-                if ks_token and launcher_app.is_valid_repair_token(ks_token):
-                    return ks_token
-            except Exception:
-                pass
-        # Fallback: file written by guppy_api.py when keyring is unavailable.
-        tok_path = _RUNTIME / "repair_token.txt"
-        try:
-            if not tok_path.exists() or not tok_path.is_file():
-                return ""
-            token = tok_path.read_text(encoding="utf-8").strip()
-        except Exception:
-            return ""
-        return token if launcher_app.is_valid_repair_token(token) else ""
+        return read_repair_token(
+            self,
+            runtime_dir=_RUNTIME,
+            secret_store_available=_SECRET_STORE_AVAILABLE,
+            secret_store=_secret_store,
+            get_secret=get_secret,
+        )
 
     @staticmethod
     def _validate_repair_token(token: str) -> bool:
@@ -2528,146 +2517,24 @@ class LauncherWindow(QMainWindow):
         retry_auth_on_401: bool = False,
         auth_retry_reason: str = "",
     ) -> dict:
-        url = self._api_base_url() + path
-        data = None
-        headers = {"Accept": "application/json"}
-        if self._api_bearer_token:
-            headers["Authorization"] = f"Bearer {self._api_bearer_token}"
-        if payload is not None:
-            data = json.dumps(payload).encode("utf-8")
-            headers["Content-Type"] = "application/json"
-        if path == "/repair":
-            repair_token = self._read_repair_token()
-            if repair_token:
-                headers["X-Repair-Token"] = repair_token
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                raw = resp.read().decode("utf-8", errors="replace")
-            return json.loads(raw) if raw.strip() else {}
-        except urllib.error.HTTPError as e:
-            err_code = ""
-            # On repair token rejection after restart or local desync, re-sync and retry once.
-            if e.code == 403 and path == "/repair":
-                try:
-                    body = e.read().decode("utf-8", errors="replace")
-                    parsed = json.loads(body) if body.strip() else {}
-                    d = parsed.get("detail", "")
-                    err_code = d.get("code", "") if isinstance(d, dict) else ""
-                except Exception:
-                    err_code = ""
-                if err_code.startswith("repair_token_"):
-                    refreshed = self._refresh_repair_token_from_api(timeout=timeout)
-                    if refreshed:
-                        headers["X-Repair-Token"] = refreshed
-                        retry_req = urllib.request.Request(url, data=data, headers=headers, method=method)
-                        try:
-                            with urllib.request.urlopen(retry_req, timeout=timeout) as resp:
-                                raw = resp.read().decode("utf-8", errors="replace")
-                            self._log_launcher_event("repair_token_resynced", ok=True)
-                            return json.loads(raw) if raw.strip() else {}
-                        except Exception as retry_exc:
-                            self._log_launcher_event(
-                                "repair_token_resync_failed",
-                                ok=False,
-                                reason="retry_failed",
-                                error=str(retry_exc),
-                                auth_code=err_code,
-                            )
-                    else:
-                        self._log_launcher_event(
-                            "repair_token_resync_failed",
-                            ok=False,
-                            reason="invalid_or_missing_refresh_token",
-                            auth_code=err_code,
-                        )
-            detail = ""
-            try:
-                body = e.read().decode("utf-8", errors="replace")
-                parsed = json.loads(body) if body.strip() else {}
-                d = parsed.get("detail", "") if isinstance(parsed, dict) else ""
-                if isinstance(d, dict):
-                    err_code = d.get("code", "")
-                    msg = d.get("message", "")
-                    detail = msg or err_code
-                elif isinstance(d, str):
-                    detail = d
-            except Exception:
-                detail = ""
-
-            if e.code == 401 and retry_auth_on_401:
-                refreshed = self._refresh_api_auth_state(auth_retry_reason or f"{path}_401")
-                self._log_launcher_event(
-                    "auth_retry",
-                    path=path,
-                    reason=auth_retry_reason or path,
-                    auth_code=err_code,
-                    has_token=bool(refreshed),
-                )
-                if refreshed:
-                    retry_headers = dict(headers)
-                    retry_headers["Authorization"] = f"Bearer {refreshed}"
-                    retry_req = urllib.request.Request(url, data=data, headers=retry_headers, method=method)
-                    try:
-                        with urllib.request.urlopen(retry_req, timeout=timeout) as resp:
-                            raw = resp.read().decode("utf-8", errors="replace")
-                        self._log_launcher_event(
-                            "auth_retry_result",
-                            path=path,
-                            reason=auth_retry_reason or path,
-                            auth_code=err_code,
-                            ok=True,
-                        )
-                        return json.loads(raw) if raw.strip() else {}
-                    except Exception as retry_error:
-                        self._log_launcher_event(
-                            "auth_retry_result",
-                            path=path,
-                            reason=auth_retry_reason or path,
-                            auth_code=err_code,
-                            ok=False,
-                            error=str(retry_error),
-                        )
-                        raise RuntimeError(str(retry_error)) from retry_error
-
-            if detail:
-                if err_code:
-                    raise RuntimeError(f"HTTP {e.code} {e.reason} [{err_code}]: {detail}") from e
-                raise RuntimeError(f"HTTP {e.code} {e.reason}: {detail}") from e
-            raise RuntimeError(f"HTTP {e.code} {e.reason}") from e
-        except urllib.error.URLError as e:
-            raise RuntimeError(f"Network error: {e.reason}") from e
+        return http_json(
+            self,
+            path,
+            request_module=urllib.request,
+            error_module=urllib.error,
+            method=method,
+            payload=payload,
+            timeout=timeout,
+            retry_auth_on_401=retry_auth_on_401,
+            auth_retry_reason=auth_retry_reason,
+        )
 
     def _refresh_repair_token_from_api(self, timeout: float = 4.0) -> str:
-        """
-        Call GET /repair-token/refresh to re-sync the repair token after an API restart.
-        Returns the refreshed token string, or empty string on any failure.
-        Only succeeds when called from localhost with a valid bearer token.
-        """
-        try:
-            bearer = str(self._api_bearer_token or "").strip()
-            if not bearer and hasattr(self, "_build_local_bearer_token"):
-                try:
-                    bearer = str(self._build_local_bearer_token() or "").strip()
-                except Exception:
-                    bearer = ""
-            if bearer:
-                self._api_bearer_token = bearer
-            refresh_url = self._api_base_url() + "/repair-token/refresh"
-            headers = {"Accept": "application/json"}
-            if bearer:
-                headers["Authorization"] = f"Bearer {bearer}"
-            req = urllib.request.Request(
-                refresh_url,
-                headers=headers,
-                method="GET",
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                raw = resp.read().decode("utf-8", errors="replace")
-            token = (json.loads(raw) if raw.strip() else {}).get("repair_token", "")
-            return token if launcher_app.is_valid_repair_token(token) else ""
-        except Exception:
-            return ""
+        return refresh_repair_token_from_api(
+            self,
+            request_module=urllib.request,
+            timeout=timeout,
+        )
 
     @staticmethod
     def _payload_signature(payload: object) -> str:
@@ -2696,169 +2563,33 @@ class LauncherWindow(QMainWindow):
         *,
         deep: bool = False,
     ) -> tuple[str, str, dict[str, object]]:
-        return fetch_startup_readiness(
-            self._http_json,
-            timeout=timeout,
-            deep=deep,
-            unauthorized_error=self._is_unauthorized_error,
-        )
+        return startup_readiness_status(self, timeout=timeout, deep=deep)
 
     def _api_reachable(self, timeout: float = 1.5) -> bool:
-        state, _detail = self._api_reachability_status(timeout=timeout)
-        return state == "reachable"
+        return api_reachable(self, timeout=timeout)
 
     def _api_reachability_status(self, timeout: float = 1.5) -> tuple[str, str]:
-        state, detail, _snapshot = self._startup_readiness_status(timeout=timeout)
-        return state, detail
+        return api_reachability_status(self, timeout=timeout)
 
     def _run_auth_self_check(self) -> None:
-        try:
-            payload = self._http_json(
-                "/auth/self-check",
-                method="GET",
-                timeout=2.5,
-                retry_auth_on_401=True,
-                auth_retry_reason="auth_self_check",
-            )
-            ok = bool(payload.get("ok", False))
-            self._log_launcher_event(
-                "auth_self_check",
-                ok=ok,
-                mode=str(payload.get("mode", "unknown")),
-                user_id=str(payload.get("user_id", "")),
-                token_source=self._api_token_source,
-            )
-            self._auth_self_check_ok = ok
-            if ok:
-                self._status_panel.append_syslog("auth self-check: OK")
-            else:
-                self._status_panel.append_syslog("auth self-check: ERROR")
-        except Exception as e:
-            fallback_ok = False
-            if "404" in str(e):
-                try:
-                    self._http_json(
-                        "/status",
-                        method="GET",
-                        timeout=2.5,
-                        retry_auth_on_401=True,
-                        auth_retry_reason="auth_self_check_status_fallback",
-                    )
-                    fallback_ok = True
-                except Exception:
-                    fallback_ok = False
-            if fallback_ok:
-                self._auth_self_check_ok = True
-                self._log_launcher_event(
-                    "auth_self_check",
-                    ok=True,
-                    mode="status_fallback",
-                    user_id="",
-                    token_source=self._api_token_source,
-                )
-                self._status_panel.append_syslog("auth self-check: OK (status fallback)")
-            else:
-                self._auth_self_check_ok = False
-                auth_code = self._extract_error_code(str(e))
-                self._log_launcher_event(
-                    "auth_self_check",
-                    ok=False,
-                    token_source=self._api_token_source,
-                    auth_code=auth_code,
-                    error=str(e),
-                )
-                if auth_code:
-                    self._status_panel.append_syslog(f"auth self-check failed [{auth_code}]: {e}")
-                else:
-                    self._status_panel.append_syslog(f"auth self-check failed: {e}")
-        finally:
-            self._auth_self_check_inflight = False
+        run_auth_self_check(self)
 
     def _start_api_subprocess(self) -> tuple[bool, str]:
-        """Launch guppy_api.py as a detached subprocess. Returns (started, msg)."""
-        root = Path(__file__).resolve().parent.parent.parent
-        script = root / "guppy_api.py"
-        if not script.exists():
-            return False, "guppy_api.py not found"
-        if launch_attempt_recent(_RUNTIME, "launcher_command_api", ttl_seconds=_COMMAND_START_TTL_SECONDS):
-            self._log_launcher_event("api_command_launch_debounced", mode="direct")
-            return False, "api launch already attempted recently"
-        venv_python = root / ".venv" / "Scripts" / "python.exe"
-        python = str(venv_python) if venv_python.exists() else sys.executable
-        flags = {}
-        if sys.platform == "win32":
-            flags["creationflags"] = subprocess.CREATE_NO_WINDOW
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
-            startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
-            flags["startupinfo"] = startupinfo
-        try:
-            mark_launch_attempt(_RUNTIME, "launcher_command_api")
-            subprocess.Popen([python, str(script)], cwd=str(root), **flags)
-            # Give it a moment to publish backend-owned startup readiness.
-            deadline = time.time() + 6.0
-            while time.time() < deadline:
-                time.sleep(0.5)
-                state, detail = self._api_reachability_status(timeout=0.8)
-                if state == "reachable":
-                    clear_launch_attempt(_RUNTIME, "launcher_command_api")
-                    return True, detail or "api started and published startup readiness"
-                if state == "auth_failed":
-                    return False, detail or "api requires refreshed auth"
-            return False, "api process started but not yet reachable"
-        except Exception as e:
-            clear_launch_attempt(_RUNTIME, "launcher_command_api")
-            return False, str(e)
+        return start_api_subprocess(
+            self,
+            runtime_dir=_RUNTIME,
+            ttl_seconds=_COMMAND_START_TTL_SECONDS,
+        )
 
     def _start_supervised_api_subprocess(self) -> tuple[bool, str]:
-        """Launch the supervised API batch entry point. Returns (started, msg)."""
-        root = Path(__file__).resolve().parent.parent.parent
-        script = root / "bin" / "launch_api_supervised.bat"
-        if not script.exists():
-            return False, "launch_api_supervised.bat not found"
-        if launch_attempt_recent(_RUNTIME, "launcher_command_supervised_api", ttl_seconds=_COMMAND_START_TTL_SECONDS):
-            self._log_launcher_event("api_command_launch_debounced", mode="supervised")
-            return False, "supervised api launch already attempted recently"
-        try:
-            kwargs: dict[str, object] = {"cwd": str(root)}
-            if sys.platform == "win32":
-                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
-                startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
-                kwargs["startupinfo"] = startupinfo
-                mark_launch_attempt(_RUNTIME, "launcher_command_supervised_api")
-                subprocess.Popen(["cmd.exe", "/c", str(script)], **kwargs)
-            else:
-                mark_launch_attempt(_RUNTIME, "launcher_command_supervised_api")
-                subprocess.Popen([str(script)], **kwargs)
-            deadline = time.time() + 8.0
-            while time.time() < deadline:
-                time.sleep(0.5)
-                state, detail = self._api_reachability_status(timeout=0.8)
-                if state == "reachable":
-                    clear_launch_attempt(_RUNTIME, "launcher_command_supervised_api")
-                    return True, detail or "supervised api started and published startup readiness"
-                if state == "auth_failed":
-                    return False, detail or "api requires refreshed auth"
-            return False, "supervised api launcher started but the API is not yet reachable"
-        except Exception as exc:
-            clear_launch_attempt(_RUNTIME, "launcher_command_supervised_api")
-            return False, str(exc)
+        return start_supervised_api_subprocess(
+            self,
+            runtime_dir=_RUNTIME,
+            ttl_seconds=_COMMAND_START_TTL_SECONDS,
+        )
 
     def _ensure_api_reachable_for_command(self) -> tuple[bool, str]:
-        state, detail = self._api_reachability_status(timeout=0.8)
-        if state == "reachable":
-            return True, detail or "api already reachable"
-        started, detail = self._start_api_subprocess()
-        if started:
-            return True, detail
-        self._log_launcher_event(
-            "api_command_start_failed",
-            mode="direct_only",
-            reason=detail,
-        )
-        return False, detail
+        return ensure_api_reachable_for_command(self)
 
     def _direct_warmup(self) -> dict:
         """Warmup: check freshness of key runtime files."""

@@ -18,7 +18,16 @@ from PySide6.QtWidgets import (
 )
 
 from src.guppy.launcher_application.provider_registry import get_example_prompt, get_provider
-from src.guppy.workspace_governance import secret_field_meta
+from src.guppy.launcher_application.settings_device_accounts_presenter import (
+    build_connector_card_specs,
+    build_connector_panel_state,
+    build_device_accounts_density_state,
+    connector_brand,
+    friendly_runtime_summary,
+    provider_tier_badge,
+    resolve_field_payloads,
+    selector_label,
+)
 from .. import tokens as T
 
 
@@ -30,39 +39,6 @@ def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = Fa
         + (" font-weight: bold;" if bold else "")
     )
     return lbl
-
-
-def _connector_brand(connector_id: str) -> dict[str, str]:
-    normalized = str(connector_id or "").strip().lower()
-    brands: dict[str, dict[str, str]] = {
-        "gmail": {"badge": "G", "accent": "#d74f3f", "wash": "#fff1ed"},
-        "youtube": {"badge": ">", "accent": "#e64b3c", "wash": "#fff0ee"},
-        "spotify": {"badge": "S", "accent": "#1f8f55", "wash": "#eefaf2"},
-        "outlook": {"badge": "O", "accent": "#2f6df6", "wash": "#eef4ff"},
-    }
-    return brands.get(normalized, {"badge": "#", "accent": T.PRIMARY, "wash": T.BG0})
-
-
-def _service_purpose(connector_id: str) -> str:
-    return {
-        "gmail": "Email",
-        "calendar": "Calendar",
-        "spotify": "Music",
-        "youtube": "Video tools",
-        "crm": "Customer records",
-        "voip": "Calling",
-    }.get(str(connector_id or "").strip().lower(), "Connected service")
-
-
-def _auth_state_text(auth_state: str) -> str:
-    normalized = str(auth_state or "").strip().lower()
-    return {
-        "ready": "Connected",
-        "optional": "Optional",
-        "partial": "Finish setup",
-        "missing": "Needs setup",
-    }.get(normalized, "Needs setup")
-
 
 class SettingsDeviceAccountsPanel(QWidget):
     windows_ops_requested = Signal(str)
@@ -236,7 +212,7 @@ class SettingsDeviceAccountsPanel(QWidget):
 
     def set_windows_snapshot(self, payload: dict[str, str]) -> None:
         self._windows_snapshot = dict(payload or {})
-        summary, install_text, runtime_text, next_text, diagnostics_text = self._friendly_runtime_summary()
+        summary, install_text, runtime_text, next_text, diagnostics_text = friendly_runtime_summary(self._windows_snapshot)
         self._summary_lbl.setText(summary)
         self._pc_install_lbl.setText(install_text)
         self._pc_runtime_lbl.setText(runtime_text)
@@ -309,30 +285,13 @@ class SettingsDeviceAccountsPanel(QWidget):
             {},
         )
 
-    @staticmethod
-    def _selector_label(item: dict[str, object], *, fallback: str) -> str:
-        label = str(item.get("label", item.get("id", fallback)) or fallback).strip() or fallback
-        auth_state = str(item.get("auth_state", "") or "").strip().upper()
-        if auth_state:
-            label += f" [{auth_state}]"
-        return label
-
-    @staticmethod
-    def _provider_tier_badge(tier: str) -> str:
-        """Return a short suffix badge for provider_tier values."""
-        return {
-            "core": " [CORE]",
-            "supported_optional": " [OPT]",
-            "experimental": " [BETA]",
-        }.get(str(tier or "").strip().lower(), "")
-
     def _sync_combo(self, combo: QComboBox, rows: list[dict[str, object]], previous: str, placeholder: str) -> None:
         combo.blockSignals(True)
         combo.clear()
         combo.addItem(placeholder, "")
         for row in rows:
-            tier_badge = self._provider_tier_badge(str(row.get("provider_tier", "") or ""))
-            base_label = self._selector_label(row, fallback=placeholder.strip("()"))
+            tier_badge = provider_tier_badge(str(row.get("provider_tier", "") or ""))
+            base_label = selector_label(row, fallback=placeholder.strip("()"))
             combo.addItem(base_label + tier_badge, str(row.get("id", "")))
         idx = combo.findData(previous)
         if idx >= 0:
@@ -366,19 +325,13 @@ class SettingsDeviceAccountsPanel(QWidget):
             self._connector_cards_grid.addWidget(empty, 0, 0)
             return
         columns = self._connector_grid_columns()
-        for index, item in enumerate(self._connector_inventory):
-            connector_id = str(item.get("id", "")).strip().lower()
-            label = str(item.get("label", connector_id.title()) or connector_id.title())
-            auth_state = str(item.get("auth_state", "") or "").strip()
-            status = _auth_state_text(auth_state)
-            purpose = _service_purpose(connector_id)
-            brand = _connector_brand(connector_id)
-            button = QPushButton(f"{brand['badge']}  {label}\n{purpose} - {status}")
+        for index, spec in enumerate(build_connector_card_specs(self._connector_inventory)):
+            button = QPushButton(spec.button_text)
             button.setCheckable(True)
-            button.clicked.connect(lambda _=False, cid=connector_id: self._select_connector_card(cid))
-            button.setProperty("connector_id", connector_id)
+            button.clicked.connect(lambda _=False, cid=spec.connector_id: self._select_connector_card(cid))
+            button.setProperty("connector_id", spec.connector_id)
             self._connector_cards_grid.addWidget(button, index // columns, index % columns)
-            self._connector_card_buttons.append((connector_id, button))
+            self._connector_card_buttons.append((spec.connector_id, button))
         self._refresh_connector_card_styles()
 
     def _connector_grid_columns(self) -> int:
@@ -392,45 +345,13 @@ class SettingsDeviceAccountsPanel(QWidget):
         return 3
 
     def _apply_density_mode(self, width: int) -> None:
-        compact = width <= 1080
-        tight = width <= 920
-        action_labels = ["VERIFY", "UPDATE", "START API", "RESTART", "REPAIR"]
-        compact_action_labels = ["VERIFY", "UPDATE", "START", "RESTART", "REPAIR"]
-        tight_action_labels = ["VERIFY", "UPDATE", "START", "RESET", "REPAIR"]
-        chosen_labels = tight_action_labels if tight else compact_action_labels if compact else action_labels
-        for button, text in zip(self._desktop_action_buttons, chosen_labels):
+        density = build_device_accounts_density_state(width, self._current_auth_kind)
+        for button, text in zip(self._desktop_action_buttons, density.desktop_action_labels):
             button.setText(text)
-
-        if self._current_auth_kind == "api_key":
-            connect_text = "BROWSER SIGN-IN"
-            save_text = "SAVE API KEY"
-            verify_text = "TEST KEY"
-            disconnect_text = "REMOVE KEY"
-        elif self._current_auth_kind == "provider_secret":
-            connect_text = "BROWSER SIGN-IN"
-            save_text = "SAVE DETAILS"
-            verify_text = "CHECK SETUP"
-            disconnect_text = "CLEAR DETAILS"
-        elif self._current_auth_kind == "oauth_file_token":
-            connect_text = "SIGN IN"
-            save_text = "SAVE & VERIFY"
-            verify_text = "CHECK SIGN-IN"
-            disconnect_text = "REMOVE SIGN-IN"
-        elif self._current_auth_kind == "oauth_secret":
-            connect_text = "OPEN SIGN-IN"
-            save_text = "SAVE APP KEYS"
-            verify_text = "CHECK CONNECTION"
-            disconnect_text = "REMOVE CONNECTION"
-        else:
-            connect_text = "SIGN IN"
-            save_text = "SAVE"
-            verify_text = "CHECK"
-            disconnect_text = "REMOVE"
-
-        self._connect_btn.setText("SIGN IN" if compact else connect_text)
-        self._save_btn.setText("SAVE" if tight else save_text)
-        self._verify_btn.setText("CHECK" if tight else verify_text)
-        self._disconnect_btn.setText("CLEAR" if tight else disconnect_text)
+        self._connect_btn.setText(density.connect_text)
+        self._save_btn.setText(density.save_text)
+        self._verify_btn.setText(density.verify_text)
+        self._disconnect_btn.setText(density.disconnect_text)
 
     def showEvent(self, event: QShowEvent) -> None:  # type: ignore[override]
         super().showEvent(event)
@@ -457,158 +378,21 @@ class SettingsDeviceAccountsPanel(QWidget):
             )
             ready = str(item.get("auth_state", "") or "").strip().upper() == "READY"
             selected = connector_id == current
-            brand = _connector_brand(connector_id)
+            brand = connector_brand(connector_id)
             button.setChecked(selected)
             button.setStyleSheet(
                 self._connector_card_style(
                     selected=selected,
                     ready=ready,
-                    accent=brand["accent"],
-                    wash=brand["wash"],
+                    accent=brand.accent,
+                    wash=brand.wash,
                 )
             )
 
-    @staticmethod
-    def _line_value(text: str) -> str:
-        value = str(text or "").strip()
-        return value.split(":", 1)[1].strip() if ":" in value else value
-
-    @staticmethod
-    def _pipe_fields(text: str) -> dict[str, str]:
-        fields: dict[str, str] = {}
-        for segment in [part.strip() for part in str(text or "").split("|") if part.strip()]:
-            if ":" in segment:
-                label, value = segment.split(":", 1)
-                fields[label.strip().lower()] = value.strip()
-        return fields
-
-    def _friendly_runtime_summary(self) -> tuple[str, str, str, str, str]:
-        install_raw = str(self._windows_snapshot.get("install", "") or "")
-        runtime_raw = str(self._windows_snapshot.get("runtime", "") or "")
-        next_raw = str(self._windows_snapshot.get("next", "") or "")
-        runtime_fields = self._pipe_fields(runtime_raw)
-        configured = runtime_fields.get("local ai runtime", "local ai").upper()
-        live_backend = runtime_fields.get("live backend", configured).upper()
-        state = runtime_fields.get("status", "unknown").strip().lower()
-
-        installed_bits: list[str] = []
-        if "Ollama CLI: found" in install_raw:
-            installed_bits.append("Ollama")
-        if "Lemonade CLI: found" in install_raw:
-            installed_bits.append("Lemonade")
-        if "Packager: ready" in install_raw:
-            installed_bits.append("desktop packaging")
-        if "Supervisor script: ready" in install_raw:
-            installed_bits.append("supervised launch")
-        install_text = "Ready on this PC: " + (
-            ", ".join(installed_bits) + " are available."
-            if installed_bits
-            else "Core launcher tools are available."
-        )
-
-        if state == "ready":
-            runtime_text = f"Local AI health: {live_backend.title()} is healthy and ready on this PC."
-            summary = f"{live_backend.title()} is ready on this PC."
-        elif state == "unknown":
-            runtime_text = f"Local AI health: {configured.title()} is selected, but it still needs a quick Verify check."
-            summary = f"{configured.title()} is selected, but it still needs a quick health check."
-        else:
-            runtime_text = f"Local AI health: {configured.title()} needs attention before you rely on it."
-            summary = f"{configured.title()} needs attention before you rely on it."
-
-        next_value = self._line_value(next_raw).lower()
-        if "verification passed" in next_value:
-            next_text = "Next step: Everything looks okay. Run Verify again after major model or runtime changes."
-        elif "build_executable" in next_value or "package" in next_value:
-            next_text = "Next step: Use Package when you want a fresh desktop build to share."
-        elif next_value:
-            next_text = "Next step: " + self._line_value(next_raw)
-        else:
-            next_text = "Next step: Use Verify to check that your local setup is healthy."
-
-        diagnostics_text = "Health notes: Logs, supervised launch, and repair tools are ready if something goes wrong."
-        return summary, install_text, runtime_text, next_text, diagnostics_text
-
-    def _friendly_connector_copy(
-        self,
-        *,
-        item: dict[str, object],
-        providers: list[dict[str, object]],
-        accounts: list[dict[str, object]],
-        fields: list[dict[str, Any]],
-    ) -> tuple[str, str, str]:
-        label = str(item.get("label", "This service") or "This service")
-        registry_entry = get_provider(str(item.get("id", "") or ""))
-        purpose = _service_purpose(str(item.get("id", "") or ""))
-        auth_kind = str(item.get("auth_kind", "unknown") or "unknown").strip().lower()
-        auth_state = str(item.get("auth_state", "missing") or "missing").strip().lower()
-        auth_detail = str(item.get("auth_detail", "") or "").strip()
-        first_field = fields[0] if fields else {}
-        first_field_label = str(first_field.get("label", "details") or "details")
-        connect_hint = (registry_entry.connect_hint if registry_entry else "").strip()
-
-        if auth_kind == "api_key":
-            status = f"{label} helps with {purpose.lower()} on this PC."
-            if auth_state == "optional":
-                detail = f"You can keep using basic {label.lower()} features without a key. Adding one makes results more reliable."
-            elif auth_state == "ready":
-                detail = f"Your {label} API key is saved and ready to use."
-            else:
-                detail = connect_hint or f"{label} uses a single API key on this PC."
-            step = f"Paste your {first_field_label.lower()}, then click Save API Key."
-            return status, detail, "Next step: " + step
-
-        if auth_kind == "oauth_file_token":
-            status = f"{label} uses browser sign-in for {purpose.lower()}."
-            if auth_state == "ready":
-                detail = f"{label} is already connected on this PC."
-            elif auth_state == "partial":
-                detail = f"{label} is almost ready, but browser sign-in still needs to finish."
-            else:
-                detail = auth_detail or connect_hint or f"{label} still needs the downloaded Google credentials file on this PC before browser sign-in can start."
-            if auth_state == "missing":
-                step = f"Add the {label.lower()} credentials JSON on this PC, then come back here to sign in."
-            elif len(accounts) > 1:
-                step = f"Choose the {label} account you want to use, then click Sign In."
-            else:
-                step = f"Click Sign In to connect {label} on this PC."
-            return status, detail, "Next step: " + step
-
-        if auth_kind == "oauth_secret":
-            status = f"{label} needs app details before it can sign in."
-            if providers and not str(self._provider_cb.currentData() or "").strip():
-                return status, f"Choose which {label} provider you use first.", f"Next step: pick your {label} provider."
-            detail = connect_hint or f"{label} uses app credentials plus browser sign-in."
-            step = f"Add your {first_field_label.lower()}, save it, then use Sign In."
-            return status, detail, "Next step: " + step
-
-        if auth_kind == "provider_secret":
-            status = f"{label} can connect after you add the provider details for this PC."
-            if providers and not str(self._provider_cb.currentData() or "").strip():
-                return status, f"Choose which {label} provider you use first.", f"Next step: pick your {label} provider."
-            if auth_state in {"ready", "optional"}:
-                detail = f"{label} is ready. You can now allow it in a workspace when you need it."
-            else:
-                detail = connect_hint or f"Enter the provider details Guppy needs for {label.lower()}."
-            step = f"Add your {first_field_label.lower()}, then click Save Details."
-            return status, detail, "Next step: " + step
-
-        status = f"{label} is available as a connected service."
-        detail = "Choose this service to see what sign-in it needs."
-        return status, detail, "Next step: pick a service."
-
     def _current_field_payloads(self) -> list[dict[str, Any]]:
         item = self._current_connector_payload()
-        providers = item.get("providers", []) if isinstance(item.get("providers"), list) else []
         selected_provider_id = str(self._provider_cb.currentData() or "").strip().lower()
-        selected_provider = next(
-            (row for row in providers if isinstance(row, dict) and str(row.get("id", "")).strip().lower() == selected_provider_id),
-            {},
-        )
-        field_details = [row for row in selected_provider.get("field_details", []) if isinstance(row, dict)] if isinstance(selected_provider, dict) else []
-        if field_details:
-            return field_details
-        return [secret_field_meta(field) for field in item.get("secret_fields", []) if str(field).strip()]
+        return resolve_field_payloads(item, selected_provider_id)
 
     def _sync_account_controls(self) -> None:
         item = self._current_connector_payload()
@@ -647,13 +431,10 @@ class SettingsDeviceAccountsPanel(QWidget):
         self._account_cb.setVisible(bool(accounts))
         self._selector_row_widget.setVisible(bool(providers) or bool(accounts))
 
-        connector_label = str(item.get("label", "Connector") or "Connector")
-        auth_kind = str(item.get("auth_kind", "unknown") or "unknown").strip().lower()
-        auth_state = str(item.get("auth_state", "missing") or "missing").strip().lower()
-        self._current_auth_kind = auth_kind
         self._refresh_connector_card_styles()
 
-        self._ensure_field_row_count(len(self._current_field_payloads()))
+        field_payloads = self._current_field_payloads()
+        self._ensure_field_row_count(len(field_payloads))
         for row_widget, label, input_box, hint in self._field_rows:
             row_widget.setVisible(False)
             label.setText("")
@@ -662,7 +443,7 @@ class SettingsDeviceAccountsPanel(QWidget):
             input_box.setPlaceholderText("")
             input_box.setEchoMode(QLineEdit.EchoMode.Normal)
 
-        for idx, field in enumerate(self._current_field_payloads()):
+        for idx, field in enumerate(field_payloads):
             row_widget, label, input_box, hint = self._field_rows[idx]
             label.setText(str(field.get("label", field.get("key", "Credential")) or "Credential"))
             input_box.setPlaceholderText(str(field.get("placeholder", "") or ""))
@@ -672,19 +453,23 @@ class SettingsDeviceAccountsPanel(QWidget):
             row_widget.setVisible(True)
             row_widget.setProperty("secret_key", str(field.get("key", "") or ""))
 
-        field_payloads = self._current_field_payloads()
-        friendly_status, friendly_detail, friendly_step = self._friendly_connector_copy(
+        panel_state = build_connector_panel_state(
             item=item,
             providers=providers,
             accounts=accounts,
             fields=field_payloads,
+            selected_provider_id=str(self._provider_cb.currentData() or "").strip(),
         )
-        self._account_status_lbl.setText(friendly_status)
-        self._account_detail_lbl.setText(friendly_detail)
-        self._account_step_lbl.setText(friendly_step)
-        self._account_status_lbl.setToolTip(friendly_status)
-        self._account_detail_lbl.setToolTip(friendly_detail)
-        self._account_step_lbl.setToolTip(friendly_step)
+        connector_label = str(item.get("label", "Connector") or "Connector")
+        auth_kind = panel_state.current_auth_kind
+        auth_state = str(item.get("auth_state", "missing") or "missing").strip().lower()
+        self._current_auth_kind = panel_state.current_auth_kind
+        self._account_status_lbl.setText(panel_state.status_text)
+        self._account_detail_lbl.setText(panel_state.detail_text)
+        self._account_step_lbl.setText(panel_state.step_text)
+        self._account_status_lbl.setToolTip(panel_state.status_text)
+        self._account_detail_lbl.setToolTip(panel_state.detail_text)
+        self._account_step_lbl.setToolTip(panel_state.step_text)
         self._account_step_lbl.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
