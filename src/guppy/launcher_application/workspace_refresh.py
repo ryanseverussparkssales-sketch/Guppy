@@ -43,7 +43,7 @@ def refresh_instance_views(owner, *, load_logs: bool = False, force: bool = Fals
     connector_inventory_snapshot = owner._fetch_connector_inventory(force=force)
     typed_connector_inventory = build_connector_inventory(connector_inventory_snapshot)
     build_state_snapshot = getattr(owner, "_build_launcher_state_snapshot", None)
-    windows_snapshot = owner._advanced_view.windows_ops_snapshot()
+    windows_snapshot = owner._settings_hub_view.windows_ops_snapshot()
     runtime_health = getattr(owner, "_runtime_health_snapshot", None)
     if callable(build_state_snapshot):
         owner._launcher_state_snapshot = build_state_snapshot(
@@ -64,11 +64,10 @@ def refresh_instance_views(owner, *, load_logs: bool = False, force: bool = Fals
     connector_view_signature = owner._payload_signature(connector_inventory_snapshot)
     if force or instance_view_signature != owner._last_instance_view_signature:
         owner._instance_manager_view.set_instances(snapshot)
-        owner._advanced_view.set_instance_snapshot(snapshot)
+        owner._settings_hub_view.set_instance_snapshot(snapshot)
         owner._last_instance_view_signature = instance_view_signature
     if force or connector_view_signature != owner._last_connector_view_signature:
-        owner._advanced_view.set_connector_inventory(connector_inventory_snapshot)
-        owner._my_pc_view.set_connector_inventory(connector_inventory_snapshot)
+        owner._settings_hub_view.set_connector_inventory(connector_inventory_snapshot)
         owner._last_connector_view_signature = connector_view_signature
     enabled_names = enabled_workspace_names(snapshot) or [
         item.name for item in owner._launcher_state_snapshot.workspaces if item.name
@@ -127,7 +126,7 @@ def refresh_instance_views(owner, *, load_logs: bool = False, force: bool = Fals
         owner._topbar.set_session(role_label)
     windows_snapshot_signature = owner._payload_signature(windows_snapshot)
     if force or windows_snapshot_signature != owner._last_windows_snapshot_signature:
-        owner._my_pc_view.set_windows_snapshot(windows_snapshot)
+        owner._settings_hub_view.set_windows_snapshot(windows_snapshot)
         owner._last_windows_snapshot_signature = windows_snapshot_signature
     if load_logs:
         owner._on_instance_logs_requested(active, quiet=True)

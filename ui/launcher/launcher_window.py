@@ -24,7 +24,6 @@ from src.guppy.launcher_application import (
     LauncherStateSnapshot,
     LibraryWorkflowController,
     WindowsOpsExecutionKind,
-    advance_windows_ops_chain,
     apply_connector_action_feedback,
     apply_library_payload,
     apply_workspace_instance_switch,
@@ -33,9 +32,7 @@ from src.guppy.launcher_application import (
     build_launcher_state_snapshot,
     build_library_chat_submission,
     build_windows_ops_descriptor,
-    build_windows_ops_feedback_kwargs,
     build_windows_ops_plan,
-    build_windows_ops_state_payload,
     collect_windows_service_snapshot,
     connector_action_http_payload,
     connector_action_record,
@@ -53,12 +50,9 @@ from src.guppy.launcher_application import (
     handle_connector_action_request,
     handle_connector_guided_link_request,
     load_workspace_instance_logs,
-    normalize_windows_gate_details,
-    normalize_windows_ops_artifacts,
     perform_connector_action_request,
     refresh_workspace_instance_views,
     release_dry_run_gate_details,
-    release_review_order,
     repo_python_path,
     resolve_active_instance_payload,
     save_workspace_connector_binding,
@@ -71,7 +65,6 @@ from src.guppy.launcher_application import (
     select_workspace_instance,
     start_connector_action_async,
     start_connector_guided_link_async,
-    start_windows_ops_chain,
     summarize_release_dry_run_report,
     compose_library_aware_message,
     set_daily_activity,
@@ -105,8 +98,6 @@ from src.guppy.experience_config import (
 from src.guppy.runtime_application import (
     RuntimeHealthSnapshot,
     build_local_bearer_token,
-    build_runtime_health_snapshot,
-    build_runtime_health_view_payload,
     fetch_startup_readiness,
     route_evidence_summary,
     summarize_startup_readiness,
@@ -122,6 +113,7 @@ from src.guppy.workspace_governance import (
 
 connector_inventory = fetch_connector_inventory
 
+from src.guppy.launcher_application.tool_action_registry import get_home_starter_prompt as _registry_tool_prompt
 from src.guppy.launcher_application.storage_io import (
     append_instance_log,
     append_jsonl,
@@ -134,6 +126,54 @@ from src.guppy.launcher_application.storage_io import (
     secret_store_backend_available,
     write_json_atomic,
 )
+from src.guppy.launcher_application.recovery_coordination import (
+    classify_recovery_summary,
+    drain_recovery_events,
+    format_recovery_summary,
+    push_recovery_outcome,
+    run_recovery_request,
+    start_recovery_request,
+    sync_recovery_outcome,
+)
+from src.guppy.launcher_application.automation_test_support import (
+    build_automation_test_snapshot,
+    display_repo_path,
+    event_level,
+    latest_stress_report_path,
+    recent_launcher_event_summaries,
+    write_user_test_evidence_pack,
+    write_user_test_evidence_summary,
+)
+from src.guppy.launcher_application.automation_test_coordination import (
+    build_launcher_automation_test_snapshot,
+    preferred_builder_workspace_name,
+    sync_launcher_automation_test_state,
+    user_test_evidence_paths,
+    write_launcher_automation_report,
+    write_launcher_user_test_evidence_pack,
+)
+from src.guppy.launcher_application.launch_attempt_guard import (
+    clear_launch_attempt,
+    launch_attempt_recent,
+    mark_launch_attempt,
+)
+from src.guppy.launcher_application.status_poll import (
+    build_launcher_status_poll_snapshot,
+    fetch_api_status,
+)
+from src.guppy.launcher_application.launcher_shell_support import (
+    QuickActionPlan,
+    build_notification_badge_state,
+    build_quick_action_plan,
+)
+from src.guppy.launcher_application.windows_ops_coordination import (
+    WindowsOpsStateRecord,
+    begin_windows_ops_chain,
+    complete_windows_ops_terminal_recipe,
+    persist_windows_ops_state,
+    progress_windows_ops_chain,
+)
+from src.guppy.launcher_application.tools_trace_adapter import LauncherToolsTraceAdapter
 
 from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import (
@@ -156,8 +196,10 @@ from .views import (
     LibraryView,
     ToolsView,
     SettingsView,
-    AdvancedView,
-    MyPCView,
+    SettingsHubView,
+    SettingsDeviceAccountsPanel,
+    SettingsOperationsPanel,
+    ModelsHubView,
     LocalLLMView,
     ModelsView,
     RuntimeRoutingView,
@@ -182,19 +224,36 @@ except Exception:
 
 _RUNTIME = Path(__file__).resolve().parent.parent.parent / "runtime"
 _CONFIG = Path(__file__).resolve().parent.parent.parent / "config"
+_COMMAND_START_TTL_SECONDS = float(os.environ.get("GUPPY_COMMAND_START_TTL_SECONDS", "20"))
 _START_TIME = time.monotonic()
 _AUTOMATION_TEST_VALIDATION_COMMAND = (
     ".venv\\Scripts\\python.exe -m pytest tests/unit/test_offhours_builder.py tests/unit/test_instance_controls.py -q"
 )
 _AUTOMATION_REPORT_PATH = _RUNTIME / "offhours_builder_report.json"
+_HOME_VIEW_INDEX = 0
+_WORKSPACES_VIEW_INDEX = 1
+_LIBRARY_VIEW_INDEX = 2
+_TOOLS_VIEW_INDEX = 3
 _SETTINGS_VIEW_INDEX = 4
-_ADVANCED_VIEW_INDEX = 5
+_SETTINGS_OPS_INDEX = 4
+_SETTINGS_ALIAS_INDEX = 10
+_MODELS_VIEW_INDEX = 5
+_MODELS_LOCAL_ALIAS_INDEX = 6
+_MODELS_LIBRARY_ALIAS_INDEX = 7
+_MODELS_RUNTIME_ALIAS_INDEX = 8
+_MODELS_VOICE_ALIAS_INDEX = 9
 _START_DESTINATION_TO_TAB = {
-    "home": 0,
-    "library": 2,
-    "tools": 3,
-    "appmgmt": _ADVANCED_VIEW_INDEX,
-    "automation-test": _ADVANCED_VIEW_INDEX,
+    "home": _HOME_VIEW_INDEX,
+    "workspaces": _WORKSPACES_VIEW_INDEX,
+    "spaces": _WORKSPACES_VIEW_INDEX,
+    "library": _LIBRARY_VIEW_INDEX,
+    "tools": _TOOLS_VIEW_INDEX,
+    "appmgmt": _SETTINGS_OPS_INDEX,
+    "automation-test": _SETTINGS_OPS_INDEX,
+    "local-llm": _MODELS_LOCAL_ALIAS_INDEX,
+    "models": _MODELS_LIBRARY_ALIAS_INDEX,
+    "runtime": _MODELS_RUNTIME_ALIAS_INDEX,
+    "voice": _MODELS_VOICE_ALIAS_INDEX,
 }
 
 
@@ -202,6 +261,7 @@ def _write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not write_json_atomic(path, payload):
         raise OSError(f"Atomic write failed for {path}")
+
 
 class LauncherWindow(QMainWindow):
     assistant_event_queued = Signal()
@@ -213,13 +273,7 @@ class LauncherWindow(QMainWindow):
 
     @staticmethod
     def _event_level(item: dict[str, object]) -> str:
-        event = str(item.get("event", "") or "").lower()
-        summary = json.dumps(item, ensure_ascii=True).lower()
-        if "error" in event or "error" in summary or "failed" in summary:
-            return "ERROR"
-        if "warn" in event or "warning" in summary or "over_budget" in event:
-            return "WARN"
-        return "INFO"
+        return event_level(item)
 
     def __init__(self) -> None:
         super().__init__()
@@ -262,6 +316,7 @@ class LauncherWindow(QMainWindow):
         self._last_library_context_signature = ""
         self._last_tools_context_signature = ""
         self._last_windows_snapshot_signature = ""
+        self._tools_trace_adapter: LauncherToolsTraceAdapter | None = None
         self._launcher_state_snapshot = LauncherStateSnapshot.empty()
         self._runtime_health_snapshot = RuntimeHealthSnapshot()
         self._bootstrap_instance_refresh_pending = False
@@ -327,26 +382,32 @@ class LauncherWindow(QMainWindow):
         self._library_view    = LibraryView(self)
         self._tools_view      = ToolsView(self)
         self._settings_view   = SettingsView(self)
-        self._advanced_view   = AdvancedView(self)
-        self._my_pc_view      = MyPCView(self)
+        self._settings_device_accounts_panel = SettingsDeviceAccountsPanel(self)
+        self._settings_operations_panel = SettingsOperationsPanel(self)
+        self._settings_hub_view = SettingsHubView(
+            self._settings_view,
+            self._settings_device_accounts_panel,
+            self._settings_operations_panel,
+            self,
+        )
         self._local_llm_view  = LocalLLMView(self)
         self._models_view     = ModelsView(self)
         self._runtime_view    = RuntimeRoutingView(self)
         self._voices_view     = VoicesView(self)
-        self._advanced_view.attach_settings_panel(self._settings_view)
+        self._models_hub_view = ModelsHubView(
+            self._models_view,
+            self._local_llm_view,
+            self._voices_view,
+            self,
+        )
 
         for view in [
             self._assistant_view,
             self._instance_manager_view,
             self._library_view,
             self._tools_view,
-            self._settings_view,
-            self._advanced_view,
-            self._my_pc_view,
-            self._local_llm_view,
-            self._models_view,
-            self._runtime_view,
-            self._voices_view,
+            self._settings_hub_view,
+            self._models_hub_view,
         ]:
             self._stack.addWidget(view)
 
@@ -372,6 +433,7 @@ class LauncherWindow(QMainWindow):
             set_daily_activity=self._set_daily_activity,
             log_launcher_event=self._log_launcher_event,
         )
+        self._wire_tools_trace_adapter()
 
         root.addLayout(body, stretch=1)
 
@@ -412,26 +474,28 @@ class LauncherWindow(QMainWindow):
         """Composition helper — all inter-widget signal connections in one named seam."""
         self._sidebar.tab_changed.connect(self._on_tab_change)
         self._topbar.nav_requested.connect(self._on_tab_change)
+        self._settings_hub_view.open_diagnostics_requested.connect(lambda: self._on_tab_change(_SETTINGS_VIEW_INDEX))
+        self._settings_hub_view.open_recovery_requested.connect(lambda: self._on_tab_change(_SETTINGS_VIEW_INDEX))
+        self._settings_hub_view.open_terminal_requested.connect(lambda: self._on_tab_change(_SETTINGS_VIEW_INDEX))
+        self._settings_hub_view.open_connectors_requested.connect(lambda: self._on_tab_change(_SETTINGS_VIEW_INDEX))
+        self._settings_hub_view.open_system_requested.connect(lambda: self._on_tab_change(_SETTINGS_VIEW_INDEX))
         self._settings_view.settings_saved.connect(self._on_settings_saved)
         self._tools_view.tool_state_changed.connect(self._on_tool_state_changed)
         self._tools_view.tool_hint_requested.connect(self._on_tool_hint_requested)
         self._tools_view.builder_task_requested.connect(self._on_builder_task_requested)
         self._status_panel.tool_requested.connect(self._on_tool_hint_requested)
-        self._advanced_view.recovery_requested.connect(self._on_recovery_requested)
-        self._advanced_view.windows_ops_requested.connect(self._on_windows_ops_requested)
-        self._advanced_view.connector_action_requested.connect(self._on_connector_action_requested)
-        self._advanced_view.automation_action_requested.connect(self._on_automation_action_requested)
-        self._my_pc_view.windows_ops_requested.connect(self._on_windows_ops_requested)
-        self._my_pc_view.connector_action_requested.connect(self._on_connector_action_requested)
-        self._my_pc_view.connector_guided_link_requested.connect(self._on_connector_guided_link_requested)
-        self._advanced_view.terminal_recipe_finished.connect(self._on_terminal_recipe_finished)
-        self._models_view.model_selected.connect(self._on_model_selected)
-        self._runtime_view.model_selected.connect(self._on_model_selected)
-        self._runtime_view.runtime_settings_saved.connect(self._on_runtime_settings_saved)
-        self._voices_view.bindings_changed.connect(self._on_voice_bindings_changed)
+        self._settings_hub_view.recovery_requested.connect(self._on_recovery_requested)
+        self._settings_hub_view.windows_ops_requested.connect(self._on_windows_ops_requested)
+        self._settings_hub_view.connector_action_requested.connect(self._on_connector_action_requested)
+        self._settings_hub_view.connector_guided_link_requested.connect(self._on_connector_guided_link_requested)
+        self._settings_hub_view.automation_action_requested.connect(self._on_automation_action_requested)
+        self._settings_hub_view.terminal_recipe_finished.connect(self._on_terminal_recipe_finished)
+        self._models_hub_view.model_selected.connect(self._on_model_selected)
+        self._models_hub_view.runtime_settings_saved.connect(self._on_runtime_settings_saved)
+        self._models_hub_view.bindings_changed.connect(self._on_voice_bindings_changed)
         self._topbar.search_submitted.connect(self._on_search)
         self._topbar.quick_action.connect(self._on_quick_action)
-        self._topbar.launcher_context_requested.connect(self._assistant_view.toggle_launcher_panel)
+        self._topbar.launcher_context_requested.connect(lambda: self._on_quick_action("workspaces"))
         self._assistant_view.command_submitted.connect(self._on_assistant_command)
         self._assistant_view.starter_requested.connect(self._on_home_starter_requested)
         self._assistant_view.cancel_requested.connect(self._on_cancel_assistant_request)
@@ -467,6 +531,26 @@ class LauncherWindow(QMainWindow):
         self._topbar.instance_selected.connect(self._on_instance_selected)
         self._status_panel.agent_init_requested.connect(self._on_agent_init_requested)
 
+    def _wire_tools_trace_adapter(self) -> None:
+        adapter = LauncherToolsTraceAdapter(
+            _RUNTIME,
+            tool_state_path=self._tool_state_path(),
+            live_tool_states_getter=self._tools_view.get_states,
+            live_tool_statuses_getter=self._tools_view.current_tool_states,
+        )
+        self._tools_trace_adapter = adapter
+        self._tools_view.trace_adapter = adapter
+        self._tools_view.debug_backend = adapter
+        self._tools_view.read_debug_snapshot = adapter.read_debug_snapshot
+        self._tools_view.read_recent_tool_events = adapter.read_recent_tool_events
+        self._tools_view.read_recent_launcher_events = adapter.read_recent_launcher_events
+        self._refresh_tools_debug_surface()
+
+    def _refresh_tools_debug_surface(self) -> None:
+        refresh = getattr(self._tools_view, "refresh_debug_surface", None)
+        if callable(refresh):
+            refresh()
+
     def _drain_deferred_syslog(self) -> None:
         processed = 0
         while processed < self._MAX_DEFERRED_SYSLOG_PER_TICK:
@@ -500,8 +584,7 @@ class LauncherWindow(QMainWindow):
             self._assistant_view.set_persona_options(list(personalization_state.persona_options), selected=target_persona)
             self._instance_manager_view.set_persona_options(list(personalization_state.persona_options), selected=target_persona)
             self._instance_manager_view.set_voice_options(list(personalization_state.voice_options), selected="default")
-            self._voices_view._load_assignment_options()
-            self._voices_view._refresh_bindings_summary()
+            self._models_hub_view.refresh_voice_assignments()
             self._assistant_view.set_runtime_facts(
                 profile=self._assistant_view._cb_profile.currentText().strip().lower() or "standard",
                 model=personalization_state.model_id,
@@ -509,12 +592,13 @@ class LauncherWindow(QMainWindow):
                 latency="-",
                 last_query=self._last_command or "-",
             )
-            self._advanced_view.set_daily_context_runtime(self._assistant_view._runtime_facts.text())
+            self._settings_hub_view.set_daily_context_runtime(self._assistant_view._runtime_facts.text())
         except Exception as exc:
             self._status_panel.append_syslog(f"personalization refresh failed: {exc}")
 
     def _update_route_preview(self, text: str = "") -> None:
         update_route_preview(self, text)
+        self._sync_topbar_model_context()
 
     def _set_daily_activity(self, text: str) -> None:
         set_daily_activity(self, text)
@@ -632,42 +716,19 @@ class LauncherWindow(QMainWindow):
         self._drain_assistant_events()
         self._drain_recovery_events()
         self._update_sys_strip()
-        data: dict = {}
-        api_status: dict[str, object] = {}
 
         # Heartbeats
-        data["guppy_online"]  = (_RUNTIME / "guppy.heartbeat").exists()
+        guppy_online = (_RUNTIME / "guppy.heartbeat").exists()
 
         # Guppy status
         gs = read_json_dict(_RUNTIME / "guppy.status")
-        data["profile"]      = gs.get("runtime_profile", os.environ.get("GUPPY_RUNTIME_PROFILE", "standard"))
-        data["daemon"]       = gs.get("daemon_running", data["guppy_online"])
-        data["voice_engine"] = gs.get("tts_engine", os.environ.get("GUPPY_TTS_ENGINE", "edge"))
-        data["model"]        = gs.get("active_model",  os.environ.get("GUPPY_LOCAL_MODEL", "guppy"))
-        data["wake_word"]    = gs.get("wake_word",     os.environ.get("GUPPY_WAKE_WORD_ENABLED", "false"))
-        data["latency"]      = gs.get("last_latency_ms", "—")
-        data["last_query"]   = gs.get("last_query", "—")
-        if data["last_query"] in {"", "—"} and self._last_command:
-            data["last_query"] = self._last_command
+        gs["guppy_online"] = guppy_online
+        api_status = fetch_api_status(self._http_json)
 
-        try:
-            payload = self._http_json(
-                "/status",
-                method="GET",
-                timeout=0.75,
-                retry_auth_on_401=True,
-                auth_retry_reason="status_poll",
-            )
-            if isinstance(payload, dict):
-                api_status = payload
-        except Exception:
-            api_status = {}
-        data["status"] = str(api_status.get("status", "healthy" if data["guppy_online"] else "degraded") or "unknown")
-
-        voice_summary = str(data.get("voice_engine", data.get("voice", "edge")) or "edge")
+        voice_summary = str(gs.get("tts_engine", os.environ.get("GUPPY_TTS_ENGINE", "edge")) or "edge")
         active_model_id = self._assistant_model_id(
             self._assistant_view.selected_mode(),
-            str(data.get("model", "") or ""),
+            str(gs.get("active_model", "") or ""),
         )
         try:
             if _PERSONALIZATION_BOOTSTRAP_AVAILABLE:
@@ -681,6 +742,19 @@ class LauncherWindow(QMainWindow):
         except Exception:
             pass
 
+        poll_snapshot = build_launcher_status_poll_snapshot(
+            launcher_status=gs,
+            api_status=api_status,
+            environment=os.environ,
+            active_instance_name=self._active_instance_name,
+            last_instance_snapshot=self._last_instance_snapshot,
+            embedded_online=self._embedded_online,
+            fallback_last_query=self._last_command,
+            voice_summary=voice_summary,
+            route_evidence=self._assistant_view._route_facts.text(),
+        )
+        data = poll_snapshot.data
+
         self._status_panel.update_status(data)
         self._assistant_view.set_runtime_facts(
             profile=str(data.get("profile", "standard") or "standard"),
@@ -691,56 +765,26 @@ class LauncherWindow(QMainWindow):
         )
 
         # Update agent cards
-        guppy_load  = gs.get("cpu_load_pct", 0)
-        guppy_online = data["guppy_online"] or ("guppy" in self._embedded_online)
+        guppy_load = poll_snapshot.guppy_load
+        guppy_online = poll_snapshot.guppy_online
 
         self._status_panel.update_agent_status("guppy", guppy_online, "—", guppy_load)
-        background_summary = (
-            f"{self._active_instance_name} · {str(data.get('profile', 'standard')).upper()} · "
-            f"GUPPY {'LIVE' if guppy_online else 'OFFLINE'}"
-        )
-        active_snapshot = self._last_instance_snapshot if isinstance(self._last_instance_snapshot, dict) else {}
-        active_items = active_snapshot.get("instances", []) if isinstance(active_snapshot, dict) else []
-        active_payload = next(
-            (
-                item
-                for item in active_items
-                if isinstance(item, dict) and str(item.get("name", "")).strip() == self._active_instance_name
-            ),
-            {},
-        )
-        active_type = str((active_payload or {}).get("type", "user_instance") or "user_instance")
-        role = workspace_role_label(active_type)
-        background_summary = f"{role.upper()} {'READY' if guppy_online else 'NEEDS ATTENTION'}"
         self._assistant_view.set_background_status(
-            background_summary,
+            poll_snapshot.background_summary,
             healthy=guppy_online,
         )
-        self._advanced_view.set_daily_context_recovery(
+        self._settings_hub_view.set_daily_context_recovery(
             f"Recovery: {'stable' if guppy_online else 'needs attention'}",
             ok=guppy_online,
         )
-        runtime_health = build_runtime_health_snapshot(
-            api_status,
-            gs,
-            voice_tts_backend=str(data.get("voice_engine", "edge") or "edge"),
-            voice_stt_backend=str(gs.get("stt_backend", "unknown") or "unknown"),
-        )
+        runtime_health = poll_snapshot.runtime_health
         self._runtime_health_snapshot = runtime_health
-        self._models_view.set_status_snapshot(api_status)
-        self._runtime_view.set_status_snapshot(api_status)
-        self._advanced_view.set_status_snapshot(
-            build_runtime_health_view_payload(
-                runtime_health,
-                status=str(data.get("status", "healthy") or "healthy"),
-                voice_binding=voice_summary,
-                route_evidence=self._assistant_view._route_facts.text(),
-            )
-        )
-        windows_snapshot = self._advanced_view.windows_ops_snapshot()
+        self._models_hub_view.set_status_snapshot(poll_snapshot.api_status)
+        self._settings_hub_view.set_status_snapshot(poll_snapshot.settings_status_snapshot)
+        windows_snapshot = self._settings_hub_view.windows_ops_snapshot()
         windows_snapshot_signature = self._payload_signature(windows_snapshot)
         if windows_snapshot_signature != self._last_windows_snapshot_signature:
-            self._my_pc_view.set_windows_snapshot(windows_snapshot)
+            self._settings_hub_view.set_windows_snapshot(windows_snapshot)
             self._last_windows_snapshot_signature = windows_snapshot_signature
         self._refresh_notification_badge()
         self._sync_recovery_outcome()
@@ -809,99 +853,151 @@ class LauncherWindow(QMainWindow):
             )
 
     def _sync_recovery_outcome(self) -> None:
-        path = _RUNTIME / "launcher_events.jsonl"
-        if not path.exists():
-            return
-        try:
-            mtime = path.stat().st_mtime
-        except Exception:
-            mtime = 0.0
-        if mtime == self._recovery_outcome_mtime:
-            return
-        self._recovery_outcome_mtime = mtime
-        events = read_jsonl_tail(path, limit=80)
-        target = None
-        for item in reversed(events):
-            if item.get("event") in {"recovery_result", "recovery_error"}:
-                target = item
-                break
-        if not target:
+        sync_recovery_outcome(self, runtime_path=_RUNTIME, read_jsonl_tail=read_jsonl_tail)
+
+    def _sync_topbar_model_context(
+        self,
+        *,
+        main_model: str = "",
+        support_model: str = "",
+    ) -> None:
+        setter = getattr(self._topbar, "set_model_context", None)
+        if not callable(setter):
             return
 
-        action = str(target.get("action", "recovery"))
-        ok = bool(target.get("ok", False))
-        summary = str(target.get("summary", target.get("error", "")))
-        signature = f"{target.get('ts','')}|{target.get('event','')}|{action}|{ok}|{summary}"
-        if signature == self._last_recovery_signature:
-            return
-        self._last_recovery_signature = signature
-        self._status_panel.set_recovery_outcome(action, ok, summary)
+        route_text = str(getattr(self._assistant_view, "_route_facts", QLabel("")).text() if hasattr(self, "_assistant_view") else "")
+        using_match = re.search(r"\busing\s+([A-Za-z0-9._:/-]+)", route_text, flags=re.IGNORECASE)
+        backup_match = re.search(r"\bbackup\s+([A-Za-z0-9._:/-]+)", route_text, flags=re.IGNORECASE)
+        route_match = re.search(r"\bvia\s+([A-Za-z0-9._:/-]+)", route_text, flags=re.IGNORECASE)
+
+        runtime = self._runtime_health_snapshot.local_runtime
+        normalized_main = str(main_model or runtime.chat_model or runtime.model or "").strip()
+        normalized_support = str(support_model or (backup_match.group(1) if backup_match else "")).strip()
+        if not normalized_main and using_match is not None:
+            normalized_main = str(using_match.group(1) or "").strip()
+        backend = str(runtime.backend or "").strip().lower()
+        route_name = str(route_match.group(1) if route_match else "").strip().upper()
+
+        setter(
+            main_model=normalized_main,
+            support_model=normalized_support,
+            backend=backend,
+            route=route_name,
+        )
 
     @staticmethod
     def _classify_recovery_summary(summary: str, ok: bool, default: str = "") -> str:
-        text = (summary or "").lower()
-        if "http 401" in text or "unauthorized" in text or "jwt_" in text:
-            return "auth_failed"
-        if (
-            "network error" in text
-            or "connection refused" in text
-            or "not yet reachable" in text
-            or "api unreachable" in text
-        ):
-            return "api_unreachable"
-        if "stale" in text or "missing" in text or "offline" in text:
-            return "runtime_stale"
-        if default:
-            return default
-        return "recovery_ok" if ok else "recovery_error"
+        return classify_recovery_summary(summary, ok, default)
 
     @staticmethod
     def _format_recovery_summary(category: str, summary: str) -> str:
-        text = (summary or "").strip()
-        prefix = {
-            "api_unreachable": "API unreachable",
-            "auth_failed": "Auth failed",
-            "runtime_stale": "Runtime stale",
-        }.get(category, "")
-        if not prefix:
-            return text
-        if not text:
-            return prefix
-        lowered = text.lower()
-        if lowered.startswith(prefix.lower()):
-            return text
-        return f"{prefix}: {text}"
+        return format_recovery_summary(category, summary)
 
     def _push_recovery_outcome(self, action: str, ok: bool, summary: str, category: str = "") -> str:
-        resolved_category = category or self._classify_recovery_summary(summary, ok)
-        formatted = self._format_recovery_summary(resolved_category, summary)
-        self._recovery_events.put({
-            "kind": "outcome",
-            "action": action,
-            "ok": ok,
-            "summary": formatted,
-            "category": resolved_category,
-        })
-        self._log_launcher_event(
-            "recovery_result" if ok else "recovery_error",
-            action=action,
-            ok=ok,
-            category=resolved_category,
-            summary=formatted,
-        )
-        return formatted
+        return push_recovery_outcome(self, action, ok, summary, category)
 
     # ── Tab coordination ──────────────────────────────────────────────────────
+    @staticmethod
+    def _resolve_stack_index(index: int) -> int:
+        if index <= _SETTINGS_VIEW_INDEX:
+            return index
+        if index == _SETTINGS_ALIAS_INDEX:
+            return _SETTINGS_VIEW_INDEX
+        if index in {
+            _MODELS_LOCAL_ALIAS_INDEX,
+            _MODELS_LIBRARY_ALIAS_INDEX,
+            _MODELS_RUNTIME_ALIAS_INDEX,
+            _MODELS_VOICE_ALIAS_INDEX,
+        }:
+            return _MODELS_VIEW_INDEX
+        return index
+
+    @staticmethod
+    def _visible_nav_index(index: int) -> int:
+        if index == _WORKSPACES_VIEW_INDEX:
+            return _HOME_VIEW_INDEX
+        if index in {_SETTINGS_VIEW_INDEX, _SETTINGS_ALIAS_INDEX}:
+            return _SETTINGS_VIEW_INDEX
+        if index in {
+            _MODELS_VIEW_INDEX,
+            _MODELS_LOCAL_ALIAS_INDEX,
+            _MODELS_LIBRARY_ALIAS_INDEX,
+            _MODELS_RUNTIME_ALIAS_INDEX,
+            _MODELS_VOICE_ALIAS_INDEX,
+        }:
+            return _MODELS_LIBRARY_ALIAS_INDEX
+        return index
+
+    @staticmethod
+    def _shell_model_loadout_summary(
+        *,
+        active_model: str = "",
+        runtime_backend: str = "",
+        settings_payload: dict[str, object] | None = None,
+        environment: dict[str, str] | None = None,
+    ) -> str:
+        settings = settings_payload if isinstance(settings_payload, dict) else {}
+        env = environment if isinstance(environment, dict) else dict(os.environ)
+        backend = (
+            str(settings.get("local_runtime_backend", "") or "").strip()
+            or str(runtime_backend or "").strip()
+            or str(env.get("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama") or "ollama").strip()
+            or "ollama"
+        )
+        main_model = (
+            str(settings.get("local_main_model", "") or "").strip()
+            or str(env.get("GUPPY_MAIN_MODEL", "") or "").strip()
+            or str(active_model or "").strip()
+            or str(env.get("OLLAMA_MODEL", "") or "").strip()
+            or "unset"
+        )
+        sub_a_model = (
+            str(settings.get("local_sub_model_a", "") or "").strip()
+            or str(env.get("GUPPY_SUB_MODEL_A", "") or "").strip()
+            or str(env.get("GUPPY_LOCAL_FAST_MODEL", "") or "").strip()
+            or "unset"
+        )
+        sub_b_model = (
+            str(settings.get("local_sub_model_b", "") or "").strip()
+            or str(env.get("GUPPY_SUB_MODEL_B", "") or "").strip()
+            or str(env.get("GUPPY_LOCAL_CODE_MODEL", "") or "").strip()
+            or "unset"
+        )
+        return (
+            f"MODELS / {backend.upper()} / "
+            f"MAIN {main_model} / SUB A {sub_a_model} / SUB B {sub_b_model}"
+        )
+
+    def _sync_shell_model_summary(
+        self,
+        *,
+        active_model: str = "",
+        runtime_backend: str = "",
+    ) -> None:
+        app_settings = read_json_dict(_RUNTIME / "app_settings.json")
+        summary = self._shell_model_loadout_summary(
+            active_model=active_model,
+            runtime_backend=runtime_backend,
+            settings_payload=app_settings if isinstance(app_settings, dict) else {},
+            environment=dict(os.environ),
+        )
+        self._topbar.set_launcher_summary(summary)
+        self._sync_topbar_model_context(main_model=active_model)
+
     def _on_tab_change(self, index: int) -> None:
-        self._stack.setCurrentIndex(index)
-        self._topbar.set_active_tab(index)
-        self._sidebar.set_active(index)
-        if index == _ADVANCED_VIEW_INDEX:
+        stack_index = self._resolve_stack_index(index)
+        visible_nav_index = self._visible_nav_index(index)
+        self._stack.setCurrentIndex(stack_index)
+        self._topbar.set_active_tab(visible_nav_index)
+        self._sidebar.set_active(visible_nav_index)
+        if visible_nav_index == _MODELS_LIBRARY_ALIAS_INDEX:
+            self._sync_shell_model_summary()
+        if index in {_SETTINGS_OPS_INDEX, _SETTINGS_ALIAS_INDEX}:
             self._sync_automation_test_state()
-        if index == 0 and not self._sidebar.is_collapsed():
+        if visible_nav_index == _HOME_VIEW_INDEX and not self._sidebar.is_collapsed():
             self._sidebar.set_collapsed(True)
             self._topbar.set_sidebar_collapsed(True)
-        self._set_status_panel_visible(index != 0 or self._home_drawer_open)
+        self._set_status_panel_visible(stack_index != _HOME_VIEW_INDEX or self._home_drawer_open)
 
     def _apply_start_destination(self) -> None:
         target = self._start_destination
@@ -915,7 +1011,7 @@ class LauncherWindow(QMainWindow):
             note = (
                 "Test flow ready: use Settings & System to verify readiness, queue one safe check, review it, approve it, and run validation."
             )
-            self._advanced_view.focus_automation_test(note=note)
+            self._settings_hub_view.focus_automation_test(note=note)
             self._assistant_view.set_background_event(note)
             self._set_daily_activity("Test flow opened Setup & Health / Settings & System")
             self._status_panel.append_syslog("automation test start intent opened Settings & System")
@@ -927,9 +1023,9 @@ class LauncherWindow(QMainWindow):
         self._topbar.set_drawer_open(visible)
 
     def _toggle_status_panel(self) -> None:
-        if self._stack.currentIndex() == 0:
-            self._home_drawer_open = not self._home_drawer_open
-            self._set_status_panel_visible(self._home_drawer_open)
+        if self._stack.currentIndex() == _HOME_VIEW_INDEX:
+            self._home_drawer_open = False
+            self._set_status_panel_visible(False)
             return
         self._set_status_panel_visible(not self._status_panel.isVisible())
 
@@ -937,6 +1033,42 @@ class LauncherWindow(QMainWindow):
         collapsed = not self._sidebar.is_collapsed()
         self._sidebar.set_collapsed(collapsed)
         self._topbar.set_sidebar_collapsed(collapsed)
+
+    def _build_quick_action_plan(self, action: str) -> QuickActionPlan:
+        return build_quick_action_plan(
+            action=action,
+            workspaces_view_index=_WORKSPACES_VIEW_INDEX,
+            settings_ops_index=_SETTINGS_OPS_INDEX,
+            runtime_parent=_RUNTIME.parent,
+            last_command=self._last_command,
+        )
+
+    def _apply_quick_action_plan(self, plan: QuickActionPlan) -> bool:
+        if plan.toggle_sidebar:
+            self._toggle_sidebar()
+            return True
+        if plan.toggle_drawer:
+            self._toggle_status_panel()
+            return True
+        if plan.tab_index is not None:
+            self._on_tab_change(plan.tab_index)
+        if plan.operator_logs_focus is not None:
+            self._settings_hub_view.focus_operator_logs(
+                plan.operator_logs_focus.level,
+                note=plan.operator_logs_focus.note,
+            )
+        if plan.terminal_focus is not None:
+            self._settings_hub_view.focus_terminal(note=plan.terminal_focus.note)
+        if plan.daily_activity:
+            self._set_daily_activity(plan.daily_activity)
+        if plan.syslog:
+            self._status_panel.append_syslog(plan.syslog)
+        if isinstance(plan.launcher_event, dict):
+            self._log_launcher_event("quick_action", **plan.launcher_event)
+        if plan.unsupported_message:
+            self._status_panel.append_syslog(plan.unsupported_message)
+            return False
+        return True
 
     def _instances_config_path(self) -> Path:
         return _CONFIG / "instances.json"
@@ -1525,29 +1657,22 @@ class LauncherWindow(QMainWindow):
         gate_recommendations: list[str] | None = None,
         gate_recommendation_details: list[dict[str, object]] | None = None,
     ) -> None:
-        artifact_payload = normalize_windows_ops_artifacts(artifacts)
-        release_receipt = ""
-        release_summary = ""
-        normalized_phase = str(phase or "completed").strip().lower() or "completed"
-        resolved_event_id = str(event_id or "").strip()
-        if normalized_phase != "queued" and not resolved_event_id:
-            resolved_event_id = LauncherWindow._default_windows_ops_event_id(action)
-        if normalized_phase != "queued":
-            release_receipt = self._write_windows_release_receipt(
-                action,
-                summary,
-                changes,
+        update = persist_windows_ops_state(
+            WindowsOpsStateRecord(
+                action=action,
+                summary=summary,
+                changes=changes,
                 ok=ok,
                 commands=commands,
-                event_id=resolved_event_id,
+                event_id=event_id,
                 steps_completed=steps_completed,
                 steps_total=steps_total,
-                phase=normalized_phase,
+                phase=phase,
                 next_step=next_step,
                 fix_target=fix_target,
                 docs_hint=docs_hint,
                 entry_point=entry_point,
-                artifacts=artifact_payload,
+                artifacts=artifacts,
                 gate_summary=gate_summary,
                 gate_detail=gate_detail,
                 gate_checks=gate_checks,
@@ -1558,102 +1683,72 @@ class LauncherWindow(QMainWindow):
                 gate_total_checks=gate_total_checks,
                 gate_recommendations=gate_recommendations,
                 gate_recommendation_details=gate_recommendation_details,
-            )
-            release_summary = str(self._windows_release_summary_path())
-        payload = build_windows_ops_state_payload(
-            action=action,
-            ok=ok,
-            summary=summary,
-            changes=changes,
-            commands=commands,
-            event_id=resolved_event_id,
-            steps_completed=steps_completed,
-            steps_total=steps_total,
-            phase=normalized_phase,
-            next_step=next_step,
-            fix_target=fix_target,
-            docs_hint=docs_hint,
-            entry_point=entry_point,
-            artifacts=artifact_payload,
-            release_receipt=release_receipt,
-            release_summary=release_summary,
-            gate_summary=gate_summary,
-            gate_detail=gate_detail,
-            gate_failed_checks=gate_failed_checks,
-            gate_missing_files=gate_missing_files,
-            gate_passed_checks=gate_passed_checks,
-            gate_total_checks=gate_total_checks,
-            gate_recommendations=gate_recommendations,
-            gate_recommendation_details=gate_recommendation_details,
+            ),
+            state_path=self._windows_ops_state_path(),
+            receipt_path=self._windows_release_receipt_path(),
+            summary_path=self._windows_release_summary_path(),
+            write_state=_write_json,
         )
-        _write_json(self._windows_ops_state_path(), payload)
-        feedback = build_windows_ops_feedback_kwargs(payload, review_order=release_review_order(action))
-        self._advanced_view.set_windows_ops_feedback(
-            str(action or "").strip().lower(),
+        feedback = dict(update.feedback)
+        self._settings_hub_view.set_windows_ops_feedback(
+            update.action,
             str(feedback.pop("summary", "") or ""),
             str(feedback.pop("changes", "") or ""),
             **feedback,
         )
-        my_pc_view = getattr(self, "_my_pc_view", None)
-        advanced_view = getattr(self, "_advanced_view", None)
-        snapshot_getter = getattr(advanced_view, "windows_ops_snapshot", None)
-        if my_pc_view is not None and hasattr(my_pc_view, "set_windows_snapshot") and callable(snapshot_getter):
-            my_pc_view.set_windows_snapshot(snapshot_getter())
+        snapshot_getter = getattr(self._settings_hub_view, "windows_ops_snapshot", None)
+        if callable(snapshot_getter):
+            self._settings_hub_view.set_windows_snapshot(snapshot_getter())
 
     def _start_windows_ops_chain(self, action: str) -> None:
         normalized = str(action or "").strip().lower()
         steps = self._windows_ops_chain_steps(normalized)
-        self._active_windows_ops_chain = start_windows_ops_chain(
+        self._active_windows_ops_chain = begin_windows_ops_chain(
             normalized,
-            steps,
-            self._windows_ops_chain_changes(normalized),
+            steps=steps,
+            changes=self._windows_ops_chain_changes(normalized),
         )
 
     def _update_windows_ops_chain(self, action: str, *, ok: bool, summary: str) -> bool:
-        result = advance_windows_ops_chain(
+        progress = progress_windows_ops_chain(
             self._active_windows_ops_chain,
             action,
             ok=ok,
             summary=summary,
+            guidance_builder=lambda parent_action, overall_ok: self._windows_ops_guidance(
+                parent_action,
+                ok=overall_ok,
+                phase="completed",
+            ),
+            artifacts=self._windows_ops_artifact_refs(
+                str(self._active_windows_ops_chain.get("action", "") or action).strip().lower(),
+                self._collect_windows_service_snapshot(),
+            ) if isinstance(self._active_windows_ops_chain, dict) else [],
+            receipt_path=self._windows_release_receipt_path(),
+            summary_path=self._windows_release_summary_path(),
         )
-        if not result.matched:
+        if not progress.matched:
             return False
-        self._active_windows_ops_chain = result.next_chain
-        if not result.completed:
+        self._active_windows_ops_chain = progress.next_chain
+        if not progress.completed or progress.state_record is None or progress.event_fields is None:
             return True
-        parent_action = result.parent_action
-        guidance = self._windows_ops_guidance(parent_action, ok=result.overall_ok, phase="completed")
-        artifacts = self._windows_ops_artifact_refs(parent_action, self._collect_windows_service_snapshot())
-        event_id = LauncherWindow._default_windows_ops_event_id(parent_action)
+        record = progress.state_record
         self._record_windows_ops_state(
-            parent_action,
-            result.summary_text,
-            result.change_text,
-            ok=result.overall_ok,
-            event_id=event_id,
-            steps_completed=result.steps_completed,
-            steps_total=result.steps_total,
-            phase="completed",
-            next_step=str(guidance.get("next_step", "") or ""),
-            fix_target=str(guidance.get("fix_target", "") or ""),
-            docs_hint=str(guidance.get("docs_hint", "") or ""),
-            entry_point=str(guidance.get("entry_point", "") or ""),
-            artifacts=artifacts,
+            record.action,
+            record.summary,
+            record.changes,
+            ok=record.ok,
+            event_id=record.event_id,
+            steps_completed=record.steps_completed,
+            steps_total=record.steps_total,
+            phase=record.phase,
+            next_step=record.next_step,
+            fix_target=record.fix_target,
+            docs_hint=record.docs_hint,
+            entry_point=record.entry_point,
+            artifacts=record.artifacts,
         )
-        self._log_launcher_event(
-            "windows_ops_completed",
-            action=parent_action,
-            ok=result.overall_ok,
-            steps_completed=result.steps_completed,
-            steps_total=result.steps_total,
-            summary=result.summary_text,
-            event_id=event_id,
-            next_step=str(guidance.get("next_step", "") or ""),
-            fix_target=str(guidance.get("fix_target", "") or ""),
-            artifacts=artifacts,
-            release_receipt=str(self._windows_release_receipt_path()),
-            release_summary=str(self._windows_release_summary_path()),
-        )
+        self._log_launcher_event("windows_ops_completed", **progress.event_fields)
         self._active_windows_ops_chain = None
         return True
 
@@ -1663,91 +1758,59 @@ class LauncherWindow(QMainWindow):
         if str(payload.get("kind", "") or "").strip().lower() != "windows_ops":
             return
         action = str(payload.get("action", "") or "").strip().lower()
-        summary, changes = self._summarize_windows_recipe_result(payload)
         pre_snapshot = payload.get("pre_snapshot", {}) if isinstance(payload.get("pre_snapshot"), dict) else {}
         post_snapshot = self._collect_windows_service_snapshot()
         dynamic_changes = self._windows_service_snapshot_changes(pre_snapshot, post_snapshot)
         artifacts = self._windows_ops_artifact_refs(action, post_snapshot)
-        gate_details = normalize_windows_gate_details(
-            self._release_dry_run_gate_details() if action == "release_dry_run" else {}
+        completion = complete_windows_ops_terminal_recipe(
+            payload,
+            dynamic_changes=dynamic_changes,
+            artifacts=artifacts,
+            guidance=self._windows_ops_guidance(
+                action,
+                ok=bool(payload.get("ok", False)),
+                phase="completed",
+            ),
+            gate_details=self._release_dry_run_gate_details() if action == "release_dry_run" else {},
+            receipt_path=self._windows_release_receipt_path(),
+            summary_path=self._windows_release_summary_path(),
         )
-        if dynamic_changes:
-            changes = f"{changes} | {dynamic_changes}" if changes else dynamic_changes
-        gate_summary = str(gate_details.get("summary", "") or "").strip()
-        gate_detail = str(gate_details.get("detail", "") or "").strip()
-        gate_checks = [item for item in gate_details.get("checks", []) if isinstance(item, dict)]
-        gate_required_files = [item for item in gate_details.get("required_files", []) if isinstance(item, dict)]
-        gate_failed_checks = [str(item).strip() for item in gate_details.get("failed_checks", []) if str(item).strip()]
-        gate_missing_files = [str(item).strip() for item in gate_details.get("missing_files", []) if str(item).strip()]
-        gate_passed_checks = int(gate_details.get("passed_checks", 0) or 0) if gate_details.get("passed_checks") is not None else None
-        gate_total_checks = int(gate_details.get("total_checks", 0) or 0) if gate_details.get("total_checks") is not None else None
-        gate_recommendations = [str(item).strip() for item in gate_details.get("recommendations", []) if str(item).strip()]
-        gate_recommendation_details = [item for item in gate_details.get("recommendation_details", []) if isinstance(item, dict)]
-        if gate_detail:
-            changes = f"{changes} | {gate_detail}" if changes else gate_detail
-        ok = bool(payload.get("ok", False))
-        guidance = self._windows_ops_guidance(action, ok=ok, phase="completed")
-        event_id = str(payload.get("id", "") or "").strip()
-        commands = [str(item).strip() for item in payload.get("commands", []) if str(item).strip()] if isinstance(payload.get("commands"), list) else []
-        steps_completed = int(payload.get("steps_completed", 0) or 0)
-        steps_total = int(payload.get("steps_total", 0) or 0)
-        self._status_panel.append_syslog(summary)
-        self._advanced_view.append_log(summary)
-        self._set_daily_activity(summary)
+        self._status_panel.append_syslog(completion.summary)
+        self._settings_hub_view.append_log(completion.summary)
+        self._set_daily_activity(completion.summary)
+        record = completion.state_record
         self._record_windows_ops_state(
-            action,
-            summary,
-            changes,
-            ok=ok,
-            commands=commands,
-            event_id=event_id,
-            steps_completed=steps_completed,
-            steps_total=steps_total,
-            phase="completed",
-            next_step=str(guidance.get("next_step", "") or ""),
-            fix_target=str(guidance.get("fix_target", "") or ""),
-            docs_hint=str(guidance.get("docs_hint", "") or ""),
-            entry_point=str(guidance.get("entry_point", "") or ""),
-            artifacts=artifacts,
-            gate_summary=gate_summary,
-            gate_detail=gate_detail,
-            gate_checks=gate_checks,
-            gate_required_files=gate_required_files,
-            gate_failed_checks=gate_failed_checks,
-            gate_missing_files=gate_missing_files,
-            gate_passed_checks=gate_passed_checks,
-            gate_total_checks=gate_total_checks,
-            gate_recommendations=gate_recommendations,
-            gate_recommendation_details=gate_recommendation_details,
+            record.action,
+            record.summary,
+            record.changes,
+            ok=record.ok,
+            commands=record.commands,
+            event_id=record.event_id,
+            steps_completed=record.steps_completed,
+            steps_total=record.steps_total,
+            phase=record.phase,
+            next_step=record.next_step,
+            fix_target=record.fix_target,
+            docs_hint=record.docs_hint,
+            entry_point=record.entry_point,
+            artifacts=record.artifacts,
+            gate_summary=record.gate_summary,
+            gate_detail=record.gate_detail,
+            gate_checks=record.gate_checks,
+            gate_required_files=record.gate_required_files,
+            gate_failed_checks=record.gate_failed_checks,
+            gate_missing_files=record.gate_missing_files,
+            gate_passed_checks=record.gate_passed_checks,
+            gate_total_checks=record.gate_total_checks,
+            gate_recommendations=record.gate_recommendations,
+            gate_recommendation_details=record.gate_recommendation_details,
         )
-        self._log_launcher_event(
-            "windows_ops_completed",
-            action=action,
-            ok=ok,
-            steps_completed=steps_completed,
-            steps_total=steps_total,
-            summary=summary,
-            event_id=event_id,
-            next_step=str(guidance.get("next_step", "") or ""),
-            fix_target=str(guidance.get("fix_target", "") or ""),
-            artifacts=artifacts,
-            release_receipt=str(self._windows_release_receipt_path()),
-            release_summary=str(self._windows_release_summary_path()),
-            gate_summary=gate_summary,
-            gate_detail=gate_detail,
-            gate_failed_checks=gate_failed_checks,
-            gate_missing_files=gate_missing_files,
-            gate_passed_checks=gate_passed_checks,
-            gate_total_checks=gate_total_checks,
-            gate_recommendations=gate_recommendations,
-            gate_fix_target=str(gate_recommendation_details[0].get("fix_target", "") or "").strip() if gate_recommendation_details else "",
-            gate_fix_docs=str(gate_recommendation_details[0].get("docs_hint", "") or "").strip() if gate_recommendation_details else "",
-            gate_fix_command=str(gate_recommendation_details[0].get("entry_point", "") or "").strip() if gate_recommendation_details else "",
-        )
+        self._log_launcher_event("windows_ops_completed", **completion.event_fields)
 
     def _load_tool_states(self) -> None:
         path = self._tool_state_path()
         if not path.exists():
+            self._refresh_tools_debug_surface()
             return
         try:
             states = read_json_dict(path)
@@ -1758,6 +1821,7 @@ class LauncherWindow(QMainWindow):
         except Exception as e:
             self._status_panel.append_syslog(f"tools state restore failed: {e}")
             self._log_launcher_event("tools_state_restore_error", error=str(e))
+        self._refresh_tools_debug_surface()
 
     def _on_tool_state_changed(self, tool_key: str, enabled: bool) -> None:
         states = self._tools_view.get_states()
@@ -1781,6 +1845,7 @@ class LauncherWindow(QMainWindow):
                 enabled=enabled,
                 error=str(e),
             )
+        self._refresh_tools_debug_surface()
 
     def _log_launcher_event(self, event: str, **fields: object) -> None:
         record = {
@@ -2012,50 +2077,7 @@ class LauncherWindow(QMainWindow):
         self._log_launcher_event("command_canceled", seq=self._active_request_seq)
 
     def _drain_recovery_events(self) -> None:
-        processed = 0
-        while processed < self._MAX_RECOVERY_EVENTS_PER_TICK:
-            try:
-                evt = self._recovery_events.get_nowait()
-            except Empty:
-                break
-            kind = str(evt.get("kind", ""))
-            if kind == "status":
-                text = str(evt.get("text", ""))
-                self._settings_view.set_recovery_status(text)
-                self._advanced_view.set_recovery_status(text)
-                self._set_daily_activity(text)
-                self._assistant_view.set_recovery_summary(text, healthy="error" not in text.lower())
-                self._advanced_view.set_daily_context_recovery(
-                    self._assistant_view._recovery_summary.text(),
-                    ok="error" not in text.lower(),
-                )
-            elif kind == "syslog":
-                text = str(evt.get("text", ""))
-                self._status_panel.append_syslog(text)
-                self._advanced_view.append_log(text)
-                self._set_daily_activity(text)
-            elif kind == "outcome":
-                action = str(evt.get("action", "recovery"))
-                ok = bool(evt.get("ok", False))
-                summary = str(evt.get("summary", ""))
-                self._status_panel.set_recovery_outcome(action, ok, summary)
-                self._advanced_view.set_recovery_status(f"{action}: {summary}")
-                self._advanced_view.append_log(f"Recovery {action}: {summary}")
-                self._set_daily_activity(f"Recovery {action}: {summary}")
-                self._assistant_view.set_recovery_summary(f"{action}: {summary}", healthy=ok)
-                self._advanced_view.set_daily_context_recovery(self._assistant_view._recovery_summary.text(), ok=ok)
-                if self._update_windows_ops_chain(action, ok=ok, summary=summary):
-                    processed += 1
-                    continue
-                recovery_changes = {
-                    "health_snapshot": "Refreshed the launcher-visible health snapshot and operator evidence.",
-                    "warmup": "Refreshed startup-readiness and runtime-freshness evidence.",
-                    "restart_daemon": "Restarted the daemon and prepared the runtime for follow-up health checks.",
-                    "audit_runtime": "Re-ran runtime audit evidence and refreshed diagnostics guidance.",
-                }.get(action, "")
-                if recovery_changes:
-                    self._record_windows_ops_state(action, summary, recovery_changes, ok=ok)
-            processed += 1
+        drain_recovery_events(self)
 
     def _on_tool_hint_requested(self, tool_key: str) -> None:
         key = (tool_key or "").strip()
@@ -2063,6 +2085,12 @@ class LauncherWindow(QMainWindow):
             return
         states = self._tools_view.current_tool_states()
         if states.get(key) == "restricted":
+            self._log_launcher_event(
+                "tool_hint_blocked",
+                tool=key,
+                instance=self._active_instance_name,
+                status=states.get(key, "unknown"),
+            )
             message = (
                 f"{key.replace('_', ' ')} is blocked in {self._active_instance_name}. "
                 "Switch workspaces or review permissions in Agent Tools before you try again."
@@ -2070,29 +2098,23 @@ class LauncherWindow(QMainWindow):
             self._assistant_view.add_system_message(message)
             self._set_daily_activity(f"Workspace tool blocked: {key}")
             self._status_panel.append_syslog(f"workspace tool blocked: {key}")
+            self._refresh_tools_debug_surface()
             return
         self._on_tab_change(0)
         self._assistant_view.set_input_text(self._tool_prompt_for_home(key))
         self._set_daily_activity(f"Workspace tool loaded into Home: {key}")
         self._status_panel.append_syslog(f"workspace tool primed: {key}")
+        self._log_launcher_event(
+            "tool_hint_requested",
+            tool=key,
+            instance=self._active_instance_name,
+            status=states.get(key, "unknown"),
+        )
+        self._refresh_tools_debug_surface()
 
     @staticmethod
     def _tool_prompt_for_home(tool_key: str) -> str:
-        key = (tool_key or "").strip().lower()
-        prompts = {
-            "read_file": "Prime the read-file workspace tool for this task. Start by asking which file or folder Guppy should inspect, then confirm the exact read-only scope.",
-            "screenshot": "Prime the screenshot workspace tool for this task. Ask what screen or app the user wants Guppy to inspect.",
-            "query_instance": "Prime the cross-workspace query tool for this task. Ask which workspace Guppy should consult and what question to send.",
-            "debug_console": "Prime the debug-console workspace tool for this task. Start by asking what runtime detail the user wants to inspect.",
-            "run_python": "Prime the Python workspace tool for this task. Start by confirming the smallest safe snippet to run.",
-            "write_file": "Prime the write-file workspace tool for this task. Start by asking what file should change, what outcome is expected, and what scope is safe.",
-            "execute_command": "Prime the command workspace tool for this task. Start by asking which command should run, why it is needed, and what safe scope applies.",
-            "outlook_slot": "Help me plan an Outlook tray slot for this workspace. Start by asking what inbox, follow-up, or mail view should live there.",
-            "calendar_slot": "Help me plan a calendar tray slot for this workspace. Start by asking what schedule, agenda, or next event view should live there.",
-            "rss_slot": "Help me plan an RSS tray slot for this workspace. Start by asking which feeds, sources, or watchlists should live there.",
-            "add_slot": "Help me design a new tray slot for this workspace. Start by asking which app, API, or lightweight module should be added on the right side.",
-        }
-        return prompts.get(key, f"Prime the {key} workspace tool for this task: ")
+        return _registry_tool_prompt(tool_key)
 
     def _available_instance_names(self) -> set[str]:
         snapshot = self._last_instance_snapshot if isinstance(self._last_instance_snapshot, dict) else {}
@@ -2104,110 +2126,29 @@ class LauncherWindow(QMainWindow):
         }
 
     def _preferred_builder_instance_name(self) -> str:
-        names = self._available_instance_names()
-        if "builder-collab" in names:
-            return "builder-collab"
-        return self._active_instance_name or "guppy-primary"
+        snapshot = self._last_instance_snapshot if isinstance(self._last_instance_snapshot, dict) else {}
+        return preferred_builder_workspace_name(self._active_instance_name, snapshot)
 
     def _user_test_evidence_path(self) -> Path:
-        return _RUNTIME / "user_test_evidence.json"
+        return user_test_evidence_paths(_RUNTIME)[0]
 
     def _user_test_evidence_summary_path(self) -> Path:
-        return _RUNTIME / "user_test_evidence.md"
+        return user_test_evidence_paths(_RUNTIME)[1]
 
     @staticmethod
     def _display_repo_path(path: Path | str | None) -> str:
-        if path is None:
-            return ""
-        target = Path(path) if not isinstance(path, Path) else path
-        try:
-            return str(target.resolve().relative_to(_RUNTIME.parent.resolve())).replace("\\", "/")
-        except Exception:
-            return str(target).replace("\\", "/")
+        return display_repo_path(_RUNTIME.parent, path)
 
     @staticmethod
     def _latest_stress_report_path() -> Path | None:
-        candidates: list[Path] = []
-        for folder in (_RUNTIME, _RUNTIME / "stress_reports"):
-            if not folder.exists():
-                continue
-            candidates.extend(folder.glob("stress_report_*.json"))
-        if not candidates:
-            return None
-        return max(candidates, key=lambda path: path.stat().st_mtime)
+        return latest_stress_report_path(_RUNTIME)
 
     def _recent_launcher_event_summaries(self, limit: int = 4) -> list[str]:
-        items = read_jsonl_tail(_RUNTIME / "launcher_events.jsonl", limit=24)
-        rendered: list[str] = []
-        for item in reversed(items):
-            if not isinstance(item, dict):
-                continue
-            level = LauncherWindow._event_level(item)
-            event = str(item.get("event", "event") or "event").replace("_", " ").strip()
-            detail = (
-                str(item.get("summary", "") or "").strip()
-                or str(item.get("status", "") or "").strip()
-                or str(item.get("action", "") or "").strip()
-                or str(item.get("instance", "") or "").strip()
-                or str(item.get("destination", "") or "").strip()
-                or str(item.get("command", "") or "").strip()
-            )
-            line = f"{level} {event}"
-            if detail:
-                snippet = detail[:88] + ("..." if len(detail) > 88 else "")
-                line += f": {snippet}"
-            rendered.append(line)
-            if len(rendered) >= limit:
-                break
-        return rendered
+        return recent_launcher_event_summaries(_RUNTIME, limit=limit)
 
     @staticmethod
     def _write_user_test_evidence_summary(summary_path: Path, payload: dict[str, object]) -> str:
-        workspace = payload.get("active_workspace", {}) if isinstance(payload.get("active_workspace"), dict) else {}
-        home = payload.get("home", {}) if isinstance(payload.get("home"), dict) else {}
-        automation = payload.get("automation", {}) if isinstance(payload.get("automation"), dict) else {}
-        windows_ops = payload.get("windows_ops", {}) if isinstance(payload.get("windows_ops"), dict) else {}
-        recent_events = [
-            str(item).strip()
-            for item in payload.get("recent_operator_notes", [])
-            if str(item).strip()
-        ] if isinstance(payload.get("recent_operator_notes"), list) else []
-        lines = [
-            "# User Test Evidence Pack",
-            "",
-            f"Generated: {payload.get('generated_at', '')}",
-            f"Active workspace: {workspace.get('name', payload.get('active_workspace_name', 'unknown'))}",
-            f"Workspace role: {workspace.get('type', 'unknown')}",
-            f"Preferred builder workspace: {payload.get('preferred_builder_workspace', '')}",
-            f"Automation status: {automation.get('status', '')}",
-            f"Builder report: {automation.get('builder_report_path', '')}",
-            f"Evidence JSON: {payload.get('evidence_json_path', '')}",
-            f"Latest stress run: {payload.get('latest_stress_report', '') or 'not recorded'}",
-            "",
-            "## Home",
-            "",
-            f"- Background activity: {home.get('background_event', '')}",
-            f"- Workspace summary: {home.get('workspace_summary', '')}",
-            f"- Runtime facts: {home.get('runtime_facts', '')}",
-            f"- Route facts: {home.get('route_facts', '')}",
-            "",
-            "## Setup & Health",
-            "",
-            f"- Next step: {windows_ops.get('next', '')}",
-            f"- Service status: {windows_ops.get('service', '')}",
-            f"- Release check: {windows_ops.get('gate', '')}",
-            "",
-            "## Recent Operator Notes",
-            "",
-        ]
-        if recent_events:
-            lines.extend([f"- {item}" for item in recent_events])
-        else:
-            lines.append("- No recent launcher notes were recorded.")
-        text = "\n".join(lines).strip() + "\n"
-        summary_path.parent.mkdir(parents=True, exist_ok=True)
-        summary_path.write_text(text, encoding="utf-8")
-        return text
+        return write_user_test_evidence_summary(summary_path, payload)
 
     def _write_user_test_evidence_pack(
         self,
@@ -2215,62 +2156,14 @@ class LauncherWindow(QMainWindow):
         report_path: Path | None = None,
         status: str = "",
     ) -> dict[str, str]:
-        snapshot = self._last_instance_snapshot if isinstance(self._last_instance_snapshot, dict) else {}
-        items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
-        active_workspace = next(
-            (
-                item for item in items
-                if isinstance(item, dict) and str(item.get("name", "")).strip() == self._active_instance_name
-            ),
-            {"name": self._active_instance_name or "guppy-primary", "type": "user_instance"},
+        return write_launcher_user_test_evidence_pack(
+            self,
+            report_path=report_path,
+            status=status,
+            runtime_dir=_RUNTIME,
+            automation_report_path=_AUTOMATION_REPORT_PATH,
+            validation_command=_AUTOMATION_TEST_VALIDATION_COMMAND,
         )
-        windows_snapshot_getter = getattr(self._advanced_view, "windows_ops_snapshot", None)
-        windows_snapshot = windows_snapshot_getter() if callable(windows_snapshot_getter) else {}
-        stress_report = self._latest_stress_report_path()
-        builder_report = Path(report_path) if isinstance(report_path, Path) else _AUTOMATION_REPORT_PATH
-        def _label_text(attr_name: str) -> str:
-            widget = getattr(self._assistant_view, attr_name, None)
-            text_getter = getattr(widget, "text", None)
-            if callable(text_getter):
-                try:
-                    return str(text_getter() or "").strip()
-                except Exception:
-                    return ""
-            return ""
-        payload = {
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "active_workspace_name": self._active_instance_name,
-            "preferred_builder_workspace": self._preferred_builder_instance_name(),
-            "active_workspace": active_workspace if isinstance(active_workspace, dict) else {},
-            "home": {
-                "background_event": _label_text("_background_event"),
-                "workspace_summary": _label_text("_workspace_summary"),
-                "runtime_facts": _label_text("_runtime_facts"),
-                "route_facts": _label_text("_route_facts"),
-                "recovery_summary": _label_text("_recovery_summary"),
-            },
-            "automation": {
-                "status": str(status or getattr(getattr(self._advanced_view, "_automation_status_lbl", None), "text", lambda: "")() or "").strip(),
-                "builder_report_path": self._display_repo_path(builder_report),
-                "validation_command": _AUTOMATION_TEST_VALIDATION_COMMAND,
-            },
-            "windows_ops": windows_snapshot if isinstance(windows_snapshot, dict) else {},
-            "latest_stress_report": self._display_repo_path(stress_report) if stress_report else "",
-            "recent_operator_notes": self._recent_launcher_event_summaries(limit=5),
-        }
-        json_path = self._user_test_evidence_path()
-        summary_path = self._user_test_evidence_summary_path()
-        payload["evidence_json_path"] = self._display_repo_path(json_path)
-        payload["evidence_summary_path"] = self._display_repo_path(summary_path)
-        _write_json(json_path, payload)
-        self._write_user_test_evidence_summary(summary_path, payload)
-        return {
-            "json_path": self._display_repo_path(json_path),
-            "summary_path": self._display_repo_path(summary_path),
-            "stress_report_path": self._display_repo_path(stress_report) if stress_report else "",
-            "recent_events": "Recent operator notes: " + " | ".join(payload["recent_operator_notes"])
-            if payload["recent_operator_notes"] else "Recent operator notes: no recent launcher notes recorded yet.",
-        }
 
     def _automation_test_snapshot(
         self,
@@ -2281,105 +2174,17 @@ class LauncherWindow(QMainWindow):
         stress_report_path: str = "",
         recent_events: str = "",
     ) -> dict[str, str]:
-        from src.guppy.launcher_application.builder_workflow import build_builder_report, metrics_path, queue_path, results_path
-
-        queue_file = queue_path()
-        results_file = results_path()
-        metrics_file = metrics_path()
-        report = build_builder_report(queue_path=queue_file, results_path=results_file, metrics_path=metrics_file)
-        queue_payload = read_json_dict(queue_file)
-        tasks = [
-            item for item in queue_payload.get("tasks", [])
-            if isinstance(item, dict)
-        ] if isinstance(queue_payload, dict) else []
-        counts = report.get("queue_counts", {}) if isinstance(report, dict) else {}
-        pending = int(counts.get("pending", 0) or 0)
-        running = int(counts.get("running", 0) or 0)
-        awaiting = int(counts.get("awaiting_approval", 0) or 0)
-        done = int(counts.get("done", 0) or 0)
-        latest_pending = next(
-            (
-                item for item in reversed(tasks)
-                if str(item.get("status", "")).strip() == "awaiting_approval"
-                and isinstance(item.get("pending_approval"), dict)
-            ),
-            {},
+        return build_launcher_automation_test_snapshot(
+            self,
+            report_path=report_path,
+            status=status,
+            evidence_pack_path=evidence_pack_path,
+            stress_report_path=stress_report_path,
+            recent_events=recent_events,
+            runtime_dir=_RUNTIME,
+            automation_report_path=_AUTOMATION_REPORT_PATH,
+            validation_command=_AUTOMATION_TEST_VALIDATION_COMMAND,
         )
-        latest_result = next(
-            (
-                item for item in reversed(report.get("recent_results", []))
-                if isinstance(item, dict)
-            ),
-            {},
-        )
-        latest_staged_file = str(
-            (latest_pending.get("pending_approval", {}) if isinstance(latest_pending, dict) else {}).get("staged_file", "")
-        ).strip()
-        latest_result_path = str(latest_result.get("output_file", "") or "").strip()
-        if not latest_result_path:
-            latest_done_task = next(
-                (
-                    item for item in reversed(tasks)
-                    if str(item.get("status", "")).strip() == "done"
-                ),
-                {},
-            )
-            latest_result_path = str(latest_done_task.get("approved_output_file", "") or "").strip()
-        preferred_builder = self._preferred_builder_instance_name()
-        if preferred_builder == "builder-collab":
-            workspace_line = (
-                f"Workspace step: active={self._active_instance_name} | preferred=builder-collab | "
-                "switch here before queueing if you want the default builder workspace."
-            )
-        else:
-            workspace_line = (
-                f"Workspace step: active={self._active_instance_name} | preferred={preferred_builder} | "
-                "builder-collab is unavailable, so automation stays in the current workspace."
-            )
-        if latest_pending:
-            approval_state = (
-                "Latest approval: awaiting approval for "
-                f"{str(latest_pending.get('title', latest_pending.get('id', 'builder task')))}"
-            )
-        elif latest_result_path:
-            approval_state = f"Latest approval: most recent approved output is {latest_result_path}"
-        else:
-            approval_state = "Latest approval: no staged task is awaiting approval yet."
-        if not evidence_pack_path:
-            evidence_pack_path = self._display_repo_path(self._user_test_evidence_summary_path())
-        if not stress_report_path:
-            latest_stress = self._latest_stress_report_path()
-            stress_report_path = self._display_repo_path(latest_stress) if latest_stress else ""
-        if not recent_events:
-            recent_items = self._recent_launcher_event_summaries(limit=4)
-            recent_events = (
-                "Recent operator notes: " + " | ".join(recent_items)
-                if recent_items else
-                "Recent operator notes: no recent launcher notes recorded yet."
-            )
-        return {
-            "workspace": workspace_line,
-            "queue_counts": (
-                f"Queue counts: pending={pending} | running={running} | awaiting approval={awaiting} | done={done}"
-            ),
-            "staged_file": (
-                f"Latest staged output: {latest_staged_file}"
-                if latest_staged_file
-                else "Latest staged output: nothing is waiting for approval yet."
-            ),
-            "result_path": (
-                f"Latest result: {latest_result_path}"
-                if latest_result_path
-                else "Latest result: no approved builder output has been recorded yet."
-            ),
-            "approval_state": approval_state,
-            "report_path": self._display_repo_path(report_path or _AUTOMATION_REPORT_PATH),
-            "evidence_pack_path": evidence_pack_path,
-            "stress_report_path": stress_report_path,
-            "recent_events": recent_events,
-            "validation_command": _AUTOMATION_TEST_VALIDATION_COMMAND,
-            "status": str(status or "").strip(),
-        }
 
     def _sync_automation_test_state(
         self,
@@ -2389,17 +2194,16 @@ class LauncherWindow(QMainWindow):
         report_path: Path | None = None,
         persist: bool = False,
     ) -> None:
-        evidence_bundle = self._write_user_test_evidence_pack(report_path=report_path, status=status) if persist else {}
-        snapshot = self._automation_test_snapshot(
-            report_path=report_path,
+        sync_launcher_automation_test_state(
+            self,
             status=status,
-            evidence_pack_path=str(evidence_bundle.get("summary_path", "") or ""),
-            stress_report_path=str(evidence_bundle.get("stress_report_path", "") or ""),
-            recent_events=str(evidence_bundle.get("recent_events", "") or ""),
+            ok=ok,
+            report_path=report_path,
+            persist=persist,
+            runtime_dir=_RUNTIME,
+            automation_report_path=_AUTOMATION_REPORT_PATH,
+            validation_command=_AUTOMATION_TEST_VALIDATION_COMMAND,
         )
-        self._advanced_view.set_automation_snapshot(snapshot)
-        if status:
-            self._advanced_view.set_automation_status(status, ok=ok)
 
     def _queue_builder_task(
         self,
@@ -2431,18 +2235,11 @@ class LauncherWindow(QMainWindow):
         return task
 
     def _write_automation_report(self) -> Path:
-        from src.guppy.launcher_application.builder_workflow import build_builder_report, metrics_path, queue_path, results_path
-
-        report = build_builder_report(queue_path=queue_path(), results_path=results_path(), metrics_path=metrics_path())
-        payload = {
-            **report,
-            "active_workspace": self._active_instance_name,
-            "preferred_builder_workspace": self._preferred_builder_instance_name(),
-            "validation_command": _AUTOMATION_TEST_VALIDATION_COMMAND,
-        }
-        _AUTOMATION_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _AUTOMATION_REPORT_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        return _AUTOMATION_REPORT_PATH
+        return write_launcher_automation_report(
+            self,
+            automation_report_path=_AUTOMATION_REPORT_PATH,
+            validation_command=_AUTOMATION_TEST_VALIDATION_COMMAND,
+        )
 
     def _approve_latest_builder_task(self) -> dict[str, object]:
         from src.guppy.launcher_application.builder_workflow import approve_builder_task, metrics_path, queue_path, results_path
@@ -2478,24 +2275,38 @@ class LauncherWindow(QMainWindow):
             template_id = str(payload.get("template_id", "")).strip()
             target_ref = str(payload.get("target_ref", "")).strip()
             instance_name = str(payload.get("instance_name", self._active_instance_name)).strip() or self._active_instance_name
+            self._log_launcher_event(
+                "tool_builder_task_requested",
+                tool="builder_task",
+                instance=instance_name,
+                action=template_id,
+                summary=target_ref,
+            )
             task = self._queue_builder_task(
                 template_id=template_id,
                 target_ref=target_ref,
                 instance_name=instance_name,
                 announce_text=f"Builder task queued for {instance_name}: {template_id}",
             )
-            self._advanced_view.set_automation_status(
+            self._settings_hub_view.set_automation_status(
                 f"Queued {task['title']} from Tools. Review staged output in Settings when it is ready."
             )
         except Exception as exc:
             self._tools_view.set_builder_status(f"Queue failed: {exc}", ok=False)
-            self._advanced_view.set_automation_status(f"Queue failed: {exc}", ok=False)
+            self._settings_hub_view.set_automation_status(f"Queue failed: {exc}", ok=False)
             self._status_panel.append_syslog(f"builder task queue failed: {exc}")
+            self._log_launcher_event(
+                "tool_builder_task_error",
+                tool="builder_task",
+                instance=self._active_instance_name,
+                error=str(exc),
+            )
+        self._refresh_tools_debug_surface()
 
     def _on_automation_action_requested(self, action: str) -> None:
         target = (action or "").strip().lower()
         if target == "verify_now":
-            self._advanced_view.focus_automation_test(
+            self._settings_hub_view.focus_automation_test(
                 note="VERIFY NOW queued runtime readiness checks in the Settings terminal."
             )
             self._on_windows_ops_requested("verify_runtime")
@@ -2517,7 +2328,7 @@ class LauncherWindow(QMainWindow):
                 self._sync_automation_test_state(status="builder-collab is already active.", persist=True)
                 return
             self._on_instance_selected("builder-collab")
-            self._advanced_view.focus_automation_test(
+            self._settings_hub_view.focus_automation_test(
                 note="Builder workspace selected for automation dry runs."
             )
             self._sync_automation_test_state(status="Switched to builder-collab for automation testing.", persist=True)
@@ -2535,7 +2346,7 @@ class LauncherWindow(QMainWindow):
                 self._sync_automation_test_state(status=f"Queue failed: {exc}", ok=False, persist=True)
                 self._status_panel.append_syslog(f"automation dry run queue failed: {exc}")
                 return
-            self._advanced_view.focus_automation_test(
+            self._settings_hub_view.focus_automation_test(
                 note=f"Dry run queued: {task['title']} -> {task['output_file_path']}"
             )
             return
@@ -2546,7 +2357,7 @@ class LauncherWindow(QMainWindow):
                 status="Evidence pack refreshed for the guided tester lane.",
             )
             summary_path = str(evidence_bundle.get("summary_path", "") or "")
-            self._advanced_view.focus_operator_logs(
+            self._settings_hub_view.focus_operator_logs(
                 "ALL",
                 note=f"Evidence pack refreshed: {summary_path or path}",
             )
@@ -2576,7 +2387,7 @@ class LauncherWindow(QMainWindow):
             )
             return
         if target == "run_validation":
-            queued = self._advanced_view.queue_terminal_recipe(
+            queued = self._settings_hub_view.queue_terminal_recipe(
                 [_AUTOMATION_TEST_VALIDATION_COMMAND],
                 label="AUTOMATION TEST VALIDATION",
                 recipe_context={
@@ -2945,6 +2756,9 @@ class LauncherWindow(QMainWindow):
         script = root / "guppy_api.py"
         if not script.exists():
             return False, "guppy_api.py not found"
+        if launch_attempt_recent(_RUNTIME, "launcher_command_api", ttl_seconds=_COMMAND_START_TTL_SECONDS):
+            self._log_launcher_event("api_command_launch_debounced", mode="direct")
+            return False, "api launch already attempted recently"
         venv_python = root / ".venv" / "Scripts" / "python.exe"
         python = str(venv_python) if venv_python.exists() else sys.executable
         flags = {}
@@ -2955,6 +2769,7 @@ class LauncherWindow(QMainWindow):
             startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
             flags["startupinfo"] = startupinfo
         try:
+            mark_launch_attempt(_RUNTIME, "launcher_command_api")
             subprocess.Popen([python, str(script)], cwd=str(root), **flags)
             # Give it a moment to publish backend-owned startup readiness.
             deadline = time.time() + 6.0
@@ -2962,11 +2777,13 @@ class LauncherWindow(QMainWindow):
                 time.sleep(0.5)
                 state, detail = self._api_reachability_status(timeout=0.8)
                 if state == "reachable":
+                    clear_launch_attempt(_RUNTIME, "launcher_command_api")
                     return True, detail or "api started and published startup readiness"
                 if state == "auth_failed":
                     return False, detail or "api requires refreshed auth"
             return False, "api process started but not yet reachable"
         except Exception as e:
+            clear_launch_attempt(_RUNTIME, "launcher_command_api")
             return False, str(e)
 
     def _start_supervised_api_subprocess(self) -> tuple[bool, str]:
@@ -2975,6 +2792,9 @@ class LauncherWindow(QMainWindow):
         script = root / "bin" / "launch_api_supervised.bat"
         if not script.exists():
             return False, "launch_api_supervised.bat not found"
+        if launch_attempt_recent(_RUNTIME, "launcher_command_supervised_api", ttl_seconds=_COMMAND_START_TTL_SECONDS):
+            self._log_launcher_event("api_command_launch_debounced", mode="supervised")
+            return False, "supervised api launch already attempted recently"
         try:
             kwargs: dict[str, object] = {"cwd": str(root)}
             if sys.platform == "win32":
@@ -2983,32 +2803,38 @@ class LauncherWindow(QMainWindow):
                 startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
                 startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
                 kwargs["startupinfo"] = startupinfo
+                mark_launch_attempt(_RUNTIME, "launcher_command_supervised_api")
                 subprocess.Popen(["cmd.exe", "/c", str(script)], **kwargs)
             else:
+                mark_launch_attempt(_RUNTIME, "launcher_command_supervised_api")
                 subprocess.Popen([str(script)], **kwargs)
             deadline = time.time() + 8.0
             while time.time() < deadline:
                 time.sleep(0.5)
                 state, detail = self._api_reachability_status(timeout=0.8)
                 if state == "reachable":
+                    clear_launch_attempt(_RUNTIME, "launcher_command_supervised_api")
                     return True, detail or "supervised api started and published startup readiness"
                 if state == "auth_failed":
                     return False, detail or "api requires refreshed auth"
             return False, "supervised api launcher started but the API is not yet reachable"
         except Exception as exc:
+            clear_launch_attempt(_RUNTIME, "launcher_command_supervised_api")
             return False, str(exc)
 
     def _ensure_api_reachable_for_command(self) -> tuple[bool, str]:
         state, detail = self._api_reachability_status(timeout=0.8)
         if state == "reachable":
             return True, detail or "api already reachable"
-        started, detail = self._start_supervised_api_subprocess()
+        started, detail = self._start_api_subprocess()
         if started:
             return True, detail
-        fallback_started, fallback_detail = self._start_api_subprocess()
-        if fallback_started:
-            return True, fallback_detail
-        return False, f"{detail}; fallback: {fallback_detail}"
+        self._log_launcher_event(
+            "api_command_start_failed",
+            mode="direct_only",
+            reason=detail,
+        )
+        return False, detail
 
     def _direct_warmup(self) -> dict:
         """Warmup: check freshness of key runtime files."""
@@ -3084,106 +2910,26 @@ class LauncherWindow(QMainWindow):
         }
 
     def _on_recovery_requested(self, action: str) -> None:
-        act = (action or "").strip().lower()
-        self._recovery_events.put({"kind": "status", "text": f"Recovery: {act}..."})
-        self._recovery_events.put({"kind": "syslog", "text": f"recovery: {act}"})
-        self._log_launcher_event("recovery_requested", action=act)
-
-        threading.Thread(target=self._run_recovery_request, args=(act,), daemon=True).start()
+        start_recovery_request(self, action, thread_factory=threading.Thread)
 
     def _run_recovery_request(self, act: str) -> None:
-        """Run recovery work off the UI thread; enqueue UI updates for main-thread drain."""
-        if not act:
-            return
-
-        try:
-            # ── Try API path first ─────────────────────────────────────────────
-            api_state, api_detail = self._api_reachability_status()
-            if api_state == "reachable":
-                if act == "health_snapshot":
-                    status  = self._http_json("/status", method="GET")
-                    startup = self._http_json("/startup/check?deep=true", method="GET")
-                    status_state  = str(status.get("status", "unknown")).upper()
-                    startup_state = str(startup.get("overall", "unknown")).upper()
-                    summary = f"status={status_state} startup={startup_state}"
-                    category = "runtime_ready"
-                    if startup_state not in {"GO", "READY", "OK", "PASS"}:
-                        category = "runtime_stale"
-                    formatted = self._push_recovery_outcome("health_snapshot", category == "runtime_ready", summary, category)
-                    msg = f"Snapshot {'OK' if category == 'runtime_ready' else 'ERROR'}: {formatted}"
-                elif act in {"warmup", "restart_daemon", "audit_runtime"}:
-                    result  = self._http_json("/repair", method="POST",
-                                             payload={"action": act, "dry_run": False},
-                                             timeout=12.0)
-                    ok      = bool(result.get("ok", False))
-                    summary = str(result.get("summary", "done"))
-                    category = self._classify_recovery_summary(summary, ok, "recovery_ok" if ok else "recovery_error")
-                    if act == "restart_daemon":
-                        self._refresh_api_auth_state("restart_daemon_api")
-                    formatted = self._push_recovery_outcome(act, ok, summary, category)
-                    msg = f"Recovery {act}: {'OK' if ok else 'ERROR'} — {formatted}"
-                else:
-                    raise ValueError(f"unsupported action: {act}")
-
-                self._recovery_events.put({"kind": "status", "text": msg})
-                self._recovery_events.put({"kind": "syslog", "text": msg})
-                return
-
-            if api_state == "auth_failed":
-                formatted = self._push_recovery_outcome(act, False, api_detail, "auth_failed")
-                msg = f"Recovery {act}: ERROR — {formatted}"
-                self._recovery_events.put({"kind": "status", "text": msg})
-                self._recovery_events.put({"kind": "syslog", "text": msg})
-                return
-
-            # ── API not reachable — run directly ───────────────────────────────
-            api_summary = self._format_recovery_summary("api_unreachable", api_detail or "running direct recovery")
-            self._recovery_events.put({"kind": "syslog", "text": api_summary})
-
-            if act == "health_snapshot":
-                result = self._direct_health_snapshot()
-            elif act == "warmup":
-                result = self._direct_warmup()
-            elif act == "restart_daemon":
-                # restart_daemon means "bring the API (and daemon) up"
-                self._recovery_events.put({"kind": "syslog", "text": "starting api server..."})
-                started, detail = self._start_api_subprocess()
-                result = {
-                    "ok": started,
-                    "summary": detail,
-                    "category": "runtime_ready" if started else "api_unreachable",
-                }
-                self._refresh_api_auth_state("restart_daemon_direct")
-            elif act == "audit_runtime":
-                result = self._direct_audit_runtime()
-            else:
-                raise ValueError(f"unsupported action: {act}")
-
-            ok      = bool(result.get("ok", False))
-            summary = str(result.get("summary", "done"))
-            category = str(result.get("category", "")) or self._classify_recovery_summary(summary, ok, "api_unreachable")
-            formatted = self._push_recovery_outcome(act, ok, summary, category)
-            msg     = f"Direct {act}: {'OK' if ok else 'ERROR'} — {formatted}"
-            self._recovery_events.put({"kind": "status", "text": msg})
-            self._recovery_events.put({"kind": "syslog", "text": msg})
-
-        except Exception as e:
-            formatted = self._push_recovery_outcome(act or "recovery", False, str(e))
-            msg = f"Recovery {act} error: {formatted}"
-            self._recovery_events.put({"kind": "status", "text": msg})
-            self._recovery_events.put({"kind": "syslog", "text": msg})
+        run_recovery_request(self, act)
 
     def _on_model_selected(self, model: str) -> None:
         self._status_panel.append_syslog(f"active model -> {model}")
 
         self._refresh_personalization_state()
         self._update_route_preview(self._last_command)
+        if self._stack.currentIndex() == _MODELS_VIEW_INDEX:
+            self._sync_shell_model_summary(active_model=model)
 
     def _on_runtime_settings_saved(self, settings: dict) -> None:
         backend = str(settings.get("local_runtime_backend", "ollama") or "ollama").strip().lower() or "ollama"
         self._status_panel.append_syslog(f"local runtime saved -> {backend}")
         self._refresh_personalization_state()
         self._update_route_preview(self._last_command)
+        if self._stack.currentIndex() == _MODELS_VIEW_INDEX:
+            self._sync_shell_model_summary(runtime_backend=backend)
         self._log_launcher_event("local_runtime_saved", backend=backend)
 
     def _on_search(self, query: str) -> None:
@@ -3213,7 +2959,7 @@ class LauncherWindow(QMainWindow):
                 self._status_panel.append_syslog(f"windows ops unavailable: {action}")
                 return
             guidance = self._windows_ops_guidance(target, ok=True, phase="queued")
-            queued = self._advanced_view.queue_terminal_recipe(
+            queued = self._settings_hub_view.queue_terminal_recipe(
                 commands,
                 label=label,
                 recipe_context={
@@ -3328,7 +3074,7 @@ class LauncherWindow(QMainWindow):
                 release_summary=str(self._windows_release_summary_path()),
             )
             self._status_panel.append_syslog(final_summary)
-            self._advanced_view.append_log(final_summary)
+            self._settings_hub_view.append_log(final_summary)
             self._set_daily_activity(final_summary)
             return
         if descriptor.execution_kind == WindowsOpsExecutionKind.RECOVERY_CHAIN and target in {"restart_runtime", "repair_runtime"}:
@@ -3635,64 +3381,18 @@ class LauncherWindow(QMainWindow):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_quick_action(self, action: str) -> None:
-        target = (action or "").strip().lower()
-        if target == "toggle_sidebar":
-            self._toggle_sidebar()
-            return
-        if target == "toggle_drawer":
-            self._toggle_status_panel()
-            return
-        if target == "notifications":
-            self._on_tab_change(_ADVANCED_VIEW_INDEX)
-            self._advanced_view.focus_operator_logs(
-                "WARN",
-                note="Top bar notifications opened launcher warnings and recovery events.",
-            )
-            self._set_daily_activity("Settings opened launcher warnings and recovery events")
-            self._status_panel.append_syslog("Settings warnings opened from top bar")
-            self._log_launcher_event("quick_action", action="notifications")
-            return
-        if target == "terminal":
-            self._on_tab_change(_ADVANCED_VIEW_INDEX)
-            note = "Top bar terminal opened operator logs"
-            if self._last_command:
-                note += f". Last command: {self._last_command}"
-            self._advanced_view.focus_operator_logs("ALL", note=note)
-            self._advanced_view.focus_terminal(
-                note=f"[launcher] terminal opened from top bar. cwd={_RUNTIME.parent}"
-            )
-            self._set_daily_activity("Settings opened operator logs and workflow controls")
-            self._status_panel.append_syslog("Settings terminal opened from top bar")
-            self._log_launcher_event("quick_action", action="terminal", last_command=self._last_command)
-            return
-        self._status_panel.append_syslog(f"quick action unavailable: {action}")
+        plan = self._build_quick_action_plan(action)
+        self._apply_quick_action_plan(plan)
 
     def _refresh_notification_badge(self) -> None:
-        path = _RUNTIME / "launcher_events.jsonl"
-        if not path.exists():
-            self._topbar.set_notification_badge(0, severity="info")
+        state = build_notification_badge_state(
+            events_path=_RUNTIME / "launcher_events.jsonl",
+            previous_mtime=self._notification_badge_mtime,
+        )
+        if not state.changed:
             return
-        try:
-            mtime = path.stat().st_mtime
-        except Exception:
-            mtime = 0.0
-        if mtime == self._notification_badge_mtime:
-            return
-        self._notification_badge_mtime = mtime
-        events = read_jsonl_tail(path, limit=80)
-        warn_count = 0
-        error_count = 0
-        for item in events:
-            if not isinstance(item, dict):
-                continue
-            level = self._event_level(item)
-            if level == "ERROR":
-                error_count += 1
-            elif level == "WARN":
-                warn_count += 1
-        severity = "error" if error_count else ("warn" if warn_count else "info")
-        total = error_count + warn_count
-        self._topbar.set_notification_badge(total, severity=severity)
+        self._notification_badge_mtime = state.mtime
+        self._topbar.set_notification_badge(state.count, severity=state.severity)
 
     def _ensure_voice_capture(self) -> tuple[bool, str]:
         if not _VOICE_CAPTURE_AVAILABLE or GuppyVoice is None:

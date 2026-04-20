@@ -134,14 +134,14 @@ class LibraryStorageTests(unittest.TestCase):
                     "builder-collab",
                     item_kind="note",
                     title="Review packet",
-                    summary="Initial summary",
+                    summary="Initial summary line one.\nInitial summary line two.",
                     metadata={"source": "unit-test"},
                 )
 
                 updated = library_storage.update_workspace_library_item(
                     int(item["id"]),
                     title="Review packet v2",
-                    summary="Updated summary",
+                    summary="Updated summary line one.\nUpdated summary line two.",
                 )
                 browsed = library_storage.list_root_files(repo_root, limit=4)
                 deleted = library_storage.delete_workspace_library_item(int(item["id"]))
@@ -149,7 +149,7 @@ class LibraryStorageTests(unittest.TestCase):
 
                 self.assertIsNotNone(updated)
                 self.assertEqual(updated["title"], "Review packet v2")
-                self.assertEqual(updated["summary"], "Updated summary")
+                self.assertEqual(updated["summary"], "Updated summary line one.\nUpdated summary line two.")
                 self.assertTrue(browsed)
                 self.assertEqual(browsed[0]["title"], "review-notes.md")
                 self.assertEqual(browsed[0]["item_kind"], "study")

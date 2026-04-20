@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -26,6 +27,7 @@ from src.guppy.launcher_application.library_presenter import (
     validate_library_root,
 )
 from .. import tokens as T
+from .library_media_panel import LibraryMediaPanel
 from .library_view_components import body_label as _body
 from .library_view_components import build_summary_card as _build_summary_card
 from .library_view_components import mono_label as _mono
@@ -86,6 +88,14 @@ class LibraryView(QWidget):
         )
         title_row.addWidget(self._workspace_chip)
         header_layout.addLayout(title_row)
+
+        purpose = QLabel("LIBRARY — Save files, notes, and assistant output so they can be attached to future conversations.")
+        purpose.setObjectName("hub-purpose")
+        purpose.setWordWrap(True)
+        purpose.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        )
+        header_layout.addWidget(purpose)
 
         self._summary_lbl = _body("")
         header_layout.addWidget(self._summary_lbl)
@@ -149,19 +159,26 @@ class LibraryView(QWidget):
         self._root_feedback_lbl.setVisible(False)
         manager_layout.addWidget(self._root_feedback_lbl)
 
-        note_row = QHBoxLayout()
+        note_row = QVBoxLayout()
         note_row.setSpacing(8)
+        note_top = QHBoxLayout()
+        note_top.setSpacing(8)
         self._note_title = QLineEdit()
         self._note_title.setPlaceholderText("Pinned note title")
-        self._note_summary = QLineEdit()
-        self._note_summary.setPlaceholderText("Short note summary")
+        self._note_body = QPlainTextEdit()
+        self._note_body.setPlaceholderText("Pinned note body")
+        self._note_body.setFixedHeight(92)
         self._note_save_btn = QPushButton("PIN NOTE")
+        self._note_save_btn.setToolTip("Save this note and pin it to the active workspace library")
         self._note_save_btn.clicked.connect(self._emit_note_request)
-        for widget in (self._note_title, self._note_summary):
-            widget.setStyleSheet(
-                f"QLineEdit {{ background: rgba(255,255,255,0.90); border: 1px solid rgba(214,197,174,0.56); color: {T.TEXT};"
-                f" border-radius: 14px; padding: 6px 10px; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; }}"
-            )
+        self._note_title.setStyleSheet(
+            f"QLineEdit {{ background: rgba(255,255,255,0.90); border: 1px solid rgba(214,197,174,0.56); color: {T.TEXT};"
+            f" border-radius: 14px; padding: 6px 10px; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; }}"
+        )
+        self._note_body.setStyleSheet(
+            f"QPlainTextEdit {{ background: rgba(255,255,255,0.90); border: 1px solid rgba(214,197,174,0.56); color: {T.TEXT};"
+            f" border-radius: 14px; padding: 8px 10px; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; }}"
+        )
         self._note_save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._note_save_btn.setStyleSheet(
             f"QPushButton {{ background: {T.BG0}; color: {T.PRIMARY}; border: 1px solid {T.BORDER};"
@@ -169,6 +186,7 @@ class LibraryView(QWidget):
             f"QPushButton:hover {{ border-color: {T.PRIMARY}; background: #ffffff; }}"
         )
         self._note_cancel_btn = QPushButton("CANCEL EDIT")
+        self._note_cancel_btn.setToolTip("Discard changes and reset the note editor")
         self._note_cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._note_cancel_btn.setStyleSheet(
             f"QPushButton {{ background: {T.BG0}; color: {T.SECONDARY}; border: 1px solid {T.BORDER};"
@@ -177,10 +195,11 @@ class LibraryView(QWidget):
         )
         self._note_cancel_btn.clicked.connect(self._reset_note_editor)
         self._note_cancel_btn.setVisible(False)
-        note_row.addWidget(self._note_title, stretch=1)
-        note_row.addWidget(self._note_summary, stretch=2)
-        note_row.addWidget(self._note_save_btn)
-        note_row.addWidget(self._note_cancel_btn)
+        note_top.addWidget(self._note_title, stretch=1)
+        note_top.addWidget(self._note_save_btn)
+        note_top.addWidget(self._note_cancel_btn)
+        note_row.addLayout(note_top)
+        note_row.addWidget(self._note_body)
         manager_layout.addLayout(note_row)
 
         artifact_row = QHBoxLayout()
@@ -190,8 +209,10 @@ class LibraryView(QWidget):
         self._artifact_path = QLineEdit()
         self._artifact_path.setPlaceholderText("Artifact path or bundle location")
         self._artifact_browse_btn = QPushButton("PICK FILE")
+        self._artifact_browse_btn.setToolTip("Browse and select a file to register as a library artifact")
         self._artifact_browse_btn.clicked.connect(self._choose_artifact_path)
         self._artifact_save_btn = QPushButton("SAVE ARTIFACT")
+        self._artifact_save_btn.setToolTip("Save this artifact reference to the active workspace library")
         self._artifact_save_btn.clicked.connect(self._emit_artifact_request)
         for widget in (self._artifact_title, self._artifact_path):
             widget.setStyleSheet(
@@ -206,6 +227,7 @@ class LibraryView(QWidget):
                 f"QPushButton:hover {{ border-color: {T.PRIMARY}; background: #ffffff; }}"
             )
         self._artifact_cancel_btn = QPushButton("CANCEL EDIT")
+        self._artifact_cancel_btn.setToolTip("Discard changes and reset the artifact editor")
         self._artifact_cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._artifact_cancel_btn.setStyleSheet(
             f"QPushButton {{ background: {T.BG0}; color: {T.SECONDARY}; border: 1px solid {T.BORDER};"
@@ -278,6 +300,16 @@ class LibraryView(QWidget):
         grid.addWidget(self._coding_card, 1, 0)
         grid.addWidget(self._artifact_card, 1, 1)
         layout.addWidget(grid_host)
+
+        self._media_header = _mono("LOCAL MEDIA", T.PRIMARY, T.FS_TINY, True)
+        layout.addWidget(self._media_header)
+        self._media_hint = _body(
+            "Load local audio or video from approved roots or saved media artifacts without leaving Library.",
+            color=T.DIM,
+        )
+        layout.addWidget(self._media_hint)
+        self._media_panel = LibraryMediaPanel(self)
+        layout.addWidget(self._media_panel)
 
         self._recent_header = _mono("READY TO USE IN CHAT", T.PRIMARY, T.FS_TINY, True)
         layout.addWidget(self._recent_header)
@@ -366,7 +398,7 @@ class LibraryView(QWidget):
     def _begin_note_edit(self, item_id: int, title: str, summary: str) -> None:
         self._editing_note_id = max(0, int(item_id or 0))
         self._note_title.setText(title)
-        self._note_summary.setText(summary)
+        self._note_body.setPlainText(summary)
         self._note_save_btn.setText("UPDATE NOTE")
         self._note_cancel_btn.setVisible(True)
 
@@ -380,7 +412,7 @@ class LibraryView(QWidget):
     def _reset_note_editor(self) -> None:
         self._editing_note_id = 0
         self._note_title.clear()
-        self._note_summary.clear()
+        self._note_body.clear()
         self._note_save_btn.setText("PIN NOTE")
         self._note_cancel_btn.setVisible(False)
 
@@ -420,9 +452,28 @@ class LibraryView(QWidget):
     def set_root_feedback(self, message: str, *, is_error: bool = False) -> None:
         self._set_root_feedback(message, is_error=is_error)
 
+    def _add_media_action(self, header: QHBoxLayout, card_state: dict[str, str]) -> None:
+        if not bool(card_state.get("is_media")):
+            return
+        title = str(card_state.get("title", "") or "").strip()
+        media_path = str(card_state.get("media_path", card_state.get("item_path", "")) or "").strip()
+        if not media_path:
+            return
+        media_btn = QPushButton("LOAD MEDIA")
+        media_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        media_btn.setStyleSheet(
+            f"QPushButton {{ background: {T.BG0}; color: {T.TERTIARY}; border: 1px solid {T.BORDER};"
+            f" border-radius: 12px; padding: 5px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton:hover {{ border-color: {T.TERTIARY}; background: #ffffff; }}"
+        )
+        media_btn.clicked.connect(
+            lambda _=False, item_title=title, item_media_path=media_path: self._media_panel.load_media(item_title, item_media_path)
+        )
+        header.addWidget(media_btn)
+
     def _emit_note_request(self) -> None:
         title = self._note_title.text().strip()
-        summary = self._note_summary.text().strip()
+        summary = self._note_body.toPlainText().strip()
         if not title:
             return
         if self._editing_note_id > 0:
@@ -540,6 +591,7 @@ class LibraryView(QWidget):
                 lambda _=False, t=title, p=item_path, k=kind, prompt_text=prompt: self.context_requested.emit(t, p, k, prompt_text)
             )
             top.addWidget(action)
+            self._add_media_action(top, card_state)
             layout.addLayout(top)
             layout.addWidget(_body(title, color=T.INK, size=T.FS_LABEL))
             layout.addWidget(_body(detail, color=T.DIM))
@@ -590,6 +642,7 @@ class LibraryView(QWidget):
                 lambda _=False, t=title, p=item_path, k=kind, prompt_text=prompt: self.context_requested.emit(t, p, k, prompt_text)
             )
             top.addWidget(action)
+            self._add_media_action(top, card_state)
             layout.addLayout(top)
 
             title_lbl = QLabel(title)
@@ -662,6 +715,7 @@ class LibraryView(QWidget):
                 lambda _=False, i=item_id, t=title: self.library_item_delete_requested.emit(i, t)
             )
             top.addWidget(use_btn)
+            self._add_media_action(top, card_state)
             top.addWidget(edit_btn)
             top.addWidget(delete_btn)
             layout.addLayout(top)

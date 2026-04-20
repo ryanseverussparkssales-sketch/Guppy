@@ -27,17 +27,13 @@ class _ManagerView:
         self.binding_status = (text, ok)
 
 
-class _AdvancedView:
+class _SettingsHubView:
     def __init__(self) -> None:
         self.logs: list[str] = []
+        self.result: tuple[str, bool] | None = None
 
     def append_log(self, text: str) -> None:
         self.logs.append(text)
-
-
-class _MyPcView:
-    def __init__(self) -> None:
-        self.result: tuple[str, bool] | None = None
 
     def set_account_result(self, text: str, ok: bool = True) -> None:
         self.result = (text, ok)
@@ -47,8 +43,7 @@ class _Owner:
     def __init__(self) -> None:
         self._instance_manager_view = _ManagerView()
         self._status_panel = _StatusPanel()
-        self._advanced_view = _AdvancedView()
-        self._my_pc_view = _MyPcView()
+        self._settings_hub_view = _SettingsHubView()
         self._active_instance_name = "builder-collab"
         self._refresh_calls: list[tuple[bool, bool]] = []
         self._event_log: list[tuple[str, dict[str, object]]] = []
@@ -192,5 +187,5 @@ def test_drain_connector_action_events_refreshes_only_last_batch_record() -> Non
 
     connector_workflow.drain_connector_action_events(owner)
 
-    assert owner._advanced_view.logs == ["step one", "step two"]
+    assert owner._settings_hub_view.logs == ["step one", "step two"]
     assert owner._refresh_calls == [(False, True)]

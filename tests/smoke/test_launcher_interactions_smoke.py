@@ -4,21 +4,23 @@ import unittest
 import json
 from pathlib import Path
 from queue import SimpleQueue
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+    from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
     from ui.launcher.components.agent_card import AgentCard
     from ui.launcher.components.sidebar import Sidebar
     from ui.launcher.components.status_panel import StatusPanel
     from ui.launcher.components.topbar import TopBar
     from ui.launcher.views.assistant_view import AssistantView
-    from ui.launcher.views.advanced_view import AdvancedView
+    from ui.launcher.views.settings_operations_panel import SettingsOperationsPanel
     from ui.launcher.views.instance_manager_view import InstanceManagerView
     from ui.launcher.views.library_view import LibraryView
     from ui.launcher.views.local_llm_view import LocalLLMView
-    from ui.launcher.views.my_pc_view import MyPCView
+    from ui.launcher.views.models_hub_view import ModelsHubView
+    from ui.launcher.views.settings_device_accounts_panel import SettingsDeviceAccountsPanel
     from ui.launcher.views.models_view import ModelsView
     from ui.launcher.views.runtime_routing_view import RuntimeRoutingView
     from ui.launcher.views import library_view as library_view_module
@@ -35,6 +37,7 @@ else:
 
 from utils import personalization_config as personalization_config
 import utils.runtime_profile as runtime_profile
+from src.guppy.launcher_application.launch_attempt_guard import mark_launch_attempt
 
 
 class _DummyStatusPanel:
@@ -83,6 +86,11 @@ class _DummyLauncher:
 
     def _ensure_api_reachable_for_command(self) -> tuple[bool, str]:
         return self._api_recovery_result
+    def _validate_mode_ready(self, _mode: str) -> tuple[bool, str]:
+        return True, ""
+
+    def _chat_timeout_for_request(self, mode: str, command: str = "") -> float:
+        return launcher_window.LauncherWindow._chat_timeout_for_request(mode, command)
 
     def _http_json(
         self,
@@ -144,6 +152,46 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertEqual(len(send_buttons), 1)
         self.assertTrue(send_buttons[0].isEnabled())
 
+    def test_supervised_api_start_debounces_recent_launcher_command_attempt(self):
+        with tempfile.TemporaryDirectory() as td:
+            runtime_dir = Path(td)
+            logged: list[tuple[str, dict]] = []
+            stub = SimpleNamespace(
+                _log_launcher_event=lambda event, **fields: logged.append((event, fields)),
+                _api_reachability_status=lambda timeout=0.8: ("offline", "still booting"),
+            )
+            mark_launch_attempt(runtime_dir, "launcher_command_supervised_api")
+
+            original_runtime = launcher_window._RUNTIME
+            try:
+                launcher_window._RUNTIME = runtime_dir
+                started, detail = launcher_window.LauncherWindow._start_supervised_api_subprocess(stub)
+            finally:
+                launcher_window._RUNTIME = original_runtime
+
+        self.assertFalse(started)
+        self.assertIn("already attempted recently", detail)
+        self.assertEqual(logged, [("api_command_launch_debounced", {"mode": "supervised"})])
+
+    def test_command_api_recovery_uses_hidden_direct_start_only(self):
+        logged: list[tuple[str, dict]] = []
+        direct_calls: list[str] = []
+        supervised_calls: list[str] = []
+        stub = SimpleNamespace(
+            _api_reachability_status=lambda timeout=0.8: ("offline", "down"),
+            _start_api_subprocess=lambda: (direct_calls.append("direct"), (True, "api started and published startup readiness"))[1],
+            _start_supervised_api_subprocess=lambda: (supervised_calls.append("supervised"), (True, "should not be used"))[1],
+            _log_launcher_event=lambda event, **fields: logged.append((event, fields)),
+        )
+
+        started, detail = launcher_window.LauncherWindow._ensure_api_reachable_for_command(stub)
+
+        self.assertTrue(started)
+        self.assertEqual(detail, "api started and published startup readiness")
+        self.assertEqual(direct_calls, ["direct"])
+        self.assertEqual(supervised_calls, [])
+        self.assertEqual(logged, [])
+
     def test_assistant_mode_dropdown_excludes_internal_vault_mode(self):
         assistant = AssistantView()
         modes = [assistant._cb_mode.itemText(i) for i in range(assistant._cb_mode.count())]
@@ -156,9 +204,10 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         selected: list[str] = []
         topbar.instance_selected.connect(lambda name: selected.append(name))
 
-        nav_labels = [btn.text() for btn in topbar._nav_btns]
-        self.assertIn("HOME", nav_labels)
-        self.assertIn("WORKSPACES", nav_labels)
+        visible_nav = [btn.text() for btn in topbar._nav_btns if not btn.isHidden()]
+        self.assertEqual(visible_nav, ["HOME", "MODELS", "TOOLS", "LIBRARY", "SETTINGS"])
+        self.assertEqual(topbar._workspace_nav_btn.text(), "SPACES")
+        self.assertIn("MAIN MODEL:", topbar._summary_primary_lbl.full_text())
 
         topbar.set_instances(["guppy-primary", "builder-collab"], active_instance="guppy-primary")
         topbar.set_active_instance("builder-collab")
@@ -170,12 +219,14 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertTrue(selected)
         self.assertEqual(selected[-1], "guppy-primary")
 
-    def test_sidebar_exposes_dedicated_local_llm_surface(self):
+    def test_sidebar_exposes_five_hub_visible_nav_and_hides_legacy_aliases(self):
         sidebar = Sidebar()
-        labels = [item._label.text() for item in sidebar._items]
-        self.assertIn("LOCAL LLM", labels)
-        self.assertIn("MY PC", labels)
-        self.assertIn("RUNTIME", labels)
+        visible_labels = [item._label.text() for item in sidebar._visible_items]
+        hidden_labels = [item._label.text() for item in sidebar._items if item not in sidebar._visible_items]
+        self.assertEqual(visible_labels, ["HOME", "MODELS", "TOOLS", "LIBRARY", "SETTINGS"])
+        self.assertIn("LOCAL LLM", hidden_labels)
+        self.assertIn("MY PC", hidden_labels)
+        self.assertIn("RUNTIME", hidden_labels)
 
     def test_models_view_is_library_only(self):
         view = ModelsView()
@@ -197,7 +248,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Heavier local option:", view._library_summary_lbl.text())
 
     def test_my_pc_view_surfaces_human_friendly_api_key_field(self):
-        view = MyPCView()
+        view = SettingsDeviceAccountsPanel()
         view.set_windows_snapshot(
             {
                 "install": "Installed on this PC: Ollama CLI found",
@@ -242,7 +293,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Paste the YouTube Data API key", visible_fields[0][3].text())
 
     def test_my_pc_view_hides_calendar_sign_in_until_credentials_file_exists(self):
-        view = MyPCView()
+        view = SettingsDeviceAccountsPanel()
         view.set_connector_inventory(
             [
                 {
@@ -273,6 +324,22 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Default chat model:", view._manifest_lbl.text())
         self.assertTrue(view._benchmark_lbl.parentWidget().isHidden())
 
+    def test_models_hub_view_unifies_models_local_llm_and_voice_surfaces(self):
+        hub = ModelsHubView(ModelsView(), LocalLLMView(), VoicesView())
+
+        self.assertEqual(hub._models_view._title_lbl.text(), "MODELS")
+        self.assertIn("Using qwen3:8b", hub._local_llm_panel._summary_lbl.text())
+        self.assertIn("Ready now:", hub._voice_panel._voice_evidence_lbl.text())
+        labels = [label.text() for label in hub.findChildren(QLabel)]
+        self.assertTrue(
+            any("API-key storage remain unified in Settings" in text for text in labels),
+            "Models hub should keep credential storage ownership in Settings",
+        )
+        self.assertTrue(
+            any("Deepgram remains explicitly planned" in text for text in labels),
+            "Models hub should surface the planned Deepgram voice lane",
+        )
+
     def test_topbar_quick_actions_emit_for_live_buttons(self):
         topbar = TopBar()
         actions: list[str] = []
@@ -283,6 +350,122 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
 
         self.assertEqual(actions, ["notifications", "terminal"])
 
+    def test_models_tab_routes_to_models_stack_and_highlight_lane(self):
+        class _StackRecorder:
+            def __init__(self) -> None:
+                self.indices: list[int] = []
+
+            def setCurrentIndex(self, index: int) -> None:
+                self.indices.append(index)
+
+        class _TopbarRecorder:
+            def __init__(self) -> None:
+                self.active_tabs: list[int] = []
+                self.summaries: list[str] = []
+
+            def set_active_tab(self, index: int) -> None:
+                self.active_tabs.append(index)
+
+            def set_launcher_summary(self, text: str) -> None:
+                self.summaries.append(str(text))
+
+        class _SidebarRecorder:
+            def __init__(self) -> None:
+                self.active_tabs: list[int] = []
+
+            def set_active(self, index: int) -> None:
+                self.active_tabs.append(index)
+
+            def is_collapsed(self) -> bool:
+                return True
+
+            def set_collapsed(self, collapsed: bool) -> None:
+                del collapsed
+
+        dummy = type("LauncherNavDummy", (), {})()
+        dummy._stack = _StackRecorder()
+        dummy._topbar = _TopbarRecorder()
+        dummy._sidebar = _SidebarRecorder()
+        dummy._home_drawer_open = False
+        dummy._sync_automation_test_state = lambda: None
+        dummy._set_status_panel_visible = lambda visible: setattr(dummy, "_status_visible", visible)
+        dummy._resolve_stack_index = launcher_window.LauncherWindow._resolve_stack_index
+        dummy._visible_nav_index = launcher_window.LauncherWindow._visible_nav_index
+        dummy._shell_model_loadout_summary = launcher_window.LauncherWindow._shell_model_loadout_summary
+        dummy._sync_topbar_model_context = lambda **kwargs: None
+        dummy._sync_shell_model_summary = launcher_window.LauncherWindow._sync_shell_model_summary.__get__(dummy, type(dummy))
+
+        original_read_json = launcher_window.read_json_dict
+        launcher_window.read_json_dict = lambda _path: {
+            "local_runtime_backend": "ollama",
+            "local_main_model": "guppy-main",
+            "local_sub_model_a": "guppy-fast",
+            "local_sub_model_b": "guppy-code",
+        }
+        try:
+            launcher_window.LauncherWindow._on_tab_change(dummy, launcher_window._MODELS_VIEW_INDEX)
+        finally:
+            launcher_window.read_json_dict = original_read_json
+
+        self.assertEqual(dummy._stack.indices[-1], launcher_window._MODELS_VIEW_INDEX)
+        self.assertEqual(dummy._topbar.active_tabs[-1], launcher_window._MODELS_LIBRARY_ALIAS_INDEX)
+        self.assertEqual(dummy._sidebar.active_tabs[-1], launcher_window._MODELS_LIBRARY_ALIAS_INDEX)
+    def test_shell_model_loadout_summary_prefers_saved_three_model_state(self):
+        summary = launcher_window.LauncherWindow._shell_model_loadout_summary(
+            active_model="fallback-model",
+            runtime_backend="lemonade",
+            settings_payload={
+                "local_runtime_backend": "ollama",
+                "local_main_model": "qwen-main",
+                "local_sub_model_a": "qwen-fast",
+                "local_sub_model_b": "qwen-code",
+            },
+            environment={
+                "GUPPY_MAIN_MODEL": "env-main",
+                "GUPPY_SUB_MODEL_A": "env-fast",
+                "GUPPY_SUB_MODEL_B": "env-code",
+            },
+        )
+
+        self.assertEqual(
+            summary,
+            "MODELS / OLLAMA / MAIN qwen-main / SUB A qwen-fast / SUB B qwen-code",
+        )
+
+    def test_sync_shell_model_summary_pushes_three_model_state_to_topbar(self):
+        class _TopbarRecorder:
+            def __init__(self) -> None:
+                self.summaries: list[str] = []
+
+            def set_launcher_summary(self, text: str) -> None:
+                self.summaries.append(str(text))
+
+        dummy = type("LauncherSummaryDummy", (), {})()
+        dummy._topbar = _TopbarRecorder()
+        dummy._shell_model_loadout_summary = launcher_window.LauncherWindow._shell_model_loadout_summary
+        dummy._sync_topbar_model_context = lambda **kwargs: None
+
+        original_read_json = launcher_window.read_json_dict
+        launcher_window.read_json_dict = lambda _path: {
+            "local_runtime_backend": "ollama",
+            "local_main_model": "guppy-main",
+            "local_sub_model_a": "guppy-fast",
+            "local_sub_model_b": "guppy-code",
+        }
+        try:
+            launcher_window.LauncherWindow._sync_shell_model_summary(
+                dummy,
+                active_model="fallback-model",
+                runtime_backend="lemonade",
+            )
+        finally:
+            launcher_window.read_json_dict = original_read_json
+
+        self.assertEqual(
+            dummy._topbar.summaries[-1],
+            "MODELS / OLLAMA / MAIN guppy-main / SUB A guppy-fast / SUB B guppy-code",
+        )
+
     def test_topbar_notification_badge_updates_count_and_severity(self):
         topbar = TopBar()
 
@@ -292,6 +475,13 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
 
         topbar.set_notification_badge(0, severity="info")
         self.assertTrue(topbar._notif_badge.isHidden())
+
+    def test_sidebar_badge_uses_clean_painted_mark(self):
+        sidebar = Sidebar()
+
+        badge = sidebar._art_card.layout().itemAt(0).widget()
+
+        self.assertEqual(badge.size().width(), 48)
 
     def test_agent_card_offline_shows_wired_initialize_button(self):
         card = AgentCard("GUPPY")
@@ -338,19 +528,23 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("WORKSPACE", assistant._instance_chip.text())
         self.assertIn("GUPPY LIVE", assistant._background_chip.text())
         self.assertIn("Active agent switched to GUPPY", assistant._background_event.text())
+        self.assertTrue(assistant._background_event.isHidden())
         self.assertIn("Starters are optional.", assistant._hero_subtitle.text())
         self.assertNotIn("Active agent switched to GUPPY", assistant._hero_subtitle.text())
-        self.assertIn("Active workspace:", assistant._workspace_summary.text())
-        self.assertIn("Planning partner for review loops.", assistant._workspace_summary.text())
-        self.assertIn("Saved context:", assistant._workspace_summary.text())
-        self.assertIn("CODE mode", assistant._workspace_summary.text())
-        self.assertIn("Recent context:", assistant._workspace_summary.text())
-        self.assertIn("Finish the launcher framing pass", assistant._workspace_summary.text())
+        self.assertTrue(assistant._workspace_summary.isHidden())
+        self.assertTrue(assistant._context_bar.isHidden())
+        self.assertTrue(assistant._workspace_details_strip.isHidden())
+        self.assertTrue(assistant._workspace_details_host.isHidden())
+        self.assertTrue(assistant._launcher_panel.isHidden())
+        self.assertTrue(assistant._identity_details_btn.isHidden())
         self.assertIn("GUPPY model", assistant._runtime_facts.text())
         self.assertIn("EDGE TTS from persona voice", assistant._runtime_facts.text())
+        self.assertTrue(assistant._runtime_facts.isHidden())
         self.assertIn("Why: simple task classification", assistant._route_facts.text())
         self.assertIn("Evidence: cloud route needs API key; launcher-wide last reply 42 ms", assistant._route_facts.text())
+        self.assertTrue(assistant._route_facts.isHidden())
         self.assertIn("warmup complete", assistant._recovery_summary.text().lower())
+        self.assertTrue(assistant._recovery_summary.isHidden())
         self.assertIn("Start here in builder-collab", assistant._entry_hint.text())
         self.assertIn("PLAN NEXT PASS", assistant._entry_hint.text())
         self.assertIn("next pass", assistant._input.placeholderText().lower())
@@ -579,14 +773,14 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
     def test_library_view_edit_cancel_buttons_restore_note_and_artifact_inputs(self):
         view = LibraryView()
 
-        view._begin_note_edit(17, "Review packet", "Validation notes")
+        view._begin_note_edit(17, "Review packet", "Validation notes\nWith another line.")
         self.assertEqual(view._note_save_btn.text(), "UPDATE NOTE")
         self.assertFalse(view._note_cancel_btn.isHidden())
         view._note_cancel_btn.click()
         self.assertEqual(view._note_save_btn.text(), "PIN NOTE")
         self.assertTrue(view._note_cancel_btn.isHidden())
         self.assertEqual(view._note_title.text(), "")
-        self.assertEqual(view._note_summary.text(), "")
+        self.assertEqual(view._note_body.toPlainText(), "")
 
         view._begin_artifact_edit(21, "Release bundle", "C:/tmp/release.zip")
         self.assertEqual(view._artifact_save_btn.text(), "UPDATE ARTIFACT")
@@ -614,6 +808,88 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("CURRENT ROOT", view._selected_root_status.text())
         self.assertIn("USE IN CHAT", view._browse_hint.text())
 
+    def test_library_view_media_panel_loads_controls_and_unloads_media(self):
+        from PySide6.QtMultimedia import QMediaPlayer
+
+        class _Signal:
+            def __init__(self) -> None:
+                self._callbacks = []
+
+            def connect(self, callback) -> None:
+                self._callbacks.append(callback)
+
+            def emit(self, *args) -> None:
+                for callback in list(self._callbacks):
+                    callback(*args)
+
+        class _FakeAudioOutput:
+            def __init__(self, _owner=None) -> None:
+                return
+
+        class _FakePlayer:
+            def __init__(self, _owner=None) -> None:
+                self.playbackStateChanged = _Signal()
+                self.mediaStatusChanged = _Signal()
+                self.positionChanged = _Signal()
+                self.durationChanged = _Signal()
+                self.errorOccurred = _Signal()
+                self._state = QMediaPlayer.PlaybackState.StoppedState
+                self._source = None
+
+            def setAudioOutput(self, _audio) -> None:
+                return
+
+            def setVideoOutput(self, _video) -> None:
+                return
+
+            def setSource(self, source) -> None:
+                self._source = source
+
+            def play(self) -> None:
+                self._state = QMediaPlayer.PlaybackState.PlayingState
+                self.playbackStateChanged.emit(self._state)
+                self.durationChanged.emit(90000)
+                self.positionChanged.emit(15000)
+
+            def pause(self) -> None:
+                self._state = QMediaPlayer.PlaybackState.PausedState
+                self.playbackStateChanged.emit(self._state)
+
+            def stop(self) -> None:
+                self._state = QMediaPlayer.PlaybackState.StoppedState
+                self.playbackStateChanged.emit(self._state)
+
+            def playbackState(self):
+                return self._state
+
+            def setPosition(self, position: int) -> None:
+                self.positionChanged.emit(position)
+
+            def errorString(self) -> str:
+                return ""
+
+        view = LibraryView()
+        view._media_panel._player_factory = _FakePlayer
+        view._media_panel._audio_output_factory = _FakeAudioOutput
+
+        with tempfile.TemporaryDirectory() as td:
+            media_path = Path(td) / "walkthrough.mp4"
+            media_path.write_bytes(b"fake-media")
+
+            loaded = view._media_panel.load_media("Walkthrough clip", str(media_path))
+
+        self.assertTrue(loaded)
+        self.assertEqual(view._media_panel.current_media_title(), "Walkthrough clip")
+        self.assertEqual(view._media_panel._play_btn.text(), "PAUSE")
+        self.assertIn("Loaded local video", view._media_panel.status_text())
+        view._media_panel._toggle_playback()
+        self.assertEqual(view._media_panel._play_btn.text(), "PLAY")
+        view._media_panel.stop_media()
+        self.assertIn("Stopped media", view._media_panel.status_text())
+        view._media_panel.unload_media()
+        self.assertEqual(view._media_panel.current_media_path(), "")
+        self.assertFalse(view._media_panel._play_btn.isEnabled())
+
     def test_assistant_active_context_surfaces_current_sources_and_primary_source_copy(self):
         assistant = AssistantView()
         assistant.set_active_context_items(
@@ -639,6 +915,39 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Current source:", assistant._starter_summary.text())
         self.assertIn("saved reply note", assistant._starter_summary.text().lower())
         self.assertIn("CURRENT SOURCE", assistant._grounding_chip.text())
+
+    def test_assistant_transcript_reply_actions_emit_library_and_artifact_requests(self):
+        assistant = AssistantView()
+        library_calls: list[tuple[str, bool]] = []
+        artifact_calls: list[str] = []
+        assistant.assistant_reply_library_requested.connect(
+            lambda text, attach_next: library_calls.append((text, attach_next))
+        )
+        assistant.assistant_reply_artifact_requested.connect(lambda text: artifact_calls.append(text))
+
+        assistant.add_assistant_message("Ship the next tranche.")
+
+        buttons = [
+            button
+            for button in assistant.findChildren(QPushButton)
+            if button.toolTip() in {
+                "Save this reply to Library",
+                "Attach this reply as source for the next turn",
+                "Save this reply as an artifact",
+            }
+        ]
+        self.assertEqual(len(buttons), 3)
+        for button in buttons:
+            button.click()
+
+        self.assertEqual(
+            library_calls,
+            [
+                ("Ship the next tranche.", False),
+                ("Ship the next tranche.", True),
+            ],
+        )
+        self.assertEqual(artifact_calls, ["Ship the next tranche."])
 
     def test_instance_manager_view_renders_snapshot_and_logs(self):
         view = InstanceManagerView()
@@ -978,7 +1287,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("tray", view._tray_notice_lbl.text().lower())
 
     def test_app_management_view_updates_diagnostics_and_recovery_status(self):
-        view = AdvancedView()
+        view = SettingsOperationsPanel()
         view.set_status_snapshot(
             {
                 "status": "healthy",
@@ -1012,7 +1321,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertTrue(view._terminal_frame.isHidden())
 
     def test_app_management_view_exposes_guided_automation_testing_surface(self):
-        view = AdvancedView()
+        view = SettingsOperationsPanel()
         view.set_automation_snapshot(
             {
                 "workspace": "Workspace step: active=builder-collab | preferred=builder-collab",
@@ -1042,7 +1351,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("guided launcher test pass", view._automation_summary_lbl.text().lower())
 
     def test_app_management_connector_inventory_emits_normalized_actions(self):
-        view = AdvancedView()
+        view = SettingsOperationsPanel()
         emitted: list[dict[str, str]] = []
         view.connector_action_requested.connect(emitted.append)
         view.set_connector_inventory(
@@ -1128,7 +1437,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertEqual(emitted[1]["action"], "disconnect")
 
     def test_app_management_connector_blocks_secret_save_without_value(self):
-        view = AdvancedView()
+        view = SettingsOperationsPanel()
         emitted: list[dict[str, str]] = []
         view.connector_action_requested.connect(emitted.append)
         view.set_connector_inventory(
@@ -1193,7 +1502,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Default runtime voice stays", view._voice_evidence_lbl.text())
 
     def test_app_management_focus_operator_logs_updates_filter(self):
-        view = AdvancedView()
+        view = SettingsOperationsPanel()
         view.focus_operator_logs("WARN", note="opened from quick action")
 
         self.assertEqual(view._filter_cb.currentText(), "WARN")
@@ -1309,7 +1618,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             models_view_module.ModelsView._refresh = old_refresh
 
     def test_app_management_windows_ops_feedback_surfaces_fix_guidance(self):
-        view = AdvancedView()
+        view = SettingsOperationsPanel()
         view.set_windows_ops_feedback(
             "update_runtime",
             "WINDOWS UPDATE completed | Ref: recipe-1",
@@ -1352,13 +1661,13 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("diagnostics bundle=runtime/diagnostics_bundle_20260415_120000.json", view._windows_handoff_lbl.text())
 
     def test_app_management_terminal_accepts_focus_and_output_append(self):
-        view = AdvancedView()
+        view = SettingsOperationsPanel()
         view.focus_terminal("terminal opened")
 
         self.assertIn("terminal opened", view._terminal_output.toPlainText())
 
     def test_app_management_workflow_recipe_loads_terminal_command(self):
-        view = AdvancedView()
+        view = SettingsOperationsPanel()
         view._workflow_cb.setCurrentText("MIDDAY STABILITY")
         view._load_workflow_recipe()
 
@@ -1487,7 +1796,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         class _LauncherStub:
             def __init__(self, runtime_dir: Path) -> None:
                 self._status_panel = _DummyStatusPanel()
-                self._advanced_view = _AdvancedStub()
+                self._settings_hub_view = _AdvancedStub()
                 self._daily: list[str] = []
                 self.logged: list[tuple[str, dict[str, object]]] = []
                 self._runtime_dir = runtime_dir
@@ -1543,7 +1852,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             self.assertTrue(any(event == "windows_ops_completed" for event, _fields in stub.logged))
 
     def test_app_management_terminal_recipe_markers_emit_servicing_payload(self):
-        view = AdvancedView()
+        view = SettingsOperationsPanel()
         emitted: list[dict[str, object]] = []
         view.terminal_recipe_finished.connect(emitted.append)
 
@@ -1588,7 +1897,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         class _LauncherStub:
             def __init__(self, runtime_dir: Path) -> None:
                 self._status_panel = _DummyStatusPanel()
-                self._advanced_view = _AdvancedStub()
+                self._settings_hub_view = _AdvancedStub()
                 self._daily: list[str] = []
                 self.logged: list[tuple[str, dict[str, object]]] = []
                 self._runtime_dir = runtime_dir
@@ -1685,7 +1994,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         class _LauncherStub:
             def __init__(self, runtime_dir: Path) -> None:
                 self._status_panel = _DummyStatusPanel()
-                self._advanced_view = _AdvancedStub()
+                self._settings_hub_view = _AdvancedStub()
                 self._daily: list[str] = []
                 self.logged: list[tuple[str, dict[str, object]]] = []
                 self._runtime_dir = runtime_dir
@@ -2055,12 +2364,12 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         panel = StatusPanel()
 
         self.assertTrue(panel._extras_host.isHidden())
-        self.assertEqual(panel._extras_btn.text(), "SHOW MORE")
+        self.assertEqual(panel._extras_btn.text(), "MORE OPTIONS")
 
         panel._extras_btn.click()
 
         self.assertFalse(panel._extras_host.isHidden())
-        self.assertEqual(panel._extras_btn.text(), "HIDE MORE")
+        self.assertEqual(panel._extras_btn.text(), "LESS OPTIONS")
 
     def test_chat_timeout_for_local_diagnostic_turns_is_extended(self):
         self.assertGreaterEqual(
@@ -2160,8 +2469,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         dummy._last_tools_context_signature = ""
         dummy._last_windows_snapshot_signature = ""
         dummy._instance_manager_view = _Recorder()
-        dummy._advanced_view = _Recorder(windows_snapshot={"runtime": "ready"})
-        dummy._my_pc_view = _Recorder()
+        dummy._settings_hub_view = _Recorder(windows_snapshot={"runtime": "ready"})
         dummy._tools_view = _ToolsRecorder()
         dummy._assistant_view = _AssistantRecorder()
         dummy._topbar = _TopbarRecorder()
@@ -2179,8 +2487,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         launcher_window.LauncherWindow._refresh_instance_views(dummy)
 
         self.assertEqual(dummy._instance_manager_view.calls, 1)
-        self.assertEqual(dummy._advanced_view.calls, 2)
-        self.assertEqual(dummy._my_pc_view.calls, 2)
+        self.assertEqual(dummy._settings_hub_view.calls, 3)
         self.assertEqual(dummy._tools_view.calls, 1)
 
     def test_refresh_instance_views_propagates_active_workspace_across_shell_surfaces(self):
@@ -2265,8 +2572,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         dummy._last_tools_context_signature = ""
         dummy._last_windows_snapshot_signature = ""
         dummy._instance_manager_view = _Recorder()
-        dummy._advanced_view = _Recorder(windows_snapshot={"runtime": "ready"})
-        dummy._my_pc_view = _Recorder()
+        dummy._settings_hub_view = _Recorder(windows_snapshot={"runtime": "ready"})
         dummy._tools_view = _ToolsRecorder()
         dummy._assistant_view = _AssistantRecorder()
         dummy._topbar = _TopbarRecorder()
@@ -2306,12 +2612,18 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             def windows_ops_snapshot(self) -> dict[str, str]:
                 return {"runtime": "ready"}
 
-        class _MyPCRecorder:
+        class _SettingsHubRecorder:
             def __init__(self) -> None:
                 self.calls = 0
 
+            def set_instance_snapshot(self, _payload) -> None:
+                self.calls += 1
+
             def set_windows_snapshot(self, _payload) -> None:
                 self.calls += 1
+
+            def windows_ops_snapshot(self) -> dict[str, str]:
+                return {"runtime": "ready"}
 
         class _AssistantRecorder:
             def __init__(self) -> None:
@@ -2355,8 +2667,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         dummy._connector_inventory_expires_at = 0.0
         dummy._connector_inventory_ttl_s = 15.0
         dummy._instance_manager_view = _Recorder()
-        dummy._advanced_view = _Recorder()
-        dummy._my_pc_view = _MyPCRecorder()
+        dummy._settings_hub_view = _SettingsHubRecorder()
         dummy._assistant_view = _AssistantRecorder()
         dummy._topbar = _TopbarRecorder()
         dummy._tools_view = _ToolsRecorder()
@@ -2468,7 +2779,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                     ]
                 }
                 stub._active_instance_name = "builder-collab"
-                stub._advanced_view = _AdvancedStub()
+                stub._settings_hub_view = _AdvancedStub()
                 stub._assistant_view = _AssistantStub()
                 stub._preferred_builder_instance_name = lambda: "builder-collab"
                 stub._user_test_evidence_path = launcher_window.LauncherWindow._user_test_evidence_path.__get__(stub, _LauncherStub)
@@ -2553,7 +2864,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
 
         dummy = type("StartIntentDummy", (), {})()
         dummy._start_destination = "automation-test"
-        dummy._advanced_view = _AdvancedStub()
+        dummy._settings_hub_view = _AdvancedStub()
         dummy._assistant_view = _AssistantStub()
         dummy._status_panel = _StatusStub()
         dummy._active_tab = None
@@ -2566,7 +2877,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         launcher_window.LauncherWindow._apply_start_destination(dummy)
 
         self.assertEqual(dummy._active_tab, 3)
-        self.assertIn("Test flow ready", dummy._advanced_view.note)
+        self.assertIn("Test flow ready", dummy._settings_hub_view.note)
         self.assertIn("Test flow ready", dummy._assistant_view.event)
         self.assertIn("Setup & Health", dummy._daily_activity)
         self.assertEqual(dummy._logged[0], "start_destination_applied")

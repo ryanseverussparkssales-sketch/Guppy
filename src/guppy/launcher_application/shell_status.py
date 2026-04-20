@@ -14,7 +14,7 @@ def update_route_preview(owner, text: str = "") -> None:
     sample = (text or owner._last_command or "").strip()
     if not sample:
         owner._assistant_view.set_route_preview(reason="waiting for command")
-        owner._advanced_view.set_daily_context_route(owner._assistant_view._route_facts.text())
+        owner._settings_hub_view.set_daily_context_route(owner._assistant_view._route_facts.text())
         return
     mode, _persona = owner._assistant_view.chat_context()
     try:
@@ -31,15 +31,15 @@ def update_route_preview(owner, text: str = "") -> None:
             reason=str(decision.get("route_reason", "")),
             evidence=route_evidence_summary(decision, runtime_path=owner._runtime_dir),
         )
-        owner._advanced_view.set_daily_context_route(owner._assistant_view._route_facts.text())
+        owner._settings_hub_view.set_daily_context_route(owner._assistant_view._route_facts.text())
     except Exception as exc:
         owner._assistant_view.set_route_preview(reason=f"preview failed: {exc}")
-        owner._advanced_view.set_daily_context_route(owner._assistant_view._route_facts.text())
+        owner._settings_hub_view.set_daily_context_route(owner._assistant_view._route_facts.text())
 
 
 def set_daily_activity(owner, text: str) -> None:
     owner._assistant_view.set_background_event(text)
-    owner._advanced_view.set_daily_context_activity(text)
+    owner._settings_hub_view.set_daily_context_activity(text)
 
 
 def sync_right_tray(owner, active_payload: dict[str, object]) -> None:
@@ -53,7 +53,7 @@ def sync_right_tray(owner, active_payload: dict[str, object]) -> None:
     mode = str(active_payload.get("mode", "auto") or "auto").strip().upper()
     persona = str(active_payload.get("persona", "guppy") or "guppy").strip().upper()
     voice = str(active_payload.get("voice", "default") or "default").strip().upper()
-    owner._advanced_view.set_daily_context_workspace(
+    owner._settings_hub_view.set_daily_context_workspace(
         f"Workspace: {workspace_role_label(workspace_type)}. {description} | Saved context: {mode} mode / {persona} persona / {voice} voice"
     )
-    owner._advanced_view.set_daily_context_runtime(owner._assistant_view._runtime_facts.text())
+    owner._settings_hub_view.set_daily_context_runtime(owner._assistant_view._runtime_facts.text())

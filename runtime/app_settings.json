@@ -1,0 +1,17 @@
+{
+  "runtime_profile": "standard",
+  "enable_daemon": true,
+  "enable_voice": true,
+  "wake_word_default": false,
+  "default_mode": "auto",
+  "local_runtime_backend": "ollama",
+  "lemonade_base_url": "http://localhost:13305/api/v1",
+  "lemonade_fast_model": "deepseek-coder-v2:latest",
+  "lemonade_complex_model": "deepseek-coder-v2:latest",
+  "lemonade_teach_model": "deepseek-coder-v2:latest",
+  "lemonade_code_model": "deepseek-coder-v2:latest",
+  "lemonade_vault_model": "deepseek-coder-v2:latest",
+  "local_main_model": "guppy-fast:latest",
+  "local_sub_model_a": "deepseek-coder-v2:latest",
+  "local_sub_model_b": "guppy-code"
+}

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .instance_manager_presenter import workspace_default_purpose, workspace_recent_context
+from .tool_action_registry import get_tool_starters as _get_tool_starters_from_registry
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,6 +300,16 @@ def build_home_workspace_state(
         ),
         welcome_message=build_home_welcome_message(workspace_type, description=copy.purpose),
     )
+
+
+def get_tool_starters() -> list[dict[str, str]]:
+    """Return starter entries for all registered tools.
+
+    Each entry is a dict with: tool_key, label, command_hint,
+    home_starter_prompt, category. Delegates to the shared tool action
+    registry so wording stays consistent across all surfaces.
+    """
+    return _get_tool_starters_from_registry()
 
 
 def build_home_starter_state(workspace_type: str, starter_id: str) -> HomeStarterState:

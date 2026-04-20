@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.guppy.launcher_application.provider_registry import get_provider
 from src.guppy.workspace_governance import secret_field_meta
 from .. import tokens as T
 
@@ -62,7 +63,7 @@ def _auth_state_text(auth_state: str) -> str:
     }.get(normalized, "Needs setup")
 
 
-class MyPCView(QWidget):
+class SettingsDeviceAccountsPanel(QWidget):
     windows_ops_requested = Signal(str)
     connector_action_requested = Signal(dict)
     connector_guided_link_requested = Signal(dict)
@@ -183,7 +184,14 @@ class MyPCView(QWidget):
         self._account_status_lbl = _mono("Choose a service to get started.", T.TEXT, T.FS_SMALL)
         self._account_detail_lbl = _mono("Pick a card to see what that service helps with and how to connect it.", T.DIM, T.FS_SMALL)
         self._account_step_lbl = _mono("Next step: pick a service.", T.DIM, T.FS_TINY)
-        for widget in (self._account_status_lbl, self._account_detail_lbl, self._account_step_lbl):
+        self._next_step_hint_lbl = QLabel("")
+        self._next_step_hint_lbl.setWordWrap(True)
+        self._next_step_hint_lbl.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+            " letter-spacing: 1px; font-style: italic;"
+        )
+        self._next_step_hint_lbl.setVisible(False)
+        for widget in (self._account_status_lbl, self._account_detail_lbl, self._account_step_lbl, self._next_step_hint_lbl):
             accounts_layout.addWidget(widget)
 
         self._fields_host = QVBoxLayout()
@@ -531,6 +539,8 @@ class MyPCView(QWidget):
                 hint.setText("")
                 input_box.setPlaceholderText("")
                 input_box.setEchoMode(QLineEdit.EchoMode.Normal)
+            self._next_step_hint_lbl.setText("")
+            self._next_step_hint_lbl.setVisible(False)
             self._connect_btn.setVisible(False)
             self._save_btn.setVisible(False)
             self._verify_btn.setEnabled(False)
@@ -584,6 +594,17 @@ class MyPCView(QWidget):
         self._account_step_lbl.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
+
+        connector_id = str(item.get("id", "") or "").strip().lower()
+        is_verified = auth_state in {"ready", "optional"}
+        registry_entry = get_provider(connector_id)
+        hint_text = (registry_entry.next_step_hint if registry_entry else "").strip()
+        if is_verified and hint_text:
+            self._next_step_hint_lbl.setText(f"Connected — {hint_text}")
+            self._next_step_hint_lbl.setVisible(True)
+        else:
+            self._next_step_hint_lbl.setText("")
+            self._next_step_hint_lbl.setVisible(False)
 
         supports = {str(item).strip().lower() for item in item.get("actions_supported", []) if str(item).strip()}
         has_secret_flow = auth_kind in {"api_key", "provider_secret", "oauth_secret"}

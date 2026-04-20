@@ -1,11 +1,6 @@
-"""
-ui/launcher/views/advanced_view.py
-SETTINGS tab - app-level setup, recovery actions, diagnostics, and system logs.
-"""
+"""Settings-owned operations panel extracted from the legacy advanced surface."""
 from __future__ import annotations
 
-import json
-import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -25,26 +20,22 @@ from PySide6.QtWidgets import (
 from src.guppy.experience_config import configured_local_runtime_backend
 from src.guppy.launcher_application.embedded_terminal import EmbeddedTerminalSession
 from src.guppy.launcher_application.app_mgmt_presenter import (
-    build_automation_snapshot_state,
     build_daily_context_state,
     build_instance_snapshot_state,
-    build_status_snapshot_state,
-    build_windows_ops_snapshot,
 )
+from src.guppy.launcher_application.operator_logs import build_operator_log_lines, read_launcher_events
 from src.guppy.launcher_application.terminal_recipes import build_tracked_terminal_recipe
 from src.guppy.launcher_application.windows_ops_presenter import (
     apply_windows_ops_feedback,
-    artifact_display_path,
-    build_windows_ops_panel_state,
 )
 from src.guppy.launcher_application.workflows import list_workflow_specs
-from .connector_panel import (
+from .settings_connector_panel import (
     current_connector_payload as panel_current_connector_payload,
     emit_connector_action as panel_emit_connector_action,
     set_connector_inventory as panel_set_connector_inventory,
     sync_connector_controls as panel_sync_connector_controls,
 )
-from .advanced_terminal_panel import (
+from .settings_terminal_panel import (
     append_terminal_output as panel_append_terminal_output,
     apply_workflow_panel_state as panel_apply_workflow_panel_state,
     drain_terminal_queue as panel_drain_terminal_queue,
@@ -56,6 +47,15 @@ from .advanced_terminal_panel import (
     stop_terminal_process as panel_stop_terminal_process,
     submit_terminal_command as panel_submit_terminal_command,
     sync_workflow_recipe as panel_sync_workflow_recipe,
+)
+from .settings_snapshot_panel import (
+    apply_automation_snapshot as panel_apply_automation_snapshot,
+    apply_recovery_status as panel_apply_recovery_status,
+    apply_status_snapshot as panel_apply_status_snapshot,
+    build_windows_ops_snapshot as panel_build_windows_ops_snapshot,
+    refresh_windows_ops_labels as panel_refresh_windows_ops_labels,
+    refresh_windows_ops_snapshot as panel_refresh_windows_ops_snapshot,
+    set_automation_status as panel_set_automation_status,
 )
 
 from .. import tokens as T
@@ -73,7 +73,7 @@ def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = Fa
     return lbl
 
 
-class AdvancedView(QWidget):
+class SettingsOperationsPanel(QWidget):
     recovery_requested = Signal(str)
     windows_ops_requested = Signal(str)
     connector_action_requested = Signal(dict)
@@ -104,8 +104,8 @@ class AdvancedView(QWidget):
         content = QWidget()
         content.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(30, 26, 30, 24)
-        layout.setSpacing(18)
+        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setSpacing(20)
 
         # Page title
         header_frame = QFrame()
@@ -114,8 +114,8 @@ class AdvancedView(QWidget):
             f"QFrame#appmgmt_header {{ background-color: rgba(255,255,255,0.60); border: 1px solid rgba(214,197,174,0.46); border-radius: 28px; }}"
         )
         header_layout = QVBoxLayout(header_frame)
-        header_layout.setContentsMargins(20, 18, 20, 16)
-        header_layout.setSpacing(8)
+        header_layout.setContentsMargins(20, 18, 20, 18)
+        header_layout.setSpacing(12)
 
         title_row = QHBoxLayout()
         title = QLabel("Settings & System")
@@ -146,11 +146,11 @@ class AdvancedView(QWidget):
         info_row.addWidget(dot)
         info_row.addWidget(_mono("SETTINGS + RECOVERY", T.PRIMARY, T.FS_TINY, True))
         info_row.addSpacing(12)
-        info_row.addWidget(_mono("SYSTEM HEALTH / CONNECTORS / AUTOMATION / MODELS / DESKTOP RUNTIME", T.DIM, T.FS_TINY))
+        info_row.addWidget(_mono("SYSTEM HEALTH / CONNECTORS / AUTOMATION / DESKTOP RUNTIME", T.DIM, T.FS_TINY))
         info_row.addStretch()
         header_layout.addLayout(info_row)
         subtitle = _mono(
-            "Keep setup, models, connectors, health, and recovery in one secondary surface. Use details only when you need the deeper system lanes.",
+            "Keep setup, connectors, health, recovery, and machine operations in one secondary surface. Use details only when you need the deeper system lanes. Models and voices now live in the Models hub.",
             T.DIM,
             T.FS_SMALL,
         )
@@ -163,10 +163,10 @@ class AdvancedView(QWidget):
             f"QFrame {{ background: rgba(244,239,231,0.82); border: 1px solid rgba(214,197,174,0.52); border-radius: 22px; }}"
         )
         boundary_layout = QVBoxLayout(self._boundary_frame)
-        boundary_layout.setContentsMargins(12, 10, 12, 10)
-        boundary_layout.setSpacing(4)
+        boundary_layout.setContentsMargins(16, 14, 16, 14)
+        boundary_layout.setSpacing(8)
         boundary_layout.addWidget(_mono("BOUNDARY", T.PRIMARY, T.FS_TINY, True))
-        boundary_layout.addWidget(_mono("Open this tab for app-wide setup, recovery, diagnostics, workflow loops, logs, and system configuration. Daily task tools stay in Chat, Workspaces, and Tools.", T.DIM, T.FS_SMALL))
+        boundary_layout.addWidget(_mono("Open this tab for app-wide setup, recovery, diagnostics, workflow loops, logs, account linking, and system configuration. Models, runtime loadouts, and voices stay in the Models hub.", T.DIM, T.FS_SMALL))
         layout.addWidget(self._boundary_frame)
         self._detail_frames.append(self._boundary_frame)
 
@@ -175,8 +175,8 @@ class AdvancedView(QWidget):
             f"QFrame {{ background: rgba(255,255,255,0.70); border: 1px solid rgba(214,197,174,0.48); border-radius: 22px; }}"
         )
         context_layout = QVBoxLayout(context_frame)
-        context_layout.setContentsMargins(16, 14, 16, 14)
-        context_layout.setSpacing(6)
+        context_layout.setContentsMargins(16, 16, 16, 16)
+        context_layout.setSpacing(10)
         context_layout.addWidget(_mono("DAILY SESSION CONTEXT", T.PRIMARY, T.FS_TINY, True))
         context_layout.addWidget(
             _mono(
@@ -206,8 +206,8 @@ class AdvancedView(QWidget):
             f"QFrame {{ background: rgba(255,255,255,0.70); border: 1px solid rgba(214,197,174,0.48); border-radius: 22px; }}"
         )
         actions_layout = QVBoxLayout(actions_frame)
-        actions_layout.setContentsMargins(16, 14, 16, 14)
-        actions_layout.setSpacing(10)
+        actions_layout.setContentsMargins(16, 16, 16, 16)
+        actions_layout.setSpacing(12)
         actions_layout.addWidget(_mono("QUICK FIXES", T.PRIMARY, T.FS_TINY, True))
 
         self._recovery_status = _mono("Nothing needs attention right now.", T.DIM, T.FS_TINY)
@@ -237,8 +237,8 @@ class AdvancedView(QWidget):
             f"QFrame {{ background: rgba(255,255,255,0.70); border: 1px solid rgba(214,197,174,0.48); border-radius: 22px; }}"
         )
         diag_layout = QVBoxLayout(diag_frame)
-        diag_layout.setContentsMargins(16, 14, 16, 14)
-        diag_layout.setSpacing(8)
+        diag_layout.setContentsMargins(16, 16, 16, 16)
+        diag_layout.setSpacing(12)
         diag_layout.addWidget(_mono("SYSTEM STATUS", T.PRIMARY, T.FS_TINY, True))
         self._health_lbl = _mono("API health: unknown", T.DIM, T.FS_SMALL)
         self._instances_lbl = _mono("Workspaces: unknown", T.DIM, T.FS_SMALL)
@@ -263,8 +263,8 @@ class AdvancedView(QWidget):
             f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
         )
         windows_ops_layout = QVBoxLayout(windows_ops)
-        windows_ops_layout.setContentsMargins(16, 14, 16, 14)
-        windows_ops_layout.setSpacing(8)
+        windows_ops_layout.setContentsMargins(16, 16, 16, 16)
+        windows_ops_layout.setSpacing(12)
         windows_ops_layout.addWidget(_mono("DESKTOP RUNTIME", T.PRIMARY, T.FS_TINY, True))
         windows_ops_layout.addWidget(
             _mono(
@@ -333,8 +333,8 @@ class AdvancedView(QWidget):
             f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
         )
         connectors_layout = QVBoxLayout(self._connectors_frame)
-        connectors_layout.setContentsMargins(16, 14, 16, 14)
-        connectors_layout.setSpacing(8)
+        connectors_layout.setContentsMargins(16, 16, 16, 16)
+        connectors_layout.setSpacing(12)
         connectors_layout.addWidget(_mono("CONNECTED SERVICES", T.PRIMARY, T.FS_TINY, True))
         connectors_layout.addWidget(
             _mono(
@@ -428,8 +428,8 @@ class AdvancedView(QWidget):
             f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
         )
         automation_layout = QVBoxLayout(self._automation_frame)
-        automation_layout.setContentsMargins(16, 14, 16, 14)
-        automation_layout.setSpacing(8)
+        automation_layout.setContentsMargins(16, 16, 16, 16)
+        automation_layout.setSpacing(12)
         automation_layout.addWidget(_mono("AUTOMATION TEST", T.PRIMARY, T.FS_TINY, True))
         automation_layout.addWidget(
             _mono(
@@ -519,8 +519,8 @@ class AdvancedView(QWidget):
             f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
         )
         workflow_layout = QVBoxLayout(self._workflow_frame)
-        workflow_layout.setContentsMargins(16, 14, 16, 14)
-        workflow_layout.setSpacing(8)
+        workflow_layout.setContentsMargins(16, 16, 16, 16)
+        workflow_layout.setSpacing(12)
         workflow_layout.addWidget(_mono("WORKFLOW LOOPS", T.PRIMARY, T.FS_TINY, True))
         workflow_layout.addWidget(
             _mono(
@@ -584,8 +584,8 @@ class AdvancedView(QWidget):
             f"QFrame#syslog_term {{ background-color: {T.BG0}; border: 1px solid {T.BORDER}; }}"
         )
         term_layout = QVBoxLayout(self._operator_logs_frame)
-        term_layout.setContentsMargins(16, 12, 16, 12)
-        term_layout.setSpacing(6)
+        term_layout.setContentsMargins(16, 16, 16, 16)
+        term_layout.setSpacing(10)
 
         term_hdr = QHBoxLayout()
         term_hdr.addWidget(_mono("OPERATOR LOGS", T.DIM, T.FS_TINY))
@@ -617,8 +617,8 @@ class AdvancedView(QWidget):
             f"QFrame#embedded_terminal {{ background-color: {T.BG0}; border: 1px solid {T.BORDER}; }}"
         )
         terminal_layout = QVBoxLayout(self._terminal_frame)
-        terminal_layout.setContentsMargins(16, 12, 16, 12)
-        terminal_layout.setSpacing(8)
+        terminal_layout.setContentsMargins(16, 14, 16, 14)
+        terminal_layout.setSpacing(12)
 
         terminal_hdr = QHBoxLayout()
         terminal_hdr.addWidget(_mono("EMBEDDED TERMINAL", T.DIM, T.FS_TINY))
@@ -663,28 +663,6 @@ class AdvancedView(QWidget):
         layout.addWidget(self._terminal_frame)
         self._detail_frames.append(self._terminal_frame)
 
-        settings_frame = QFrame()
-        settings_frame.setObjectName("embedded_settings")
-        settings_frame.setStyleSheet(
-            f"QFrame#embedded_settings {{ background-color: {T.BG1}; border: 1px solid {T.BORDER}; }}"
-        )
-        settings_layout = QVBoxLayout(settings_frame)
-        settings_layout.setContentsMargins(16, 14, 16, 14)
-        settings_layout.setSpacing(10)
-        settings_layout.addWidget(_mono("SETTINGS", T.PRIMARY, T.FS_TINY, True))
-        settings_layout.addWidget(
-            _mono(
-                "Runtime preferences and persona controls now live inside App Mgmt so operational setup stays in one place.",
-                T.DIM,
-                T.FS_SMALL,
-            )
-        )
-        self._settings_host = QVBoxLayout()
-        self._settings_host.setContentsMargins(0, 0, 0, 0)
-        self._settings_host.setSpacing(0)
-        settings_layout.addLayout(self._settings_host)
-        layout.addWidget(settings_frame)
-
         layout.addStretch()
         scroll.setWidget(content)
         outer.addWidget(scroll)
@@ -721,16 +699,6 @@ class AdvancedView(QWidget):
         )
         self._sync_detail_visibility()
 
-    def attach_settings_panel(self, widget: QWidget) -> None:
-        while self._settings_host.count():
-            item = self._settings_host.takeAt(0)
-            if item is None:
-                continue
-            child = item.widget()
-            if child is not None:
-                child.setParent(None)
-        self._settings_host.addWidget(widget)
-
     def _toggle_details(self) -> None:
         self._details_visible = not self._details_visible
         self._sync_detail_visibility()
@@ -755,14 +723,7 @@ class AdvancedView(QWidget):
         self._syslog.setPlainText("\n".join(current[-40:]))
 
     def set_recovery_status(self, text: str) -> None:
-        msg = (text or "Nothing needs attention right now.").strip() or "Nothing needs attention right now."
-        self._recovery_status.setText(msg)
-        self._last_recovery_lbl.setText(f"Last recovery action: {msg}")
-        runtime_line = self._windows_ops.get("runtime", "")
-        self._windows_ops = self._build_windows_ops_snapshot()
-        if runtime_line:
-            self._windows_ops["runtime"] = runtime_line
-        self._refresh_windows_ops_labels()
+        panel_apply_recovery_status(self, text, root=_ROOT)
 
     def set_daily_context_activity(self, text: str) -> None:
         self._daily_activity_lbl.setText(build_daily_context_state(activity=text).activity_text)
@@ -785,49 +746,16 @@ class AdvancedView(QWidget):
         )
 
     def set_status_snapshot(self, payload: dict[str, object]) -> None:
-        runtime_line = self._windows_ops.get("runtime", "")
-        self._windows_ops = self._build_windows_ops_snapshot()
-        if runtime_line:
-            self._windows_ops["runtime"] = runtime_line
-        state = build_status_snapshot_state(
-            payload,
-            configured_backend=self._configured_local_runtime_backend(),
-            previous_windows_runtime=self._windows_ops.get("runtime", ""),
-        )
-        self._health_lbl.setText(state.health_text)
-        self._voice_lbl.setText(state.voice_text)
-        self._route_health_lbl.setText(state.route_health_text)
-        self._resource_lbl.setText(state.resource_text)
-        self._refresh_windows_ops_labels()
-        if state.windows_runtime_text:
-            self._windows_ops["runtime"] = state.windows_runtime_text
-            self._refresh_windows_ops_labels()
+        panel_apply_status_snapshot(self, payload, root=_ROOT)
 
     def set_instance_snapshot(self, payload: dict[str, object]) -> None:
         self._instances_lbl.setText(build_instance_snapshot_state(payload).instances_text)
 
     def set_automation_snapshot(self, payload: dict[str, object]) -> None:
-        state = build_automation_snapshot_state(payload)
-        self._automation_workspace_lbl.setText(state.workspace_text)
-        self._automation_queue_lbl.setText(state.queue_text)
-        self._automation_staged_lbl.setText(state.staged_text)
-        self._automation_result_lbl.setText(state.result_text)
-        self._automation_approval_lbl.setText(state.approval_text)
-        self._automation_report_lbl.setText(state.report_text)
-        self._automation_evidence_lbl.setText(state.evidence_text)
-        self._automation_stress_lbl.setText(state.stress_text)
-        self._automation_recent_lbl.setText(state.recent_text)
-        self._automation_validation_lbl.setText(state.validation_text)
-        if state.status_text:
-            self.set_automation_status(state.status_text)
+        panel_apply_automation_snapshot(self, payload)
 
     def set_automation_status(self, text: str, ok: bool = True) -> None:
-        color = T.GREEN if ok else T.ERROR
-        message = (text or "Automation test lane ready").strip() or "Automation test lane ready"
-        self._automation_status_lbl.setText(message)
-        self._automation_status_lbl.setStyleSheet(
-            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
+        panel_set_automation_status(self, text, ok=ok)
 
     def _set_workflow_status(self, text: str, ok: bool = True) -> None:
         color = T.GREEN if ok else T.ERROR
@@ -856,34 +784,13 @@ class AdvancedView(QWidget):
         return configured_local_runtime_backend()
 
     def _build_windows_ops_snapshot(self) -> dict[str, str]:
-        return build_windows_ops_snapshot(
-            _ROOT,
-            configured_backend=self._configured_local_runtime_backend(),
-            launcher_python=sys.executable,
-        )
+        return panel_build_windows_ops_snapshot(self, root=_ROOT)
 
     def _refresh_windows_ops_labels(self) -> None:
-        state = build_windows_ops_panel_state(self._windows_ops)
-        self._windows_install_lbl.setText(state.install_text)
-        self._windows_runtime_lbl.setText(state.runtime_text)
-        self._windows_paths_lbl.setText(state.paths_text)
-        self._windows_repair_lbl.setText(state.repair_text)
-        self._windows_update_lbl.setText(state.update_text)
-        self._windows_diagnostics_lbl.setText(state.diagnostics_text)
-        self._windows_entry_lbl.setText(state.entry_text)
-        self._windows_next_lbl.setText(state.next_text)
-        self._windows_service_lbl.setText(state.service_text)
-        self._windows_change_lbl.setText(state.changes_text)
-        self._windows_gate_lbl.setText(state.gate_text)
-        self._windows_gate_fix_lbl.setText(state.gate_followup_text)
-        self._windows_handoff_lbl.setText(state.handoff_text)
+        panel_refresh_windows_ops_labels(self)
 
     def refresh_windows_ops_snapshot(self) -> None:
-        runtime_line = self._windows_ops.get("runtime", "")
-        self._windows_ops = self._build_windows_ops_snapshot()
-        if runtime_line:
-            self._windows_ops["runtime"] = runtime_line
-        self._refresh_windows_ops_labels()
+        panel_refresh_windows_ops_snapshot(self, root=_ROOT)
 
     def windows_ops_snapshot(self) -> dict[str, str]:
         return dict(self._windows_ops)
@@ -1022,152 +929,9 @@ class AdvancedView(QWidget):
         self._terminal_session.stop()
         super().closeEvent(event)
 
-    def _event_level(self, item: dict[str, object]) -> str:
-        event = str(item.get("event", "") or "").lower()
-        summary = json.dumps(item, ensure_ascii=True).lower()
-        if "error" in event or "error" in summary or "failed" in summary:
-            return "ERROR"
-        if "warn" in event or "warning" in summary or "over_budget" in event:
-            return "WARN"
-        return "INFO"
-
-    def _read_launcher_events(self) -> list[dict[str, object]]:
-        path = _ROOT / "runtime" / "launcher_events.jsonl"
-        if not path.exists():
-            return []
-        try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except Exception:
-            return []
-        items: list[dict[str, object]] = []
-        for line in lines[-120:]:
-            txt = line.strip()
-            if not txt:
-                continue
-            try:
-                obj = json.loads(txt)
-            except Exception:
-                continue
-            if isinstance(obj, dict):
-                items.append(obj)
-        return items
-
     def _refresh_operator_logs(self) -> None:
-        items = self._read_launcher_events()
-        lines: list[str] = []
-        for item in items:
-            level = self._event_level(item)
-            if self._log_filter != "ALL" and level != self._log_filter:
-                continue
-            ts = str(item.get("ts", ""))
-            event = str(item.get("event", "event"))
-            detail = ""
-            if event in {"recovery_result", "recovery_error"}:
-                detail = str(item.get("summary", ""))
-            elif event == "auth_retry_result":
-                detail = str(item.get("error", "ok"))
-            elif event == "ui_poll_over_budget":
-                detail = f"poll_ms={item.get('poll_ms', '?')}"
-            elif event == "startup_phase_over_budget":
-                detail = f"phase={item.get('phase', '?')} duration={item.get('duration_ms', '?')}ms"
-            elif event == "connector_action_result":
-                connector = str(item.get("connector", "") or "").strip() or "connector"
-                action = str(item.get("action", "") or "").strip() or "action"
-                result = "OK" if bool(item.get("ok", False)) else "FAIL"
-                ref = str(item.get("event_id", "") or "").strip()
-                provider = str(item.get("provider", "") or "").strip()
-                account_id = str(item.get("account_id", "") or "").strip()
-                summary = str(item.get("summary", "") or "").strip()
-                result_code = str(item.get("result_code", "") or "").strip()
-                next_step = str(item.get("next_step", "") or "").strip()
-                bits = [f"{connector}.{action}", result]
-                if ref:
-                    bits.append(f"ref={ref}")
-                if result_code:
-                    bits.append(f"code={result_code}")
-                if provider:
-                    bits.append(f"provider={provider}")
-                if account_id:
-                    bits.append(f"account={account_id}")
-                detail = " | ".join(bits)
-                if summary:
-                    detail += f" | {summary}"
-                if next_step:
-                    detail += f" | next={next_step}"
-            elif event in {"windows_ops_action", "windows_ops_completed"}:
-                action = str(item.get("action", "") or "").strip() or "windows_ops"
-                queued = item.get("queued")
-                ok = item.get("ok")
-                steps_completed = str(item.get("steps_completed", "") or "").strip()
-                steps_total = str(item.get("steps_total", "") or "").strip()
-                summary = str(item.get("summary", "") or "").strip()
-                event_id = str(item.get("event_id", "") or "").strip()
-                next_step = str(item.get("next_step", "") or "").strip()
-                fix_target = str(item.get("fix_target", "") or "").strip()
-                gate_summary = str(item.get("gate_summary", "") or "").strip()
-                gate_detail = str(item.get("gate_detail", "") or "").strip()
-                gate_failed_checks = [str(row).strip() for row in item.get("gate_failed_checks", []) if str(row).strip()] if isinstance(item.get("gate_failed_checks"), list) else []
-                gate_missing_files = [str(row).strip() for row in item.get("gate_missing_files", []) if str(row).strip()] if isinstance(item.get("gate_missing_files"), list) else []
-                gate_passed_checks = str(item.get("gate_passed_checks", "") or "").strip()
-                gate_total_checks = str(item.get("gate_total_checks", "") or "").strip()
-                gate_recommendations = [str(row).strip() for row in item.get("gate_recommendations", []) if str(row).strip()] if isinstance(item.get("gate_recommendations"), list) else []
-                gate_recommendation_details = [row for row in item.get("gate_recommendation_details", []) if isinstance(row, dict)] if isinstance(item.get("gate_recommendation_details"), list) else []
-                bits = [action]
-                if queued is not None:
-                    bits.append("QUEUED" if bool(queued) else "QUEUE_FAIL")
-                if ok is not None:
-                    bits.append("OK" if bool(ok) else "FAIL")
-                if steps_completed and steps_total:
-                    bits.append(f"steps={steps_completed}/{steps_total}")
-                if event_id:
-                    bits.append(f"ref={event_id}")
-                if fix_target:
-                    bits.append(f"fix={fix_target}")
-                receipt_path = artifact_display_path(str(item.get("release_receipt", "") or ""), root=_ROOT)
-                summary_path = artifact_display_path(str(item.get("release_summary", "") or ""), root=_ROOT)
-                artifacts = [row for row in item.get("artifacts", []) if isinstance(row, dict)] if isinstance(item.get("artifacts"), list) else []
-                artifact_refs = []
-                for artifact in artifacts[:3]:
-                    label = str(artifact.get("id", "") or artifact.get("label", "") or "artifact").strip()
-                    path = artifact_display_path(str(artifact.get("path", "") or ""), root=_ROOT)
-                    if label and path:
-                        artifact_refs.append(f"{label}={path}")
-                detail = " | ".join(bits)
-                if summary:
-                    detail += f" | {summary}"
-                if next_step:
-                    detail += f" | next={next_step}"
-                if gate_summary:
-                    detail += f" | gate={gate_summary}"
-                    if gate_detail:
-                        detail += f" | gate_detail={gate_detail}"
-                    if gate_passed_checks and gate_total_checks:
-                        detail += f" | gate_checks={gate_passed_checks}/{gate_total_checks}"
-                    if gate_failed_checks:
-                        detail += f" | gate_failed={','.join(gate_failed_checks[:3])}"
-                    if gate_missing_files:
-                        rendered_missing = ",".join(Path(path).name or path for path in gate_missing_files[:3])
-                        detail += f" | gate_missing={rendered_missing}"
-                    if gate_recommendations:
-                        detail += f" | gate_fix={'; '.join(gate_recommendations[:2])}"
-                    if gate_recommendation_details:
-                        first_fix = gate_recommendation_details[0]
-                        fix_target = str(first_fix.get("fix_target", "") or "").strip()
-                        fix_docs = str(first_fix.get("docs_hint", "") or "").strip()
-                        fix_command = str(first_fix.get("entry_point", "") or "").strip()
-                        if fix_target:
-                            detail += f" | gate_fix_target={fix_target}"
-                        if fix_docs:
-                            detail += f" | gate_fix_doc={fix_docs}"
-                        if fix_command:
-                            detail += f" | gate_fix_cmd={fix_command}"
-                if receipt_path:
-                    detail += f" | receipt={receipt_path}"
-                if summary_path:
-                    detail += f" | summary={summary_path}"
-                if artifact_refs:
-                    detail += f" | handoff={', '.join(artifact_refs)}"
-            lines.append(f"[{level}] {ts} {event}" + (f" :: {detail}" if detail else ""))
+        items = read_launcher_events(_ROOT)
+        lines = build_operator_log_lines(items, log_filter=self._log_filter, root=_ROOT)
         self._syslog.setPlainText(
             "\n".join(lines[-50:])
             if lines

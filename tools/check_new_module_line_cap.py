@@ -35,8 +35,8 @@ class Waiver:
 # current strangler work still needs to land.
 WAIVED_PATHS: dict[str, Waiver] = {
     "src/guppy/api/server_runtime_snapshot.py": Waiver(
-        max_lines=3881,
-        rationale="Runtime snapshot hotspot still awaits runtime-application extraction.",
+        max_lines=3098,
+        rationale="Runtime snapshot hotspot is smaller after shared briefing and telemetry extractions, but still awaits deeper runtime-application splits.",
     ),
     "src/guppy/daemon/daemon.py": Waiver(
         max_lines=1473,
@@ -51,12 +51,12 @@ WAIVED_PATHS: dict[str, Waiver] = {
         rationale="Memory service still exceeds the cap until dedicated persistence/service seams land.",
     ),
     "src/guppy/api/services_realtime.py": Waiver(
-        max_lines=902,
+        max_lines=713,
         rationale="Realtime API service still bundles too many behaviors pending runtime decomposition.",
     ),
     "src/guppy/api/server_runtime.py": Waiver(
-        max_lines=771,
-        rationale="Runtime startup orchestration is still being strangled out of the API shell.",
+        max_lines=741,
+        rationale="Runtime shell now binds extracted startup, briefing, and auth/request helpers directly, but route and request orchestration still keep the API surface above the cap pending the next bounded split.",
     ),
     "src/guppy/debug/console.py": Waiver(
         max_lines=717,
@@ -67,47 +67,43 @@ WAIVED_PATHS: dict[str, Waiver] = {
         rationale="Voice orchestration still needs a later service split and broader device validation.",
     ),
     "ui/launcher/launcher_window.py": Waiver(
-        max_lines=3758,
-        rationale="Launcher shell hotspot; signal wiring extracted to _wire_signals() composition helper (Card 04). Next deferred cut: ~17 @staticmethod delegates patched by smoke tests require a coordinated test-update pass before they can be inlined and removed.",
+        max_lines=3471,
+        rationale="Launcher shell hotspot; automation-test coordination, windows-ops completion coordination, and the current C38/C39 launcher chrome and command-start hardening are now extracted or integrated, but the five-hub shell still carries workspace-access, request routing, and top-level orchestration pressure pending the next bounded split.",
     ),
-    "ui/launcher/views/advanced_view.py": Waiver(
-        max_lines=1175,
-        rationale="App Mgmt is smaller after terminal/workflow and connector panel extractions, but it still carries broader operator-surface composition pending more presenter seams.",
+    "ui/launcher/views/settings_operations_panel.py": Waiver(
+        max_lines=939,
+        rationale="Settings operations panel now owns the extracted diagnostics, recovery, connector-ops, and terminal workflow surface; presenter seams are still pending a later split.",
     ),
     "ui/launcher/views/models_view.py": Waiver(
-        max_lines=1640,
-        rationale="Models hub expanded with multi-provider routing (Ollama/LMStudio/harness/cloud); awaiting hub-consolidation split into models_routing_panel and models_ops_panel as part of 5-hub truth architecture.",
+        max_lines=1542,
+        rationale="Models hub now routes some runtime and readiness shaping through a presenter seam, but multi-provider routing and harness evidence still keep the main view oversized pending a later panel split. PL-C3 clarity pass added tooltips to SPAWN, APPLY, DOWNLOAD, UNINSTALL, CHECK HEALTH, REFRESH, SAVE RUNTIME, USE THIS SESSION, APPLY ROUTES, APPLY MIX, and MODEL HEALTH buttons.",
     ),
     "ui/launcher/views/instance_manager_view.py": Waiver(
-        max_lines=1077,
+        max_lines=869,
         rationale="Workspace manager still bundles governance and render logic pending shared snapshots.",
     ),
     "ui/launcher/views/assistant_view.py": Waiver(
-        max_lines=1520,
-        rationale="Home chat carries active context, starter, and transcript orchestration; capped at observed size while 5-hub consolidation moves operator UI out of chat surface.",
+        max_lines=1328,
+        rationale="Home chat carries active context, starter, and transcript orchestration; capped at observed size while the final Home cleanup keeps compatibility setters in place but removes operator surfaces from the visible daily chat screen. PL-C3 clarity pass added hub-purpose label and tooltips for send, starters, details, IN LIBRARY, and ATTACH NOW buttons.",
     ),
     "ui/launcher/views/library_view.py": Waiver(
-        max_lines=778,
-        rationale="Library is newly promoted to an active workspace surface and still bundles browse/edit/render behavior pending deeper presenter extraction.",
-    ),
-    "ui/launcher/views/tools_view.py": Waiver(
-        max_lines=750,
-        rationale="Agent Tools view bundles tool-config, allow/block UI, and workspace binding display pending presenter extraction to workspace_governance seams.",
+        max_lines=832,
+        rationale="Library now owns multiline note editing and local media handoff/control while still bundling browse/edit/render behavior; the dedicated media panel reduced some pressure, but deeper presenter extraction is still pending. PL-C3 clarity pass added hub-purpose label and tooltips for PIN NOTE, CANCEL EDIT, PICK FILE, SAVE ARTIFACT, and CANCEL EDIT buttons.",
     ),
     "ui/launcher/views/voices_view.py": Waiver(
-        max_lines=902,
-        rationale="Voice management remains oversized until experience-config services feed the UI.",
+        max_lines=866,
+        rationale="Voice management remains oversized until experience-config services feed the UI. PL-C3 clarity pass bumped PREVIEW and SELECT button heights to 28px minimum and added tooltips.",
     ),
     "ui/launcher/views/settings_view.py": Waiver(
-        max_lines=743,
+        max_lines=732,
         rationale="Settings remains transitional while configuration ownership moves out of the UI layer.",
     ),
     "utils/connector_manager.py": Waiver(
-        max_lines=900,
-        rationale="Connector manager now delegates to workspace_governance seams; cap tightened to observed size plus 20-line margin.",
+        max_lines=670,
+        rationale="Connector readiness and workspace binding evidence now route through a dedicated connector-workspace seam; remaining action/auth orchestration still keeps the compatibility facade oversized.",
     ),
     "utils/personalization_config.py": Waiver(
-        max_lines=1020,
+        max_lines=1009,
         rationale="Experience-config persistence expanded with multi-provider registry (6 new providers); awaiting split into provider_registry_service + persona_service under src/guppy/experience_config/.",
     ),
 }

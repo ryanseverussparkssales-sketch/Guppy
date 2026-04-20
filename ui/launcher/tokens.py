@@ -32,6 +32,24 @@ INK = "#16202b"
 
 SHADOW = "rgba(29, 28, 26, 0.10)"
 
+# Stitch-guided warm sand surface system
+SAND_0 = "#FBF9F4"   # warmest light surface (near-white with warmth)
+SAND_1 = "#F5F3EE"   # default warm surface
+SAND_2 = "#EDE9E1"   # card/panel surface
+SAND_3 = "#E0DBD1"   # subtle divider/border
+
+# Accent system (turquoise + sunset orange — aligns with existing primary/secondary)
+ACCENT_TEAL   = "#2f6f7a"   # existing secondary, now named explicitly
+ACCENT_ORANGE = "#c96a2b"   # existing primary, now named explicitly
+ACCENT_GLOW   = "#e8935a"   # warm sunset highlight (lighter orange glow)
+
+# Gradient definitions for QSS use
+GRADIENT_SUNSET = "qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2f6f7a,stop:1 #c96a2b)"
+GRADIENT_SAND   = "qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #FBF9F4,stop:1 #EDE9E1)"
+
+# Typography — add serif headline pairing
+FONT_SERIF = "Georgia"   # editorial headline serif (Noto Serif fallback)
+
 # Typography
 FF_HEAD = "Cambria"
 FF_MONO = "Cascadia Mono"

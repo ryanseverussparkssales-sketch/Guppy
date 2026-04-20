@@ -113,3 +113,45 @@ class LauncherAppBootstrapTests(unittest.TestCase):
             self.assertEqual(launcher_app.main(), 0)
 
         app_cls.assert_not_called()
+
+    def test_start_api_skips_duplicate_spawn_when_recent_attempt_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "runtime").mkdir(parents=True, exist_ok=True)
+            (root / "guppy_api.py").write_text("print('api')", encoding="utf-8")
+
+            with patch.object(launcher_app, "_ROOT", root), patch.object(
+                launcher_app, "_api_reachable", return_value=False
+            ), patch.object(launcher_app, "_spawn_background_process") as spawn:
+                launcher_app._mark_startup_attempt("api")
+                launcher_app._start_api()
+
+            spawn.assert_not_called()
+
+    def test_start_api_clears_startup_stamp_once_api_is_reachable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "runtime").mkdir(parents=True, exist_ok=True)
+            stamp = root / "runtime" / "api.starting"
+            stamp.write_text("1", encoding="utf-8")
+
+            with patch.object(launcher_app, "_ROOT", root), patch.object(
+                launcher_app, "_api_reachable", return_value=True
+            ):
+                launcher_app._start_api()
+
+            self.assertFalse(stamp.exists())
+
+    def test_start_hub_skips_duplicate_spawn_when_recent_attempt_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "runtime").mkdir(parents=True, exist_ok=True)
+            (root / "guppy_hub.py").write_text("print('hub')", encoding="utf-8")
+
+            with patch.object(launcher_app, "_ROOT", root), patch.object(
+                launcher_app, "_hub_running", return_value=False
+            ), patch.object(launcher_app, "_spawn_background_process") as spawn:
+                launcher_app._mark_startup_attempt("hub")
+                launcher_app._start_hub()
+
+            spawn.assert_not_called()

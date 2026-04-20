@@ -5,8 +5,10 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
+from src.guppy.launcher_application.library_media import describe_library_media_path
 from src.guppy.launcher_application.library_storage import (
     delete_workspace_library_item,
+    list_workspace_library_items,
     save_workspace_library_item,
     update_workspace_library_item,
     upsert_approved_root,
@@ -71,8 +73,9 @@ def compose_library_aware_message(cmd: str, active_items: list[dict[str, str]] |
     for item in items[:3]:
         title = str(item.get("title", "") or "").strip() or "Untitled context"
         kind = str(item.get("kind", "file") or "file").strip().lower() or "file"
+        source_label = str(item.get("source_label", "") or "").strip()
         detail = str(item.get("detail", "") or "").strip()
-        line = f"- {kind}: {title}"
+        line = f"- {source_label or kind}: {title}"
         if detail:
             line = f"{line} | {detail}"
         context_lines.append(line)
@@ -122,6 +125,44 @@ def build_saved_output_context_item(title: str, summary: str) -> dict[str, str]:
         "origin": "assistant_reply_artifact",
         "source_label": "Saved reply artifact",
     }
+
+
+def build_library_context_item(title: str, item_path: str, item_kind: str) -> dict[str, str]:
+    title_text = str(title or "").strip() or "Selected library item"
+    item_path_text = str(item_path or "").strip()
+    kind_text = str(item_kind or "file").strip().lower() or "file"
+    media = describe_library_media_path(item_path_text)
+    if kind_text == "note":
+        return {
+            "title": title_text,
+            "kind": kind_text,
+            "detail": "Pinned note from Library. Use this as the current source for the next reply.",
+            "origin": "library_note",
+            "source_label": "Pinned note",
+        }
+    if media.is_media:
+        media_label = media.source_label or "Local media"
+        return {
+            "title": title_text,
+            "kind": kind_text,
+            "detail": f"{media_label} from Library | {item_path_text or media.path}",
+            "origin": "library_media",
+            "source_label": media_label,
+        }
+    return {
+        "title": title_text,
+        "kind": kind_text,
+        "detail": item_path_text or f"{kind_text} context from the active workspace library",
+        "origin": "library_source",
+        "source_label": "",
+    }
+
+
+def _truncate_context_text(text: str, limit: int = 220) -> str:
+    cleaned = " ".join(str(text or "").split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: max(0, limit - 3)].rstrip() + "..."
 
 
 @dataclass(frozen=True)
@@ -248,10 +289,21 @@ class LibraryWorkflowController:
         item_path_text = str(item_path or "").strip()
         kind_text = str(item_kind or "file").strip().lower() or "file"
         prompt_text = str(prompt or "").strip() or f"Use {title_text} as context and help me work with it."
-        detail = item_path_text or f"{kind_text} context from the active workspace library"
+        next_primary = build_library_context_item(title_text, item_path_text, kind_text)
+        if kind_text == "note":
+            for item in list_workspace_library_items(self._active_workspace_name(), kinds=("note",), limit=24):
+                item_title = str(item.get("title", "") or "").strip()
+                if item_title != title_text:
+                    continue
+                metadata = item.get("metadata", {}) if isinstance(item.get("metadata", {}), dict) else {}
+                source = str(metadata.get("source", "") or "").strip().lower()
+                note_body = _truncate_context_text(str(item.get("summary", "") or ""))
+                next_primary["detail"] = note_body or next_primary["detail"]
+                next_primary["source_label"] = "Saved reply note" if source == "assistant_reply" else "Pinned note"
+                break
         active_items = self._get_active_items()
         next_items = [
-            {"title": title_text, "kind": kind_text, "detail": detail},
+            next_primary,
             *[
                 item
                 for item in active_items

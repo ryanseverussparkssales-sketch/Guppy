@@ -66,8 +66,8 @@ def bootstrap_instance_switcher(owner, *, schedule_single_shot: Callable[[int, C
     owner._topbar.set_instances(names, active_instance=active)
     owner._rotate_chat_session("instance_bootstrap", instance=active)
     owner._instance_manager_view.set_instances(snapshot)
-    owner._advanced_view.set_instance_snapshot(snapshot)
-    owner._my_pc_view.set_windows_snapshot(owner._advanced_view.windows_ops_snapshot())
+    owner._settings_hub_view.set_instance_snapshot(snapshot)
+    owner._settings_hub_view.set_windows_snapshot(owner._settings_hub_view.windows_ops_snapshot())
     active_payload = resolve_active_instance_payload(snapshot, active)
     if isinstance(active_payload, dict):
         library_view = getattr(owner, "_library_view", None)

@@ -25,6 +25,20 @@ from src.guppy.experience_config import (
     validate_provider_registry,
 )
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY, resolve_ui_route
+from src.guppy.launcher_application.models_presenter import (
+    build_models_library_summary_text,
+    build_models_loadout_help_text,
+    build_models_provider_readiness_state,
+    build_models_route_preview_hint_text,
+    build_models_route_preview_text,
+    build_models_route_summary_text,
+    build_models_runtime_evidence_state,
+    build_models_runtime_policy_state,
+    build_models_runtime_summary_text,
+    friendly_models_route_target,
+    model_library_section,
+    normalize_models_policy,
+)
 from .. import tokens as T
 from .models_runtime_library import (
     assign_runtime_model as runtime_library_assign_runtime_model,
@@ -107,11 +121,6 @@ def _model_use_hint(name: str, display: str, tier: str, context: str = "", note:
     if "30b" in joined or "32b" in joined or "24b" in joined:
         return "Good for heavier work when you can trade speed for depth."
     return "Use this when it best fits the work you are doing."
-
-
-def _normalized_model_name(value: str) -> str:
-    return str(value or "").strip().lower()
-
 
 class _LocalRuntimeFetch(QThread):
     finished = Signal(dict)
@@ -290,7 +299,8 @@ class _ModelCard(QFrame):
         act = QHBoxLayout()
         self._status_lbl = QLabel("AVAILABLE")
         self._set_btn = QPushButton("USE THIS SESSION")
-        self._set_btn.setFixedHeight(26)
+        self._set_btn.setFixedHeight(28)
+        self._set_btn.setToolTip("Use this model for the current chat session")
         self._set_btn.clicked.connect(lambda: self.set_active.emit(self._model_name))
         act.addWidget(self._status_lbl); act.addStretch(); act.addWidget(self._set_btn); layout.addLayout(act)
         self._apply_card_style()
@@ -404,6 +414,7 @@ class ModelsView(QWidget):
         self._active_runtime_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
         self._refresh_btn = QPushButton("REFRESH")
         self._refresh_btn.setFixedHeight(28)
+        self._refresh_btn.setToolTip("Reload the local model list and runtime readiness from Ollama")
         self._refresh_btn.clicked.connect(self._refresh)
         tb.addWidget(self._title_lbl); tb.addStretch(); tb.addWidget(self._active_lbl); tb.addSpacing(16); tb.addWidget(self._active_runtime_lbl); tb.addSpacing(16); tb.addWidget(self._refresh_btn)
         root.addWidget(topbar)
@@ -466,15 +477,19 @@ class ModelsView(QWidget):
         loadout_buttons = QHBoxLayout()
         self._apply_loadout_btn = QPushButton("APPLY LOADOUT")
         self._apply_loadout_btn.setFixedHeight(28)
+        self._apply_loadout_btn.setToolTip("Save and apply the current main and sub model loadout configuration")
         self._apply_loadout_btn.clicked.connect(self._apply_model_loadout)
         self._spawn_main_btn = QPushButton("SPAWN MAIN")
         self._spawn_main_btn.setFixedHeight(28)
+        self._spawn_main_btn.setToolTip("Start the main model on the local runtime engine")
         self._spawn_main_btn.clicked.connect(lambda: self._spawn_loadout_models(include_main=True, include_subs=False))
         self._spawn_subs_btn = QPushButton("SPAWN SUBS")
         self._spawn_subs_btn.setFixedHeight(28)
+        self._spawn_subs_btn.setToolTip("Start sub-agent models A and B on the local runtime engine")
         self._spawn_subs_btn.clicked.connect(lambda: self._spawn_loadout_models(include_main=False, include_subs=True))
         self._spawn_all_btn = QPushButton("SPAWN ALL")
         self._spawn_all_btn.setFixedHeight(28)
+        self._spawn_all_btn.setToolTip("Start the main model and both sub-agent models on the local runtime engine")
         self._spawn_all_btn.clicked.connect(lambda: self._spawn_loadout_models(include_main=True, include_subs=True))
         loadout_buttons.addWidget(self._apply_loadout_btn)
         loadout_buttons.addWidget(self._spawn_main_btn)
@@ -509,6 +524,7 @@ class ModelsView(QWidget):
         self._lemonade_base_url_input.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 6px 8px;")
         self._save_runtime_btn = QPushButton("SAVE RUNTIME")
         self._save_runtime_btn.setFixedHeight(28)
+        self._save_runtime_btn.setToolTip("Save current runtime settings including base URL and model role assignments")
         self._save_runtime_btn.clicked.connect(self._save_runtime_settings)
         row.addWidget(self._lemonade_base_url_input); row.addWidget(self._save_runtime_btn); row.addStretch()
         rtl.addLayout(row)
@@ -603,6 +619,7 @@ class ModelsView(QWidget):
         self._fallback_chain_input.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 6px 8px;")
         self._apply_routes_btn = QPushButton("APPLY ROUTES")
         self._apply_routes_btn.setFixedHeight(28)
+        self._apply_routes_btn.setToolTip("Save the current task-to-model route assignments and fallback chain")
         self._apply_routes_btn.clicked.connect(self._apply_routes)
         row2.addWidget(self._fallback_chain_input); row2.addWidget(self._apply_routes_btn); row2.addStretch()
         rbl.addLayout(row2)
@@ -639,14 +656,16 @@ class ModelsView(QWidget):
         mix_actions = QHBoxLayout()
         self._apply_mix_btn = QPushButton("APPLY MIX")
         self._apply_mix_btn.setFixedHeight(28)
+        self._apply_mix_btn.setToolTip("Save the mixed-loadout route assignments (main and sub-agent routes)")
         self._apply_mix_btn.clicked.connect(self._apply_mixed_loadout)
         mix_actions.addWidget(self._apply_mix_btn)
         mix_actions.addStretch()
         mix_layout.addLayout(mix_actions)
         rbl.addWidget(self._mix_routes_frame)
 
-        self._ops_toggle_btn = QPushButton("MODEL HEALTH + SETTINGS")
+        self._ops_toggle_btn = QPushButton("MODEL HEALTH + READINESS")
         self._ops_toggle_btn.setFixedHeight(28)
+        self._ops_toggle_btn.setToolTip("Show or hide Ollama health checks, download, and uninstall controls")
         self._ops_toggle_btn.clicked.connect(self._toggle_model_ops_panel)
         rbl.addWidget(self._ops_toggle_btn)
 
@@ -657,11 +676,20 @@ class ModelsView(QWidget):
         ops_layout.setContentsMargins(10, 10, 10, 10)
         ops_layout.setSpacing(8)
         endpoints_lbl = QLabel(
-            "Hidden provider settings: LM Studio base URL (env GUPPY_LMSTUDIO_BASE_URL), local harness base URL (env GUPPY_LOCAL_HARNESS_BASE_URL), and cloud API keys."
+            "Runtime readiness lives here, but provider accounts and API-key storage stay unified in Settings. "
+            "Hidden endpoints remain environment-driven: LM Studio (GUPPY_LMSTUDIO_BASE_URL), local harness (GUPPY_LOCAL_HARNESS_BASE_URL), and any cloud-provider API keys."
         )
         endpoints_lbl.setWordWrap(True)
         endpoints_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
         ops_layout.addWidget(endpoints_lbl)
+        connector_note_lbl = QLabel(
+            "Connector lane: Ollama install/uninstall and warm-spawn are live here. "
+            "LM Studio is discovery/readiness-only today. Local harness is a development and benchmark lane. "
+            "Hugging Face local is planned behind the harness/openai-compatible adapter path before it becomes a saved runtime backend."
+        )
+        connector_note_lbl.setWordWrap(True)
+        connector_note_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
+        ops_layout.addWidget(connector_note_lbl)
         op_row = QHBoxLayout()
         op_row.setSpacing(8)
         self._ops_model_input = QLineEdit()
@@ -670,12 +698,15 @@ class ModelsView(QWidget):
         self._ops_model_input.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG0}; border: 1px solid {T.BORDER}; padding: 6px 8px;")
         self._ops_download_btn = QPushButton("DOWNLOAD")
         self._ops_download_btn.setFixedHeight(28)
+        self._ops_download_btn.setToolTip("Download this model to the local Ollama runtime (ollama pull)")
         self._ops_download_btn.clicked.connect(lambda: self._run_ollama_model_op("pull"))
         self._ops_uninstall_btn = QPushButton("UNINSTALL")
         self._ops_uninstall_btn.setFixedHeight(28)
+        self._ops_uninstall_btn.setToolTip("Remove this model from the local Ollama runtime (ollama rm)")
         self._ops_uninstall_btn.clicked.connect(lambda: self._run_ollama_model_op("rm"))
         self._ops_health_btn = QPushButton("CHECK HEALTH")
         self._ops_health_btn.setFixedHeight(28)
+        self._ops_health_btn.setToolTip("Run a quick health check against the local Ollama service")
         self._ops_health_btn.clicked.connect(self._check_model_health)
         op_row.addWidget(self._ops_model_input)
         op_row.addWidget(self._ops_download_btn)
@@ -683,7 +714,7 @@ class ModelsView(QWidget):
         op_row.addWidget(self._ops_health_btn)
         op_row.addStretch()
         ops_layout.addLayout(op_row)
-        self._ops_status_lbl = QLabel("Health and provider settings are hidden by default")
+        self._ops_status_lbl = QLabel("Health and provider readiness are hidden by default")
         self._ops_status_lbl.setWordWrap(True)
         self._ops_status_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
         ops_layout.addWidget(self._ops_status_lbl)
@@ -712,7 +743,7 @@ class ModelsView(QWidget):
         row3.addWidget(self._route_mode_cb); row3.addWidget(self._route_input, stretch=1)
         rbl.addLayout(row3)
 
-        self._route_preview_lbl = QLabel("Route preview appears here once you type a sample request.")
+        self._route_preview_lbl = QLabel(build_models_route_preview_hint_text())
         self._route_preview_lbl.setWordWrap(True)
         self._route_preview_lbl.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;")
         rbl.addWidget(self._route_preview_lbl)
@@ -808,6 +839,16 @@ class ModelsView(QWidget):
     def _normalize_runtime_backend(value: str) -> str:
         return "lemonade" if str(value or "").strip().lower() == "lemonade" else "ollama"
 
+    @staticmethod
+    def _tone_color(tone: str, *, default: str = T.TEXT) -> str:
+        return {
+            "success": T.GREEN,
+            "warning": T.PRIMARY,
+            "error": T.ERROR,
+            "muted": T.DIM,
+            "info": default,
+        }.get(str(tone or "").strip().lower(), default)
+
     def _set_runtime_status(self, text: str, ok: bool = True) -> None:
         color = T.GREEN if ok else T.ERROR
         self._runtime_status_lbl.setText(text)
@@ -852,11 +893,13 @@ class ModelsView(QWidget):
         self._refresh_runtime_library()
 
     def _set_page_mode(self, mode: str) -> None:
-        runtime_mode = str(mode or "").strip().lower() == "runtime"
-        self._runtime_bar.setVisible(runtime_mode)
-        self._route_bar.setVisible(runtime_mode)
-        self._library_summary_frame.setVisible(not runtime_mode)
-        self._library_scroll.setVisible(not runtime_mode)
+        normalized = str(mode or "").strip().lower()
+        runtime_mode = normalized == "runtime"
+        hub_mode = normalized == "hub"
+        self._runtime_bar.setVisible(runtime_mode or hub_mode)
+        self._route_bar.setVisible(runtime_mode or hub_mode)
+        self._library_summary_frame.setVisible(not runtime_mode or hub_mode)
+        self._library_scroll.setVisible(not runtime_mode or hub_mode)
         self._refresh_library_summary()
 
     def _available_local_model_names(self) -> list[str]:
@@ -864,7 +907,7 @@ class ModelsView(QWidget):
 
     @staticmethod
     def _normalize_policy_snapshot(payload: dict[str, Any] | None) -> dict[str, Any]:
-        return payload if isinstance(payload, dict) else {}
+        return normalize_models_policy(payload)
 
     def _load_local_llm_policy(self) -> dict[str, Any]:
         if not _LOCAL_LLM_MANIFEST_BACKEND:
@@ -875,47 +918,30 @@ class ModelsView(QWidget):
             return {}
 
     def _render_runtime_policy(self) -> None:
-        policy = self._normalize_policy_snapshot(self._policy_snapshot)
-        if not policy:
-            self._runtime_policy_lbl.setText("Policy view unavailable. Launcher will fall back to live runtime evidence only.")
-            self._runtime_policy_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;")
-            return
-        runtime_baseline = str(policy.get("runtime_baseline", "ollama") or "ollama").strip().upper()
-        memory_baseline = str(policy.get("memory_baseline", "semantic-sqlite") or "semantic-sqlite").strip()
-        daily = str(policy.get("daily_model_promotion_candidate", "") or "").strip()
-        heavy = str(policy.get("heavy_model_candidate", "") or "").strip()
-        rejected = [str(item).strip() for item in policy.get("daily_lane_rejected_models", []) if str(item).strip()]
-        challengers = [str(item).strip().upper() for item in policy.get("runtime_challenger_ids", []) if str(item).strip()]
-        lines = [
-            f"FINALIZED POLICY: runtime baseline {runtime_baseline} | daily lane candidate {daily or 'unset'} | heavy fallback {heavy or 'unset'}",
-            f"Memory baseline: {memory_baseline}",
-        ]
-        if rejected:
-            lines.append("Daily-lane rejects on this machine: " + ", ".join(rejected))
-        if challengers:
-            lines.append("Runtime challengers only: " + ", ".join(challengers))
-        if self._local_runtime_backend != "ollama":
-            lines.append("Current editor selection is a challenger runtime. Save it only if you are intentionally testing the opt-in lane.")
-        self._runtime_policy_lbl.setText("\n".join(lines))
-        self._runtime_policy_lbl.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;")
+        state = build_models_runtime_policy_state(
+            self._policy_snapshot,
+            selected_backend=self._local_runtime_backend,
+        )
+        self._runtime_policy_lbl.setText(state.text)
+        self._runtime_policy_lbl.setStyleSheet(
+            f"color: {self._tone_color(state.tone, default=T.TEXT)}; font-family: '{T.FF_MONO}'; "
+            f"font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;"
+        )
 
     def _refresh_runtime_summary(self) -> None:
-        names = self._available_local_model_names()
-        pending_save = self._local_runtime_backend != self._saved_runtime_backend
-        if self._local_runtime_backend == "lemonade":
-            mapped = [f"{label.lower()} -> {self._lemonade_role_inputs[field_name].currentText().strip()}" for field_name, label in _LEMONADE_ROLE_FIELDS if self._lemonade_role_inputs[field_name].currentText().strip()]
-            text = "Lemonade is opt-in for the local lane. Map Guppy's role aliases to downloaded Lemonade model ids here."
-            text += "\nCurrent Lemonade mapping: " + (" | ".join(mapped) if mapped else "none saved yet")
-            if names:
-                text += f"\nDownloaded Lemonade models visible now: {', '.join(names[:6])}"
-        else:
-            text = "Ollama remains the default local runtime. Local cards reflect direct Ollama tags, and the Lemonade mapping controls wake up when you switch runtimes."
-            if names:
-                text += f"\nVisible Ollama tags: {', '.join(names[:6])}"
-        text += f"\nSaved local lane: {self._saved_runtime_backend.upper()}"
-        if pending_save:
-            text += f" | editor selection pending save: {self._local_runtime_backend.upper()}"
-        self._runtime_summary_lbl.setText(text)
+        mapped = [
+            f"{label.lower()} -> {self._lemonade_role_inputs[field_name].currentText().strip()}"
+            for field_name, label in _LEMONADE_ROLE_FIELDS
+            if self._lemonade_role_inputs[field_name].currentText().strip()
+        ]
+        self._runtime_summary_lbl.setText(
+            build_models_runtime_summary_text(
+                editor_backend=self._local_runtime_backend,
+                saved_backend=self._saved_runtime_backend,
+                available_model_names=self._available_local_model_names(),
+                lemonade_mapping=mapped,
+            )
+        )
         self._render_runtime_policy()
         self._render_runtime_evidence()
         self._refresh_library_summary()
@@ -923,18 +949,14 @@ class ModelsView(QWidget):
     def _refresh_library_summary(self) -> None:
         if not hasattr(self, "_library_summary_lbl"):
             return
-        policy = self._normalize_policy_snapshot(self._policy_snapshot)
-        daily = str(policy.get("daily_model_promotion_candidate", "") or "").strip() or self._active_model
-        heavy = str(policy.get("heavy_model_candidate", "") or "").strip() or "none set"
-        local_count = len(self._local_cards)
-        advanced_count = len(self._local_section_cards.get("advanced", []))
-        runtime_name = self._saved_runtime_backend.upper()
-        selected_name = self._active_model or "unset"
         self._library_summary_lbl.setText(
-            f"Recommended default: {daily} for everyday use. Heavier local option: {heavy} when you want a deeper local pass. "
-            f"This session is using {selected_name} on {runtime_name}. "
-            f"{local_count} local models are installed on this PC"
-            + (f", with {advanced_count} advanced picks kept in their own section." if advanced_count else ".")
+            build_models_library_summary_text(
+                self._policy_snapshot,
+                active_model=self._active_model,
+                local_count=len(self._local_cards),
+                advanced_count=len(self._local_section_cards.get("advanced", [])),
+                runtime_backend=self._saved_runtime_backend,
+            )
         )
 
     def _apply_library_filter(self) -> None:
@@ -967,23 +989,11 @@ class ModelsView(QWidget):
             )
 
     def _local_model_section(self, model_name: str) -> str:
-        normalized = _normalized_model_name(model_name)
-        policy = self._normalize_policy_snapshot(self._policy_snapshot)
-        daily = _normalized_model_name(policy.get("daily_model_promotion_candidate", ""))
-        heavy = _normalized_model_name(policy.get("heavy_model_candidate", ""))
-        rejected = {
-            _normalized_model_name(item)
-            for item in policy.get("daily_lane_rejected_models", [])
-            if _normalized_model_name(item)
-        }
-        advanced_tokens = ("experimental", "preview", "alpha", "beta", "test", "canary")
-        if normalized in rejected or any(token in normalized for token in advanced_tokens):
-            return "advanced"
-        if normalized in {daily, heavy}:
-            return "recommended"
-        if normalized == _normalized_model_name(self._active_model) and normalized not in rejected:
-            return "recommended"
-        return "installed"
+        return model_library_section(
+            model_name,
+            policy_payload=self._policy_snapshot,
+            active_model=self._active_model,
+        )
 
     def _rebuild_local_sections(self) -> None:
         for key, cards in self._local_section_cards.items():
@@ -1001,55 +1011,16 @@ class ModelsView(QWidget):
             self._local_section_cards[section].append(card)
 
     def _render_runtime_evidence(self) -> None:
-        snapshot = self._status_snapshot if isinstance(self._status_snapshot, dict) else {}
-        runtime = snapshot.get("local_runtime", {}) if isinstance(snapshot, dict) else {}
-        pending_save = self._local_runtime_backend != self._saved_runtime_backend
-        if not isinstance(runtime, dict) or not runtime:
-            waiting = f"Live lane evidence: waiting for /status. Saved runtime: {self._saved_runtime_backend.upper()}."
-            if pending_save:
-                waiting += f" Editor selection: {self._local_runtime_backend.upper()} (unsaved)."
-            self._runtime_live_lbl.setText(waiting)
-            self._runtime_live_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;")
-            return
-
-        backend = self._normalize_runtime_backend(str(runtime.get("backend", self._saved_runtime_backend)))
-        state = str(runtime.get("state", "unknown") or "unknown").upper()
-        detail = str(runtime.get("detail", "") or "").strip()
-        requested_model = str(runtime.get("requested_model", "") or "").strip()
-        resolved_model = str(runtime.get("resolved_model", "") or "").strip()
-        base_url = str(runtime.get("base_url", "") or "").strip()
-        tool_loop = str(runtime.get("tool_loop", "") or "").strip()
-        available_roles = [str(item).strip().upper() for item in runtime.get("available_roles", []) if str(item).strip()]
-        missing_roles = [str(item).strip().upper() for item in runtime.get("missing_roles", []) if str(item).strip()]
-        style_color = T.GREEN if state == "READY" else T.PRIMARY if state == "PARTIAL" else T.ERROR
-
-        lines = [
-            f"LIVE LANE: {state} | server runtime {backend.upper()} | saved runtime {self._saved_runtime_backend.upper()}",
-        ]
-        if pending_save:
-            lines[0] += f" | editor selection {self._local_runtime_backend.upper()} (unsaved)"
-        if backend != self._saved_runtime_backend:
-            lines.append("Server runtime does not match the saved launcher choice yet.")
-        if detail:
-            lines.append(detail)
-        resolved_bits = []
-        if requested_model:
-            resolved_bits.append(f"requested {requested_model}")
-        if resolved_model:
-            resolved_bits.append(f"resolved {resolved_model}")
-        if tool_loop:
-            resolved_bits.append(f"tool loop {tool_loop}")
-        if base_url:
-            resolved_bits.append(f"endpoint {base_url}")
-        if resolved_bits:
-            lines.append("Live runtime details: " + " | ".join(resolved_bits))
-        if available_roles:
-            lines.append("Available mapped roles: " + ", ".join(available_roles))
-        if missing_roles:
-            lines.append("Missing mapped roles: " + ", ".join(missing_roles))
-
-        self._runtime_live_lbl.setText("\n".join(lines))
-        self._runtime_live_lbl.setStyleSheet(f"color: {style_color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;")
+        state = build_models_runtime_evidence_state(
+            self._status_snapshot,
+            editor_backend=self._local_runtime_backend,
+            saved_backend=self._saved_runtime_backend,
+        )
+        self._runtime_live_lbl.setText(state.text)
+        self._runtime_live_lbl.setStyleSheet(
+            f"color: {self._tone_color(state.tone, default=T.TEXT)}; font-family: '{T.FF_MONO}'; "
+            f"font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;"
+        )
 
     @staticmethod
     def _set_combo_items_preserve_text(combo: QComboBox, options: list[str], current: str) -> None:
@@ -1156,10 +1127,10 @@ class ModelsView(QWidget):
     def _toggle_model_ops_panel(self) -> None:
         visible = not self._ops_panel.isVisible()
         self._ops_panel.setVisible(visible)
-        self._ops_toggle_btn.setText("HIDE MODEL HEALTH + SETTINGS" if visible else "MODEL HEALTH + SETTINGS")
+        self._ops_toggle_btn.setText("HIDE MODEL HEALTH + READINESS" if visible else "MODEL HEALTH + READINESS")
 
-    def _set_ops_status(self, text: str, ok: bool = True) -> None:
-        color = T.GREEN if ok else T.ERROR
+    def _set_ops_status(self, text: str, ok: bool = True, *, tone: str | None = None) -> None:
+        color = self._tone_color(tone or ("success" if ok else "error"), default=T.GREEN if ok else T.ERROR)
         self._ops_status_lbl.setText(text)
         self._ops_status_lbl.setStyleSheet(
             f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
@@ -1175,18 +1146,11 @@ class ModelsView(QWidget):
         self._health_thread.start()
 
     def _on_health_checked(self, payload: dict[str, str]) -> None:
-        parts = [
-            f"anthropic={payload.get('anthropic', 'unknown')}",
-            f"openai={payload.get('openai', 'unknown')}",
-            f"gemini={payload.get('gemini', 'unknown')}",
-            f"ollama_api={payload.get('ollama_api', 'unknown')}",
-            f"ollama_local={payload.get('ollama_local', 'unknown')}",
-            f"lmstudio={payload.get('lmstudio_local', 'unknown')}",
-            f"lemonade={payload.get('lemonade_local', 'unknown')}",
-            f"local_harness={payload.get('local_harness', 'unknown')}",
-        ]
-        failures = [part for part in parts if "offline" in part or "missing API key" in part]
-        self._set_ops_status(" | ".join(parts), ok=not bool(failures))
+        state = build_models_provider_readiness_state(
+            payload,
+            active_backend=self._local_runtime_backend,
+        )
+        self._set_ops_status(state.text, ok=state.tone != "error", tone=state.tone)
 
     def _run_ollama_model_op(self, operation: str) -> None:
         if self._model_op_thread is not None and self._model_op_thread.isRunning():
@@ -1220,12 +1184,12 @@ class ModelsView(QWidget):
         self._refresh_loadout_help()
 
     def _refresh_loadout_help(self) -> None:
-        main_model = self._model_loadout.get("local_main_model", "") or "unset"
-        sub_a = self._model_loadout.get("local_sub_model_a", "") or "unset"
-        sub_b = self._model_loadout.get("local_sub_model_b", "") or "unset"
         self._loadout_help_lbl.setText(
-            "Directed lanes: "
-            f"complex/default -> {main_model} | simple/fast -> {sub_a} | code specialist -> {sub_b}."
+            build_models_loadout_help_text(
+                main_model=self._model_loadout.get("local_main_model", ""),
+                sub_a_model=self._model_loadout.get("local_sub_model_a", ""),
+                sub_b_model=self._model_loadout.get("local_sub_model_b", ""),
+            )
         )
 
     def _loadout_payload(self) -> dict[str, str]:
@@ -1486,31 +1450,15 @@ class ModelsView(QWidget):
     def _refresh_route_summary(self) -> None:
         fallback = self._parse_fallback_chain(self._fallback_chain_input.text())
         health = self._route_health_summary()
-        summary = (
-            "Current route plan:\n"
-            f"Simple requests start with {self._friendly_route_target(self._simple_route_cb.currentText())}.\n"
-            f"Complex requests start with {self._friendly_route_target(self._complex_route_cb.currentText())}.\n"
-            f"Teaching requests start with {self._friendly_route_target(self._teaching_route_cb.currentText())}.\n"
-            f"If the first choice is unavailable, Guppy falls back to {', '.join(self._friendly_route_target(item) for item in fallback) if fallback else 'the built-in defaults'}."
+        summary, evidence = build_models_route_summary_text(
+            simple_target=friendly_models_route_target(self._simple_route_cb.currentText()),
+            complex_target=friendly_models_route_target(self._complex_route_cb.currentText()),
+            teaching_target=friendly_models_route_target(self._teaching_route_cb.currentText()),
+            fallback_targets=[friendly_models_route_target(item) for item in fallback],
+            health_summary=health,
         )
         self._route_summary_lbl.setText(summary)
-        self._route_evidence_lbl.setText(f"Live evidence: {health}")
-
-    @staticmethod
-    def _describe_route_decision(decision: dict[str, Any]) -> str:
-        if not isinstance(decision, dict):
-            return "Route preview unavailable."
-        task_type = str(decision.get("task_type", "unknown") or "unknown").strip()
-        route = str(decision.get("route", "pending") or "pending").strip()
-        executor = str(decision.get("executor", "") or "").strip()
-        model = str(decision.get("model", "") or "").strip()
-        backup = str(decision.get("backup_model", "") or "").strip()
-        reason = str(decision.get("route_reason", "") or "no explanation available").strip()
-        summary = f"{task_type.capitalize()} work will start with {ModelsView._friendly_route_target(model or ModelsView._friendly_route_name(route))}."
-        if executor:
-            summary += f" Guppy will execute it through {executor.upper()}."
-        details = ([f"Backup: {ModelsView._friendly_route_target(backup)}"] if backup else []) + [f"Why: {reason}"]
-        return summary + ("\n" + " ".join(details) if details else "")
+        self._route_evidence_lbl.setText(evidence)
 
     def _route_health_summary(self) -> str:
         api_key = bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip())
@@ -1532,15 +1480,6 @@ class ModelsView(QWidget):
             parts.append(f"launcher-wide last reply {latency}")
         return " | ".join(parts)
 
-    def _route_evidence_for_decision(self, decision: dict[str, Any]) -> str:
-        route = str(decision.get("route", "pending") or "pending").strip().lower()
-        health = self._route_health_summary()
-        if route in {"haiku", "sonnet", "opus"}:
-            return f"Cloud evidence: {health}"
-        if route == "local":
-            return f"Local evidence: {health}"
-        return f"Launcher evidence: {health}"
-
     @staticmethod
     def _latest_runtime_latency() -> str:
         try:
@@ -1550,38 +1489,19 @@ class ModelsView(QWidget):
         latency = str(payload.get("last_latency_ms", "") or "").strip()
         return "" if not latency or latency in {"-", "—"} else f"{latency} ms"
 
-    @staticmethod
-    def _friendly_route_name(route: str) -> str:
-        value = str(route or "").strip().lower()
-        return {
-            "haiku": "Claude Haiku",
-            "sonnet": "Claude Sonnet",
-            "opus": "Claude Opus",
-            "local": "the local model",
-            "code": "the code specialist",
-            "teaching": "the teaching route",
-            "auto": "the automatic route",
-            "pending": "the pending route",
-        }.get(value, value.replace("-", " ").replace("_", " ").strip().title() or "the selected route")
-
-    @classmethod
-    def _friendly_route_target(cls, target: str) -> str:
-        raw = str(target or "").strip()
-        if not raw:
-            return "an unset route"
-        provider, sep, model = raw.partition("/")
-        if sep and provider and model:
-            return f"{'local' if provider.lower() == 'local' else provider.upper()} / {model}"
-        return cls._friendly_route_name(raw)
-
     def _refresh_route_preview(self) -> None:
         sample = self._route_input.text().strip()
         if not sample:
-            self._route_preview_lbl.setText("Route preview appears here once you type a sample request. Try the kind of question you would ask on Home.")
+            self._route_preview_lbl.setText(build_models_route_preview_hint_text())
             return
         try:
             decision = resolve_ui_route(user_text=sample, mode=self._route_mode_cb.currentText().strip().lower(), api_key_available=bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip()))
-            self._route_preview_lbl.setText(self._describe_route_decision(decision) + "\n" + self._route_evidence_for_decision(decision))
+            self._route_preview_lbl.setText(
+                build_models_route_preview_text(
+                    decision,
+                    health_summary=self._route_health_summary(),
+                )
+            )
         except Exception as exc:
             self._route_preview_lbl.setText(f"Route preview failed: {exc}")
 

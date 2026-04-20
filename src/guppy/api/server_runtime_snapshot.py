@@ -31,7 +31,7 @@ import logging
 import os
 import re
 import secrets
-import sqlite3
+import sys
 import tempfile
 import time
 import asyncio
@@ -39,9 +39,9 @@ import threading
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from functools import partial
+from types import SimpleNamespace
 from typing import Optional, AsyncGenerator, Any, Dict, List
 from pathlib import Path
-from collections import Counter
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -267,6 +267,11 @@ from src.guppy.api._server_fragment_models import (
     TokenResponse,
     TurnstileToken,
     VoiceChatRequest,
+)
+from src.guppy.api import services_briefing, services_runtime, services_telemetry
+from src.guppy.api.status_support import (
+    build_startup_check_response,
+    build_status_response,
 )
 
 # â”€â”€ Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1103,173 +1108,6 @@ def _read_resource_envelope_status() -> dict[str, Any]:
     }
 
 
-def _parse_iso_ts(ts_value: Any) -> datetime | None:
-    if not ts_value:
-        return None
-    try:
-        txt = str(ts_value).replace("Z", "+00:00")
-        dt = datetime.fromisoformat(txt)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
-    except Exception:
-        return None
-
-
-def _p95(values: list[float]) -> float:
-    if not values:
-        return 0.0
-    vals = sorted(float(v) for v in values)
-    idx = max(0, int(len(vals) * 0.95) - 1)
-    return vals[idx]
-
-
-def _query_sqlite_telemetry(
-    stream: str | None,
-    event: str | None,
-    level: str | None,
-    since_minutes: int | None,
-    limit: int,
-) -> list[dict[str, Any]]:
-    if not _ops_telemetry_db.exists():
-        return []
-
-    where = []
-    params: list[Any] = []
-    if stream:
-        where.append("stream = ?")
-        params.append(stream)
-    if event:
-        where.append("event = ?")
-        params.append(event)
-    if level:
-        where.append("level = ?")
-        params.append(level)
-    if since_minutes is not None and since_minutes >= 0:
-        cutoff = datetime.now(timezone.utc).timestamp() - (int(since_minutes) * 60)
-        where.append("strftime('%s', ts) >= ?")
-        params.append(cutoff)
-
-    query = "SELECT ts, stream, event, level, payload_json FROM operational_events"
-    if where:
-        query += " WHERE " + " AND ".join(where)
-    query += " ORDER BY id DESC LIMIT ?"
-    params.append(limit)
-
-    out: list[dict[str, Any]] = []
-    try:
-        from utils.db_utils import open_db as _open_db
-        conn = _open_db(
-            _ops_telemetry_db,
-            timeout=_SQLITE_TIMEOUT_SECONDS,
-            busy_timeout_ms=_SQLITE_BUSY_TIMEOUT_MS,
-        )
-        try:
-            rows = conn.execute(query, params).fetchall()
-        finally:
-            conn.close()
-    except Exception:
-        return []
-
-    for ts, stream_name, event_name, lvl, payload_json in reversed(rows):
-        payload: dict[str, Any] | Any
-        try:
-            payload = json.loads(payload_json)
-        except Exception:
-            payload = {"raw": str(payload_json), "parse_error": True}
-        out.append({
-            "ts": ts,
-            "stream": stream_name,
-            "event": event_name,
-            "level": lvl,
-            "payload": payload,
-        })
-    return out
-
-
-def _query_jsonl_telemetry(
-    stream: str | None,
-    event: str | None,
-    level: str | None,
-    since_minutes: int | None,
-    limit: int,
-) -> list[dict[str, Any]]:
-    requested_streams = [stream] if stream else list(_stream_jsonl_map.keys())
-    cutoff = None
-    if since_minutes is not None and since_minutes >= 0:
-        cutoff = datetime.now(timezone.utc).timestamp() - (int(since_minutes) * 60)
-
-    events: list[dict[str, Any]] = []
-    for stream_name in requested_streams:
-        path = _stream_jsonl_map.get(stream_name)
-        if path is None:
-            continue
-        for row in _read_jsonl_tail(path, limit=max(limit * 3, 120)):
-            evt_name = str(row.get("event", row.get("event_type", ""))).strip()
-            evt_level = str(row.get("level", "")).strip().lower() or "info"
-            ts_txt = row.get("ts", row.get("timestamp"))
-            ts_obj = _parse_iso_ts(ts_txt)
-            if cutoff is not None:
-                if ts_obj is None or ts_obj.timestamp() < cutoff:
-                    continue
-            if event and evt_name != event:
-                continue
-            if level and evt_level != level:
-                continue
-            events.append({
-                "ts": ts_txt,
-                "stream": stream_name,
-                "event": evt_name or "event",
-                "level": evt_level,
-                "payload": row,
-            })
-
-    events.sort(key=lambda item: _parse_iso_ts(item.get("ts")) or datetime.min.replace(tzinfo=timezone.utc))
-    if len(events) > limit:
-        events = events[-limit:]
-    return events
-
-
-def _build_telemetry_report(events: list[dict[str, Any]]) -> dict[str, Any]:
-    stream_counts = Counter()
-    event_counts = Counter()
-    level_counts = Counter()
-    latencies: list[float] = []
-    slow_count = 0
-
-    for item in events:
-        stream_counts[str(item.get("stream", "unknown"))] += 1
-        event_counts[str(item.get("event", "event"))] += 1
-        level_counts[str(item.get("level", "info"))] += 1
-
-        payload = item.get("payload")
-        if isinstance(payload, dict):
-            raw_latency = payload.get("latency_ms", payload.get("elapsed_ms"))
-            if isinstance(raw_latency, (int, float)):
-                lat = float(raw_latency)
-                latencies.append(lat)
-                if lat >= SLOW_REQUEST_MS:
-                    slow_count += 1
-
-    latest_ts = None
-    if events:
-        latest_ts = events[-1].get("ts")
-
-    return {
-        "count": len(events),
-        "latest_ts": latest_ts,
-        "streams": dict(stream_counts),
-        "events": dict(event_counts.most_common(20)),
-        "levels": dict(level_counts),
-        "latency": {
-            "samples": len(latencies),
-            "avg_ms": round(sum(latencies) / len(latencies), 2) if latencies else 0.0,
-            "p95_ms": round(_p95(latencies), 2) if latencies else 0.0,
-            "slow_count": slow_count,
-            "slow_threshold_ms": SLOW_REQUEST_MS,
-        },
-    }
-
 # === END _server_fragment_instances_telemetry.py ===
 
 # === BEGIN _server_fragment_ops.py ===
@@ -1278,185 +1116,15 @@ def _latest_stress_report_path() -> Path | None:
     return reports[0] if reports else None
 
 
-_MORNING_BRIEF_DIRECT_PHRASES = (
-    "morning brief",
-    "morning briefing",
-    "daily brief",
-    "daily briefing",
-)
-_MORNING_BRIEF_AFFIRMATIONS = (
-    "yes",
-    "yes please",
-    "yeah",
-    "yep",
-    "sure",
-    "ok",
-    "okay",
-    "please",
-    "do it",
-    "go ahead",
-    "lets",
-    "let's",
-    "sounds good",
-)
-
-
-def _normalize_brief_text(text: Any) -> str:
-    raw = str(text or "").strip().lower()
-    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9']+", " ", raw)).strip()
-
-
-def _looks_like_brief_affirmation(text: Any) -> bool:
-    compact = _normalize_brief_text(text)
-    if not compact:
-        return False
-    if compact in _MORNING_BRIEF_AFFIRMATIONS:
-        return True
-    return any(compact.startswith(f"{phrase} ") for phrase in _MORNING_BRIEF_AFFIRMATIONS)
-
-
-def _history_offered_morning_brief(history: Any) -> bool:
-    if not isinstance(history, list):
-        return False
-    for item in reversed(history[-6:]):
-        if not isinstance(item, dict):
-            continue
-        if str(item.get("role", "")).strip().lower() != "assistant":
-            continue
-        content = _normalize_brief_text(item.get("content", ""))
-        if "morning brief" not in content:
-            continue
-        if any(phrase in content for phrase in ("shall i", "i can", "prepare", "proceed", "give you")):
-            return True
-    return False
-
-
-def _request_is_morning_brief(request: ChatRequest) -> bool:
-    message = _normalize_brief_text(request.message)
-    if any(phrase in message for phrase in _MORNING_BRIEF_DIRECT_PHRASES):
-        return True
-    return _looks_like_brief_affirmation(message) and _history_offered_morning_brief(request.history)
+_request_is_morning_brief = services_briefing.request_is_morning_brief
 
 
 def _latest_daily_report_path() -> Path | None:
-    reports_dir = _runtime_dir / "daily_reports"
-    if not reports_dir.exists():
-        return None
-    today_name = f"{datetime.now().strftime('%Y-%m-%d')}.md"
-    today_path = reports_dir / today_name
-    if today_path.exists():
-        return today_path
-    reports = sorted(reports_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return reports[0] if reports else None
-
-
-def _strip_markdown_prefix(text: str) -> str:
-    cleaned = text.strip()
-    cleaned = re.sub(r"^\s*(?:[-*]|\d+\.)\s*", "", cleaned)
-    cleaned = cleaned.replace("**", "").replace("`", "")
-    return cleaned.strip()
-
-
-def _parse_markdown_sections(markdown_text: str) -> dict[str, list[str]]:
-    sections: dict[str, list[str]] = {}
-    current = ""
-    for raw_line in markdown_text.splitlines():
-        line = raw_line.rstrip()
-        if line.startswith("## "):
-            current = line[3:].strip().lower()
-            sections.setdefault(current, [])
-            continue
-        if current:
-            sections[current].append(line)
-    return sections
-
-
-def _preview_markdown_section(lines: list[str], limit: int = 3) -> list[str]:
-    preview: list[str] = []
-    for raw in lines:
-        line = raw.strip()
-        if not line:
-            continue
-        if line.startswith("|"):
-            if line.startswith("|-"):
-                continue
-            cols = [part.strip() for part in line.strip("|").split("|")]
-            if len(cols) >= 2 and cols[0].lower() != "topic":
-                preview.append(_strip_markdown_prefix(f"{cols[0]}: {cols[1]}"))
-            continue
-        preview.append(_strip_markdown_prefix(line))
-        if len(preview) >= limit:
-            break
-    return preview[:limit]
-
-
-def _preview_plain_block(text: str, limit: int = 3) -> list[str]:
-    lines = [_strip_markdown_prefix(line) for line in str(text or "").splitlines() if str(line).strip()]
-    return [line for line in lines if line][:limit]
+    return services_briefing.latest_daily_report_path(_module_owner())
 
 
 def _build_morning_brief_response() -> str:
-    now_local = datetime.now().astimezone()
-    lines = [f"Morning brief for {now_local.strftime('%A, %B %d, %Y')}."]
-
-    report_path = _latest_daily_report_path()
-    report_sections: dict[str, list[str]] = {}
-    if report_path is not None:
-        try:
-            report_sections = _parse_markdown_sections(report_path.read_text(encoding="utf-8", errors="ignore"))
-        except Exception:
-            report_sections = {}
-
-    key_actions = _preview_markdown_section(report_sections.get("key actions", []), limit=3)
-    carry_forward = _preview_markdown_section(report_sections.get("carry-forward items", []), limit=3)
-    world_news = _preview_markdown_section(report_sections.get("world news", []), limit=3)
-
-    if key_actions:
-        lines.append("")
-        lines.append("Top priorities:")
-        lines.extend(f"- {item}" for item in key_actions)
-
-    pending_tasks = ""
-    if GUPPY_MEMORY_AVAILABLE and hasattr(memory, "get_tasks"):
-        try:
-            pending_tasks = str(memory.get_tasks("pending") or "").strip()
-        except Exception:
-            pending_tasks = ""
-    task_preview = []
-    if pending_tasks and not pending_tasks.lower().startswith("no pending tasks"):
-        task_preview = _preview_plain_block(pending_tasks, limit=3)
-    if task_preview:
-        lines.append("")
-        lines.append("Pending tasks:")
-        lines.extend(f"- {item}" for item in task_preview)
-
-    if world_news:
-        lines.append("")
-        lines.append("World watch:")
-        lines.extend(f"- {item}" for item in world_news)
-
-    if carry_forward:
-        lines.append("")
-        lines.append("Carry-forward:")
-        lines.extend(f"- {item}" for item in carry_forward)
-
-    resource = _read_resource_envelope_status()
-    startup = _startup_readiness_cached_or_unknown()
-    resource_state = str(resource.get("state", "unknown")).strip().lower() or "unknown"
-    resource_message = str(resource.get("message", "resource envelope status unavailable")).strip()
-    startup_state = str(startup.get("overall", "UNKNOWN")).strip().lower() or "unknown"
-    lines.append("")
-    lines.append(f"System status: resource envelope {resource_state}; startup readiness {startup_state}.")
-    if resource_message:
-        lines.append(f"Runtime note: {resource_message.rstrip('.')}.")
-
-    if report_path is not None:
-        report_label = f"today's report" if report_path.name == f"{now_local.strftime('%Y-%m-%d')}.md" else "latest report"
-        lines.append(f"Full details are in {report_label}: runtime/daily_reports/{report_path.name}.")
-    elif len(lines) == 3:
-        lines.append("No saved daily report is available yet, so this brief is using live runtime context only.")
-
-    return "\n".join(lines)
+    return services_briefing.build_morning_brief_response(_module_owner())
 
 
 def _collect_runtime_bundle() -> dict[str, Any]:
@@ -1549,149 +1217,27 @@ def _secret_ready(value: str) -> bool:
 
 
 def _build_startup_readiness_payload() -> dict:
-    jwt_ready = _secret_ready(os.environ.get("GUPPY_JWT_SECRET", ""))
-    turnstile_ready = _secret_ready(os.environ.get("TURNSTILE_SECRET", ""))
-    local_runtime = _build_local_runtime_status()
-    local_runtime_ready_for_chat = bool(local_runtime.get("chat_ready", False))
-
-    auth_state = "READY" if (DEV_MODE or (jwt_ready and turnstile_ready)) else "MISSING"
-    if DEV_MODE:
-        auth_detail = "development mode enabled; strict auth checks bypassed"
-    elif auth_state == "READY":
-        auth_detail = "strict auth secrets configured"
-    else:
-        auth_detail = "missing one or more strict auth secrets"
-
-    ollama_state = "MISSING"
-    ollama_detail = "Guppy core unavailable"
-    ollama_model = (os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()
-    if GUPPY_CORE_AVAILABLE:
-        try:
-            ok, err = core.check_ollama(ollama_model)
-            ollama_state = "READY" if ok else "MISSING"
-            ollama_detail = "model reachable" if ok else err
-        except Exception as e:
-            ollama_state = "MISSING"
-            ollama_detail = str(e)
-
-    voice_state = "MISSING"
-    voice_detail = "voice module unavailable"
-    voice_status = {
-        "tts_backend": "unknown",
-        "stt_backend": "unknown",
-        "wake_backend": "idle",
-    }
-    if GUPPY_VOICE_AVAILABLE:
-        # Keep startup check fast: avoid heavyweight backend imports/initialization here.
-        voice_state = "PARTIAL"
-        voice_detail = "voice module available (detailed backend status in /status)"
-
-    daemon_state = "READY" if GUPPY_DAEMON_AVAILABLE else "MISSING"
-    daemon_detail = "daemon module available" if GUPPY_DAEMON_AVAILABLE else "daemon module unavailable"
-
-    memory_state = "READY" if GUPPY_MEMORY_AVAILABLE else "MISSING"
-    memory_detail = "memory module available" if GUPPY_MEMORY_AVAILABLE else "memory module unavailable"
-
-    local_runtime_state = str(local_runtime.get("state", "UNKNOWN") or "UNKNOWN")
-    if local_runtime_state == "READY" and not local_runtime_ready_for_chat:
-        local_runtime_state = "PARTIAL"
-        detail = str(local_runtime.get("detail", "") or "local runtime reachable")
-        chat_detail = str(local_runtime.get("chat_detail", "") or "chat lane warming")
-        local_runtime = {
-            **local_runtime,
-            "state": local_runtime_state,
-            "detail": f"{detail} | {chat_detail}",
-        }
-    states = [auth_state, ollama_state, voice_state, daemon_state, memory_state, local_runtime_state]
-    overall = "READY" if all(s == "READY" for s in states) else ("PARTIAL" if any(s in {"READY", "PARTIAL"} for s in states) else "MISSING")
-
-    return {
-        "overall": overall,
-        "checks": {
-            "auth": {"state": auth_state, "detail": auth_detail, "dev_mode": bool(DEV_MODE), "jwt_ready": jwt_ready, "turnstile_ready": turnstile_ready},
-            "ollama": {"state": ollama_state, "detail": ollama_detail, "model": ollama_model},
-            "local_runtime": local_runtime,
-            "voice": {"state": voice_state, "detail": voice_detail, **voice_status},
-            "daemon": {"state": daemon_state, "detail": daemon_detail},
-            "memory": {"state": memory_state, "detail": memory_detail},
-        },
-    }
+    return services_runtime.build_startup_readiness_payload(_module_owner())
 
 
 def _startup_readiness_snapshot() -> dict:
-    with _startup_check_cache_lock:
-        now = time.time()
-        if _startup_check_cache["payload"] is not None and _startup_check_cache["expires_at"] > now:
-            return _startup_check_cache["payload"]
-
-    payload = _build_startup_readiness_payload()
-
-    now = time.time()
-    with _startup_check_cache_lock:
-        _startup_check_cache["payload"] = payload
-        _startup_check_cache["expires_at"] = now + STARTUP_CHECK_TTL_SECONDS
-        return payload
+    return services_runtime.startup_readiness_snapshot(_module_owner())
 
 
 def _startup_readiness_cached_or_unknown() -> dict:
-    with _startup_check_cache_lock:
-        payload = _startup_check_cache.get("payload")
-        if payload is not None:
-            return payload
-    return {
-        "overall": "UNKNOWN",
-        "checks": {
-            "auth": {"state": "UNKNOWN", "detail": "startup checks not run yet"},
-            "ollama": {"state": "UNKNOWN", "detail": "startup checks not run yet", "model": (os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()},
-            "local_runtime": {
-                "state": "UNKNOWN",
-                "detail": "startup checks not run yet",
-                "backend": _selected_local_runtime_backend(),
-                "chat_ready": False,
-                "chat_state": "UNKNOWN",
-                "chat_detail": "local runtime warmup not checked yet",
-                "chat_model": _current_local_runtime_chat_model(_selected_local_runtime_backend()),
-            },
-            "voice": {"state": "UNKNOWN", "detail": "startup checks not run yet", "tts_backend": "unknown", "stt_backend": "unknown", "wake_backend": "unknown"},
-            "daemon": {"state": "UNKNOWN", "detail": "startup checks not run yet"},
-            "memory": {"state": "UNKNOWN", "detail": "startup checks not run yet"},
-        },
-    }
+    return services_runtime.startup_readiness_cached_or_unknown(_module_owner())
 
 
 def _startup_readiness_cached_or_snapshot() -> dict:
-    """Return cached startup readiness immediately when available, else compute once."""
-    with _startup_check_cache_lock:
-        payload = _startup_check_cache.get("payload")
-        if payload is not None:
-            return payload
-    return _startup_readiness_snapshot()
+    return services_runtime.startup_readiness_cached_or_snapshot(_module_owner())
 
 
 def _startup_readiness_cache_expired() -> bool:
-    with _startup_check_cache_lock:
-        return _startup_check_cache.get("expires_at", 0.0) <= time.time()
+    return services_runtime.startup_readiness_cache_expired(_module_owner())
 
 
 def _trigger_startup_readiness_refresh() -> None:
-    """Refresh startup readiness in the background without blocking request handlers."""
-    global _startup_check_refresh_inflight
-    with _startup_check_cache_lock:
-        if _startup_check_refresh_inflight:
-            return
-        _startup_check_refresh_inflight = True
-
-    def _worker() -> None:
-        global _startup_check_refresh_inflight
-        try:
-            _startup_readiness_snapshot()
-        except Exception:
-            pass
-        finally:
-            with _startup_check_cache_lock:
-                _startup_check_refresh_inflight = False
-
-    threading.Thread(target=_worker, daemon=True).start()
+    services_runtime.trigger_startup_readiness_refresh(_module_owner())
 
 # â”€â”€ Authentication â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -1889,364 +1435,50 @@ _LEMONADE_ROLE_ENV = {
 }
 _LOCAL_RUNTIME_WARM_TTL_SECONDS = float(os.environ.get("GUPPY_LOCAL_RUNTIME_WARM_TTL_SECONDS", "300.0"))
 _LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS", "20.0"))
-_local_runtime_warm_cache = {
-    "backend": "",
-    "model": "",
-    "checked_at": 0.0,
-    "expires_at": 0.0,
-    "chat_ready": False,
-    "chat_state": "UNKNOWN",
-    "chat_detail": "local runtime warmup not checked yet",
-}
-_local_runtime_warm_lock = threading.Lock()
-_local_runtime_warm_refresh_inflight = False
-
-
-def _selected_local_runtime_backend() -> str:
-    backend = str(os.environ.get("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama") or "ollama").strip().lower()
-    return backend if backend in {"ollama", "lemonade"} else "ollama"
-
-
-def _local_runtime_base_url(backend: str) -> str:
-    normalized = (backend or "ollama").strip().lower()
-    if normalized == "lemonade":
-        return str(os.environ.get("GUPPY_LEMONADE_BASE_URL", _DEFAULT_LEMONADE_BASE_URL) or _DEFAULT_LEMONADE_BASE_URL).strip()
-    return "http://127.0.0.1:11434"
-
-
-def _resolve_local_runtime_model(
-    backend: str,
-    role: str,
-    *,
-    fallback: str = "",
-) -> str:
-    normalized_backend = (backend or "ollama").strip().lower()
-    normalized_role = (role or "").strip().lower()
-    if normalized_backend == "lemonade":
-        env_name = _LEMONADE_ROLE_ENV.get(normalized_role)
-        if env_name:
-            return str(os.environ.get(env_name, fallback) or fallback).strip()
-        return str(fallback or "").strip()
-
-    if INFERENCE_ROUTER_AVAILABLE:
-        try:
-            router = get_router()
-            if normalized_role == "fast":
-                return str(getattr(router, "LOCAL_FAST_MODEL", fallback) or fallback).strip()
-            if normalized_role == "complex":
-                return str(getattr(router, "LOCAL_MODEL", fallback) or fallback).strip()
-            if normalized_role == "teach":
-                return str(getattr(router, "LOCAL_TEACH_MODEL", fallback) or fallback).strip()
-            if normalized_role == "code":
-                return str(getattr(router, "LOCAL_CODE_MODEL", fallback) or fallback).strip()
-            if normalized_role == "vault":
-                return str(getattr(router, "LOCAL_VAULT_MODEL", fallback) or fallback).strip()
-        except Exception:
-            pass
-    return str(fallback or "").strip()
-
-
-def _local_runtime_role_models(backend: str) -> dict[str, str]:
-    return {
-        "fast": _resolve_local_runtime_model(backend, "fast", fallback="guppy-fast"),
-        "complex": _resolve_local_runtime_model(backend, "complex", fallback="guppy"),
-        "teach": _resolve_local_runtime_model(backend, "teach", fallback="guppy-teach"),
-        "code": _resolve_local_runtime_model(backend, "code", fallback="guppy-code"),
-        "vault": _resolve_local_runtime_model(backend, "vault", fallback="vault-scraper"),
-    }
-
-
-def _warm_ollama_chat_lane(model: str, keep_alive: str = "20m") -> tuple[bool, str]:
-    normalized_model = str(model or "").strip()
-    if not normalized_model:
-        return False, "no Ollama model configured for warmup"
-    payload = {
-        "model": normalized_model,
-        "prompt": "warmup",
-        "stream": False,
-        "keep_alive": keep_alive,
-        "options": {"num_predict": 1},
-    }
-    req = urllib.request.Request(
-        "http://127.0.0.1:11434/api/generate",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=_LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS) as resp:
-        data = json.loads(resp.read())
-    if isinstance(data, dict) and data.get("error"):
-        return False, str(data.get("error"))
-    return True, f"{normalized_model} warm"
-
-
-def _current_local_runtime_chat_model(backend: str) -> str:
-    role_models = _local_runtime_role_models(backend)
-    return str(
-        role_models.get("complex")
-        or role_models.get("fast")
-        or ""
-    ).strip()
-
-
-def _refresh_local_runtime_warm_status(force: bool = False) -> dict[str, Any]:
-    backend = _selected_local_runtime_backend()
-    model = _current_local_runtime_chat_model(backend)
-    now = time.time()
-    with _local_runtime_warm_lock:
-        cached = dict(_local_runtime_warm_cache)
-        if (
-            not force
-            and cached.get("backend") == backend
-            and cached.get("model") == model
-            and float(cached.get("expires_at", 0.0) or 0.0) > now
-        ):
-            return cached
-
-    if backend == "lemonade":
-        payload = {
-            "backend": backend,
-            "model": model,
-            "checked_at": now,
-            "expires_at": now + max(30.0, _LOCAL_RUNTIME_WARM_TTL_SECONDS),
-            "chat_ready": True,
-            "chat_state": "READY",
-            "chat_detail": "Lemonade backend selected; chat lane treated as ready when registry is reachable",
-        }
-    else:
-        ok, detail = _warm_ollama_chat_lane(model)
-        payload = {
-            "backend": backend,
-            "model": model,
-            "checked_at": now,
-            "expires_at": now + max(30.0, _LOCAL_RUNTIME_WARM_TTL_SECONDS),
-            "chat_ready": bool(ok),
-            "chat_state": "READY" if ok else "WARMING",
-            "chat_detail": str(detail or ("local runtime warmed" if ok else "local runtime warmup failed")),
-        }
-    with _local_runtime_warm_lock:
-        _local_runtime_warm_cache.update(payload)
-        return dict(_local_runtime_warm_cache)
-
-
-def _local_runtime_warm_cached_or_unknown() -> dict[str, Any]:
-    backend = _selected_local_runtime_backend()
-    model = _current_local_runtime_chat_model(backend)
-    now = time.time()
-    with _local_runtime_warm_lock:
-        cached = dict(_local_runtime_warm_cache)
-        if (
-            cached.get("backend") == backend
-            and cached.get("model") == model
-            and float(cached.get("expires_at", 0.0) or 0.0) > now
-        ):
-            return cached
-    return {
-        "backend": backend,
-        "model": model,
+_runtime_state = SimpleNamespace(
+    startup_check_cache=_startup_check_cache,
+    startup_check_cache_lock=_startup_check_cache_lock,
+    startup_check_refresh_inflight=False,
+    local_runtime_warm_cache={
+        "backend": "",
+        "model": "",
         "checked_at": 0.0,
         "expires_at": 0.0,
         "chat_ready": False,
         "chat_state": "UNKNOWN",
         "chat_detail": "local runtime warmup not checked yet",
-    }
+    },
+    local_runtime_warm_lock=threading.Lock(),
+    local_runtime_warm_refresh_inflight=False,
+)
+_local_runtime_warm_cache = _runtime_state.local_runtime_warm_cache
+_local_runtime_warm_lock = _runtime_state.local_runtime_warm_lock
 
 
-def _trigger_local_runtime_warm_refresh(force: bool = False) -> None:
-    global _local_runtime_warm_refresh_inflight
-    with _local_runtime_warm_lock:
-        if _local_runtime_warm_refresh_inflight:
-            return
-        if not force:
-            cached = dict(_local_runtime_warm_cache)
-            now = time.time()
-            if float(cached.get("expires_at", 0.0) or 0.0) > now:
-                return
-        _local_runtime_warm_refresh_inflight = True
-
-    def _worker() -> None:
-        global _local_runtime_warm_refresh_inflight
-        try:
-            _refresh_local_runtime_warm_status(force=True)
-        except Exception:
-            pass
-        finally:
-            with _local_runtime_warm_lock:
-                _local_runtime_warm_refresh_inflight = False
-
-    threading.Thread(target=_worker, daemon=True).start()
+def _module_owner() -> Any:
+    return sys.modules[__name__]
 
 
-def _fetch_lemonade_model_ids(timeout: float = 4.0) -> set[str]:
-    req = urllib.request.Request(
-        f"{_local_runtime_base_url('lemonade').rstrip('/')}/models",
-        headers={"Accept": "application/json"},
-        method="GET",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = json.loads(resp.read())
-    items = data.get("data", []) if isinstance(data, dict) else []
-    return {
-        str(item.get("id", "")).strip()
-        for item in items
-        if isinstance(item, dict) and str(item.get("id", "")).strip()
-    }
+def _bind_runtime_service(func):
+    def wrapper(*args, **kwargs):
+        return func(_module_owner(), *args, **kwargs)
+
+    return wrapper
 
 
-def _build_local_runtime_status() -> dict[str, Any]:
-    backend = _selected_local_runtime_backend()
-    role_models = _local_runtime_role_models(backend)
-    active_chat_model = _current_local_runtime_chat_model(backend)
-    model_ids: set[str] = set()
-    detail = ""
-    policy: dict[str, Any] = {}
-    warm_status = _local_runtime_warm_cached_or_unknown()
-
-    try:
-        from src.guppy.local_llm.manifest import get_local_llm_policy_summary, load_local_llm_manifest
-
-        policy = get_local_llm_policy_summary(load_local_llm_manifest())
-    except Exception:
-        policy = {}
-
-    try:
-        if backend == "lemonade":
-            model_ids = _fetch_lemonade_model_ids()
-            detail = "Lemonade model registry reachable"
-        else:
-            req = urllib.request.Request(
-                "http://127.0.0.1:11434/api/tags",
-                headers={"Accept": "application/json"},
-                method="GET",
-            )
-            with urllib.request.urlopen(req, timeout=4.0) as resp:
-                data = json.loads(resp.read())
-            items = data.get("models", []) if isinstance(data, dict) else []
-            model_ids = {
-                str(item.get("name", "")).strip()
-                for item in items
-                if isinstance(item, dict) and str(item.get("name", "")).strip()
-            }
-            detail = "Ollama model registry reachable"
-    except Exception as exc:
-        _trigger_local_runtime_warm_refresh(force=False)
-        return {
-            "backend": backend,
-            "base_url": _local_runtime_base_url(backend),
-            "state": "MISSING",
-            "detail": str(exc),
-            "role_models": role_models,
-            "available_roles": [],
-            "missing_roles": [role for role, model in role_models.items() if model],
-            "models": [],
-            "policy": policy,
-            "chat_ready": bool(warm_status.get("chat_ready", False)),
-            "chat_state": str(warm_status.get("chat_state", "UNKNOWN") or "UNKNOWN"),
-            "chat_detail": str(warm_status.get("chat_detail", "") or ""),
-            "chat_model": str(warm_status.get("model", "") or active_chat_model),
-        }
-
-    available_roles = sorted([role for role, model in role_models.items() if model and model in model_ids])
-    missing_roles = sorted([role for role, model in role_models.items() if model and model not in model_ids])
-    if available_roles and not missing_roles:
-        state = "READY"
-    elif available_roles:
-        state = "PARTIAL"
-    else:
-        state = "MISSING"
-
-    if backend == "ollama" and available_roles and str(warm_status.get("chat_state", "UNKNOWN") or "UNKNOWN") == "UNKNOWN":
-        _trigger_local_runtime_warm_refresh(force=False)
-    if backend == "ollama" and available_roles and not bool(warm_status.get("chat_ready", False)) and state == "READY":
-        state = "PARTIAL"
-        detail = f"{detail} | chat lane warming"
-
-    return {
-        "backend": backend,
-        "base_url": _local_runtime_base_url(backend),
-        "state": state,
-        "detail": detail,
-        "role_models": role_models,
-        "available_roles": available_roles,
-        "missing_roles": missing_roles,
-        "models": sorted(model_ids),
-        "policy": policy,
-        "chat_ready": bool(warm_status.get("chat_ready", False)),
-        "chat_state": str(warm_status.get("chat_state", "UNKNOWN") or "UNKNOWN"),
-        "chat_detail": str(warm_status.get("chat_detail", "") or ""),
-        "chat_model": str(warm_status.get("model", "") or active_chat_model),
-    }
-
-
-def _call_lemonade_chat(
-    user_text: str,
-    system_prompt: str,
-    *,
-    model_override: Optional[str] = None,
-) -> str:
-    model_name = str(model_override or "").strip()
-    if not model_name:
-        role_models = _local_runtime_role_models("lemonade")
-        model_name = role_models.get("complex", "")
-    if not model_name:
-        raise RuntimeError("No Lemonade model configured for this route.")
-
-    payload = {
-        "model": model_name,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_text},
-        ],
-        "stream": False,
-    }
-    req = urllib.request.Request(
-        f"{_local_runtime_base_url('lemonade').rstrip('/')}/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=CHAT_TIMEOUT_SECONDS) as resp:
-        data = json.loads(resp.read())
-    choices = data.get("choices", []) if isinstance(data, dict) else []
-    if not choices:
-        raise RuntimeError("Lemonade returned no chat choices.")
-    message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
-    content = str(message.get("content", "") or "").strip()
-    if not content:
-        raise RuntimeError("Lemonade returned an empty response.")
-    return content
-
-
-def _call_selected_local_runtime(
-    user_text: str,
-    system_prompt: str,
-    *,
-    instance_name: Optional[str] = None,
-    instance_type: Optional[str] = None,
-    model_override: Optional[str] = None,
-) -> str:
-    backend = _selected_local_runtime_backend()
-    warm_status = _local_runtime_warm_cached_or_unknown()
-    if backend == "ollama" and not bool(warm_status.get("chat_ready", False)):
-        _trigger_local_runtime_warm_refresh(force=True)
-        warm_model = str(warm_status.get("model", "") or _current_local_runtime_chat_model(backend))
-        warm_detail = str(warm_status.get("chat_detail", "") or "local runtime is still warming up")
-        raise RuntimeError(
-            f"Local runtime is still warming up for {warm_model or 'the configured model'}. {warm_detail}"
-        )
-    if backend == "lemonade":
-        return _call_lemonade_chat(
-            user_text,
-            system_prompt,
-            model_override=model_override,
-        )
-    return _call_ollama_with_tools(
-        user_text,
-        system_prompt,
-        instance_name=instance_name,
-        instance_type=instance_type,
-        model_override=model_override,
-    )
+_selected_local_runtime_backend = _bind_runtime_service(services_runtime.selected_local_runtime_backend)
+_local_runtime_base_url = _bind_runtime_service(services_runtime.local_runtime_base_url)
+_resolve_local_runtime_model = _bind_runtime_service(services_runtime.resolve_local_runtime_model)
+_local_runtime_role_models = _bind_runtime_service(services_runtime.local_runtime_role_models)
+_warm_ollama_chat_lane = _bind_runtime_service(services_runtime.warm_ollama_chat_lane)
+_current_local_runtime_chat_model = _bind_runtime_service(services_runtime.current_local_runtime_chat_model)
+_refresh_local_runtime_warm_status = _bind_runtime_service(services_runtime.refresh_local_runtime_warm_status)
+_local_runtime_warm_cached_or_unknown = _bind_runtime_service(services_runtime.local_runtime_warm_cached_or_unknown)
+_trigger_local_runtime_warm_refresh = _bind_runtime_service(services_runtime.trigger_local_runtime_warm_refresh)
+_fetch_lemonade_model_ids = _bind_runtime_service(services_runtime.fetch_lemonade_model_ids)
+_build_local_runtime_status = _bind_runtime_service(services_runtime.build_local_runtime_status)
+_call_lemonade_chat = _bind_runtime_service(services_runtime.call_lemonade_chat)
+_call_selected_local_runtime = _bind_runtime_service(services_runtime.call_selected_local_runtime)
 
 # === END _server_fragment_local_runtime.py ===
 
@@ -2696,58 +1928,39 @@ async def auth_self_check(user_id: str = Depends(require_rate_limit)):
     }
 
 
+def _build_status_support_context() -> SimpleNamespace:
+    return SimpleNamespace(
+        owner=SimpleNamespace(
+            GUPPY_MEMORY_AVAILABLE=GUPPY_MEMORY_AVAILABLE,
+            GUPPY_VOICE_AVAILABLE=GUPPY_VOICE_AVAILABLE,
+            GUPPY_DAEMON_AVAILABLE=GUPPY_DAEMON_AVAILABLE,
+            _VOICE_TTS_BACKEND=_VOICE_TTS_BACKEND,
+            _VOICE_STT_BACKEND=_VOICE_STT_BACKEND,
+            _VOICE_BACKEND_DETAILS=_VOICE_BACKEND_DETAILS,
+            _read_daemon_runtime_status=_read_daemon_runtime_status,
+            _startup_readiness_cached_or_unknown=_startup_readiness_cached_or_unknown,
+            _build_local_runtime_status=_build_local_runtime_status,
+            _read_resource_envelope_status=_read_resource_envelope_status,
+            _startup_readiness_snapshot=_startup_readiness_snapshot,
+            _startup_readiness_cache_expired=_startup_readiness_cache_expired,
+            _trigger_startup_readiness_refresh=_trigger_startup_readiness_refresh,
+        ),
+        guppy_core_available=GUPPY_CORE_AVAILABLE,
+        status_cache=_status_cache,
+        status_cache_ttl_seconds=STATUS_CACHE_TTL_SECONDS,
+        status_include_window_context=STATUS_INCLUDE_WINDOW_CONTEXT,
+        guppy_daemon_available=GUPPY_DAEMON_AVAILABLE,
+        read_window_context=_read_window_context,
+    )
+
+
 @app.get("/status")
 async def get_status(user_id: str = Depends(require_rate_limit)):
     """Get system status and current context."""
     del user_id
 
-    if not GUPPY_CORE_AVAILABLE:
-        return {"status": "error", "message": "Guppy core not available"}
-
     try:
-        now = time.time()
-        if _status_cache["payload"] is not None and _status_cache["expires_at"] > now:
-            return _status_cache["payload"]
-
-        context = {}
-        if STATUS_INCLUDE_WINDOW_CONTEXT and GUPPY_DAEMON_AVAILABLE:
-            daemon = get_daemon_manager()
-            if daemon and getattr(daemon, "window_watcher", None):
-                try:
-                    context = await asyncio.wait_for(
-                        asyncio.to_thread(daemon.window_watcher.get_enhanced_context),
-                        timeout=0.2,
-                    )
-                except Exception:
-                    # Keep /status responsive even when watcher context polling stalls.
-                    context = {}
-
-        voice_tts = _VOICE_TTS_BACKEND if GUPPY_VOICE_AVAILABLE else "none"
-        voice_stt = _VOICE_STT_BACKEND if GUPPY_VOICE_AVAILABLE else "none"
-        voice_status = {
-            "available": GUPPY_VOICE_AVAILABLE,
-            "tts_backend": voice_tts,
-            "stt_backend": voice_stt,
-            "details": _VOICE_BACKEND_DETAILS if GUPPY_VOICE_AVAILABLE else [],
-        }
-
-        payload = {
-            "status": "healthy",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "context": context,
-            "memory_available": GUPPY_MEMORY_AVAILABLE,
-            "voice_available": GUPPY_VOICE_AVAILABLE,
-            "voice_tts_backend": voice_tts,
-            "voice_stt_backend": voice_stt,
-            "voice_status": voice_status,
-            "daemon_available": GUPPY_DAEMON_AVAILABLE,
-            "startup_readiness": _startup_readiness_cached_or_unknown(),
-            "local_runtime": _build_local_runtime_status(),
-            "resource_envelope": _read_resource_envelope_status(),
-        }
-        _status_cache["payload"] = payload
-        _status_cache["expires_at"] = now + STATUS_CACHE_TTL_SECONDS
-        return payload
+        return await build_status_response(_build_status_support_context())
     except Exception as e:
         logger.error(f"Status check failed: {e}")
         log_session_event("api", "status_failed", level="error", error=str(e))
@@ -2758,12 +1971,7 @@ async def get_status(user_id: str = Depends(require_rate_limit)):
 async def startup_check(deep: bool = False, user_id: str = Depends(require_rate_limit)):
     """Startup readiness checks (cached by default, deep probe when requested)."""
     del user_id
-    if deep:
-        snapshot = await asyncio.to_thread(_startup_readiness_snapshot)
-    else:
-        snapshot = _startup_readiness_cached_or_unknown()
-        if snapshot.get("overall") == "UNKNOWN" or _startup_readiness_cache_expired():
-            _trigger_startup_readiness_refresh()
+    snapshot = await build_startup_check_response(_build_status_support_context(), deep=deep)
     log_session_event("api", "startup_check", level="info", overall=snapshot.get("overall", "unknown"))
     return snapshot
 
@@ -3331,11 +2539,28 @@ async def telemetry_query(
     events: list[dict[str, Any]] = []
     source = backend_key
     if backend_key in {"auto", "sqlite"}:
-        events = _query_sqlite_telemetry(stream_key, event_key, level_key, since, lim)
+        events = services_telemetry.query_sqlite_telemetry(
+            db_path=_ops_telemetry_db,
+            timeout_seconds=_SQLITE_TIMEOUT_SECONDS,
+            busy_timeout_ms=_SQLITE_BUSY_TIMEOUT_MS,
+            stream=stream_key,
+            event=event_key,
+            level=level_key,
+            since_minutes=since,
+            limit=lim,
+        )
         source = "sqlite"
 
     if backend_key == "jsonl" or (backend_key == "auto" and not events):
-        events = _query_jsonl_telemetry(stream_key, event_key, level_key, since, lim)
+        events = services_telemetry.query_jsonl_telemetry(
+            stream_jsonl_map=_stream_jsonl_map,
+            read_jsonl_tail=_read_jsonl_tail,
+            stream=stream_key,
+            event=event_key,
+            level=level_key,
+            since_minutes=since,
+            limit=lim,
+        )
         source = "jsonl"
 
     return {
@@ -3372,14 +2597,34 @@ async def telemetry_report(
     events: list[dict[str, Any]] = []
     source = backend_key
     if backend_key in {"auto", "sqlite"}:
-        events = _query_sqlite_telemetry(stream_key, None, None, since, lim)
+        events = services_telemetry.query_sqlite_telemetry(
+            db_path=_ops_telemetry_db,
+            timeout_seconds=_SQLITE_TIMEOUT_SECONDS,
+            busy_timeout_ms=_SQLITE_BUSY_TIMEOUT_MS,
+            stream=stream_key,
+            event=None,
+            level=None,
+            since_minutes=since,
+            limit=lim,
+        )
         source = "sqlite"
 
     if backend_key == "jsonl" or (backend_key == "auto" and not events):
-        events = _query_jsonl_telemetry(stream_key, None, None, since, lim)
+        events = services_telemetry.query_jsonl_telemetry(
+            stream_jsonl_map=_stream_jsonl_map,
+            read_jsonl_tail=_read_jsonl_tail,
+            stream=stream_key,
+            event=None,
+            level=None,
+            since_minutes=since,
+            limit=lim,
+        )
         source = "jsonl"
 
-    report = _build_telemetry_report(events)
+    report = services_telemetry.build_telemetry_report(
+        events,
+        slow_request_ms=SLOW_REQUEST_MS,
+    )
     return {
         "source": source,
         "window": {

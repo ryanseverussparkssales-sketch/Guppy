@@ -7,6 +7,11 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.guppy.launcher_application.packaging_audit import (
+    all_packaging_assumptions_hold,
+    all_packaging_paths_writable,
+)
+
 
 def _preferred_python() -> Path:
     candidates = [
@@ -130,12 +135,39 @@ def check_runtime_write() -> bool:
         return False
 
 
+def check_packaging_write_targets() -> bool:
+    print("[7] Checking packaging/report write targets...")
+    ok, statuses = all_packaging_paths_writable(ROOT)
+    for item in statuses:
+        rel = item.path.relative_to(ROOT) if item.path.is_absolute() and str(item.path).startswith(str(ROOT)) else item.path
+        if item.writable:
+            print(f"    OK  {item.label}: {rel}")
+        else:
+            print(f"    FAIL  {item.label}: {rel} :: {item.error}")
+    print()
+    return ok
+
+
+def check_packaging_assumptions() -> bool:
+    print("[8] Checking packaging/distribution assumptions...")
+    ok, statuses = all_packaging_assumptions_hold(ROOT)
+    for item in statuses:
+        if item.ok:
+            print(f"    OK  {item.label}: {item.detail}")
+        else:
+            print(f"    FAIL  {item.label}: {item.detail}")
+    print()
+    return ok
+
+
 def main() -> int:
     checks = [
         check_imports,
         check_tool_count,
         check_syntax,
         check_runtime_write,
+        check_packaging_write_targets,
+        check_packaging_assumptions,
     ]
     failures = 0
     for fn in checks:

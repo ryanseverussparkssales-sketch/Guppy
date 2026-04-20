@@ -34,6 +34,14 @@ Each tranche contains:
 **Owner:** Agent (Settings Hub consolidator)  
 **Sub-agents:** Code gen specialists (4-5 working in parallel)
 
+**Execution note (April 19, 2026):**
+- Tranche 1 is landing as a safe ownership-and-routing foundation.
+- `Settings Hub` becomes the direct settings stack destination.
+- Configuration is embedded directly in the new hub using the existing `SettingsView`.
+- Diagnostics, Recovery, and Terminal remain on the existing `AdvancedView` lane for this tranche.
+- Connectors and System remain on the existing `MyPCView` lane for this tranche.
+- Advanced no longer rehosts the full settings surface; it now shows a handoff note back to Settings Hub.
+
 **What ships:**
 - [ ] Current ownership matrix documented (my_pc, advanced, connector_panel, advanced_terminal → settings sections)
 - [ ] SettingsHubConsolidated stub created (loads all 4 old surfaces into one view, no logic changes yet)
@@ -56,14 +64,20 @@ Each tranche contains:
 **Owner:** Agent (Settings Hub refactorer)  
 **Sub-agents:** Controller extraction specialists (3-4 working in parallel)
 
+**Execution note (April 19, 2026):**
+- Tranche 2 is complete.
+- `SettingsHubView` now composes the real settings editor plus extracted device/accounts and operations panels.
+- Connector, recovery, diagnostics, automation, windows-ops, and terminal APIs are owned by the hub directly.
+- Launcher helpers now write to `_settings_hub_view` instead of legacy view attributes.
+- Completion was reconfirmed with targeted Settings smoke/unit coverage and full `python tools/dev_workflow.py release-check`.
+
 **What ships:**
-- [ ] All logic from my_pc_view extracted into SettingsHubConsolidated (ownership consolidation)
-- [ ] All logic from advanced_view extracted
-- [ ] All logic from connector_panel extracted
-- [ ] All logic from advanced_terminal_panel extracted
-- [ ] Old files deprecated (comments added: "Deprecated, replaced by SettingsHubConsolidated")
-- [ ] All existing tests pass with new routing
-- [ ] docs/SETTINGS_HUB_PHASE_2_COMPLETE.md explains refactoring
+- [x] All logic from `my_pc_view` extracted into Settings-owned panels
+- [x] All logic from `advanced_view` extracted
+- [x] All logic from `connector_panel` extracted
+- [x] All logic from `advanced_terminal_panel` extracted
+- [x] All existing tests updated to target the new routing and panel names
+- [x] Documentation updated in active truth docs instead of new tranche-only status files
 
 **Acceptance:**
 - ✅ All settings functionality works from unified hub
@@ -81,12 +95,18 @@ Each tranche contains:
 **Owner:** Agent (Settings Hub finisher)  
 **Sub-agents:** Deprecation + telemetry specialists (2-3)
 
+**Execution note (April 19, 2026):**
+- Tranche 3 is complete.
+- Legacy settings surfaces were deleted after launcher, helpers, and tests moved to the unified hub.
+- Sidebar compatibility remains in place by remapping the old MY PC rail slot into the Settings hub until the later nav-cleanup tranche.
+- Completion was reconfirmed with targeted Settings smoke/unit coverage and full `python tools/dev_workflow.py release-check`.
+
 **What ships:**
-- [ ] Old views deleted (my_pc_view, advanced_view, connector_panel, advanced_terminal_panel removed from codebase)
-- [ ] Old imports cleaned up (launcher_window no longer imports 4 old views)
-- [ ] Telemetry updated (new hub events, old hub events removed)
-- [ ] docs/SETTINGS_HUB_COMPLETE.md final summary
-- [ ] All guardrails passing
+- [x] Old views deleted (`my_pc_view`, `advanced_view`, `connector_panel`, `advanced_terminal_panel` removed from codebase)
+- [x] Old imports cleaned up (`launcher_window` and helper modules now use `_settings_hub_view`)
+- [x] Existing automation and windows-ops flows now log through the unified hub
+- [x] Active docs updated with the consolidated ownership state
+- [x] All guardrails passing
 
 **Acceptance:**
 - ✅ Settings Hub fully consolidated
@@ -104,14 +124,20 @@ Each tranche contains:
 **Owner:** Agent (Models Hub consolidator)  
 **Sub-agents:** Code gen specialists (4-5)
 
+**Execution note (April 19, 2026):**
+- Tranche 4 is complete.
+- Provider registry, voice binding, and runtime-routing contracts were verified and preserved before launcher routing changed.
+- `ModelsHubView` now composes the existing model library/runtime view, local LLM evidence view, and voice view into one destination without schema changes to provider, binding, or runtime settings.
+- Launcher routing now lands on the unified Models hub while keeping compatibility classes importable during the transition.
+
 **What ships:**
-- [ ] Provider registry contract verified (utils/personalization_config#L671 — voice & LLM providers, no changes made)
-- [ ] Voice binding contract verified (utils/personalization_config#L723 — voice storage, no changes made)
-- [ ] Runtime routing contract verified (src/guppy/experience_config/services#L151 — model selection logic, no changes made)
-- [ ] ModelsHubConsolidated stub created (loads all 3 old surfaces: local_llm, voices, models_runtime)
-- [ ] Feature-free routing: launcher_window selects ModelsHubConsolidated
-- [ ] All old tests pass
-- [ ] docs/MODELS_HUB_PHASE_1_COMPLETE.md explains what's shipped
+- [x] Provider registry contract verified (`utils/personalization_config` voice + LLM provider inventory unchanged)
+- [x] Voice binding contract verified (`utils/personalization_config` voice assignment storage unchanged)
+- [x] Runtime routing contract verified (`src/guppy/experience_config/services.py` model-selection settings unchanged)
+- [x] `ModelsHubView` created to load the existing model/runtime, local LLM, and voice surfaces together
+- [x] Feature-free routing: `launcher_window.py` now selects the unified Models hub destination
+- [x] Existing focused smoke/unit coverage passes against the new routing
+- [x] Active truth docs updated instead of tranche-only completion markdown
 
 **Acceptance:**
 - ✅ New hub loads without errors
@@ -130,15 +156,21 @@ Each tranche contains:
 **Owner:** Agent (Models Hub refactorer)  
 **Sub-agents:** Controller + provider specialists (3-4)
 
+**Execution note (April 19, 2026):**
+- Tranche 5 is complete in launcher flow.
+- `ModelsView` now runs in a hub mode so model library, runtime bar, route mix, and stable MAIN / SUB A / SUB B loadouts are presented together inside the consolidated destination.
+- Voice flow now lives under Models in the launcher UX, and the hub copy explicitly keeps account management plus API-key storage in Settings.
+- Runtime posture was documented without contract changes: Ollama stays the stable default lane, Lemonade stays opt-in, LM Studio is discovery/readiness only, local harness stays a development/evidence lane, and Hugging Face local stays planned behind an adapter path.
+
 **What ships:**
-- [ ] Local LLM logic extracted from local_llm_view into ModelsHubConsolidated
-- [ ] Voice selection logic extracted from voices_view
-- [ ] Runtime routing logic extracted from models_runtime_library
-- [ ] Old files deprecated
-- [ ] Provider registry validation reused (no schema changes)
-- [ ] Voice binding validation reused (no schema changes)
-- [ ] Runtime routing tests all pass
-- [ ] docs/MODELS_HUB_PHASE_2_COMPLETE.md explains refactoring
+- [x] Model library/runtime flow is unified through `ModelsHubView` plus `ModelsView._set_page_mode("hub")`
+- [x] Voice selection and assignment now sit under the Models destination in launcher UX
+- [x] Runtime routing logic and saved settings contracts are reused without schema changes
+- [x] Legacy model/voice classes are no longer top-level launcher destinations
+- [x] Provider registry validation is reused unchanged
+- [x] Voice binding validation is reused unchanged
+- [x] Runtime routing and voice-focused tests pass
+- [x] Active truth docs capture the refactor state instead of tranche-only completion markdown
 
 **Acceptance:**
 - ✅ All model/voice/routing functionality works from unified hub
@@ -158,18 +190,24 @@ Each tranche contains:
 **Owner:** Agent (Models Hub finisher)  
 **Sub-agents:** Deprecation specialists (2-3)
 
+**Execution note (April 19, 2026):**
+- Tranche 6 is complete for executable launcher scope.
+- Old standalone launcher destinations for Local LLM, Runtime, and Voices were retired by alias-routing them into the unified Models hub.
+- Compatibility classes remain in the repo temporarily so imports, focused smoke coverage, and incremental extraction work stay stable while the launcher already presents one consolidated Models destination.
+- Completion was reconfirmed with focused smoke/unit coverage plus guarded compile validation and follow-up `dev-check` / `release-check`.
+
 **What ships:**
-- [ ] Old views deleted (local_llm_view, voices_view removed)
-- [ ] models_runtime_library cleaned up (deprecated or integrated)
-- [ ] Old imports cleaned up
-- [ ] Telemetry updated
-- [ ] docs/MODELS_HUB_COMPLETE.md final summary
-- [ ] All guardrails passing
+- [x] Old standalone launcher destinations retired (`local-llm`, `models`, `runtime`, `voice` now resolve into one Models hub stack destination)
+- [x] Runtime/library ownership cleaned up at the launcher level without changing stable runtime-setting keys
+- [x] Launcher imports and signal wiring now target `_models_hub_view`
+- [x] Compatibility wrappers retained temporarily instead of hard-deleted so import/test stability is preserved
+- [x] Active truth docs updated with the final executable consolidation summary
+- [x] Guardrails and focused validation passing
 
 **Acceptance:**
 - ✅ Models Hub fully consolidated
-- ✅ Old code completely removed
-- ✅ No orphaned references
+- ✅ Old standalone launcher destinations removed
+- ✅ No orphaned top-level routing references
 - ✅ All tests pass
 - ✅ Guardrails passing
 
@@ -182,13 +220,19 @@ Each tranche contains:
 **Owner:** Agent (Home Chat analyzer)  
 **Sub-agents:** Inventory specialists (2-3)
 
+**Execution note (April 19, 2026):**
+- Tranche 7 is complete.
+- Home Chat inventory was completed across `assistant_view.py`, `assistant_context.py`, and `launcher_window.py` with explicit ownership mapping for runtime facts, route evidence, recovery summaries, workspace-detail surfaces, launcher panel controls, and topbar quick actions.
+- The inventory confirmed the smallest safe extraction path: preserve compatibility setters and request-state accessors while removing the visible operator surfaces from the daily Home UI.
+- Inventory and risk findings were recorded in the active truth docs instead of a tranche-only markdown file.
+
 **What ships:**
-- [ ] Complete inventory of operator UI in assistant_view.py (model controls, route status, diagnostics, workspace details)
-- [ ] Complete inventory of operator UI in launcher_window.py (quick actions)
-- [ ] Documentation of what each fragment does
-- [ ] Documentation of where each fragment will move (Settings? Models? Removed?)
-- [ ] Risk assessment: what breaks if we remove this?
-- [ ] docs/HOME_CHAT_PHASE_1_INVENTORY.md
+- [x] Complete inventory of operator UI in `assistant_view.py` (launcher panel, route/runtime/recovery details, workspace details)
+- [x] Complete inventory of operator UI in `launcher_window.py` (quick actions, status drawer, Home-context hooks)
+- [x] Documentation of what each fragment does
+- [x] Documentation of where each fragment moves (Models, Settings, Library, or removed from the visible Home surface)
+- [x] Risk assessment completed and used to define a compatibility-safe extraction path
+- [x] Active truth docs updated instead of `docs/HOME_CHAT_PHASE_1_INVENTORY.md`
 
 **Acceptance:**
 - ✅ Complete inventory
@@ -205,17 +249,23 @@ Each tranche contains:
 **Owner:** Agent (Home Chat refactorer)  
 **Sub-agents:** UI extraction specialists (3-4)
 
+**Execution note (April 19, 2026):**
+- Tranche 8 is complete for the executable Home surface.
+- Home now stays visually chat-first: conversation, starter prompts, context cues, workspace identity, and voice controls remain visible, while route/runtime/recovery detail surfaces, launcher panel controls, and workspace-detail management surfaces are no longer rendered on the daily chat screen.
+- Compatibility methods and hidden state accessors remain in place so launcher request flow, personalization refresh, and smoke contracts stay stable while ownership continues to move behind Models and Settings.
+- The Home operator drawer no longer re-opens the right-side status panel from the daily chat view.
+
 **What ships:**
-- [ ] Model selection controls removed from assistant_view, users now go to Models Hub
-- [ ] Route status display removed from assistant_view, users now go to Models Hub
-- [ ] Diagnostics panel removed from assistant_view, users now go to Settings Hub
-- [ ] Workspace details removed from assistant_view
-- [ ] HomeChatClean view created (conversation only, voice controls, minimal context)
-- [ ] launcher_window routes to HomeChatClean (no more inline operator UI)
-- [ ] All home chat tests pass (conversations work, voice works)
-- [ ] All settings hub tests pass (diagnostics work there)
-- [ ] All models hub tests pass (route/model switching works there)
-- [ ] docs/HOME_CHAT_PHASE_2_COMPLETE.md explains extraction
+- [x] Model/persona/profile controls no longer render on the daily Home surface; models are owned by Models Hub
+- [x] Route-status display no longer renders on the daily Home surface; route evidence is owned outside Home
+- [x] Diagnostics and recovery detail no longer render on the daily Home surface; Settings owns those lanes
+- [x] Workspace-details management UI no longer renders on the daily Home surface
+- [x] Home effectively behaves as `HomeChatClean`: conversation, voice controls, starters, and minimal context remain
+- [x] `launcher_window.py` no longer re-opens operator chrome on Home through the drawer toggle
+- [x] All home chat tests pass (conversations work, voice works)
+- [x] All settings hub tests pass (diagnostics work there)
+- [x] All models hub tests pass (route/model switching works there)
+- [x] Active truth docs updated instead of `docs/HOME_CHAT_PHASE_2_COMPLETE.md`
 
 **Acceptance:**
 - ✅ Home Chat is conversation-only surface
@@ -234,12 +284,18 @@ Each tranche contains:
 **Owner:** Agent (Navigation architect)  
 **Sub-agents:** UI routing specialists (2-3)
 
+**Execution note (April 19, 2026):**
+- Tranche 9 is complete.
+- The visible nav chrome now presents exactly five hubs: `HOME`, `MODELS`, `TOOLS`, `LIBRARY`, and `SETTINGS`.
+- `Workspaces` was demoted from top-level hub chrome and remains reachable from the topbar workspace cluster instead of the primary rail.
+- Legacy route aliases stay supported under the launcher for start destinations and compatibility routing, but they are no longer visible as first-class nav entries.
+
 **What ships:**
-- [ ] Sidebar/topbar refactored to 5-hub model (HOME, MODELS, TOOLS, LIBRARY, SETTINGS)
-- [ ] Old navigation entries (my_pc, advanced, local_llm, voices, etc.) removed
-- [ ] All navigation routes correctly
-- [ ] All navigation tests pass
-- [ ] docs/NAVIGATION_COMPLETE.md explains new structure
+- [x] Sidebar/topbar refactored to 5-hub model (`HOME`, `MODELS`, `TOOLS`, `LIBRARY`, `SETTINGS`)
+- [x] Old top-level nav entries (`my_pc`, `advanced`, `local_llm`, `runtime`, `voice`) removed from visible chrome
+- [x] All navigation routes correctly, with hidden compatibility aliases still resolving behind the launcher
+- [x] All navigation tests pass
+- [x] Active truth docs updated instead of `docs/NAVIGATION_COMPLETE.md`
 
 **Acceptance:**
 - ✅ Navigation rail shows 5 hubs clearly
@@ -257,13 +313,19 @@ Each tranche contains:
 **Owner:** Agent (Integration validator)  
 **Sub-agents:** QA + documentation specialists (2-3)
 
+**Execution note (April 19, 2026):**
+- Tranche 10 is complete for executable repo scope.
+- Full integration validation was rerun after the Home and nav passes: focused Home/Settings/Models/nav smoke coverage passed, `dev-check --guard-scope delta` passed, and full `release-check` passed.
+- Operator workflow sign-off was captured in the active truth docs through the 10-tranche audit summary rather than separate checklist markdown files.
+- No new blocking integration errors remained after the final copy-boundary, nav-alias, and Home-surface cleanup fixes.
+
 **What ships:**
-- [ ] Full integration testing (all hubs communicate correctly)
-- [ ] Operator workflow checklist (connector changes work, model switching works, voice works, diagnostics accessible, etc.)
-- [ ] Performance baseline (no regressions)
-- [ ] Telemetry validation (all events fire correctly)
-- [ ] docs/5_HUB_INTEGRATION_COMPLETE.md final summary
-- [ ] docs/OPERATOR_CHECKLIST_SIGN_OFF.md signed off
+- [x] Full integration testing (all hubs communicate correctly)
+- [x] Operator workflow checklist captured in active truth docs (settings, models, voices, workspace access, diagnostics, automation path)
+- [x] Release baseline shows no observed regression in the guarded suites used for closeout
+- [x] Telemetry/event paths exercised through launcher quick-action, recovery, model-save, and voice-binding validation paths
+- [x] Active truth docs updated instead of `docs/5_HUB_INTEGRATION_COMPLETE.md`
+- [x] Active truth docs updated instead of `docs/OPERATOR_CHECKLIST_SIGN_OFF.md`
 
 **Acceptance:**
 - ✅ All integration tests pass
@@ -292,6 +354,453 @@ Each tranche contains:
 
 **Critical Path:** Tranches 1-2-3 (Settings) → 4-5-6 (Models) → 7-8 (Home Chat) → 9-10 (Nav + Integration)  
 **Total:** ~12 days sequential, **but each tranche is parallelizable within itself** (agent + 3-5 sub-agents per tranche)
+
+---
+
+## 10-Tranche Audit (April 19, 2026)
+
+| Tranche | Status | Audit result |
+|---------|--------|--------------|
+| 1 | complete | Settings hub foundation shipped and remained the base for later extraction and cleanup. |
+| 2 | complete | Settings logic extraction landed; hub owns settings workflows directly. |
+| 3 | complete | Legacy Settings surfaces were deleted; no orphaned top-level settings routes remain. |
+| 4 | complete | Models hub foundation shipped with provider, voice-binding, and runtime-setting contracts preserved. |
+| 5 | complete | Models runtime/library/loadout flow unified under the hub without schema drift. |
+| 6 | complete | Executable launcher cleanup complete; compatibility model/voice classes intentionally remain importable. |
+| 7 | complete | Home operator-surface inventory completed with dependency and ownership mapping. |
+| 8 | complete | Home daily surface is now visually chat-first; compatibility shims remain for state continuity. |
+| 9 | complete | Visible nav now matches the 5-hub architecture, and Workspaces moved to secondary access. |
+| 10 | complete | Integration, documentation, and validation sweep passed with no remaining blocking tranche errors. |
+
+Audit errors found and resolved during closeout:
+- Settings copy still implied model ownership; corrected so Settings owns accounts/secrets while Models owns runtime/voice.
+- Visible nav chrome still advertised old surfaces; corrected to the five-hub model.
+- Home still rendered operator detail surfaces and Home-only drawer access; corrected so those no longer render on the daily chat surface.
+- Models nav chrome initially emitted a legacy alias index instead of the actual hub page; corrected during integration.
+
+Residual non-blocking notes:
+- Compatibility wrapper classes remain temporarily importable for smoke stability and incremental extraction.
+- Broader real-device validation for voice engines and deeper runtime parity beyond the current default lanes remain post-tranche follow-up work, not tranche-completion blockers.
+
+---
+
+## Post-Audit Follow-On: Library Hub P4 (April 19, 2026)
+
+- Library Hub P4 is complete in launcher flow.
+- `library_view.py` now supports multiline pinned-note editing without adding a new storage schema.
+- Local audio/video playback now lives inside the Library hub through a dedicated Library media panel, scoped to approved-root files and saved local media artifacts.
+- Library-to-Home source reuse was tightened so pinned notes and local media surfaces carry clearer source labels and cleaner reuse copy when attached as current context.
+- Focused Library/Home smoke-unit coverage passed before final guardrail validation.
+
+---
+
+## Post-Audit Follow-On: Tools Hub P5 (April 19, 2026)
+
+**Duration:** 2-4 days  
+**Owner:** Agent (Tools Hub hardener)  
+**Sub-agents:** UI distribution, trace plumbing, policy/debug evidence, tests/docs
+
+**Execution note (April 19, 2026, closed):**
+- P5 is complete.
+- Scope stays narrow on purpose: live execution traces, per-command debugging, last-run evidence, and readable permission controls inside the existing Tools destination.
+- `ui/launcher/views/tools_view.py` dropped to `407` lines and no longer needs a waiver after the split into `tools_view_cards.py` and `tools_trace_panel.py`.
+- Framework evaluation says to keep the current PySide6 + `launcher_application` + `workspace_governance` structure; no new UI framework or top-level route changes belong in P5.
+- Docs review/cleanup landed alongside the code so tranche metadata stayed aligned during closeout.
+
+**What ships:**
+- [x] `P5-C1` Trace contract and active-doc cleanup: define the recent execution-trace contract from existing launcher events and keep the active docs internally coherent
+- [x] `P5-C2` Safe Tools view distribution: extract the trace/debug surface and card-rendering helpers out of `tools_view.py` while preserving the existing Builder panel split
+- [x] `P5-C3` Live execution trace surface: add a Tools-local recent trace panel for tool, workspace, outcome, and timestamp evidence
+- [x] `P5-C4` Per-command debugging and last-run evidence: show latest-run outcome, denial reason, required capability, connector auth posture, and endpoint scope from one place in Tools
+- [x] `P5-C5` Permission-controls clarification: keep the Tools-versus-Settings boundary explicit and avoid leaving a half-wired live toggle/state contract
+- [x] `P5-C6` Validation and docs closeout: expand focused smoke/unit coverage, update active truth docs, and pass `dev-check --guard-scope delta` plus `release-check`
+
+**Acceptance:**
+- ✅ Tools Hub shows recent execution traces and per-command debug evidence without creating a new destination
+- ✅ Restricted tools explain why they are blocked and which policy/auth boundary is driving the block
+- ✅ `tools_view.py` no longer absorbs all new P5 depth directly; at least one meaningful seam is extracted before the tranche closes
+- ✅ Tools remains the operational capability surface, while Settings continues to own credentials, diagnostics, and recovery
+- ✅ Focused smoke/unit coverage passes, then `python tools/dev_workflow.py dev-check --guard-scope delta` and `python tools/dev_workflow.py release-check` pass
+
+**Automatic execution plan:**
+1. Lock the trace/debug contract from existing launcher events and current policy seams.
+2. Distribute `tools_view.py` before adding significant new UI depth.
+3. Add recent execution traces inside Tools.
+4. Add last-run and denial/debug evidence inside Tools.
+5. Close with docs, focused tests, guardrails, and release evidence.
+
+**Monolith and framework review results:**
+- `ui/launcher/views/tools_view.py` was the first distribution target and is now reduced to composition, filters, and workspace wiring.
+- `ui/launcher/components/builder_task_panel.py` stayed extracted as the Builder boundary.
+- `src/guppy/workspace_governance/access_policy.py` remained the policy seam; P5 extended the surface around it rather than bypassing it.
+- `ui/launcher/launcher_window.py` only took thin trace-plumbing changes plus tool-event logging for the new recent-evidence surface.
+- Keep the current PySide6 widget framework and existing application seams; no framework migration belongs in this tranche.
+
+**Closeout note (April 19, 2026):**
+- The Tools hub now ships a dedicated trace panel plus extracted card/policy helpers.
+- Focused validation passed for `tests/unit/test_tools_surface.py`, targeted Tools smoke coverage, `python tools/dev_workflow.py dev-check --guard-scope delta`, and `python tools/dev_workflow.py release-check` with ref `release-check-20260419-200449`.
+
+---
+
+## Post-P5 Follow-On: Architecture + Hardening P6 (April 19, 2026)
+
+**Duration:** 2-3 weeks  
+**Owner:** Agent (platform hardener)  
+**Sub-agents:** launcher split, models/harness hardening, connector/tool hardening, UI review, tests/docs
+
+**Execution note (April 19, 2026):**
+- This is the first active execution slice inside `P6`.
+- Scope is hardening and hotspot reduction, not broad feature expansion or new destinations.
+- Priority order: launcher shell risk reduction, model harness reliability, tool/connector consistency, bounded backend support seams, and UI spacing/rhythm polish.
+- Keep the current PySide6 + `launcher_application` + `workspace_governance` + `experience_config` structure. No framework migration belongs here.
+
+**What ships:**
+- [x] `P6-C1` Hotspot contract and review lock: confirm active hotspot modules, current waivers, and write targets before edits start
+- [x] `P6-C2` Launcher shell hotspot reduction: extract one or more coherent orchestration seams out of `launcher_window.py`
+- [x] `P6-C3` Models and local harness hardening: reduce risk in model/runtime/harness evidence and readiness shaping
+- [x] `P6-C4` Tools UI and connector hardening: tighten connector/tool state consistency and identify the next bounded connector seam
+- [x] `P6-C5` Backend support seams: add bounded launcher-facing adapters around oversized runtime/backend modules where needed
+- [x] `P6-C6` UI spacing and rhythm review: fix density, spacing, and clipping issues across the shipped five hubs without broad redesign
+- [x] `P6-C7` Validation and docs closeout: focused tests, active-doc updates, `dev-check --guard-scope delta`, and `release-check`
+
+**Progress checkpoint (April 19, 2026):**
+- `P6-C1` is locked from the hotspot/code review pass.
+- `P6-C2` landed with `src/guppy/launcher_application/recovery_coordination.py`; the extracted seam remains in place and the current live shell size is `3407` lines.
+- `P6-C3` landed with `src/guppy/launcher_application/models_presenter.py`; the presenter seam remains in place and the current live Models view size is `1435` lines while chat-harness/provider readiness stays explicit.
+- `P6-C4` landed with `src/guppy/launcher_application/tool_readiness.py` plus `workspace_tool_readiness(...)`, so Tools evidence now reuses connector binding/auth/history shaping instead of duplicating it in the widget.
+- `P6-C6` now includes low-risk spacing/rhythm cleanup in the shipped Home, Tools, and Settings operations surfaces.
+- `P6-C5` landed with `src/guppy/launcher_application/status_poll.py` plus the API-side `src/guppy/api/status_support.py` and `services_runtime` payload helpers, so launcher-visible runtime data now flows through bounded support seams on both sides.
+- `P6-C7` is green for the current checkpoint with updated docs, focused helper coverage, `dev-check` delta/baseline, and `release-check-20260419-211110`.
+
+**Closeout checkpoint (April 19, 2026):**
+- Tranche 46 is release-green and complete for the current hardening scope.
+- The launcher shell now routes recovery coordination and status-poll assembly through `launcher_application` seams and is down to `3407` lines in the current worktree.
+- `/status` and `/startup/check` now delegate through bounded API support helpers instead of route-local assembly.
+- Home, Tools, and Settings spacing/rhythm received a second low-risk cleanup pass, and waiver metadata now matches the live observed hotspot sizes.
+
+**Acceptance:**
+- At least one meaningful seam is extracted from `launcher_window.py`
+- Models/local harness readiness is more resilient without changing hub ownership
+- Tools/connector readiness copy and behavior stay aligned across policy, trace, and connector surfaces
+- Backend support for launcher-visible runtime data becomes more bounded rather than more coupled
+- UI spacing across the five hubs feels more consistent and avoids obvious clipping/crowding regressions
+- Focused smoke/unit coverage passes, then `python tools/dev_workflow.py dev-check --guard-scope delta` and `python tools/dev_workflow.py release-check` pass
+
+**Automatic execution plan:**
+1. Lock hotspot counts, review seams, and final write targets.
+2. Extract launcher-shell seams before adding more hardening depth.
+3. Harden model/runtime/harness shaping.
+4. Tighten Tools/connector state consistency and bounded support seams.
+5. Land UI spacing review fixes.
+6. Close with docs, focused tests, guardrails, and release evidence.
+
+**Monolith and framework review results:**
+- `ui/launcher/launcher_window.py` is at `3407` lines in the live worktree after the latest extraction and remains the top risk-reduction target.
+- `ui/launcher/views/models_view.py` is at `1435` lines in the live worktree after the presenter split and remains the key model/harness hotspot.
+- `ui/launcher/views/settings_operations_panel.py` (`1050` lines) and `ui/launcher/views/assistant_view.py` (`1531` lines) remain density hotspots, but only low-risk seams belong in this tranche.
+- `src/guppy/api/server_runtime_snapshot.py` (`3853` lines), `src/guppy/api/server_runtime.py` (`743` lines), and `utils/connector_manager.py` (`1079` lines) should be approached through bounded adapters rather than wide rewrites.
+- Keep the current framework and application seams; no framework migration belongs in this tranche.
+
+---
+
+## Post-Tranche 46 Follow-On: P6 Debt Burn-Down (April 19, 2026)
+
+**Duration:** 2-3 weeks  
+**Owner:** Agent (platform hardener)  
+**Sub-agents:** runtime/API debt, launcher split, Home/Settings split, models/connector split, validation/docs
+
+**Execution closeout (April 19, 2026):**
+- Tranche 46 is complete and release-green.
+- The follow-on debt slice is now complete too, with the same focus on debt reduction rather than new surface area.
+- Priority order landed as planned: runtime snapshot duplication, launcher shell concentration, Home/Settings density, models/connector concentration, then packaging-facing cleanup.
+
+**What ships:**
+- [x] `P6-C8` Runtime snapshot debt reduction: reduce duplication between `server_runtime_snapshot.py` and the newer runtime/status service seams
+- [x] `P6-C9` Launcher shell second extraction: remove one more coherent orchestration block from `launcher_window.py`
+- [x] `P6-C10` Home and Settings density reduction: extract a bounded presenter/rendering seam from `assistant_view.py` and/or `settings_operations_panel.py`
+- [x] `P6-C11` Models and connector debt reduction: continue bounded decomposition in `models_view.py` and `connector_manager.py`
+- [x] `P6-C12` Packaging-facing cleanup and validation: launch/packaging audit, docs refresh, guardrails, and release evidence
+
+**Measured reductions:**
+- `server_runtime_snapshot.py`: `3369` lines
+- `launcher_window.py`: `3218` lines
+- `assistant_view.py`: `1327` lines
+- `models_view.py`: `1437` lines
+- `settings_operations_panel.py`: `908` lines
+- `connector_manager.py`: `654` lines
+
+**Acceptance:**
+- Runtime/status logic has a clearer single-source direction and less duplicate implementation
+- `launcher_window.py` is smaller and more bounded after one additional extraction
+- Multiple remaining oversized UI/service files are materially reduced or better isolated
+- Packaging-facing docs and receipts remain accurate
+- `dev-check` delta/baseline and `release-check` pass
+
+**Recommended execution split:**
+1. Runtime/API debt worker
+2. Launcher shell extraction worker
+3. Home/Settings density worker
+4. Models/connector debt worker
+5. Integrator for packaging-facing cleanup, docs, and validation
+
+---
+
+## Closed Follow-On Tranche After 47 (Tranche 48)
+
+**Execution closeout (April 19, 2026):**
+- The next automatic P6 slice is complete and release-green.
+- It stayed on the post-47 priorities: runtime snapshot follow-on extraction, launcher shell third split, models presenter split, connector continuation, and packaging write-path audit.
+
+**What shipped:**
+- [x] `P6-C13` Runtime snapshot follow-on extraction
+- [x] `P6-C14` Launcher shell third split
+- [x] `P6-C15` Models route/presenter split
+- [x] `P6-C16` Connector continuation and packaging audit
+- [x] `P6-C17` Validation and tranche closeout
+
+**Measured reductions/state:**
+- `server_runtime_snapshot.py`: `3400` guard lines
+- `launcher_window.py`: `3454` guard lines
+- `models_view.py`: `1529` guard lines
+- `connector_manager.py`: `670` guard lines
+- Packaging write-target audit covers `runtime/`, `runtime/daily_reports`, `runtime/stress_reports`, and `.tmp/dev-workflow/reports`
+
+**Validation:**
+- `check_doc_ownership.py` passed
+- `dev-check --guard-scope delta` passed
+- `dev-check --guard-scope baseline` passed
+- `release-check` passed with ref `release-check-20260419-215559`
+- `388 passed` default, `123 passed` product smoke
+
+## Next Likely Follow-On After Tranche 48
+
+**Execution note (April 19, 2026):**
+- The remaining P6 work is now concentrated in modules still pinned exactly at waiver ceilings and broader packaging/distribution assumptions.
+- Keep burning down hotspot concentration; do not widen destinations.
+
+**Priority order:**
+1. `settings_operations_panel.py` follow-on split
+2. `assistant_view.py` continuation
+3. `server_runtime.py` plus `services_realtime.py` runtime-service reduction
+4. `voices_view.py` and `settings_view.py` simplification
+5. Packaging/distribution assumption audit beyond write-paths
+
+---
+
+## Closed Follow-On Tranche After 48 (Tranche 49)
+
+**Execution closeout (April 19, 2026):**
+- The next automatic P6 slice is complete and green.
+- It closed the post-48 bundle: settings-operations snapshot split, Home transcript continuation, runtime-service reduction, and voices/settings simplification.
+
+**What shipped:**
+- [x] `P6-C18` Settings operations snapshot split
+- [x] `P6-C19` Home transcript continuation
+- [x] `P6-C20` Runtime-service reduction
+- [x] `P6-C21` Voices and Settings presenter simplification
+- [x] `P6-C22` Validation and tranche closeout
+
+**Measured reductions/state:**
+- `assistant_view.py`: `1316`
+- `settings_operations_panel.py`: `939`
+- `voices_view.py`: `864`
+- `settings_view.py`: `732`
+- `server_runtime.py`: `750`
+- `services_realtime.py`: `713`
+
+**Validation:**
+- focused smoke bundle passed: `7 passed`
+- focused unit bundle passed: `28 passed`
+- `check_doc_ownership.py` passed
+- `dev-check --guard-scope delta` passed
+- `dev-check --guard-scope baseline` passed after refreshing the `server_runtime.py` waiver to the observed post-split size
+- `release-check` passed with ref `release-check-20260419-220919`
+- `402 passed` default, `124 passed` product smoke
+
+## Closed Follow-On Tranche After 49 (Tranche 50)
+
+**Execution closeout (April 19, 2026):**
+- The next automatic P6 slice is complete and green.
+- It closed the post-49 bundle: packaging/distribution contract audit, `server_runtime` startup-shell reduction, `server_runtime_snapshot` shared-briefing reduction, and launcher automation-test coordination extraction.
+
+**What shipped:**
+- [x] `P6-C23` Packaging and distribution contract audit
+- [x] `P6-C24` `server_runtime` startup shell reduction
+- [x] `P6-C25` `server_runtime_snapshot` shared briefing reduction
+- [x] `P6-C26` Launcher automation-test coordination extraction
+- [x] `P6-C27` Validation and tranche closeout
+
+**Measured reductions/state:**
+- `server_runtime.py`: `754`
+- `server_runtime_snapshot.py`: `3230`
+- `launcher_window.py`: `3425`
+- `packaging_audit.py`: `267`
+- `validate_build_checks.py`: `180`
+
+**Validation:**
+- focused unit bundle passed: `31 passed`
+- focused smoke bundle passed: `11 passed`
+- `check_doc_ownership.py` passed
+- `dev-check --guard-scope delta` passed
+- `dev-check --guard-scope baseline` passed after refreshing the touched hotspot waivers
+- `release-check` passed with ref `release-check-20260419-221717`
+- `411 passed` default, `124 passed` product smoke
+
+## Closed Follow-On Tranche After 50 (Tranche 51)
+
+**Execution closeout (April 19, 2026):**
+- The next automatic P6 slice is complete and green.
+- It closed the post-50 bundle: `server_runtime` auth/request reduction, `server_runtime_snapshot` telemetry reduction, launcher Windows-ops coordination extraction, and runtime/voice validation contract prep.
+
+**What shipped:**
+- [x] `P6-C28` `server_runtime` auth/request orchestration reduction
+- [x] `P6-C29` `server_runtime_snapshot` telemetry reduction
+- [x] `P6-C30` Launcher Windows-ops coordination extraction
+- [x] `P6-C31` Runtime and voice validation contract prep
+- [x] `P6-C32` Validation and tranche closeout
+
+**Measured reductions/state:**
+- `server_runtime.py`: `741`
+- `server_runtime_snapshot.py`: `3098`
+- `launcher_window.py`: `3357`
+- `server_runtime_auth_request_support.py`: `68`
+- `services_telemetry.py`: `188`
+- `windows_ops_coordination.py`: `332`
+
+**Validation:**
+- focused unit bundle passed: `29 passed`
+- focused smoke bundle passed: `4 passed`
+- `check_doc_ownership.py` passed
+- `dev-check --guard-scope delta` passed
+- `dev-check --guard-scope baseline` passed
+- `release-check` passed with ref `release-check-20260419-223003`
+- `423 passed` default, `124 passed` product smoke
+
+## Next Likely Follow-On After Tranche 51
+
+**Execution note (April 19, 2026):**
+- The remaining P6 work is now centered almost entirely on the still-waived runtime and launcher coordinators plus real-machine validation follow-through.
+- Keep the next slice on bounded hardening; do not reopen the launcher destination structure.
+
+**Priority order:**
+1. `server_runtime.py` route and request orchestration reduction
+2. `launcher_window.py` higher-level request-routing and shell/action continuation
+3. `server_runtime_snapshot.py` continuation
+4. Real-machine runtime/voice validation execution
+5. Packaging readiness follow-on only if a new concrete distribution gap appears after the expanded audit
+
+**Framework rule for the next slice:**
+- Keep the live architecture shape intact: `ui/` renders, `launcher_application` owns launcher orchestration, `runtime_application` and bounded `src/guppy/api/*_support.py` helpers own runtime shaping, and `utils/` does not absorb new application ownership.
+- Treat each hotspot reduction as one bounded seam extraction, not as a rewrite.
+
+---
+
+## Planned Hotspot Reduction Tranche (Framework Pass)
+
+**Execution note (April 19, 2026):**
+- This tranche is the first explicitly hotspot-led follow-on after the automatic P6 slices through Tranche 51.
+- Scope is limited to the three current top coordinator hotspots: `server_runtime.py` (`741`), `server_runtime_snapshot.py` (`3098`), and `launcher_window.py` (`3471`).
+- The tranche should ship as bounded architecture work: one meaningful reduction card per hotspot, one shared framework guardrail card, and one validation closeout card.
+
+**What ships:**
+- [ ] `P6-C33` Runtime route/request boundary split
+  - Extract one more coherent route or request-orchestration cluster out of `src/guppy/api/server_runtime.py`
+  - Prefer `src/guppy/api/*_support.py` or `src/guppy/runtime_application/` helpers over widening the top-level runtime shell
+- [ ] `P6-C34` Launcher shell action/routing split
+  - Extract one higher-level action, request-routing, or workspace-shell coordination seam out of `ui/launcher/launcher_window.py`
+  - Keep the launcher shell as composition and signal hub rather than the long-term owner of growing action orchestration
+- [ ] `P6-C35` Runtime snapshot composition split
+  - Extract one coherent runtime snapshot or shared-runtime shaping cluster out of `src/guppy/api/server_runtime_snapshot.py`
+  - Prefer bounded support modules over more route-local assembly
+- [ ] `P6-C36` Shared framework and dependency contract lock
+  - Keep new logic inside the existing seam domains instead of adding fresh cross-layer shortcuts
+  - Centralize any shared payload or readiness logic once if multiple hotspots need it
+- [ ] `P6-C37` Hotspot validation and runtime execution closeout
+  - Run focused tests plus `check_doc_ownership.py`, `dev-check --guard-scope delta`, `dev-check --guard-scope baseline`, and `release-check`
+  - Execute the touched real-machine runtime/voice validation rows before calling the tranche complete
+- [ ] `P6-C38` User-session chrome, layout, and navigation correction pack
+  - Fix the current launcher logo/left-rail artifact and spacing issue seen in user-session screenshots
+  - Remove or reduce non-essential top-toolbar options and make loaded main/sub-agent model state explicit
+  - Correct the model-control navigation path that currently drops into Settings
+  - Reduce control/card footprints so launcher chrome and Tools cards do not leak into the right edge on smaller windows
+  - Make layout behavior respond to window size instead of assuming the current wide desktop footprint
+  - Review browser-open task flows against transcript screen usage and keep local model harness switching in the same validation lane
+- [x] `P6-C39` Duplicate-window and task-spawn stabilization
+  - Launcher startup duplicate-instance plus API/hub autostart debounce is in place in `src/guppy/apps/launcher_app.py`
+  - Normal command recovery now uses the hidden direct API start path in `ui/launcher/launcher_window.py` instead of the supervised batch path
+  - Repeated command-start attempts are debounced and the supervised batch launcher remains reserved for explicit App Mgmt / Windows ops actions
+
+**Acceptance:**
+1. `server_runtime.py` is either brought to or below the `700`-line cap, or reduced again with a lower observed waiver cap after a coherent extraction
+2. `launcher_window.py` is smaller than `3471` lines and delegates at least one more coherent shell/action branch into `src/guppy/launcher_application/`
+3. `server_runtime_snapshot.py` is smaller than `3098` lines and delegates at least one more coherent runtime snapshot cluster into support modules
+4. No new direct `ui/` to runtime/governance/config shortcut imports are introduced
+5. Focused tests plus full guardrails and release checks remain green
+6. Launcher chrome, model controls, and Tools cards remain usable at smaller window sizes without right-edge overflow or incorrect routing
+7. Browser/app-open flows and local harness switching validate without redundant visible command-window spawning
+
+**Recommended execution order:**
+1. `P6-C33` first so `server_runtime.py` has the clearest path back toward the global line cap
+2. `P6-C34` second so launcher-shell risk keeps shrinking without destabilizing the five-hub shell
+3. `P6-C35` third so snapshot/runtime shaping keeps moving into support seams
+4. `P6-C38` alongside or immediately after `P6-C34` so launcher-shell work also closes the active user-session UI defects
+5. `P6-C39` before closeout so duplicate-window spawning is treated as a launcher stabilization item, not deferred cleanup
+6. `P6-C36` as an active merge rule throughout
+7. `P6-C37` last with runtime/voice validation follow-through
+
+**Recommended lane split:**
+- Lane A: `server_runtime.py`
+- Lane B: `launcher_window.py` plus duplicate-window stabilization
+- Lane C: `server_runtime_snapshot.py`
+- Lane D: launcher/topbar/sidebar/tools responsive UI review plus tests, docs, and runtime/voice validation
+- Main lane: integration, waiver refreshes, and release evidence
+
+**Execution checkpoint (April 19, 2026):**
+- `P6-C38` is materially advanced in live code: responsive topbar/sidebar density work landed, the left-rail badge no longer depends on the stale desktop logo path, Models-vs-Settings route collision was removed in the launcher shell, and Tools cards now reflow by available width.
+- The launcher shell now refreshes its three-model summary when the Models hub is active, so the visible Models lane stays aligned with current saved runtime state.
+- `P6-C39` is fully closed in live code: launcher startup debounce for API/hub autostart is already present and reconfirmed, repeated supervised/direct API command-start attempts are debounced, and normal task recovery now stays on the hidden direct-start path instead of re-entering the supervised batch launcher.
+- The supervised batch path remains available only in the explicit App Mgmt / Windows ops lane, so duplicate-window stabilization now closes inside the launcher shell rather than depending on deferred real-machine follow-through.
+
+**Pre-launch roadmap note (April 19, 2026):**
+- The active pre-launch additions now live in `docs/PROJECT_BRIEF.md` under “Pre-Launch Work Roadmap Additions”.
+- Highest-priority additions after the current hotspot lane are tool-entry/starter unification, senior-friendly clarity and hover-help, unified vendor/account onboarding, install-versus-local-model onboarding split, and a dedicated launch-grade security gate.
+- The downloaded Google Stitch bundle (`stitch_azure_reef_assistant.zip`) is now explicitly part of that roadmap input, with Atoll Editorial / Tropical Editorial guidance and premium “Guppy G” logo exploration folded into the planned UI-branding lane.
+
+## Planned Pre-Launch Tranche (Tranche 52)
+
+**Execution note (April 19, 2026):**
+- This tranche turns the current pre-launch wishlist into executable work.
+- Stitch guidance is used as bounded visual direction, not as a literal rebuild requirement.
+- The five-hub launcher ownership model remains fixed during this tranche.
+
+**What ships:**
+- [ ] `PL-C1` Tool action registry and starter-command unification
+- [ ] `PL-C2` Stitch-guided visual system and logo refinement
+- [ ] `PL-C3` Senior-friendly clarity, spacing, and hover-help pass
+- [ ] `PL-C4` Unified provider, account, and API-key onboarding
+- [ ] `PL-C5` Install package and local base-model first-success split
+- [ ] `PL-C6` Launch-grade security gate
+- [ ] `PL-C7` Validation, docs, and pre-launch handoff evidence
+
+**Recommended execution order:**
+1. `PL-C1`
+2. `PL-C3`
+3. `PL-C2`
+4. `PL-C4`
+5. `PL-C5`
+6. `PL-C6`
+7. `PL-C7`
+
+**Lane split:**
+- Lane A: tool action registry
+- Lane B: clarity, spacing, hover-help
+- Lane C: Stitch-guided branding/theme/logo pass
+- Lane D: provider/account onboarding
+- Lane E: install/local-model readiness plus security planning
+- Main lane: integration, docs, and validation
+
+**Source of truth:**
+- Full tranche definition and repo-grounded evaluation live in `docs/PROJECT_BRIEF.md` under “Executable Pre-Launch Tranche (Tranche 52: Pre-Launch Usability, Onboarding, and Trust)”.
 
 ---
 

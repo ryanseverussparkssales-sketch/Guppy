@@ -7,10 +7,13 @@ from .. import tokens as T
 
 def _context_origin_label(item: dict[str, str]) -> str:
     origin = str(item.get("origin", "") or "").strip().lower()
+    source_label = str(item.get("source_label", "") or "").strip()
     if origin == "assistant_reply":
         return "saved reply note"
     if origin == "assistant_reply_artifact":
         return "saved output"
+    if source_label:
+        return source_label.lower()
     return "Library source"
 
 
@@ -72,6 +75,13 @@ def build_composer_guidance(
     elif origin == "assistant_reply_artifact" and primary_title:
         placeholder = f"Use saved output {primary_title} for the next step."
         summary = f"{base_summary} Current source: saved output {primary_title}."
+    elif origin == "library_note" and primary_title:
+        placeholder = f"Continue from pinned note {primary_title}."
+        summary = f"{base_summary} Current source: pinned note {primary_title}."
+    elif origin == "library_media" and primary_title:
+        media_label = str(primary.get("source_label", "") or "local media").lower()
+        placeholder = f"Use {primary_title} as {media_label} context for the next step."
+        summary = f"{base_summary} Current source: {media_label} {primary_title}."
     elif primary_title:
         placeholder = f"Ask the next thing using {primary_title} as source context."
         summary = f"{base_summary} Current source: {primary_title}."
@@ -84,6 +94,12 @@ def build_composer_guidance(
 
 
 def sync_context_bar_visibility(owner) -> None:
+    if not getattr(owner, "_home_operator_details_enabled", True):
+        owner._context_details_visible = False
+        owner._context_details_btn.setVisible(False)
+        owner._context_details_host.setVisible(False)
+        owner._context_bar.setVisible(False)
+        return
     primary_visible = any(
         not widget.isHidden()
         for widget in (
@@ -154,7 +170,8 @@ def set_route_preview(
     if evidence_text:
         details.append(f"Evidence: {evidence_text}")
     owner._route_facts.setText(f"Next reply: {summary}." + (f" {' '.join(details)}" if details else ""))
-    owner._route_facts.setVisible(True)
+    owner._route_facts.setVisible(getattr(owner, "_home_operator_details_enabled", True))
+    sync_context_bar_visibility(owner)
 
 
 def set_background_status(owner, text: str, healthy: bool = True) -> None:
@@ -172,7 +189,7 @@ def set_background_status(owner, text: str, healthy: bool = True) -> None:
 def set_background_event(owner, text: str) -> None:
     msg = (text or "workspace ready").strip() or "workspace ready"
     owner._background_event.setText(f"Latest activity: {msg}")
-    owner._background_event.setVisible(True)
+    owner._background_event.setVisible(getattr(owner, "_home_operator_details_enabled", True))
     sync_context_bar_visibility(owner)
 
 
@@ -197,7 +214,7 @@ def set_runtime_facts(
     if query not in {"-", "—"}:
         details.append(f"last request: {query}")
     owner._runtime_facts.setText("Ready now: " + ", ".join(details) + ".")
-    owner._runtime_facts.setVisible(True)
+    owner._runtime_facts.setVisible(getattr(owner, "_home_operator_details_enabled", True))
     sync_context_bar_visibility(owner)
 
 
@@ -206,8 +223,9 @@ def set_recovery_summary(owner, text: str, healthy: bool = True) -> None:
     color = T.GREEN if healthy else T.ERROR
     prefix = "System health" if healthy else "Needs attention"
     owner._recovery_summary.setText(f"{prefix}: {summary}")
-    owner._recovery_summary.setVisible(True)
-    if not healthy:
+    show_operator_details = getattr(owner, "_home_operator_details_enabled", True)
+    owner._recovery_summary.setVisible(show_operator_details)
+    if not healthy and show_operator_details:
         owner._context_details_visible = True
     owner._entry_hint.setStyleSheet(
         f"color: {T.PRIMARY if healthy else T.ERROR}; font-family: '{T.FF_MONO}';"

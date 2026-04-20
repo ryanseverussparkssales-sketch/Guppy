@@ -19,19 +19,18 @@ from PySide6.QtWidgets import (
 
 from .. import tokens as T
 
-_NAV: list[tuple[str, str]] = [
-    ("\u2302", "HOME"),
-    ("\U0001F310", "SPACES"),
-    ("\U0001F4DA", "LIBRARY"),
-    ("\u2692", "TOOLS"),
-    ("\u2699", "SETTINGS"),
-    ("\U0001F5A5", "MY PC"),
-    ("\u269b", "LOCAL LLM"),
-    ("\u265E", "MODELS"),
-    ("\u21BB", "RUNTIME"),
-    ("\u266B", "VOICE"),
+_NAV: list[tuple[str, str, int, frozenset[int], bool]] = [
+    ("\u2302", "HOME", 0, frozenset({0}), True),
+    ("\u265E", "MODELS", 5, frozenset({5, 6, 7, 8, 9}), True),
+    ("\u2692", "TOOLS", 3, frozenset({3}), True),
+    ("\U0001F4DA", "LIBRARY", 2, frozenset({2}), True),
+    ("\u2699", "SETTINGS", 4, frozenset({4}), True),
+    ("\U0001F310", "SPACES", 1, frozenset({1}), False),
+    ("\U0001F5A5", "MY PC", 5, frozenset({5}), False),
+    ("\u269b", "LOCAL LLM", 6, frozenset({6}), False),
+    ("\u21BB", "RUNTIME", 8, frozenset({8}), False),
+    ("\u266B", "VOICE", 9, frozenset({9}), False),
 ]
-_PRIMARY_NAV_COUNT = 5
 _ROOT = Path(__file__).resolve().parents[3]
 _DESKTOP_G_LOGO = _ROOT / "assets" / "desktop" / "guppy_launcher_icon.png"
 
@@ -102,34 +101,36 @@ def create_guppy_fish_icon(size: int = 64) -> QIcon:
 class _GuppyBadge(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFixedSize(56, 56)
-        self._logo = QPixmap(str(_DESKTOP_G_LOGO)) if _DESKTOP_G_LOGO.exists() else QPixmap()
+        self.setFixedSize(48, 48)
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         del event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        if not self._logo.isNull():
-            fitted = self._logo.scaled(
-                self.width() - 4,
-                self.height() - 4,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            x = (self.width() - fitted.width()) // 2
-            y = (self.height() - fitted.height()) // 2
-            painter.drawPixmap(x, y, fitted)
-        else:
-            _paint_guppy_fish(painter, self.rect().adjusted(2, 2, -2, -2))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 253, 248, 232))
+        painter.drawEllipse(self.rect().adjusted(1, 1, -1, -1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(255, 255, 255, 160), 1.2))
+        painter.drawEllipse(self.rect().adjusted(1, 1, -1, -1))
+        _paint_guppy_fish(painter, self.rect().adjusted(6, 6, -6, -6))
         painter.end()
 
 
 class _NavItem(QWidget):
     clicked = Signal(int)
 
-    def __init__(self, icon: str, label: str, index: int, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        icon: str,
+        label: str,
+        route_index: int,
+        active_routes: frozenset[int],
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
-        self._index = index
+        self._route_index = route_index
+        self._active_routes = active_routes
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -140,7 +141,7 @@ class _NavItem(QWidget):
         self._btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._btn.setAccessibleName(label)
         self._btn.setAccessibleDescription(label)
-        self._btn.clicked.connect(lambda: self.clicked.emit(self._index))
+        self._btn.clicked.connect(lambda: self.clicked.emit(self._route_index))
 
         self._label = QLabel(label)
         self._label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
@@ -159,13 +160,16 @@ class _NavItem(QWidget):
 
     def _apply_style(self, active: bool) -> None:
         if active:
+            # Glass warm-sand active state: SAND_1 background + teal left accent border
             self._btn.setStyleSheet(
-                f"QPushButton {{ background-color: {T.INK}; color: #ffffff; border: none; border-radius: 22px;"
+                f"QPushButton {{ background-color: {T.SAND_1}; color: {T.ACCENT_TEAL};"
+                f" border: none; border-radius: 22px;"
+                f" border-left: 3px solid {T.ACCENT_TEAL};"
                 " font-family: 'Segoe UI Symbol';"
                 f" font-size: {T.FS_LABEL + 1}pt; font-weight: bold; }}"
             )
             self._label.setStyleSheet(
-                f"color: {T.INK}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
+                f"color: {T.ACCENT_TEAL}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
             )
             return
         self._btn.setStyleSheet(
@@ -180,6 +184,9 @@ class _NavItem(QWidget):
 
     def set_active(self, v: bool) -> None:
         self._apply_style(v)
+
+    def matches_route(self, route_index: int) -> bool:
+        return route_index in self._active_routes
 
     def set_compact(self, compact: bool) -> None:
         self._label.setVisible(not compact)
@@ -200,17 +207,17 @@ class Sidebar(QFrame):
         )
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 16, 0, 16)
+        root.setContentsMargins(0, 12, 0, 12)
         root.setSpacing(0)
 
         self._art_card = QFrame()
         self._art_card.setStyleSheet(
             f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 {T.ART_RED}, stop:0.55 {T.ART_GOLD}, stop:1 {T.ART_PLUM});"
-            "border-radius: 22px; margin: 0 14px;"
+            "border-radius: 20px; margin: 0 12px;"
         )
         art_layout = QVBoxLayout(self._art_card)
-        art_layout.setContentsMargins(10, 10, 10, 10)
-        art_layout.setSpacing(4)
+        art_layout.setContentsMargins(8, 8, 8, 8)
+        art_layout.setSpacing(3)
         art_layout.addWidget(_GuppyBadge(), alignment=Qt.AlignmentFlag.AlignHCenter)
         self._deck = QLabel("GUPPY")
         self._deck.setAlignment(Qt.AlignmentFlag.AlignHCenter)
@@ -219,7 +226,24 @@ class Sidebar(QFrame):
         )
         art_layout.addWidget(self._deck)
         root.addWidget(self._art_card)
-        root.addSpacing(16)
+
+        # Refined "Guppy G" logo mark: bold teal serif letter beneath art card
+        self._g_mark = QLabel("G")
+        self._g_mark.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self._g_mark.setStyleSheet(
+            f"color: {T.ACCENT_TEAL}; font-family: '{T.FONT_SERIF}', '{T.FF_HEAD}', serif;"
+            " font-size: 28pt; font-weight: bold; padding: 4px 0 0 0;"
+        )
+        root.addWidget(self._g_mark)
+
+        # Sunset gradient accent bar (2px) beneath the G mark
+        self._brand_bar = QFrame()
+        self._brand_bar.setFixedHeight(2)
+        self._brand_bar.setStyleSheet(
+            f"background: {T.GRADIENT_SUNSET}; margin: 0 16px;"
+        )
+        root.addWidget(self._brand_bar)
+        root.addSpacing(10)
 
         self._primary_lbl = QLabel("DAILY PATH")
         self._primary_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
@@ -233,52 +257,27 @@ class Sidebar(QFrame):
         self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._collapse_btn.setStyleSheet(
             f"QPushButton {{ background-color: rgba(255,255,255,0.88); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.64);"
-            f" border-radius: 14px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; }}"
+            f" border-radius: 12px; padding: 5px 9px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; }}"
             f"QPushButton:hover {{ color: {T.TERTIARY}; border-color: {T.TERTIARY}; background-color: #ffffff; }}"
         )
         self._collapse_btn.clicked.connect(self.toggle_collapsed)
         root.addWidget(self._collapse_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
-        root.addSpacing(12)
+        root.addSpacing(10)
 
         self._items: list[_NavItem] = []
-        self._advanced_items: list[_NavItem] = []
-        self._advanced_expanded = False
-        self._advanced_divider = QFrame()
-        self._advanced_divider.setFixedHeight(1)
-        self._advanced_divider.setStyleSheet("background: rgba(214,197,174,0.52); margin: 0 18px;")
-        self._advanced_divider.hide()
-        self._advanced_toggle = QPushButton("MORE SURFACES")
-        self._advanced_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._advanced_toggle.setStyleSheet(
-            f"QPushButton {{ background-color: rgba(255,255,255,0.88); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.64);"
-            f" border-radius: 14px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; }}"
-            f"QPushButton:hover {{ color: {T.TERTIARY}; border-color: {T.TERTIARY}; background-color: #ffffff; }}"
-        )
-        self._advanced_toggle.clicked.connect(self._toggle_advanced_items)
-        self._advanced_host = QWidget()
-        self._advanced_layout = QVBoxLayout(self._advanced_host)
-        self._advanced_layout.setContentsMargins(0, 0, 0, 0)
-        self._advanced_layout.setSpacing(10)
-        self._advanced_host.hide()
-        for i, (icon, label) in enumerate(_NAV):
-            if i == _PRIMARY_NAV_COUNT:
-                root.addSpacing(6)
-                root.addWidget(self._advanced_divider)
-                root.addSpacing(10)
-                root.addWidget(self._advanced_toggle, alignment=Qt.AlignmentFlag.AlignHCenter)
-                root.addSpacing(10)
-            item = _NavItem(icon, label, i)
+        self._visible_items: list[_NavItem] = []
+        for icon, label, route_index, active_routes, visible in _NAV:
+            item = _NavItem(icon, label, route_index, active_routes, self)
             item.clicked.connect(self._on_nav_click)
             self._items.append(item)
-            if i >= _PRIMARY_NAV_COUNT:
-                self._advanced_items.append(item)
-                self._advanced_layout.addWidget(item, alignment=Qt.AlignmentFlag.AlignHCenter)
-            else:
+            if visible:
+                self._visible_items.append(item)
                 root.addWidget(item, alignment=Qt.AlignmentFlag.AlignHCenter)
                 root.addSpacing(10)
+            else:
+                item.hide()
 
-        root.addWidget(self._advanced_host)
-        root.addSpacing(10)
+        root.addSpacing(6)
 
         root.addStretch()
 
@@ -290,36 +289,15 @@ class Sidebar(QFrame):
         root.addWidget(self._sys_lbl)
 
         self._items[0].set_active(True)
-        self._sync_advanced_section()
-
-    def _toggle_advanced_items(self) -> None:
-        self._advanced_expanded = not self._advanced_expanded
-        self._sync_advanced_section()
-
-    def _sync_advanced_section(self) -> None:
-        has_advanced = bool(self._advanced_items)
-        self._advanced_divider.setVisible(has_advanced)
-        self._advanced_toggle.setVisible(has_advanced)
-        if self._collapsed:
-            self._advanced_toggle.setText("LESS" if self._advanced_expanded else "MORE")
-        else:
-            self._advanced_toggle.setText("HIDE SURFACES" if self._advanced_expanded else "MORE SURFACES")
-        self._advanced_host.setVisible(has_advanced and self._advanced_expanded)
 
     def _on_nav_click(self, index: int) -> None:
-        if index >= _PRIMARY_NAV_COUNT and not self._advanced_expanded:
-            self._advanced_expanded = True
-            self._sync_advanced_section()
-        for i, item in enumerate(self._items):
-            item.set_active(i == index)
+        for item in self._items:
+            item.set_active(item.matches_route(index))
         self.tab_changed.emit(index)
 
     def set_active(self, index: int) -> None:
-        if index >= _PRIMARY_NAV_COUNT and not self._advanced_expanded:
-            self._advanced_expanded = True
-            self._sync_advanced_section()
-        for i, item in enumerate(self._items):
-            item.set_active(i == index)
+        for item in self._items:
+            item.set_active(item.matches_route(index))
 
     def toggle_collapsed(self) -> None:
         self.set_collapsed(not self._collapsed)
@@ -328,13 +306,14 @@ class Sidebar(QFrame):
         self._collapsed = bool(collapsed)
         self.setFixedWidth(T.SIDEBAR_W_COLLAPSED if self._collapsed else T.SIDEBAR_W_EXPANDED)
         self._deck.setVisible(not self._collapsed)
+        self._g_mark.setVisible(not self._collapsed)
+        self._brand_bar.setVisible(not self._collapsed)
         self._primary_lbl.setVisible(not self._collapsed)
         self._sys_lbl.setVisible(not self._collapsed)
         self._collapse_btn.setText(">" if self._collapsed else "COLLAPSE")
         self._collapse_btn.setToolTip("Expand navigation" if self._collapsed else "Collapse navigation")
-        for item in self._items:
+        for item in self._visible_items:
             item.set_compact(self._collapsed)
-        self._sync_advanced_section()
 
     def is_collapsed(self) -> bool:
         return self._collapsed

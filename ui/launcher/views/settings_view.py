@@ -40,6 +40,10 @@ from src.guppy.experience_config import (
     validate_persona_config,
 )
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
+from src.guppy.launcher_application.settings_persona_presenter import (
+    build_assignment_summary_text,
+    build_persona_preview_text,
+)
 from .. import tokens as T
 _PROFILE_BACKEND = runtime_settings_backend_available()
 
@@ -495,15 +499,7 @@ class SettingsView(QWidget):
 
     def _refresh_assignment_summary(self) -> None:
         mapping = self._persona_config.get("assignments", {}).get("by_model", {})
-        if not isinstance(mapping, dict) or not mapping:
-            self._assignment_summary_lbl.setText("Model bindings: none")
-            return
-        persona_names = {
-            str(item.get("id", "")).strip(): str(item.get("name", item.get("id", ""))).strip()
-            for item in self._persona_items()
-        }
-        parts = [f"{model} -> {persona_names.get(str(persona_id), str(persona_id))}" for model, persona_id in sorted(mapping.items())]
-        self._assignment_summary_lbl.setText("Model bindings: " + " | ".join(parts))
+        self._assignment_summary_lbl.setText(build_assignment_summary_text(self._persona_items(), mapping))
 
     def _on_persona_selected(self, _index: int) -> None:
         self._current_persona_id = str(self._persona_picker.currentData() or self._current_persona_id)
@@ -643,27 +639,20 @@ class SettingsView(QWidget):
     def _refresh_preview(self) -> None:
         if self._loading_persona:
             return
-        scope = self._scope_cb.currentText().strip().upper() or "GLOBAL"
-        model_text = self._model_binding_cb.currentText().strip()
-        tone = self._tone_cb.currentText().strip().upper() or "BUTLER"
-        verbosity = self._verbosity_cb.currentText().strip().upper() or "MEDIUM"
-        style = self._style_cb.currentText().strip().upper() or "DIRECT"
-        teaching = "ON" if self._teaching_toggle.isChecked() else "OFF"
         prompt = self._system_prompt.toPlainText().strip() or "You are Guppy. Be concise, dependable, and practical."
-        scope_line = f"Scope: {scope}" + (f" -> {model_text}" if scope == "MODEL" and model_text else "")
-        prompt_preview = prompt[:220] + ("..." if len(prompt) > 220 else "")
         self._preview_lbl.setText(
-            " | ".join(
-                [
-                    f"Persona: {(self._persona_name.text().strip() or 'Untitled').upper()}",
-                    scope_line,
-                    f"Tone: {tone}",
-                    f"Verbosity: {verbosity}",
-                    f"Style: {style}",
-                    f"Teaching: {teaching} ({self._socratic_slider.value()} / {self._example_slider.value()})",
-                ]
+            build_persona_preview_text(
+                persona_name=self._persona_name.text(),
+                scope=self._scope_cb.currentText(),
+                model_text=self._model_binding_cb.currentText(),
+                tone=self._tone_cb.currentText(),
+                verbosity=self._verbosity_cb.currentText(),
+                style=self._style_cb.currentText(),
+                teaching_enabled=self._teaching_toggle.isChecked(),
+                socratic_bias=self._socratic_slider.value(),
+                example_bias=self._example_slider.value(),
+                prompt=prompt,
             )
-            + f"\nPrompt preview: {prompt_preview}"
         )
 
     def _save(self) -> None:

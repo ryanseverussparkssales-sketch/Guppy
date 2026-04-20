@@ -40,13 +40,12 @@ import time
 import asyncio
 import threading
 from datetime import datetime, timezone
-from contextlib import asynccontextmanager
 from functools import partial, wraps
 from typing import Optional, AsyncGenerator, Any, Dict, List
 from pathlib import Path
 from collections import Counter
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Depends, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from jose import JWTError, jwt
@@ -278,7 +277,19 @@ from src.guppy.api.routes_realtime import build_realtime_router
 from src.guppy.api.runtime_state import ServerRuntimeState
 from src.guppy.api.server_context import ServerContext
 from src.guppy.api.server_paths import ServerPathConfig
-from src.guppy.api import services_host, services_instances, services_ops, services_realtime, services_runtime
+from src.guppy.api.server_runtime_startup_support import (
+    bind_startup_support,
+    build_lifespan,
+)
+from src.guppy.api.server_runtime_auth_request_support import bind_auth_request_support
+from src.guppy.api import (
+    services_briefing,
+    services_host,
+    services_instances,
+    services_ops,
+    services_realtime,
+    services_runtime,
+)
 
 # Configuration
 
@@ -502,9 +513,6 @@ _instance_limits_payload = services_instances.instance_limits_payload
 _emit_integration_heartbeat = _bind_owner(services_host.emit_integration_heartbeat)
 _read_daemon_runtime_status = _bind_owner(services_host.read_daemon_runtime_status)
 _read_window_context = _bind_owner(services_host.read_window_context)
-_read_repair_token = _bind_owner(services_host.read_repair_token)
-_restart_managed_daemon = _bind_owner(services_host.restart_managed_daemon)
-_set_repair_token = _bind_owner(services_host.set_repair_token)
 _read_resource_envelope_status = _bind_owner(services_ops.read_resource_envelope_status)
 _parse_iso_ts = services_ops.parse_iso_ts
 _p95 = services_ops.p95
@@ -512,37 +520,53 @@ _query_sqlite_telemetry = _bind_owner(services_ops.query_sqlite_telemetry)
 _query_jsonl_telemetry = _bind_owner(services_ops.query_jsonl_telemetry)
 _build_telemetry_report = services_ops.build_telemetry_report
 _latest_stress_report_path = _bind_owner(services_ops.latest_stress_report_path)
-_normalize_brief_text = services_realtime.normalize_brief_text
-_looks_like_brief_affirmation = services_realtime.looks_like_brief_affirmation
-_history_offered_morning_brief = services_realtime.history_offered_morning_brief
-_request_is_morning_brief = services_realtime.request_is_morning_brief
-_latest_daily_report_path = _bind_owner(services_realtime.latest_daily_report_path)
-_strip_markdown_prefix = services_realtime.strip_markdown_prefix
-_parse_markdown_sections = services_realtime.parse_markdown_sections
-_preview_markdown_section = services_realtime.preview_markdown_section
-_preview_plain_block = services_realtime.preview_plain_block
-_build_morning_brief_response = _bind_owner(services_realtime.build_morning_brief_response)
+_normalize_brief_text = services_briefing.normalize_brief_text
+_looks_like_brief_affirmation = services_briefing.looks_like_brief_affirmation
+_history_offered_morning_brief = services_briefing.history_offered_morning_brief
+_request_is_morning_brief = services_briefing.request_is_morning_brief
+_latest_daily_report_path = _bind_owner(services_briefing.latest_daily_report_path)
+_strip_markdown_prefix = services_briefing.strip_markdown_prefix
+_parse_markdown_sections = services_briefing.parse_markdown_sections
+_preview_markdown_section = services_briefing.preview_markdown_section
+_preview_plain_block = services_briefing.preview_plain_block
+_build_morning_brief_response = _bind_owner(services_briefing.build_morning_brief_response)
 _collect_runtime_bundle = _bind_owner(services_ops.collect_runtime_bundle)
 _do_repair_action = _bind_owner(services_ops.do_repair_action)
-_secret_ready = services_runtime.secret_ready
-_build_startup_readiness_payload = _bind_owner(services_runtime.build_startup_readiness_payload)
-_startup_readiness_snapshot = _bind_owner(services_runtime.startup_readiness_snapshot)
-_startup_readiness_cached_or_unknown = _bind_owner(services_runtime.startup_readiness_cached_or_unknown)
-_startup_readiness_cached_or_snapshot = _bind_owner(services_runtime.startup_readiness_cached_or_snapshot)
-_startup_readiness_cache_expired = _bind_owner(services_runtime.startup_readiness_cache_expired)
-_trigger_startup_readiness_refresh = _bind_owner(services_runtime.trigger_startup_readiness_refresh)
+_startup_support = bind_startup_support(
+    bind_owner=_bind_owner,
+    services_host_module=services_host,
+    services_runtime_module=services_runtime,
+)
+_auth_request_support = bind_auth_request_support(
+    bind_owner=_bind_owner,
+    module_owner=_module_owner,
+    services_host_module=services_host,
+    services_ops_module=services_ops,
+    require_rate_limit=require_rate_limit,
+    require_auth_rate_limit=require_auth_rate_limit,
+    verify_turnstile_token_auth=verify_turnstile_token_auth,
+    create_access_token=create_access_token,
+    access_token_expire_minutes=ACCESS_TOKEN_EXPIRE_MINUTES,
+)
+_read_repair_token = _startup_support.read_repair_token
+_restart_managed_daemon = _startup_support.restart_managed_daemon
+_set_repair_token = _startup_support.set_repair_token
+_secret_ready = _startup_support.secret_ready
+_build_startup_readiness_payload = _startup_support.build_startup_readiness_payload
+_startup_readiness_snapshot = _startup_support.startup_readiness_snapshot
+_startup_readiness_cached_or_unknown = _startup_support.startup_readiness_cached_or_unknown
+_startup_readiness_cached_or_snapshot = _startup_support.startup_readiness_cached_or_snapshot
+_startup_readiness_cache_expired = _startup_support.startup_readiness_cache_expired
+_trigger_startup_readiness_refresh = _startup_support.trigger_startup_readiness_refresh
+_require_repair_token = _auth_request_support.require_repair_token
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
-    """Validate env and optionally manage daemon lifecycle when explicitly enabled."""
-    validate_environment()
-    _ensure_m2_instance_scaffold()
-    await services_host.startup_host(sys.modules[__name__])
-
-    try:
-        yield
-    finally:
-        await services_host.shutdown_host(sys.modules[__name__])
+lifespan = build_lifespan(
+    module_owner=_module_owner,
+    validate_environment=validate_environment,
+    ensure_instance_scaffold=_ensure_m2_instance_scaffold,
+    startup_host=services_host.startup_host,
+    shutdown_host=services_host.shutdown_host,
+)
 
 
 app = FastAPI(
@@ -561,32 +585,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Repair-Token", "X-Turnstile-Token"],
 )
 
-
-@app.middleware("http")
-async def request_timing_middleware(request: Request, call_next):
-    started = time.perf_counter()
-    status_code = 500
-    try:
-        response = await call_next(request)
-        status_code = response.status_code
-    except Exception:
-        elapsed_ms = (time.perf_counter() - started) * 1000.0
-        services_host.record_request_failure(
-            sys.modules[__name__],
-            request,
-            status_code,
-            elapsed_ms,
-        )
-        raise
-
-    elapsed_ms = (time.perf_counter() - started) * 1000.0
-    services_host.record_request_completion(
-        sys.modules[__name__],
-        request,
-        response,
-        elapsed_ms,
-    )
-    return response
+app.middleware("http")(_auth_request_support.request_timing_middleware)
 
 # === END _server_fragment_ops.py ===
 
@@ -632,17 +631,16 @@ _stream_chunks = services_realtime.stream_chunks
 _governance_summary_payload = _bind_owner(services_instances.governance_summary_payload)
 _workspace_connector_payload = _bind_owner(services_instances.workspace_connector_payload)
 _connector_inventory_payload = _bind_owner(services_instances.connector_inventory_payload)
-_require_repair_token = _bind_owner(services_ops.require_repair_token)
 
 _server_context = ServerContext(
     app=app,
     owner=sys.modules[__name__],
-    require_rate_limit=require_rate_limit,
-    require_auth_rate_limit=require_auth_rate_limit,
+    require_rate_limit=_auth_request_support.require_rate_limit,
+    require_auth_rate_limit=_auth_request_support.require_auth_rate_limit,
     require_repair_token=None,
-    verify_turnstile_token_auth=verify_turnstile_token_auth,
-    create_access_token=create_access_token,
-    access_token_expire_minutes=ACCESS_TOKEN_EXPIRE_MINUTES,
+    verify_turnstile_token_auth=_auth_request_support.verify_turnstile_token_auth,
+    create_access_token=_auth_request_support.create_access_token,
+    access_token_expire_minutes=_auth_request_support.access_token_expire_minutes,
     dev_mode=bool(DEV_MODE),
     guppy_core_available=GUPPY_CORE_AVAILABLE,
     core=core,

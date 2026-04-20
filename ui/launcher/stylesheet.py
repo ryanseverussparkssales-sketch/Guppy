@@ -145,4 +145,11 @@ QTextBrowser, QPlainTextEdit {{
     border: 1px solid rgba(214,197,174,0.58);
     border-radius: 18px;
 }}
+QLabel#hub-purpose {{
+    font-family: "{T.FONT_SERIF}", "{T.FF_HEAD}", serif;
+    font-size: {T.FS_BODY}pt;
+    font-style: italic;
+    color: {T.DIM};
+    padding: 2px 0px 6px 0px;
+}}
 """

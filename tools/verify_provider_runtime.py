@@ -62,6 +62,22 @@ def _check_anthropic(api_key: str) -> tuple[bool, str]:
         return False, f"Anthropic check failed: {e}"
 
 
+def _build_validation_scope(*, smoke_enabled: bool) -> dict[str, object]:
+    return {
+        "structural_checks": [
+            "API key presence",
+            "provider library availability",
+            "optional lightweight provider model-list smoke checks" if smoke_enabled else "lightweight provider model-list smoke checks skipped",
+        ],
+        "real_device_coverage_included": False,
+        "follow_up": [
+            "Run real-device voice validation using docs/generated/VOICE_VALIDATION_MATRIX.md.",
+            "Run local-runtime validation using python tools/verify_ollama_runtime.py --prompt ok on the target machine.",
+            "Use --smoke only when provider API keys are intentionally configured for lightweight live validation.",
+        ],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify external LLM provider key/runtime readiness.")
     parser.add_argument("--smoke", action="store_true", help="Run lightweight provider API checks.")
@@ -133,12 +149,21 @@ def main() -> int:
         "key_presence": keys,
         "libraries": libs,
         "smoke_results": smoke_results,
+        "validation_scope": _build_validation_scope(smoke_enabled=args.smoke),
     }
 
     out_path = Path(args.snapshot_file)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(out, indent=2), encoding="utf-8")
     print(f"\nSnapshot written: {out_path}")
+    scope = out["validation_scope"]
+    print("Validation scope: structural provider runtime readiness only; real-device voice/runtime coverage is still follow-up.")
+    follow_up = scope.get("follow_up", []) if isinstance(scope, dict) else []
+    if isinstance(follow_up, list):
+        for item in follow_up[:3]:
+            text = str(item or "").strip()
+            if text:
+                print(f"Follow-up: {text}")
 
     missing_keys = [k for k, v in keys.items() if not v]
     smoke_failed = any(not v.get("ok", False) for v in smoke_results.values())

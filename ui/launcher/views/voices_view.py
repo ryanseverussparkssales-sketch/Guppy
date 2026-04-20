@@ -1,6 +1,6 @@
 """
 ui/launcher/views/voices_view.py
-VOICES tab — per-engine voice browser with preview and active-voice selection.
+Voice panel used inside Models Hub for per-engine browsing, preview, and active-voice selection.
 """
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import os
 import subprocess
 import sys
 import threading
-import importlib.util
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +35,14 @@ from src.guppy.experience_config import (
     personalization_backend_available,
     save_voice_bindings,
     validate_voice_bindings,
+)
+from src.guppy.launcher_application.voice_catalog_support import (
+    build_bindings_summary_text,
+    build_engine_capabilities,
+    build_engine_status_summary,
+    build_voice_evidence_text,
+    engine_capability,
+    engine_is_available,
 )
 from .. import tokens as T
 
@@ -180,7 +187,8 @@ class _VoiceRow(QFrame):
 
         # Preview button
         prev_btn = QPushButton("PREVIEW")
-        prev_btn.setFixedSize(70, 26)
+        prev_btn.setFixedSize(70, 28)
+        prev_btn.setToolTip("Play a short audio sample of this voice")
         prev_btn.setStyleSheet(
             f"QPushButton {{ color: {T.DIM}; border: 1px solid {T.BORDER};"
             f"  font-family: '{T.FF_MONO}'; font-size: 7pt; }}"
@@ -191,7 +199,8 @@ class _VoiceRow(QFrame):
 
         # Select button
         self._sel_btn = QPushButton("SELECT")
-        self._sel_btn.setFixedSize(70, 26)
+        self._sel_btn.setFixedSize(70, 28)
+        self._sel_btn.setToolTip("Set this voice as the active TTS voice for this workspace")
         self._sel_btn.setStyleSheet(
             f"QPushButton {{ color: {T.PRIMARY}; border: 1px solid {T.PRIMARY};"
             f"  font-family: '{T.FF_MONO}'; font-size: 7pt; }}"
@@ -466,30 +475,12 @@ class VoicesView(QWidget):
         root.addWidget(scroll, stretch=1)
 
     def _refresh_engine_capabilities(self) -> None:
-        caps: dict[str, dict[str, str]] = {}
-        for engine in ENGINES.keys():
-            ok, reason = self._engine_capability(engine)
-            caps[engine] = {"ok": "1" if ok else "0", "reason": reason}
-        self._engine_capabilities = caps
+        self._engine_capabilities = build_engine_capabilities(ENGINES)
         self._update_engine_status_summary()
 
     @staticmethod
     def _engine_capability(engine: str) -> tuple[bool, str]:
-        if engine == "EDGE TTS":
-            ok = importlib.util.find_spec("edge_tts") is not None
-            return ok, "edge-tts installed" if ok else "missing edge-tts"
-        if engine == "KOKORO":
-            ok = importlib.util.find_spec("kokoro") is not None or importlib.util.find_spec("kokoro_onnx") is not None
-            return ok, "kokoro runtime detected" if ok else "kokoro runtime missing"
-        if engine == "WINDOWS SAPI":
-            if not sys.platform.startswith("win"):
-                return False, "Windows only"
-            ok = importlib.util.find_spec("pyttsx3") is not None
-            return ok, "pyttsx3 available" if ok else "missing pyttsx3"
-        if engine == "ELEVENLABS":
-            api_key = (os.environ.get("ELEVENLABS_API_KEY", "") or "").strip()
-            return bool(api_key), "API key present" if api_key else "missing ELEVENLABS_API_KEY"
-        return False, "unknown engine"
+        return engine_capability(engine)
 
     @staticmethod
     def _voice_exists_for_engine(engine: str, voice_id: str) -> bool:
@@ -536,10 +527,7 @@ class VoicesView(QWidget):
         return any(item.get("voice_id") == voice_id for item in self._voice_records_for_engine(engine))
 
     def _engine_is_available(self, engine: str) -> tuple[bool, str]:
-        info = self._engine_capabilities.get(engine, {})
-        ok = info.get("ok") == "1"
-        reason = info.get("reason", "")
-        return ok, reason
+        return engine_is_available(self._engine_capabilities, engine)
 
     def _validate_engine_selection(self, engine: str, voice_id: str) -> tuple[bool, str]:
         if not self._catalog_contains_voice(engine, voice_id):
@@ -573,27 +561,18 @@ class VoicesView(QWidget):
         self._set_combo_options(self._model_cb, model_options, selected=str(self._model_cb.currentData() or self._model_cb.currentText()))
 
     def _refresh_bindings_summary(self) -> None:
-        bindings = self._voice_bindings.get("bindings", {}) if isinstance(self._voice_bindings, dict) else {}
-        by_persona = bindings.get("by_persona", {}) if isinstance(bindings.get("by_persona"), dict) else {}
-        by_model = bindings.get("by_model", {}) if isinstance(bindings.get("by_model"), dict) else {}
-        imports = self._voice_bindings.get("imports", []) if isinstance(self._voice_bindings, dict) else []
-        parts = [
-            f"Default: {self._default_lbl.text().replace('DEFAULT VOICE: ', '').strip() or 'unset'}",
-            f"Persona bindings: {len(by_persona)}",
-            f"Model bindings: {len(by_model)}",
-            f"Imports: {len(imports) if isinstance(imports, list) else 0}",
-        ]
-        self._bindings_summary_lbl.setText("Voice sources: " + " | ".join(parts))
+        self._bindings_summary_lbl.setText(
+            build_bindings_summary_text(
+                self._voice_bindings,
+                default_choice=self._default_lbl.text().replace("DEFAULT VOICE: ", "").strip(),
+            )
+        )
 
     def _emit_bindings_changed(self) -> None:
         self.bindings_changed.emit(dict(self._voice_bindings))
 
     def _update_engine_status_summary(self) -> None:
-        parts: list[str] = []
-        for engine in ENGINES.keys():
-            ok, _ = self._engine_is_available(engine)
-            parts.append(f"{engine}:{'READY' if ok else 'UNAVAILABLE'}")
-        self._engine_status_lbl.setText("ENGINES: " + " | ".join(parts))
+        self._engine_status_lbl.setText(build_engine_status_summary(ENGINES, self._engine_capabilities))
         self._refresh_voice_evidence()
 
     def _update_default_label(self) -> None:
@@ -875,13 +854,13 @@ class VoicesView(QWidget):
         return f"{voice_text} on {engine_text}"
 
     def _refresh_voice_evidence(self) -> None:
-        ok, reason = self._engine_is_available(self._active_engine)
-        readiness = "ready" if ok else f"needs attention ({reason})"
-        bindings = self._voice_bindings.get("bindings", {}) if isinstance(self._voice_bindings, dict) else {}
-        by_persona = bindings.get("by_persona", {}) if isinstance(bindings.get("by_persona"), dict) else {}
-        by_model = bindings.get("by_model", {}) if isinstance(bindings.get("by_model"), dict) else {}
         self._voice_evidence_lbl.setText(
-            f"Ready now: selected voice {self._describe_voice_choice(self._active_engine, self._active_voice)} is {readiness}. "
-            f"Default runtime voice stays {self._default_lbl.text().replace('DEFAULT VOICE: ', '').strip() or 'unset'}. "
-            f"Live bindings: {len(by_persona)} persona, {len(by_model)} model."
+            build_voice_evidence_text(
+                active_engine=self._active_engine,
+                active_voice=self._active_voice,
+                default_choice=self._default_lbl.text().replace("DEFAULT VOICE: ", "").strip(),
+                describe_voice_choice=self._describe_voice_choice,
+                voice_bindings=self._voice_bindings,
+                engine_capabilities=self._engine_capabilities,
+            )
         )

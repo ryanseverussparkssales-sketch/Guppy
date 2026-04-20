@@ -15,12 +15,24 @@ from src.guppy.launcher_application.library_workflow import (
 class _AssistantView:
     def __init__(self) -> None:
         self.default_source = ""
+        self.input_text = ""
+        self.background_event = ""
+        self.active_items: list[dict[str, str]] = []
 
     def set_status(self, _text: str) -> None:
         return
 
     def set_default_context_source(self, title: str) -> None:
         self.default_source = str(title or "")
+
+    def set_input_text(self, text: str) -> None:
+        self.input_text = str(text or "")
+
+    def set_background_event(self, text: str) -> None:
+        self.background_event = str(text or "")
+
+    def set_active_context_items(self, items: list[dict[str, str]]) -> None:
+        self.active_items = [dict(item) for item in items]
 
 
 class _StatusPanel:
@@ -127,6 +139,33 @@ class LibraryWorkflowControllerTests(unittest.TestCase):
             )
 
         self.assertEqual(active_items[0]["title"], "Pinned Spec")
+
+    def test_handle_context_requested_marks_note_origin_and_label(self) -> None:
+        status_panel = _StatusPanel()
+        log_event = Mock()
+        controller, active_items, assistant = self._build_controller(status_panel, log_event)
+
+        controller.handle_context_requested("Review packet", "", "note", "Use Review packet")
+
+        self.assertEqual(active_items[0]["origin"], "library_note")
+        self.assertEqual(active_items[0]["source_label"], "Pinned note")
+        self.assertEqual(assistant.input_text, "Use Review packet")
+
+    def test_handle_context_requested_marks_media_origin_and_label(self) -> None:
+        status_panel = _StatusPanel()
+        log_event = Mock()
+        controller, active_items, assistant = self._build_controller(status_panel, log_event)
+
+        controller.handle_context_requested(
+            "Walkthrough clip",
+            "C:/repo/media/walkthrough.mp4",
+            "artifact",
+            "Use Walkthrough clip",
+        )
+
+        self.assertEqual(active_items[0]["origin"], "library_media")
+        self.assertEqual(active_items[0]["source_label"], "Local video")
+        self.assertIn("Walkthrough clip", assistant.background_event)
 
     def test_save_and_load_workspace_defaults_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as td:

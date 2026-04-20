@@ -4,6 +4,7 @@ import json
 import threading
 import time
 import urllib.request
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 
@@ -125,6 +126,38 @@ def build_startup_readiness_payload(owner: Any) -> dict:
     }
 
 
+def build_runtime_status_payload(
+    owner: Any,
+    *,
+    context: dict[str, Any] | None = None,
+    timestamp: str | None = None,
+) -> dict[str, Any]:
+    voice_tts = owner._VOICE_TTS_BACKEND if owner.GUPPY_VOICE_AVAILABLE else "none"
+    voice_stt = owner._VOICE_STT_BACKEND if owner.GUPPY_VOICE_AVAILABLE else "none"
+    voice_status = {
+        "available": owner.GUPPY_VOICE_AVAILABLE,
+        "tts_backend": voice_tts,
+        "stt_backend": voice_stt,
+        "details": owner._VOICE_BACKEND_DETAILS if owner.GUPPY_VOICE_AVAILABLE else [],
+    }
+    payload = {
+        "status": "healthy",
+        "timestamp": str(timestamp or datetime.now(timezone.utc).isoformat()),
+        "context": dict(context or {}),
+        "memory_available": owner.GUPPY_MEMORY_AVAILABLE,
+        "voice_available": owner.GUPPY_VOICE_AVAILABLE,
+        "voice_tts_backend": voice_tts,
+        "voice_stt_backend": voice_stt,
+        "voice_status": voice_status,
+        "daemon_available": owner.GUPPY_DAEMON_AVAILABLE,
+        "daemon_runtime": owner._read_daemon_runtime_status(),
+        "startup_readiness": owner._startup_readiness_cached_or_unknown(),
+        "local_runtime": owner._build_local_runtime_status(),
+        "resource_envelope": owner._read_resource_envelope_status(),
+    }
+    return payload
+
+
 def startup_readiness_snapshot(owner: Any) -> dict:
     state = owner._runtime_state
     with state.startup_check_cache_lock:
@@ -181,6 +214,15 @@ def startup_readiness_cached_or_unknown(owner: Any) -> dict:
             "memory": {"state": "UNKNOWN", "detail": "startup checks not run yet"},
         },
     }
+
+
+def startup_check_payload(owner: Any, *, deep: bool = False) -> dict[str, Any]:
+    if deep:
+        return owner._startup_readiness_snapshot()
+    snapshot = owner._startup_readiness_cached_or_unknown()
+    if snapshot.get("overall") == "UNKNOWN" or owner._startup_readiness_cache_expired():
+        owner._trigger_startup_readiness_refresh()
+    return snapshot
 
 
 def startup_readiness_cached_or_snapshot(owner: Any) -> dict:
