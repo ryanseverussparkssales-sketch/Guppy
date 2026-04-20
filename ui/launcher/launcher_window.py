@@ -7,13 +7,11 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import sys
 import threading
 import time
 from queue import Empty, SimpleQueue
-from datetime import datetime, timezone
 from pathlib import Path
 import urllib.error
 import urllib.request
@@ -94,7 +92,6 @@ from src.guppy.experience_config import (
 )
 from src.guppy.runtime_application import (
     RuntimeHealthSnapshot,
-    build_local_bearer_token,
     route_evidence_summary,
     summarize_startup_readiness,
 )
@@ -112,7 +109,6 @@ from src.guppy.launcher_application.tool_action_registry import get_home_starter
 from src.guppy.launcher_application.storage_io import (
     append_instance_log,
     append_jsonl,
-    get_secret,
     instance_logger_backend_available,
     read_instance_log_tail,
     read_json_dict,
@@ -163,20 +159,6 @@ from src.guppy.launcher_application.launcher_command_flow import (
     derive_topbar_model_context,
     handle_assistant_command,
 )
-from src.guppy.launcher_application.launcher_api_runtime_control import (
-    api_base_url,
-    api_reachable,
-    api_reachability_status,
-    ensure_api_reachable_for_command,
-    http_json,
-    read_repair_token,
-    refresh_api_auth_state,
-    refresh_repair_token_from_api,
-    run_auth_self_check,
-    start_api_subprocess,
-    start_supervised_api_subprocess,
-    startup_readiness_status,
-)
 from src.guppy.launcher_application.workspace_snapshot_support import (
     build_local_instance_snapshot,
     default_governance_snapshot,
@@ -213,6 +195,8 @@ from PySide6.QtWidgets import (
 from src.guppy.inference.router import resolve_ui_route
 from . import tokens as T
 from .stylesheet import SHEET
+from .launcher_runtime_control_mixin import LauncherRuntimeControlMixin
+from .launcher_windows_ops_mixin import LauncherWindowsOpsMixin
 from .components import Sidebar, TopBar, StatusPanel
 from .views import (
     AssistantView,
@@ -234,7 +218,6 @@ _PERSONALIZATION_BOOTSTRAP_AVAILABLE = personalization_backend_available()
 _INSTANCE_LOGGER_AVAILABLE = instance_logger_backend_available()
 _SECRET_STORE_AVAILABLE = secret_store_backend_available()
 _secret_store = secret_store_client()
-
 _INSTANCE_GOVERNANCE_BACKEND = instance_policy_backend_available()
 
 _CONNECTOR_MANAGER_BACKEND = connector_backend_available()
@@ -287,7 +270,7 @@ def _write_json(path: Path, payload: dict) -> None:
         raise OSError(f"Atomic write failed for {path}")
 
 
-class LauncherWindow(QMainWindow):
+class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMainWindow):
     assistant_event_queued = Signal()
     connector_action_event_queued = Signal()
 
@@ -301,7 +284,7 @@ class LauncherWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Guppy AI  //  WORKSPACE_ASSISTANT")
+        self.setWindowTitle("Guppy  //  WORKSPACE_ASSISTANT")
         self.setMinimumSize(1120, 720)
         self.setStyleSheet(SHEET)
         self._last_command = ""
@@ -1363,301 +1346,6 @@ class LauncherWindow(QMainWindow):
         self._set_daily_activity("Voice bindings updated")
         self._status_panel.append_syslog("voice bindings updated")
 
-    def _tool_state_path(self) -> Path:
-        return _RUNTIME / "launcher_tools_state.json"
-
-    def _windows_ops_state_path(self) -> Path:
-        return _RUNTIME / "windows_ops_state.json"
-
-    def _windows_release_receipt_path(self) -> Path:
-        return _RUNTIME / "windows_release_receipt.json"
-
-    def _windows_release_summary_path(self) -> Path:
-        return _RUNTIME / "windows_release_summary.md"
-
-    @staticmethod
-    def _default_windows_ops_event_id(action: str) -> str:
-        return default_windows_ops_event_id(action)
-
-    @staticmethod
-    def _beta_release_dry_run_report_path() -> Path:
-        return beta_release_dry_run_report_path(_RUNTIME)
-
-    @staticmethod
-    def _windows_ops_chain_steps(action: str) -> list[str]:
-        descriptor = build_windows_ops_descriptor(action)
-        return [step.name for step in descriptor.chain_steps if str(step.name).strip()]
-
-    @staticmethod
-    def _windows_ops_chain_changes(action: str) -> str:
-        return windows_ops_chain_changes(action)
-
-    @staticmethod
-    def _repo_python_path() -> Path:
-        return repo_python_path(_RUNTIME, fallback_executable=sys.executable)
-
-    @staticmethod
-    def _run_repo_python(args: list[str], *, timeout_s: float = 45.0) -> str:
-        return run_repo_python(
-            _RUNTIME,
-            args,
-            timeout_s=timeout_s,
-            fallback_executable=sys.executable,
-        )
-
-    @staticmethod
-    def _snapshot_file_signature(path: Path | None) -> dict[str, object]:
-        return snapshot_file_signature(path)
-
-    @staticmethod
-    def _latest_runtime_artifact(*patterns: str) -> Path | None:
-        return latest_runtime_artifact(_RUNTIME, *patterns)
-
-    @staticmethod
-    def _preferred_package_output() -> Path:
-        return preferred_package_output(_RUNTIME)
-
-    @staticmethod
-    def _collect_windows_service_snapshot() -> dict[str, object]:
-        return collect_windows_service_snapshot(_RUNTIME, fallback_executable=sys.executable)
-
-    @staticmethod
-    def _windows_service_snapshot_changes(before: dict[str, object], after: dict[str, object]) -> str:
-        return windows_service_snapshot_changes(before, after)
-
-    @staticmethod
-    def _windows_ops_artifact_refs(action: str, snapshot: dict[str, object]) -> list[dict[str, object]]:
-        return windows_ops_artifact_refs(action, snapshot)
-
-    @staticmethod
-    def _summarize_release_dry_run_report(report: dict[str, object]) -> dict[str, object]:
-        return summarize_release_dry_run_report(report)
-
-    @staticmethod
-    def _route_evidence_summary(payload: dict[str, object]) -> str:
-        return route_evidence_summary(payload, runtime_path=_RUNTIME)
-
-    @staticmethod
-    def _workspace_role_label(workspace_type: str) -> str:
-        normalized = str(workspace_type or "user_instance").strip().lower() or "user_instance"
-        return {
-            "builder_instance": "Builder collaborator workspace",
-            "admin_instance": "Operations workspace",
-        }.get(normalized, workspace_role_label(workspace_type))
-
-    @staticmethod
-    def _workspace_first_run_recipe(workspace_type: str) -> str:
-        return workspace_first_run_recipe(workspace_type)
-
-    @staticmethod
-    def _workspace_onboarding_ready_message(name: str, workspace_type: str) -> str:
-        return workspace_onboarding_ready_message(name, workspace_type)
-
-    def _release_dry_run_gate_details(self) -> dict[str, object]:
-        return release_dry_run_gate_details(_RUNTIME)
-
-    @staticmethod
-    def _write_windows_release_summary(summary_path: Path, payload: dict[str, object]) -> str:
-        return write_windows_release_summary(summary_path, payload)
-
-    def _write_windows_release_receipt(
-        self,
-        action: str,
-        summary: str,
-        changes: str,
-        *,
-        ok: bool,
-        commands: list[str] | None = None,
-        event_id: str = "",
-        steps_completed: int | None = None,
-        steps_total: int | None = None,
-        phase: str = "completed",
-        next_step: str = "",
-        fix_target: str = "",
-        docs_hint: str = "",
-        entry_point: str = "",
-        artifacts: list[dict[str, object]] | None = None,
-        gate_summary: str = "",
-        gate_detail: str = "",
-        gate_checks: list[dict[str, object]] | None = None,
-        gate_required_files: list[dict[str, object]] | None = None,
-        gate_failed_checks: list[str] | None = None,
-        gate_missing_files: list[str] | None = None,
-        gate_passed_checks: int | None = None,
-        gate_total_checks: int | None = None,
-        gate_recommendations: list[str] | None = None,
-        gate_recommendation_details: list[dict[str, object]] | None = None,
-    ) -> str:
-        return write_windows_release_receipt(
-            self._windows_ops_state_path(),
-            self._windows_release_receipt_path(),
-            self._windows_release_summary_path(),
-            action,
-            summary,
-            changes,
-            ok=ok,
-            commands=commands,
-            event_id=event_id,
-            steps_completed=steps_completed,
-            steps_total=steps_total,
-            phase=phase,
-            next_step=next_step,
-            fix_target=fix_target,
-            docs_hint=docs_hint,
-            entry_point=entry_point,
-            artifacts=artifacts,
-            gate_summary=gate_summary,
-            gate_detail=gate_detail,
-            gate_checks=gate_checks,
-            gate_required_files=gate_required_files,
-            gate_failed_checks=gate_failed_checks,
-            gate_missing_files=gate_missing_files,
-            gate_passed_checks=gate_passed_checks,
-            gate_total_checks=gate_total_checks,
-            gate_recommendations=gate_recommendations,
-            gate_recommendation_details=gate_recommendation_details,
-        )
-
-    @staticmethod
-    def _windows_ops_guidance(action: str, *, ok: bool, phase: str = "completed") -> dict[str, str]:
-        return windows_ops_guidance(action, ok=ok, phase=phase)
-
-    @staticmethod
-    def _summarize_windows_recipe_result(payload: dict[str, object]) -> tuple[str, str]:
-        return summarize_windows_recipe_result(payload)
-
-    def _record_windows_ops_state(
-        self,
-        action: str,
-        summary: str,
-        changes: str,
-        *,
-        ok: bool,
-        commands: list[str] | None = None,
-        event_id: str = "",
-        steps_completed: int | None = None,
-        steps_total: int | None = None,
-        phase: str = "completed",
-        next_step: str = "",
-        fix_target: str = "",
-        docs_hint: str = "",
-        entry_point: str = "",
-        artifacts: list[dict[str, object]] | None = None,
-        gate_summary: str = "",
-        gate_detail: str = "",
-        gate_checks: list[dict[str, object]] | None = None,
-        gate_required_files: list[dict[str, object]] | None = None,
-        gate_failed_checks: list[str] | None = None,
-        gate_missing_files: list[str] | None = None,
-        gate_passed_checks: int | None = None,
-        gate_total_checks: int | None = None,
-        gate_recommendations: list[str] | None = None,
-        gate_recommendation_details: list[dict[str, object]] | None = None,
-    ) -> None:
-        update = persist_windows_ops_state(
-            WindowsOpsStateRecord(
-                action=action,
-                summary=summary,
-                changes=changes,
-                ok=ok,
-                commands=commands,
-                event_id=event_id,
-                steps_completed=steps_completed,
-                steps_total=steps_total,
-                phase=phase,
-                next_step=next_step,
-                fix_target=fix_target,
-                docs_hint=docs_hint,
-                entry_point=entry_point,
-                artifacts=artifacts,
-                gate_summary=gate_summary,
-                gate_detail=gate_detail,
-                gate_checks=gate_checks,
-                gate_required_files=gate_required_files,
-                gate_failed_checks=gate_failed_checks,
-                gate_missing_files=gate_missing_files,
-                gate_passed_checks=gate_passed_checks,
-                gate_total_checks=gate_total_checks,
-                gate_recommendations=gate_recommendations,
-                gate_recommendation_details=gate_recommendation_details,
-            ),
-            state_path=self._windows_ops_state_path(),
-            receipt_path=self._windows_release_receipt_path(),
-            summary_path=self._windows_release_summary_path(),
-            write_state=_write_json,
-        )
-        feedback = dict(update.feedback)
-        self._settings_hub_view.set_windows_ops_feedback(
-            update.action,
-            str(feedback.pop("summary", "") or ""),
-            str(feedback.pop("changes", "") or ""),
-            **feedback,
-        )
-        snapshot_getter = getattr(self._settings_hub_view, "windows_ops_snapshot", None)
-        if callable(snapshot_getter):
-            self._settings_hub_view.set_windows_snapshot(snapshot_getter())
-
-    def _start_windows_ops_chain(self, action: str) -> None:
-        start_windows_ops_chain_request(self, action)
-
-    def _update_windows_ops_chain(self, action: str, *, ok: bool, summary: str) -> bool:
-        return update_windows_ops_chain_request(self, action, ok=ok, summary=summary)
-
-    def _on_terminal_recipe_finished(self, payload: dict) -> None:
-        if not isinstance(payload, dict):
-            return
-        if str(payload.get("kind", "") or "").strip().lower() != "windows_ops":
-            return
-        action = str(payload.get("action", "") or "").strip().lower()
-        pre_snapshot = payload.get("pre_snapshot", {}) if isinstance(payload.get("pre_snapshot"), dict) else {}
-        post_snapshot = self._collect_windows_service_snapshot()
-        dynamic_changes = self._windows_service_snapshot_changes(pre_snapshot, post_snapshot)
-        artifacts = self._windows_ops_artifact_refs(action, post_snapshot)
-        completion = complete_windows_ops_terminal_recipe(
-            payload,
-            dynamic_changes=dynamic_changes,
-            artifacts=artifacts,
-            guidance=self._windows_ops_guidance(
-                action,
-                ok=bool(payload.get("ok", False)),
-                phase="completed",
-            ),
-            gate_details=self._release_dry_run_gate_details() if action == "release_dry_run" else {},
-            receipt_path=self._windows_release_receipt_path(),
-            summary_path=self._windows_release_summary_path(),
-        )
-        self._status_panel.append_syslog(completion.summary)
-        self._settings_hub_view.append_log(completion.summary)
-        self._set_daily_activity(completion.summary)
-        record = completion.state_record
-        self._record_windows_ops_state(
-            record.action,
-            record.summary,
-            record.changes,
-            ok=record.ok,
-            commands=record.commands,
-            event_id=record.event_id,
-            steps_completed=record.steps_completed,
-            steps_total=record.steps_total,
-            phase=record.phase,
-            next_step=record.next_step,
-            fix_target=record.fix_target,
-            docs_hint=record.docs_hint,
-            entry_point=record.entry_point,
-            artifacts=record.artifacts,
-            gate_summary=record.gate_summary,
-            gate_detail=record.gate_detail,
-            gate_checks=record.gate_checks,
-            gate_required_files=record.gate_required_files,
-            gate_failed_checks=record.gate_failed_checks,
-            gate_missing_files=record.gate_missing_files,
-            gate_passed_checks=record.gate_passed_checks,
-            gate_total_checks=record.gate_total_checks,
-            gate_recommendations=record.gate_recommendations,
-            gate_recommendation_details=record.gate_recommendation_details,
-        )
-        self._log_launcher_event("windows_ops_completed", **completion.event_fields)
-
     def _load_tool_states(self) -> None:
         path = self._tool_state_path()
         if not path.exists():
@@ -2316,201 +2004,6 @@ class LauncherWindow(QMainWindow):
             f"init {aid}: {'OK' if ok else 'ERROR'} — {summary}"
         )
         self._log_launcher_event("agent_init_result", agent=aid, ok=ok, summary=summary)
-
-    @staticmethod
-    def _api_port() -> str:
-        return os.environ.get("GUPPY_API_PORT", "8081").strip() or "8081"
-
-    def _api_base_url(self) -> str:
-        return api_base_url(self)
-
-    def _build_local_bearer_token(self) -> str:
-        token, token_source = build_local_bearer_token()
-        self._api_token_source = token_source
-        return token
-
-    def _refresh_api_auth_state(self, reason: str) -> str:
-        return refresh_api_auth_state(self, reason)
-
-    @staticmethod
-    def _is_unauthorized_error(error_text: str) -> bool:
-        txt = (error_text or "").lower()
-        return "http 401" in txt or "unauthorized" in txt
-
-    @staticmethod
-    def _extract_error_code(error_text: str) -> str:
-        txt = (error_text or "").strip()
-        match = re.search(r"\[([A-Za-z0-9_:-]+)\]", txt)
-        return match.group(1) if match else ""
-
-    def _read_repair_token(self) -> str:
-        return read_repair_token(
-            self,
-            runtime_dir=_RUNTIME,
-            secret_store_available=_SECRET_STORE_AVAILABLE,
-            secret_store=_secret_store,
-            get_secret=get_secret,
-        )
-
-    @staticmethod
-    def _validate_repair_token(token: str) -> bool:
-        return launcher_app.is_valid_repair_token(token)
-
-    def _http_json(
-        self,
-        path: str,
-        method: str = "GET",
-        payload: dict | None = None,
-        timeout: float = 8.0,
-        retry_auth_on_401: bool = False,
-        auth_retry_reason: str = "",
-    ) -> dict:
-        return http_json(
-            self,
-            path,
-            request_module=urllib.request,
-            error_module=urllib.error,
-            method=method,
-            payload=payload,
-            timeout=timeout,
-            retry_auth_on_401=retry_auth_on_401,
-            auth_retry_reason=auth_retry_reason,
-        )
-
-    def _refresh_repair_token_from_api(self, timeout: float = 4.0) -> str:
-        return refresh_repair_token_from_api(
-            self,
-            request_module=urllib.request,
-            timeout=timeout,
-        )
-
-    @staticmethod
-    def _payload_signature(payload: object) -> str:
-        try:
-            return json.dumps(
-                payload,
-                ensure_ascii=True,
-                sort_keys=True,
-                separators=(",", ":"),
-                default=str,
-            )
-        except Exception:
-            try:
-                return str(payload)
-            except Exception:
-                return ""
-
-    # ── Recovery helpers (direct — no API dependency) ─────────────────────────
-    @staticmethod
-    def _summarize_startup_readiness(snapshot: dict[str, object] | None) -> str:
-        return summarize_startup_readiness(snapshot)
-
-    def _startup_readiness_status(
-        self,
-        timeout: float = 1.5,
-        *,
-        deep: bool = False,
-    ) -> tuple[str, str, dict[str, object]]:
-        return startup_readiness_status(self, timeout=timeout, deep=deep)
-
-    def _api_reachable(self, timeout: float = 1.5) -> bool:
-        return api_reachable(self, timeout=timeout)
-
-    def _api_reachability_status(self, timeout: float = 1.5) -> tuple[str, str]:
-        return api_reachability_status(self, timeout=timeout)
-
-    def _run_auth_self_check(self) -> None:
-        run_auth_self_check(self)
-
-    def _start_api_subprocess(self) -> tuple[bool, str]:
-        return start_api_subprocess(
-            self,
-            runtime_dir=_RUNTIME,
-            ttl_seconds=_COMMAND_START_TTL_SECONDS,
-        )
-
-    def _start_supervised_api_subprocess(self) -> tuple[bool, str]:
-        return start_supervised_api_subprocess(
-            self,
-            runtime_dir=_RUNTIME,
-            ttl_seconds=_COMMAND_START_TTL_SECONDS,
-        )
-
-    def _ensure_api_reachable_for_command(self) -> tuple[bool, str]:
-        return ensure_api_reachable_for_command(self)
-
-    def _direct_warmup(self) -> dict:
-        """Warmup: check freshness of key runtime files."""
-        stale, fresh = [], []
-        now = time.time()
-        for name in ("guppy.status", "guppy.heartbeat"):
-            p = _RUNTIME / name
-            if not p.exists():
-                stale.append(f"{name}=missing")
-            elif now - p.stat().st_mtime > 300:
-                stale.append(f"{name}=stale")
-            else:
-                fresh.append(name)
-        ok = len(stale) == 0
-        parts = []
-        if fresh:
-            parts.append(f"fresh: {', '.join(fresh)}")
-        if stale:
-            parts.append(f"stale/missing: {', '.join(stale)}")
-        return {
-            "ok": ok,
-            "summary": "; ".join(parts) or "nothing to report",
-            "category": "runtime_ready" if ok else "runtime_stale",
-        }
-
-    def _direct_audit_runtime(self) -> dict:
-        """Audit: collect runtime status files into a diagnostics JSON."""
-        bundle: dict = {"ts": datetime.now(timezone.utc).isoformat(), "files": {}}
-        issues: list[str] = []
-        for name in ("guppy.status", "resource_envelope.status.json", "logging_health_snapshot.json"):
-            p = _RUNTIME / name
-            if not p.exists():
-                bundle["files"][name] = {"missing": True}
-                issues.append(f"{name}=missing")
-                continue
-            try:
-                bundle["files"][name] = json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
-                bundle["files"][name] = {"error": "unreadable"}
-                issues.append(f"{name}=unreadable")
-        out = _RUNTIME / f"diagnostics_bundle_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
-        try:
-            out.write_text(json.dumps(bundle, indent=2), encoding="utf-8")
-            summary = f"bundle written: {out.name}"
-            if issues:
-                summary = f"{summary}; runtime issues: {', '.join(issues)}"
-            return {
-                "ok": True,
-                "summary": summary,
-                "category": "runtime_stale" if issues else "runtime_ready",
-            }
-        except Exception as e:
-            return {"ok": False, "summary": str(e), "category": "runtime_stale"}
-
-    def _direct_health_snapshot(self) -> dict:
-        """Health snapshot: read runtime status files directly."""
-        results = {}
-        for agent in ("guppy",):
-            hb = _RUNTIME / f"{agent}.heartbeat"
-            st = _RUNTIME / f"{agent}.status"
-            results[agent] = {
-                "heartbeat": hb.exists(),
-                "status_age_s": round(time.time() - st.stat().st_mtime) if st.exists() else None,
-            }
-        ok = any(v["heartbeat"] for v in results.values())
-        summary = "; ".join(
-            f"{a}={'LIVE' if v['heartbeat'] else 'OFFLINE'}" for a, v in results.items()
-        )
-        return {
-            "ok": ok,
-            "summary": summary,
-            "category": "runtime_ready" if ok else "runtime_stale",
-        }
 
     def _on_recovery_requested(self, action: str) -> None:
         start_recovery_request(self, action, thread_factory=threading.Thread)

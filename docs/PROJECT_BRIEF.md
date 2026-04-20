@@ -630,6 +630,131 @@ Freeze-readiness call:
 - This wave materially lowered the remaining hotspot pressure and removed `instance_manager_view.py` from the waiver set.
 - The branch is now a credible freeze-candidate worktree for this tranche set, with the remaining debt narrowed to five explicit bounded shells rather than a broader mixed-concern cluster.
 
+## Remaining Hotspot Reduction Follow-On (April 20, 2026, FR4)
+
+Execution note:
+
+- With `FR3` complete, the remaining waived hotspot set started at five files: `server_runtime_snapshot.py`, `merlin/core.py`, `launcher_window.py`, `models_view.py`, and `settings_operations_panel.py`.
+- The first automatic `FR4` slice focuses on the two smallest live UI shells first so the waiver list can shrink again before touching the heavier launcher/API pair.
+
+What ships:
+
+1. `FR4-T1 - Settings workflow/terminal detail extraction`
+   - Move the remaining workflow loop, operator-log, and embedded-terminal construction out of `settings_operations_panel.py`.
+   - Acceptance: Settings Operations drops fully below the base cap and remains a composition shell.
+2. `FR4-T2 - Models route/loadout coordination extraction`
+   - Move route-strategy and mixed/loadout coordination out of `models_view.py` into a dedicated support seam.
+   - Acceptance: `models_view.py` drops fully below the base cap while keeping model identity distinct from persona.
+3. `FR4-T3 - Launcher shell fifth extraction`
+   - Target another bounded family inside `launcher_window.py`, preferably API control or automation/request routing.
+4. `FR4-T4 - Snapshot compatibility shell final reduction`
+   - Push one more bounded response/composition family out of `server_runtime_snapshot.py`.
+5. `FR4-T5 - Merlin retained-runtime hardening`
+   - Either reduce `merlin/core.py` again or tighten its retained-runtime quarantine with one more extraction.
+6. `FR4-T6 - Guardrail reset and freeze-candidate refresh`
+   - Refresh waivers, rerun guarded validation, and restate the remaining debt truthfully.
+
+Integrated checkpoint (April 20, 2026, FR4-T1 / FR4-T2):
+
+- `settings_operations_panel.py` now delegates the remaining workflow, operator-log, and embedded-terminal construction through `ui/launcher/views/settings_workflow_terminal_sections.py`.
+- `models_view.py` now delegates mixed-route, loadout, and route-strategy coordination through `ui/launcher/views/models_management_support.py`.
+- Measured post-slice sizes:
+  - `ui/launcher/views/settings_operations_panel.py` -> `593`
+  - `ui/launcher/views/models_view.py` -> `694`
+- Result: both files are now below the base cap and can be removed from the waiver list.
+
+Remaining waived hotspot set after the FR4 checkpoint:
+
+- `src/guppy/api/server_runtime_snapshot.py` -> `1419`
+- `src/guppy/merlin/core.py` -> `1071`
+- `ui/launcher/launcher_window.py` -> `2648`
+
+Integrated checkpoint (April 20, 2026, FR4-T3 / FR4-T5):
+
+- `FR4-T3` is complete: `launcher_window.py` now delegates the direct runtime warmup/audit/health helpers through the existing `src/guppy/launcher_application/launcher_api_runtime_control.py` seam.
+- `FR4-T4` is complete: `server_runtime_snapshot.py` now delegates Claude/Ollama tool-call execution through the existing `src/guppy/api/realtime_inference_support.py` seam instead of owning those assembled loops inline.
+- `FR4-T5` is complete: `merlin/core.py` now delegates spell dispatch and startup-system assembly through the bounded retained-runtime seam in `src/guppy/merlin/specialist_support.py`.
+- Measured post-wave sizes:
+  - `ui/launcher/launcher_window.py` -> `2590`
+  - `src/guppy/api/server_runtime_snapshot.py` -> `1325`
+  - `src/guppy/merlin/core.py` -> `1003`
+
+Remaining waived hotspot set after the full FR4 wave:
+
+- `src/guppy/api/server_runtime_snapshot.py` -> `1325`
+- `src/guppy/merlin/core.py` -> `1003`
+- `ui/launcher/launcher_window.py` -> `2590`
+
+Freeze-readiness note:
+
+- FR4 removed two more waivers entirely and materially lowered the final three bounded shells.
+- The repo remains release-green and is now down to a three-file final hotspot set for the next freeze-down pass.
+
+## Final Hotspot Freeze-Down (April 20, 2026, FR5)
+
+Execution note:
+
+- `FR5` is the closing freeze-down tranche for the last three baseline waivers: `server_runtime_snapshot.py`, `merlin/core.py`, and `launcher_window.py`.
+- The goal is not feature expansion. Each card must either push one bounded responsibility family out of the hotspot or prove the remaining shell is intentional and small enough to freeze honestly.
+- This tranche also closes with a legacy wording/tree audit so the branch exits slimmer, clearer, and easier to hold.
+
+What ships:
+
+1. `FR5-T1 - Snapshot composition and receipt split`
+   - Move one more bounded family out of `server_runtime_snapshot.py`, preferably summary/receipt assembly or workspace readiness composition.
+   - Acceptance: `server_runtime_snapshot.py` drops materially again and retains only compatibility-shell orchestration that still genuinely belongs there.
+2. `FR5-T2 - Launcher shell sixth extraction`
+   - Move another launcher-only responsibility cluster out of `launcher_window.py`, preferably route handoff, status/banner wiring, or shell action coordination.
+   - Acceptance: `launcher_window.py` shrinks again without changing visible hub behavior.
+3. `FR5-T3 - Merlin catalog and startup reduction`
+   - Pull one more bounded concern out of `merlin/core.py`, preferably spell catalog wiring, startup prompt assembly, or helper dispatch normalization.
+   - Acceptance: `merlin/core.py` becomes a tighter retained-runtime shell with a shorter direct surface.
+4. `FR5-T4 - Legacy wording and repo pare-down pass`
+   - Remove stale mentions, dead compatibility wording, and obviously unnecessary tracked remnants discovered during the final hotspot pass.
+   - Acceptance: docs and live UI no longer imply obsolete ownership or legacy names, and the tracked tree is smaller or cleaner than it was at FR5 start.
+5. `FR5-T5 - Freeze audit and waiver closeout`
+   - Re-measure the final three shells, tighten waivers again, rerun full validation, and state plainly whether the branch is freezeable at the end of the pass.
+   - Acceptance: `release-check` is green, waiver metadata matches the repo exactly, and the branch exits with an honest freeze-readiness statement.
+
+Execution order:
+
+1. Run `FR5-T1`, `FR5-T2`, and `FR5-T3` in parallel or near-parallel because their write scopes are disjoint.
+2. Fold the resulting cleanup opportunities into `FR5-T4` once the major extractions settle.
+3. Finish with `FR5-T5` for line-cap truth, release evidence, and the final freeze statement.
+
+Expected exit:
+
+- The branch remains release-green.
+- The three remaining hotspots are materially smaller again.
+- The repo exits with a short, explicit final debt list suitable for freeze or stabilization-branch handling.
+
+Integrated checkpoint (April 20, 2026, FR5-T1 / FR5-T5):
+
+- `FR5-T1` is complete: `server_runtime_snapshot.py` now delegates status-context and metrics shaping through `src/guppy/api/snapshot_status_context_support.py`, and its realtime helper wrappers have been reduced to direct bound aliases where the compatibility shell does not need to own bespoke bodies.
+- `FR5-T2` is complete: `launcher_window.py` now delegates the API/runtime-control method family through `ui/launcher/launcher_runtime_control_mixin.py`, while keeping module-level compatibility symbols intact for smoke and security tests that still patch the launcher shell directly.
+- `FR5-T3` is complete: `merlin/core.py` now imports its retained system prompt, spell map, and tool catalog from `src/guppy/merlin/catalog.py`, leaving the core module focused on runtime dispatch and startup assembly.
+- `FR5-T4` is complete: stale launcher chrome wording was trimmed from `Guppy AI // WORKSPACE_ASSISTANT` to `Guppy // WORKSPACE_ASSISTANT`, and the final hotspot pass removed one more oversized waiver entirely instead of just shrinking it.
+- Measured post-wave sizes:
+  - `src/guppy/api/server_runtime_snapshot.py` -> `1242`
+  - `ui/launcher/launcher_window.py` -> `2436`
+  - `src/guppy/merlin/core.py` -> `402`
+- Remaining waived hotspot set after FR5:
+  - `src/guppy/api/server_runtime_snapshot.py` -> `1242`
+  - `ui/launcher/launcher_window.py` -> `2436`
+- Result: Merlin is now fully below the base cap, the waiver list is down to two bounded shells, and the branch is materially closer to a true freeze-ready hold state than it was at the end of FR4.
+
+Follow-on checkpoint (April 20, 2026, FR5 continuation):
+
+- `launcher_window.py` now delegates the Windows Ops/reporting/artifact family through `ui/launcher/launcher_windows_ops_mixin.py`, keeping the launcher shell focused on top-level hub orchestration while preserving the existing smoke-facing behavior.
+- `server_runtime_snapshot.py` now delegates one more runtime/helper family through `src/guppy/api/snapshot_runtime_support.py`, and several compatibility wrappers have been tightened into direct bound aliases instead of bespoke shell bodies.
+- Measured post-follow-on sizes:
+  - `src/guppy/api/server_runtime_snapshot.py` -> `1141`
+  - `ui/launcher/launcher_window.py` -> `2141`
+- Remaining waived hotspot set after the FR5 continuation:
+  - `src/guppy/api/server_runtime_snapshot.py` -> `1141`
+  - `ui/launcher/launcher_window.py` -> `2141`
+- Result: the repo is down to two materially smaller bounded shells, both with honest pinned waivers and a much narrower freeze-readiness debt surface than the original FR5 starting state.
+
 ---
 
 ## Pre-Launch Work Roadmap Additions (April 19, 2026)

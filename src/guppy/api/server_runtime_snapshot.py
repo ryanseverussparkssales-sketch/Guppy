@@ -290,11 +290,14 @@ from src.guppy.api._server_fragment_models import (
     VoiceChatRequest,
 )
 from src.guppy.api import (
+    realtime_inference_support,
     services_briefing,
     services_instances,
     services_ops,
     services_realtime,
     services_runtime,
+    snapshot_runtime_support,
+    snapshot_status_context_support,
     snapshot_realtime_support,
     snapshot_route_support,
     services_telemetry,
@@ -474,139 +477,11 @@ def _read_jsonl_tail(path: Path, limit: int = 50):
 # === END _server_fragment_bootstrap.py ===
 
 # === BEGIN _server_fragment_instances_telemetry.py ===
-def _ensure_m2_instance_scaffold() -> None:
-    services_instances.ensure_m2_instance_scaffold(_module_owner())
-
-
-def _load_instances_config() -> dict[str, Any]:
-    return services_instances.load_instances_config(_module_owner())
-
-
-def _load_instance_state(config: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    return services_instances.load_instance_state(_module_owner(), config)
-
-
-def _save_instance_state(state: dict[str, Any]) -> None:
-    services_instances.save_instance_state(_module_owner(), state)
-
-
-def _save_instances_config(config: dict[str, Any]) -> None:
-    services_instances.save_instances_config(_module_owner(), config)
-
-
-def _load_normalized_instance_bundle(*, persist_repairs: bool = False) -> tuple[dict[str, Any], dict[str, Any], list[str], list[str]]:
-    return services_instances.load_normalized_instance_bundle(
-        _module_owner(),
-        persist_repairs=persist_repairs,
-    )
-
-
-def _get_active_instance_context() -> tuple[str | None, str | None, str | None, str | None]:
-    return services_instances.get_active_instance_context(_module_owner())
-
-
-def _emit_integration_heartbeat(reason: str) -> None:
-    global _last_integration_heartbeat_ts
-    now = time.time()
-    with _integration_heartbeat_lock:
-        if now - _last_integration_heartbeat_ts < max(60.0, _INTEGRATION_HEARTBEAT_SECONDS):
-            return
-        _last_integration_heartbeat_ts = now
-
-    path = _stream_jsonl_map["integration_events"]
-    record = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "event_type": "integration_heartbeat",
-        "event": "integration_heartbeat",
-        "level": "info",
-        "payload": {
-            "state": "idle",
-            "reason": reason,
-        },
-    }
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        rotate_jsonl_file(path)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=True) + "\n")
-    except Exception:
-        return
-
-
-def _read_resource_envelope_status() -> dict[str, Any]:
-    return services_ops.read_resource_envelope_status(
-        _module_owner(),
-        missing_message="resource envelope status not available",
-        unavailable_message="resource envelope status unreadable",
-    )
-
 
 # === END _server_fragment_instances_telemetry.py ===
 
 # === BEGIN _server_fragment_ops.py ===
-def _latest_stress_report_path() -> Path | None:
-    return services_ops.latest_stress_report_path(_module_owner())
-
-
 _request_is_morning_brief = services_briefing.request_is_morning_brief
-
-
-def _latest_daily_report_path() -> Path | None:
-    return services_briefing.latest_daily_report_path(_module_owner())
-
-
-def _build_morning_brief_response() -> str:
-    return services_briefing.build_morning_brief_response(_module_owner())
-
-
-def _collect_runtime_bundle() -> dict[str, Any]:
-    return services_ops.collect_runtime_bundle(_module_owner())
-
-
-def _do_repair_action(action: str, dry_run: bool) -> dict[str, Any]:
-    return services_ops.do_repair_action(_module_owner(), action, dry_run)
-
-
-def _secret_ready(value: str) -> bool:
-    val = (value or "").strip()
-    if not val:
-        return False
-    placeholder_tokens = {
-        "change-me",
-        "dev-only-change-me",
-        "replace-me",
-        "your_",
-        "your-",
-        "example",
-        "placeholder",
-    }
-    low = val.lower()
-    return not any(tok in low for tok in placeholder_tokens)
-
-
-def _build_startup_readiness_payload() -> dict:
-    return services_runtime.build_startup_readiness_payload(_module_owner())
-
-
-def _startup_readiness_snapshot() -> dict:
-    return services_runtime.startup_readiness_snapshot(_module_owner())
-
-
-def _startup_readiness_cached_or_unknown() -> dict:
-    return services_runtime.startup_readiness_cached_or_unknown(_module_owner())
-
-
-def _startup_readiness_cached_or_snapshot() -> dict:
-    return services_runtime.startup_readiness_cached_or_snapshot(_module_owner())
-
-
-def _startup_readiness_cache_expired() -> bool:
-    return services_runtime.startup_readiness_cache_expired(_module_owner())
-
-
-def _trigger_startup_readiness_refresh() -> None:
-    services_runtime.trigger_startup_readiness_refresh(_module_owner())
 
 # â”€â”€ Authentication â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -835,6 +710,32 @@ def _bind_runtime_service(func):
     return wrapper
 
 
+_ensure_m2_instance_scaffold = _bind_runtime_service(services_instances.ensure_m2_instance_scaffold)
+_load_instances_config = _bind_runtime_service(services_instances.load_instances_config)
+_load_instance_state = _bind_runtime_service(services_instances.load_instance_state)
+_save_instance_state = _bind_runtime_service(services_instances.save_instance_state)
+_save_instances_config = _bind_runtime_service(services_instances.save_instances_config)
+_load_normalized_instance_bundle = _bind_runtime_service(services_instances.load_normalized_instance_bundle)
+_get_active_instance_context = _bind_runtime_service(services_instances.get_active_instance_context)
+_read_resource_envelope_status = partial(
+    services_ops.read_resource_envelope_status,
+    _module_owner(),
+    missing_message="resource envelope status not available",
+    unavailable_message="resource envelope status unreadable",
+)
+_latest_stress_report_path = _bind_runtime_service(services_ops.latest_stress_report_path)
+_latest_daily_report_path = _bind_runtime_service(services_briefing.latest_daily_report_path)
+_build_morning_brief_response = _bind_runtime_service(services_briefing.build_morning_brief_response)
+_collect_runtime_bundle = _bind_runtime_service(services_ops.collect_runtime_bundle)
+_do_repair_action = _bind_runtime_service(services_ops.do_repair_action)
+_secret_ready = snapshot_runtime_support.secret_ready
+_build_startup_readiness_payload = _bind_runtime_service(services_runtime.build_startup_readiness_payload)
+_startup_readiness_snapshot = _bind_runtime_service(services_runtime.startup_readiness_snapshot)
+_startup_readiness_cached_or_unknown = _bind_runtime_service(services_runtime.startup_readiness_cached_or_unknown)
+_startup_readiness_cached_or_snapshot = _bind_runtime_service(services_runtime.startup_readiness_cached_or_snapshot)
+_startup_readiness_cache_expired = _bind_runtime_service(services_runtime.startup_readiness_cache_expired)
+_trigger_startup_readiness_refresh = _bind_runtime_service(services_runtime.trigger_startup_readiness_refresh)
+
 _selected_local_runtime_backend = _bind_runtime_service(services_runtime.selected_local_runtime_backend)
 _local_runtime_base_url = _bind_runtime_service(services_runtime.local_runtime_base_url)
 _resolve_local_runtime_model = _bind_runtime_service(services_runtime.resolve_local_runtime_model)
@@ -858,6 +759,7 @@ _save_instance_connector_binding_response = _bind_runtime_service(snapshot_insta
 _activate_instance_response = _bind_runtime_service(snapshot_instances_support.activate_instance_response)
 _delete_instance_response = _bind_runtime_service(snapshot_instances_support.delete_instance_response)
 _build_instance_logs_response = _bind_runtime_service(snapshot_instances_support.build_instance_logs_response)
+_emit_integration_heartbeat = _bind_runtime_service(snapshot_runtime_support.emit_integration_heartbeat)
 
 # === END _server_fragment_local_runtime.py ===
 
@@ -871,183 +773,19 @@ async def _run_blocking(func, *args, timeout_seconds: float, **kwargs):
     )
 
 
-def _extract_text_from_anthropic_blocks(blocks) -> str:
-    return services_realtime.extract_text_from_anthropic_blocks(blocks)
-
-
-def _sanitize_chat_history(history: Any, limit: int = 12) -> list[dict[str, str]]:
-    return services_realtime.sanitize_chat_history(history, limit=limit)
-
-
-def _build_router_messages(system_prompt: str, user_text: str, history: list[dict[str, str]]) -> list[dict[str, str]]:
-    return services_realtime.build_router_messages(system_prompt, user_text, history)
-
-
-def _request_is_cacheable(request: ChatRequest) -> bool:
-    return services_realtime.request_is_cacheable(_module_owner(), request)
-
-
-def _augment_system_with_history(system_prompt: str, history: list[dict[str, str]]) -> str:
-    return services_realtime.augment_system_with_history(system_prompt, history)
-
-
-def _is_rate_limited_error(error: Exception | str) -> bool:
-    return services_realtime.is_rate_limited_error(error)
-
-
-def _call_unified_inference(
-    user_text: str,
-    system_prompt: str,
-    mode: Optional[str] = None,
-    history: Optional[list[dict[str, str]]] = None,
-    instance_name: Optional[str] = None,
-    instance_type: Optional[str] = None,
-) -> str:
-    return services_realtime.call_unified_inference(
-        _module_owner(),
-        user_text,
-        system_prompt,
-        mode=mode,
-        history=history,
-        instance_name=instance_name,
-        instance_type=instance_type,
-    )
-
-
-
-def _call_claude_with_tools(
-    user_text: str,
-    system_prompt: str,
-    *,
-    instance_name: Optional[str] = None,
-    instance_type: Optional[str] = None,
-    preferred_model: Optional[str] = None,
-    backup_model: Optional[str] = None,
-) -> str:
-    if not ANTHROPIC_AVAILABLE:
-        raise RuntimeError("Anthropic SDK is not installed.")
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is not set.")
-
-    primary_model = str(preferred_model or os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")).strip() or "claude-sonnet-4-6"
-    backup_model_name = str(backup_model or os.environ.get("ANTHROPIC_BACKUP_MODEL", "claude-haiku-4-5-20251001")).strip()
-    model_chain = [primary_model] + ([backup_model_name] if backup_model_name and backup_model_name != primary_model else [])
-
-    client = anthropic.Anthropic(api_key=api_key)
-    msgs = [{"role": "user", "content": user_text}]
-    final_text = ""
-
-    while True:
-        resp = None
-        last_err = None
-        for model_name in model_chain:
-            try:
-                resp = client.messages.create(
-                    model=model_name,
-                    max_tokens=4096,
-                    system=system_prompt,
-                    tools=core.TOOLS,
-                    messages=msgs,
-                )
-                break
-            except Exception as e:
-                last_err = e
-        if resp is None:
-            raise RuntimeError(f"Claude request failed on all configured models: {last_err}")
-
-        msgs.append({"role": "assistant", "content": resp.content})
-        block_text = _extract_text_from_anthropic_blocks(resp.content)
-        if block_text:
-            final_text = block_text
-
-        tool_uses = [b for b in resp.content if getattr(b, "type", None) == "tool_use"]
-        if not tool_uses or getattr(resp, "stop_reason", "") == "end_turn":
-            break
-
-        results = []
-        for tu in tool_uses:
-            result = core.run_tool(
-                tu.name,
-                tu.input,
-                instance_name=instance_name,
-                instance_type=instance_type,
-            )
-            results.append({"type": "tool_result", "tool_use_id": tu.id, "content": str(result)})
-        msgs.append({"role": "user", "content": results})
-
-    return final_text or "No response produced."
+_extract_text_from_anthropic_blocks = services_realtime.extract_text_from_anthropic_blocks
+_sanitize_chat_history = services_realtime.sanitize_chat_history
+_build_router_messages = services_realtime.build_router_messages
+_request_is_cacheable = _bind_runtime_service(services_realtime.request_is_cacheable)
+_augment_system_with_history = services_realtime.augment_system_with_history
+_is_rate_limited_error = services_realtime.is_rate_limited_error
+_call_unified_inference = _bind_runtime_service(services_realtime.call_unified_inference)
+_call_claude_with_tools = _bind_runtime_service(realtime_inference_support.call_claude_with_tools)
 
 # === END _server_fragment_runtime_status.py ===
 
 # === BEGIN _server_fragment_runtime_calls.py ===
-def _call_ollama_with_tools(
-    user_text: str,
-    system_prompt: str,
-    *,
-    instance_name: Optional[str] = None,
-    instance_type: Optional[str] = None,
-    model_override: Optional[str] = None,
-) -> str:
-    model = str(model_override or os.environ.get("OLLAMA_MODEL", "guppy")).strip() or "guppy"
-    ok, err = core.check_ollama(model)
-    if not ok:
-        raise RuntimeError(err)
-
-    all_msgs = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_text}]
-    ollama_tools = core.to_ollama_tools(core.TOOLS)
-    final_text = ""
-
-    while True:
-        payload = json.dumps({
-            "model": model,
-            "messages": all_msgs,
-            "tools": ollama_tools,
-            "stream": False,
-            "keep_alive": "10m",
-            "options": {"temperature": 0.8, "top_p": 0.95, "top_k": 40, "num_predict": 512},
-        }).encode()
-        req = urllib.request.Request(
-            "http://localhost:11434/api/chat",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=180) as r:
-            data = json.loads(r.read().decode())
-
-        msg = data.get("message", {})
-        content = (msg.get("content") or "").strip()
-        if content:
-            final_text = content
-
-        tool_calls = msg.get("tool_calls") or []
-        clean_assistant = {"role": "assistant", "content": content}
-        if tool_calls:
-            clean_assistant["tool_calls"] = tool_calls
-        all_msgs.append(clean_assistant)
-
-        if not tool_calls:
-            break
-
-        for tc in tool_calls:
-            fn = tc.get("function", {})
-            name = fn.get("name", "")
-            args = fn.get("arguments", {})
-            if isinstance(args, str):
-                try:
-                    args = json.loads(args)
-                except Exception:
-                    args = {}
-            result = core.run_tool(
-                name,
-                args if isinstance(args, dict) else {},
-                instance_name=instance_name,
-                instance_type=instance_type,
-            )
-            all_msgs.append({"role": "tool", "content": str(result)})
-
-    return final_text or "No response produced."
+_call_ollama_with_tools = _bind_runtime_service(realtime_inference_support.call_ollama_with_tools)
 
 
 async def _stream_chunks(text: str) -> AsyncGenerator[str, None]:
@@ -1066,25 +804,12 @@ async def root():
 async def get_metrics(user_id: str = Depends(require_rate_limit)):
     """Runtime metrics for API and tool execution health."""
     del user_id
-    with _api_metrics_lock:
-        requests_total = _api_metrics["requests_total"]
-        avg_latency_ms = (_api_metrics["latency_total_ms"] / requests_total) if requests_total else 0.0
-        payload = {
-            "started_at": _api_metrics["started_at"],
-            "requests_total": requests_total,
-            "errors_total": _api_metrics["errors_total"],
-            "slow_requests": _api_metrics["slow_requests"],
-            "average_latency_ms": round(avg_latency_ms, 2),
-            "path_counts": dict(_api_metrics["path_counts"]),
-            "status_counts": dict(_api_metrics["status_counts"]),
-        }
-
-    if GUPPY_CORE_AVAILABLE and hasattr(core, "get_tool_health_snapshot"):
-        try:
-            payload["tool_runner"] = core.get_tool_health_snapshot()
-        except Exception as e:
-            payload["tool_runner_error"] = str(e)
-    return payload
+    return snapshot_status_context_support.build_metrics_payload(
+        api_metrics=_api_metrics,
+        api_metrics_lock=_api_metrics_lock,
+        guppy_core_available=GUPPY_CORE_AVAILABLE,
+        core_module=core,
+    )
 
 @app.post("/auth/verify", response_model=TokenResponse)
 async def auth_verify_turnstile_token(
@@ -1114,27 +839,24 @@ async def auth_self_check(user_id: str = Depends(require_rate_limit)):
 
 
 def _build_status_support_context() -> SimpleNamespace:
-    return SimpleNamespace(
-        owner=SimpleNamespace(
-            GUPPY_MEMORY_AVAILABLE=GUPPY_MEMORY_AVAILABLE,
-            GUPPY_VOICE_AVAILABLE=GUPPY_VOICE_AVAILABLE,
-            GUPPY_DAEMON_AVAILABLE=GUPPY_DAEMON_AVAILABLE,
-            _VOICE_TTS_BACKEND=_VOICE_TTS_BACKEND,
-            _VOICE_STT_BACKEND=_VOICE_STT_BACKEND,
-            _VOICE_BACKEND_DETAILS=_VOICE_BACKEND_DETAILS,
-            _read_daemon_runtime_status=_read_daemon_runtime_status,
-            _startup_readiness_cached_or_unknown=_startup_readiness_cached_or_unknown,
-            _build_local_runtime_status=_build_local_runtime_status,
-            _read_resource_envelope_status=_read_resource_envelope_status,
-            _startup_readiness_snapshot=_startup_readiness_snapshot,
-            _startup_readiness_cache_expired=_startup_readiness_cache_expired,
-            _trigger_startup_readiness_refresh=_trigger_startup_readiness_refresh,
-        ),
+    return snapshot_status_context_support.build_status_support_context(
+        memory_available=GUPPY_MEMORY_AVAILABLE,
+        voice_available=GUPPY_VOICE_AVAILABLE,
+        daemon_available=GUPPY_DAEMON_AVAILABLE,
+        voice_tts_backend=_VOICE_TTS_BACKEND,
+        voice_stt_backend=_VOICE_STT_BACKEND,
+        voice_backend_details=_VOICE_BACKEND_DETAILS,
+        read_daemon_runtime_status=_read_daemon_runtime_status,
+        startup_readiness_cached_or_unknown=_startup_readiness_cached_or_unknown,
+        build_local_runtime_status=_build_local_runtime_status,
+        read_resource_envelope_status=_read_resource_envelope_status,
+        startup_readiness_snapshot=_startup_readiness_snapshot,
+        startup_readiness_cache_expired=_startup_readiness_cache_expired,
+        trigger_startup_readiness_refresh=_trigger_startup_readiness_refresh,
         guppy_core_available=GUPPY_CORE_AVAILABLE,
         status_cache=_status_cache,
         status_cache_ttl_seconds=STATUS_CACHE_TTL_SECONDS,
         status_include_window_context=STATUS_INCLUDE_WINDOW_CONTEXT,
-        guppy_daemon_available=GUPPY_DAEMON_AVAILABLE,
         read_window_context=_read_window_context,
     )
 

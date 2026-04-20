@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import os
-import time
 from pathlib import Path
 from typing import Any
 
@@ -10,37 +8,44 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from src.guppy.experience_config import (
-    apply_runtime_settings_to_env as apply_settings_to_env,
-    ensure_personalization_scaffold,
-    load_provider_registry,
     load_runtime_settings as load_app_settings,
     personalization_backend_available,
     runtime_settings_backend_available,
-    save_provider_registry,
     save_runtime_settings as save_app_settings,
-    validate_provider_registry,
 )
-from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY, resolve_ui_route
-from src.guppy.launcher_application.models_route_support import latest_runtime_latency, parse_fallback_chain, route_targets_from_registry
+from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
+from src.guppy.launcher_application.models_route_support import parse_fallback_chain, route_targets_from_registry
 from src.guppy.launcher_application.models_presenter import (
     build_models_active_identity_text,
     build_models_library_hint_text,
     build_models_library_summary_text,
-    build_models_loadout_help_text,
-    build_models_runtime_identity_text,
     build_models_provider_readiness_state,
     build_models_route_preview_hint_text,
-    build_models_route_preview_text,
-    build_models_route_summary_text,
+    build_models_runtime_identity_text,
     build_models_runtime_evidence_state,
     build_models_runtime_policy_state,
     build_models_runtime_summary_text,
-    friendly_models_route_target,
     model_library_section,
     normalize_models_policy,
 )
 from .. import tokens as T
 from .models_library_panel import build_models_library_panel
+from .models_management_support import (
+    apply_mixed_loadout as management_apply_mixed_loadout,
+    apply_model_loadout as management_apply_model_loadout,
+    apply_routes as management_apply_routes,
+    load_mix_from_routes as management_load_mix_from_routes,
+    load_route_config as management_load_route_config,
+    on_loadout_changed as management_on_loadout_changed,
+    on_spawn_finished as management_on_spawn_finished,
+    refresh_loadout_help as management_refresh_loadout_help,
+    refresh_loadout_inputs as management_refresh_loadout_inputs,
+    refresh_mix_route_inputs as management_refresh_mix_route_inputs,
+    refresh_route_preview as management_refresh_route_preview,
+    refresh_route_summary as management_refresh_route_summary,
+    spawn_loadout_models as management_spawn_loadout_models,
+    sync_runtime_mapping_options as management_sync_runtime_mapping_options,
+)
 from .models_runtime_workers import LocalRuntimeFetchThread, ModelHealthCheckThread, ModelWarmSpawnThread, OllamaModelOpThread
 from .models_sections import _ModelCard, build_models_route_section, build_models_runtime_section
 from .models_runtime_library import (
@@ -63,8 +68,6 @@ except Exception:
 
     def get_local_llm_policy_summary(_manifest):
         return {}
-
-
 CLOUD_MODELS = [
     {"name": "claude-haiku-4-5-20251001", "display": "Claude Haiku 4.5", "context": "200K tokens", "tier": "CLOUD", "note": "Fast / cost-efficient"},
     {"name": "claude-sonnet-4-6", "display": "Claude Sonnet 4.6", "context": "200K tokens", "tier": "CLOUD", "note": "Balanced / recommended"},
@@ -140,6 +143,9 @@ class ModelsView(QWidget):
         self._mix_route_inputs: dict[str, QComboBox] = {}
         self._health_thread: ModelHealthCheckThread | None = None
         self._model_op_thread: OllamaModelOpThread | None = None
+        self._runtime_dir = _RUNTIME
+        self._heartbeat_fresh_seconds = _HEARTBEAT_FRESH_SECONDS
+        self._model_warm_spawn_thread_factory = ModelWarmSpawnThread
         self._build_ui()
         self._load_runtime_settings()
         self._load_route_config()
@@ -475,98 +481,16 @@ class ModelsView(QWidget):
         combo.blockSignals(False)
 
     def _sync_runtime_mapping_options(self) -> None:
-        names = self._available_local_model_names()
-        for _field_name, combo in self._lemonade_role_inputs.items():
-            self._set_combo_items_preserve_text(combo, names, combo.currentText().strip())
-        self._refresh_loadout_inputs()
-        self._refresh_mix_route_inputs()
-        self._refresh_runtime_summary()
-        self._refresh_runtime_library()
-
-    def _available_route_targets(self) -> list[str]:
-        local_targets = [f"local/{name}" for name in self._available_local_model_names() if name]
-        return sorted(set(self._route_options + local_targets))
+        management_sync_runtime_mapping_options(self)
 
     def _refresh_mix_route_inputs(self) -> None:
-        options = self._available_route_targets()
-        for field_name, combo in self._mix_route_inputs.items():
-            current = combo.currentText().strip()
-            self._set_combo_items_preserve_text(combo, options, current)
+        management_refresh_mix_route_inputs(self)
 
     def _load_mix_from_routes(self) -> None:
-        if not self._mix_route_inputs:
-            return
-        main = self._complex_route_cb.currentText().strip()
-        sub_a = self._simple_route_cb.currentText().strip()
-        sub_b = self._teaching_route_cb.currentText().strip()
-        self._mix_route_inputs["mix_main_route"].setCurrentText(main)
-        self._mix_route_inputs["mix_sub_route_a"].setCurrentText(sub_a)
-        self._mix_route_inputs["mix_sub_route_b"].setCurrentText(sub_b)
-
-    def _set_mix_status(self, text: str, ok: bool) -> None:
-        color = T.GREEN if ok else T.ERROR
-        self._mix_status_lbl.setText(text)
-        self._mix_status_lbl.setStyleSheet(
-            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
-        )
+        management_load_mix_from_routes(self)
 
     def _apply_mixed_loadout(self) -> None:
-        if not _PROVIDER_BACKEND:
-            self._set_mix_status("Provider backend unavailable", ok=False)
-            return
-        main = self._mix_route_inputs["mix_main_route"].currentText().strip()
-        sub_a = self._mix_route_inputs["mix_sub_route_a"].currentText().strip()
-        sub_b = self._mix_route_inputs["mix_sub_route_b"].currentText().strip()
-        if not main or not sub_a or not sub_b:
-            self._set_mix_status("Mix requires a main route plus spawned routes A and B", ok=False)
-            return
-        valid_targets = set(self._available_route_targets())
-        for target in (main, sub_a, sub_b):
-            if target not in valid_targets:
-                self._set_mix_status(f"Invalid target: {target}", ok=False)
-                return
-        try:
-            registry = load_provider_registry()
-            if not isinstance(registry, dict):
-                self._set_mix_status("Provider registry is invalid", ok=False)
-                return
-            routes = registry.setdefault("routes", {})
-            if not isinstance(routes, dict):
-                routes = {}
-                registry["routes"] = routes
-            routes["complex"] = main
-            routes["simple"] = sub_a
-            routes["teaching"] = sub_b
-            fallback_chain = [main, sub_a, sub_b]
-            preferred_local = self._preferred_local_route_target()
-            if preferred_local:
-                fallback_chain.append(preferred_local)
-            routes["fallback_chain"] = list(dict.fromkeys(fallback_chain))
-            errors = validate_provider_registry(registry)
-            if errors:
-                self._set_mix_status(f"Registry invalid: {errors[0]}", ok=False)
-                return
-            save_provider_registry(registry)
-            self._provider_registry = registry
-            self._route_options = self._route_targets_from_registry(registry)
-            for cb in [self._simple_route_cb, self._complex_route_cb, self._teaching_route_cb]:
-                current = cb.currentText().strip()
-                cb.clear()
-                cb.addItems(self._route_options)
-                self._set_combo_to_text(cb, current)
-            self._set_combo_to_text(self._simple_route_cb, sub_a)
-            self._set_combo_to_text(self._complex_route_cb, main)
-            self._set_combo_to_text(self._teaching_route_cb, sub_b)
-            self._fallback_chain_input.setText(", ".join(routes["fallback_chain"]))
-            os.environ["GUPPY_MAIN_ROUTE"] = main
-            os.environ["GUPPY_SUB_ROUTE_A"] = sub_a
-            os.environ["GUPPY_SUB_ROUTE_B"] = sub_b
-            self._refresh_mix_route_inputs()
-            self._refresh_route_summary()
-            self._refresh_route_preview()
-            self._set_mix_status("Mixed loadout applied", ok=True)
-        except Exception as exc:
-            self._set_mix_status(f"Mix save failed: {exc}", ok=False)
+        management_apply_mixed_loadout(self, provider_backend_available=_PROVIDER_BACKEND)
 
     def _toggle_model_ops_panel(self) -> None:
         visible = not self._ops_panel.isVisible()
@@ -618,122 +542,31 @@ class ModelsView(QWidget):
             self._refresh()
 
     def _refresh_loadout_inputs(self) -> None:
-        names = self._available_local_model_names()
-        for field_name, combo in self._loadout_inputs.items():
-            current = self._model_loadout.get(field_name, combo.currentText().strip())
-            self._set_combo_items_preserve_text(combo, names, current)
+        management_refresh_loadout_inputs(self)
 
     def _on_loadout_changed(self, field_name: str, value: str) -> None:
-        self._model_loadout[field_name] = str(value or "").strip()
-        self._refresh_loadout_help()
+        management_on_loadout_changed(self, field_name, value)
 
     def _refresh_loadout_help(self) -> None:
-        self._loadout_help_lbl.setText(
-            build_models_loadout_help_text(
-                main_model=self._model_loadout.get("local_main_model", ""),
-                sub_a_model=self._model_loadout.get("local_sub_model_a", ""),
-                sub_b_model=self._model_loadout.get("local_sub_model_b", ""),
-            )
-        )
-
-    def _loadout_payload(self) -> dict[str, str]:
-        payload: dict[str, str] = {}
-        for field_name, _label in _LOADOUT_FIELDS:
-            combo = self._loadout_inputs.get(field_name)
-            value = combo.currentText().strip() if combo is not None else self._model_loadout.get(field_name, "")
-            payload[field_name] = value
-        return payload
+        management_refresh_loadout_help(self)
 
     def _apply_model_loadout(self) -> None:
-        payload = self._loadout_payload()
-        main_model = payload.get("local_main_model", "")
-        sub_a = payload.get("local_sub_model_a", "")
-        sub_b = payload.get("local_sub_model_b", "")
-        if not main_model or not sub_a or not sub_b:
-            self._set_loadout_status("Loadout requires a main model plus spawned models A and B", ok=False)
-            return
-        self._model_loadout.update(payload)
-
-        # Route defaults so one main and two sub models can be spawned and directed quickly.
-        os.environ["GUPPY_MAIN_MODEL"] = main_model
-        os.environ["GUPPY_SUB_MODEL_A"] = sub_a
-        os.environ["GUPPY_SUB_MODEL_B"] = sub_b
-        os.environ["GUPPY_LOCAL_COMPLEX_MODEL"] = main_model
-        os.environ["GUPPY_LOCAL_FAST_MODEL"] = sub_a
-        os.environ["GUPPY_LOCAL_CODE_MODEL"] = sub_b
-        os.environ["OLLAMA_MODEL"] = main_model
-        os.environ["OLLAMA_FAST_MODEL"] = sub_a
-        os.environ["OLLAMA_CODE_MODEL"] = sub_b
-
-        self._active_model = main_model
-        self._active_lbl.setText(build_models_active_identity_text(main_model))
-        for card in self._local_cards:
-            card.mark_active(card._model_name == main_model)
-        self._rebuild_local_sections()
-        self._apply_library_filter()
-        self.model_selected.emit(main_model)
-
-        if _RUNTIME_SETTINGS_BACKEND:
-            merged_payload = dict(self._runtime_settings_payload())
-            merged_payload.update(payload)
-            try:
-                save_app_settings(merged_payload)
-                apply_settings_to_env(merged_payload)
-            except Exception as exc:
-                self._set_loadout_status(f"Loadout save failed: {exc}", ok=False)
-                return
-
-        self._refresh_library_summary()
-        self._refresh_loadout_help()
-        self._set_loadout_status("Loadout applied: main model plus two spawned models ready", ok=True)
-
-    def _set_loadout_status(self, text: str, ok: bool) -> None:
-        color = T.GREEN if ok else T.ERROR
-        self._loadout_status_lbl.setText(text)
-        self._loadout_status_lbl.setStyleSheet(
-            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
+        management_apply_model_loadout(
+            self,
+            runtime_settings_backend_available=_RUNTIME_SETTINGS_BACKEND,
+            loadout_fields=_LOADOUT_FIELDS,
         )
 
     def _spawn_loadout_models(self, *, include_main: bool, include_subs: bool) -> None:
-        if self._local_runtime_backend != "ollama":
-            self._set_loadout_status("Spawn controls are available for Ollama loadouts", ok=False)
-            return
-        payload = self._loadout_payload()
-        targets: list[str] = []
-        if include_main:
-            main_model = payload.get("local_main_model", "")
-            if main_model:
-                targets.append(main_model)
-        if include_subs:
-            for key in ("local_sub_model_a", "local_sub_model_b"):
-                model = payload.get(key, "")
-                if model:
-                    targets.append(model)
-        deduped = list(dict.fromkeys(targets))
-        if not deduped:
-            self._set_loadout_status("No models selected to spawn", ok=False)
-            return
-        if self._loadout_spawn_thread is not None and self._loadout_spawn_thread.isRunning():
-            self._set_loadout_status("Spawn already running", ok=False)
-            return
-        self._set_loadout_status("Spawning selected models...", ok=True)
-        self._loadout_spawn_thread = ModelWarmSpawnThread(deduped, self)
-        self._loadout_spawn_thread.finished.connect(self._on_spawn_finished)
-        self._loadout_spawn_thread.start()
+        management_spawn_loadout_models(
+            self,
+            include_main=include_main,
+            include_subs=include_subs,
+            loadout_fields=_LOADOUT_FIELDS,
+        )
 
     def _on_spawn_finished(self, payload: dict[str, Any]) -> None:
-        warmed = [str(item).strip() for item in payload.get("warmed", []) if str(item).strip()]
-        failed = [str(item).strip() for item in payload.get("failed", []) if str(item).strip()]
-        if failed:
-            if warmed:
-                self._set_loadout_status(
-                    f"Spawn partial: warmed {', '.join(warmed)}; failed {', '.join(failed)}",
-                    ok=False,
-                )
-            else:
-                self._set_loadout_status(f"Spawn failed: {', '.join(failed)}", ok=False)
-            return
-        self._set_loadout_status(f"Spawned: {', '.join(warmed)}", ok=True)
+        management_on_spawn_finished(self, payload)
 
     def _set_selected_runtime_role(self, field_name: str) -> None:
         runtime_library_set_selected_runtime_role(self, field_name, _LEMONADE_ROLE_FIELDS)
@@ -835,135 +668,32 @@ class ModelsView(QWidget):
         self._render_runtime_evidence()
         self._refresh_library_summary()
 
-    def _set_route_status(self, text: str, ok: bool = True) -> None:
-        color = T.GREEN if ok else T.ERROR
-        self._route_status_lbl.setText(text)
-        self._route_status_lbl.setStyleSheet(f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
-
     def _load_route_config(self) -> None:
-        if not _PROVIDER_BACKEND:
-            self._apply_routes_btn.setEnabled(False)
-            self._set_route_status("Provider backend unavailable", ok=False)
-            return
-        try:
-            ensure_personalization_scaffold()
-            registry = load_provider_registry()
-            self._provider_registry = registry if isinstance(registry, dict) else {}
-            self._route_options = route_targets_from_registry(self._provider_registry)
-            for cb in [self._simple_route_cb, self._complex_route_cb, self._teaching_route_cb]:
-                cb.clear(); cb.addItems(self._route_options)
-            routes = self._provider_registry.get("routes", {}) if isinstance(self._provider_registry, dict) else {}
-            if isinstance(routes, dict):
-                self._set_combo_to_text(self._simple_route_cb, str(routes.get("simple", "")))
-                self._set_combo_to_text(self._complex_route_cb, str(routes.get("complex", "")))
-                self._set_combo_to_text(self._teaching_route_cb, str(routes.get("teaching", "")))
-                fallback = routes.get("fallback_chain", [])
-                if isinstance(fallback, list):
-                    self._fallback_chain_input.setText(", ".join(str(item).strip() for item in fallback if str(item).strip()))
-            self._refresh_mix_route_inputs()
-            self._load_mix_from_routes()
-            self._refresh_route_summary(); self._refresh_route_preview(); self._set_route_status("Route strategy loaded", ok=True)
-        except Exception as exc:
-            self._set_route_status(f"Route load failed: {exc}", ok=False)
-
-    def _preferred_local_route_target(self) -> str:
-        preferred = (
-            self._model_loadout.get("local_main_model", "")
-            or self._active_model
-            or (self._local_cards[0]._model_name if self._local_cards else "")
-        ).strip()
-        return f"local/{preferred}" if preferred else ""
-
-    def _set_combo_to_text(self, combo: QComboBox, target: str) -> None:
-        idx = combo.findText(target)
-        if idx >= 0:
-            combo.setCurrentIndex(idx)
+        management_load_route_config(
+            self,
+            provider_backend_available=_PROVIDER_BACKEND,
+            runtime_dir=_RUNTIME,
+            heartbeat_fresh_seconds=_HEARTBEAT_FRESH_SECONDS,
+        )
 
     def _refresh_route_summary(self) -> None:
-        fallback = parse_fallback_chain(self._fallback_chain_input.text())
-        health = self._route_health_summary()
-        summary, evidence = build_models_route_summary_text(
-            simple_target=friendly_models_route_target(self._simple_route_cb.currentText()),
-            complex_target=friendly_models_route_target(self._complex_route_cb.currentText()),
-            teaching_target=friendly_models_route_target(self._teaching_route_cb.currentText()),
-            fallback_targets=[friendly_models_route_target(item) for item in fallback],
-            health_summary=health,
+        management_refresh_route_summary(
+            self,
+            runtime_dir=_RUNTIME,
+            heartbeat_fresh_seconds=_HEARTBEAT_FRESH_SECONDS,
         )
-        self._route_summary_lbl.setText(summary)
-        self._route_evidence_lbl.setText(evidence)
-
-    def _route_health_summary(self) -> str:
-        api_key = bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip())
-        local_count = max(0, len(self._local_cards))
-        latency = latest_runtime_latency(_RUNTIME)
-        heartbeat_path = _RUNTIME / "guppy.heartbeat"
-        heartbeat = False
-        if heartbeat_path.exists():
-            try:
-                heartbeat = (time.time() - heartbeat_path.stat().st_mtime) < _HEARTBEAT_FRESH_SECONDS
-            except OSError:
-                heartbeat = False
-        parts = [
-            f"Cloud path {'configured' if api_key else 'needs API key'}",
-            f"Local runtime {self._local_runtime_backend.upper()} {'heartbeat seen' if heartbeat else 'heartbeat missing'}",
-            f"{local_count} local model{'s' if local_count != 1 else ''} visible" if local_count else "local library not loaded yet",
-        ]
-        if latency:
-            parts.append(f"launcher-wide last reply {latency}")
-        return " | ".join(parts)
-
-    @staticmethod
-    def _latest_runtime_latency() -> str:
-        try:
-            payload = json.loads((_RUNTIME / "guppy.status").read_text(encoding="utf-8"))
-        except Exception:
-            return ""
-        latency = str(payload.get("last_latency_ms", "") or "").strip()
-        return "" if not latency or latency in {"-", "—"} else f"{latency} ms"
 
     def _refresh_route_preview(self) -> None:
-        sample = self._route_input.text().strip()
-        if not sample:
-            self._route_preview_lbl.setText(build_models_route_preview_hint_text())
-            return
-        try:
-            decision = resolve_ui_route(user_text=sample, mode=self._route_mode_cb.currentText().strip().lower(), api_key_available=bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip()))
-            self._route_preview_lbl.setText(build_models_route_preview_text(decision, health_summary=self._route_health_summary()))
-        except Exception as exc:
-            self._route_preview_lbl.setText(f"Route preview failed: {exc}")
+        management_refresh_route_preview(
+            self,
+            runtime_dir=_RUNTIME,
+            heartbeat_fresh_seconds=_HEARTBEAT_FRESH_SECONDS,
+        )
 
     def _apply_routes(self) -> None:
-        if not _PROVIDER_BACKEND:
-            self._set_route_status("Provider backend unavailable", ok=False)
-            return
-        try:
-            registry = load_provider_registry()
-            if not isinstance(registry, dict):
-                self._set_route_status("Provider registry is invalid", ok=False)
-                return
-            valid_targets = set(route_targets_from_registry(registry))
-            simple, complex_route, teaching = self._simple_route_cb.currentText().strip(), self._complex_route_cb.currentText().strip(), self._teaching_route_cb.currentText().strip()
-            for label, value in [("simple", simple), ("complex", complex_route), ("teaching", teaching)]:
-                if value not in valid_targets:
-                    self._set_route_status(f"Invalid {label} target: {value}", ok=False)
-                    return
-            fallback = parse_fallback_chain(self._fallback_chain_input.text())
-            invalid_fallback = [item for item in fallback if item not in valid_targets]
-            if invalid_fallback:
-                self._set_route_status(f"Invalid fallback target: {invalid_fallback[0]}", ok=False)
-                return
-            routes = registry.setdefault("routes", {})
-            registry["routes"] = routes if isinstance(routes, dict) else {}
-            registry["routes"]["simple"] = simple
-            registry["routes"]["complex"] = complex_route
-            registry["routes"]["teaching"] = teaching
-            registry["routes"]["fallback_chain"] = fallback
-            errors = validate_provider_registry(registry)
-            if errors:
-                self._set_route_status(f"Provider registry invalid: {errors[0]}", ok=False)
-                return
-            save_provider_registry(registry)
-            self._provider_registry = registry
-            self._refresh_route_summary(); self._refresh_route_preview(); self._set_route_status("Route strategy saved", ok=True)
-        except Exception as exc:
-            self._set_route_status(f"Apply routes failed: {exc}", ok=False)
+        management_apply_routes(
+            self,
+            provider_backend_available=_PROVIDER_BACKEND,
+            runtime_dir=_RUNTIME,
+            heartbeat_fresh_seconds=_HEARTBEAT_FRESH_SECONDS,
+        )

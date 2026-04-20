@@ -392,3 +392,79 @@ def ensure_api_reachable_for_command(owner) -> tuple[bool, str]:
         reason=detail,
     )
     return False, detail
+
+
+def direct_warmup(*, runtime_dir: Path) -> dict:
+    """Warmup: check freshness of key runtime files."""
+    stale, fresh = [], []
+    now = time.time()
+    for name in ("guppy.status", "guppy.heartbeat"):
+        path = runtime_dir / name
+        if not path.exists():
+            stale.append(f"{name}=missing")
+        elif now - path.stat().st_mtime > 300:
+            stale.append(f"{name}=stale")
+        else:
+            fresh.append(name)
+    ok = len(stale) == 0
+    parts = []
+    if fresh:
+        parts.append(f"fresh: {', '.join(fresh)}")
+    if stale:
+        parts.append(f"stale/missing: {', '.join(stale)}")
+    return {
+        "ok": ok,
+        "summary": "; ".join(parts) or "nothing to report",
+        "category": "runtime_ready" if ok else "runtime_stale",
+    }
+
+
+def direct_audit_runtime(*, runtime_dir: Path, now_factory) -> dict:
+    """Audit: collect runtime status files into a diagnostics JSON."""
+    bundle: dict = {"ts": now_factory().isoformat(), "files": {}}
+    issues: list[str] = []
+    for name in ("guppy.status", "resource_envelope.status.json", "logging_health_snapshot.json"):
+        path = runtime_dir / name
+        if not path.exists():
+            bundle["files"][name] = {"missing": True}
+            issues.append(f"{name}=missing")
+            continue
+        try:
+            bundle["files"][name] = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            bundle["files"][name] = {"error": "unreadable"}
+            issues.append(f"{name}=unreadable")
+    out = runtime_dir / f"diagnostics_bundle_{now_factory().strftime('%Y%m%d_%H%M%S')}.json"
+    try:
+        out.write_text(json.dumps(bundle, indent=2), encoding="utf-8")
+        summary = f"bundle written: {out.name}"
+        if issues:
+            summary = f"{summary}; runtime issues: {', '.join(issues)}"
+        return {
+            "ok": True,
+            "summary": summary,
+            "category": "runtime_stale" if issues else "runtime_ready",
+        }
+    except Exception as exc:
+        return {"ok": False, "summary": str(exc), "category": "runtime_stale"}
+
+
+def direct_health_snapshot(*, runtime_dir: Path) -> dict:
+    """Health snapshot: read runtime status files directly."""
+    results = {}
+    for agent in ("guppy",):
+        hb = runtime_dir / f"{agent}.heartbeat"
+        st = runtime_dir / f"{agent}.status"
+        results[agent] = {
+            "heartbeat": hb.exists(),
+            "status_age_s": round(time.time() - st.stat().st_mtime) if st.exists() else None,
+        }
+    ok = any(v["heartbeat"] for v in results.values())
+    summary = "; ".join(
+        f"{agent}={'LIVE' if payload['heartbeat'] else 'OFFLINE'}" for agent, payload in results.items()
+    )
+    return {
+        "ok": ok,
+        "summary": summary,
+        "category": "runtime_ready" if ok else "runtime_stale",
+    }

@@ -64,6 +64,11 @@ from .settings_operations_sections import (
     build_connected_services_section as panel_build_connected_services_section,
     build_windows_runtime_section as panel_build_windows_runtime_section,
 )
+from .settings_workflow_terminal_sections import (
+    build_operator_logs_section as panel_build_operator_logs_section,
+    build_terminal_section as panel_build_terminal_section,
+    build_workflow_section as panel_build_workflow_section,
+)
 
 from .. import tokens as T
 
@@ -281,159 +286,9 @@ class SettingsOperationsPanel(QWidget):
         panel_build_connected_services_section(self, layout, _mono)
         panel_build_automation_test_section(self, layout, _mono)
 
-        self._workflow_frame = QFrame()
-        self._workflow_frame.setStyleSheet(
-            f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
-        )
-        workflow_layout = QVBoxLayout(self._workflow_frame)
-        workflow_layout.setContentsMargins(16, 16, 16, 16)
-        workflow_layout.setSpacing(12)
-        workflow_layout.addWidget(_mono("WORKFLOW LOOPS", T.PRIMARY, T.FS_TINY, True))
-        workflow_layout.addWidget(
-            _mono(
-                "Launcher-first shortcuts for Morning, acceptance, midday, evening, and overnight operations.",
-                T.DIM,
-                T.FS_SMALL,
-            )
-        )
-
-        workflow_row = QHBoxLayout()
-        self._workflow_cb = QComboBox()
-        self._workflow_cb.setStyleSheet(
-            f"QComboBox {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
-            f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
-        )
-        for recipe in list_workflow_specs(category="workflow_loop"):
-            self._workflow_cb.addItem(recipe.title, recipe.workflow_id)
-        self._workflow_cb.currentIndexChanged.connect(self._sync_workflow_recipe)
-        workflow_row.addWidget(self._workflow_cb, stretch=1)
-
-        self._workflow_load_btn = QPushButton("LOAD FIRST CMD")
-        self._workflow_load_btn.setToolTip("Load the first command from the selected workflow into the embedded terminal.")
-        self._workflow_load_btn.clicked.connect(self._load_workflow_recipe)
-        self._workflow_run_btn = QPushButton("RUN ALL")
-        self._workflow_run_btn.setToolTip("Queue the full selected workflow in the embedded terminal.")
-        self._workflow_run_btn.clicked.connect(self._run_workflow_recipe)
-        for button in (self._workflow_load_btn, self._workflow_run_btn):
-            button.setStyleSheet(
-                f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER};"
-                f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-                f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; }}"
-            )
-            workflow_row.addWidget(button)
-        workflow_layout.addLayout(workflow_row)
-
-        self._workflow_summary_lbl = _mono("", T.DIM, T.FS_TINY)
-        self._workflow_summary_lbl.setWordWrap(True)
-        workflow_layout.addWidget(self._workflow_summary_lbl)
-        self._workflow_steps_lbl = _mono("", T.PRIMARY_DIM, T.FS_TINY)
-        self._workflow_steps_lbl.setWordWrap(True)
-        workflow_layout.addWidget(self._workflow_steps_lbl)
-        self._workflow_next_step_lbl = _mono("", T.DIM, T.FS_TINY)
-        self._workflow_next_step_lbl.setWordWrap(True)
-        workflow_layout.addWidget(self._workflow_next_step_lbl)
-        self._workflow_outcome_lbl = _mono("Outcome: waiting for a workflow action.", T.DIM, T.FS_TINY)
-        self._workflow_outcome_lbl.setWordWrap(True)
-        workflow_layout.addWidget(self._workflow_outcome_lbl)
-        self._workflow_status_lbl = _mono("Workflow shortcuts ready", T.DIM, T.FS_TINY)
-        workflow_layout.addWidget(self._workflow_status_lbl)
-        self._workflow_evidence_lbl = _mono(
-            "Evidence: pick a workflow to see command count, shell state, and next checks.",
-            T.DIM,
-            T.FS_TINY,
-        )
-        self._workflow_evidence_lbl.setWordWrap(True)
-        workflow_layout.addWidget(self._workflow_evidence_lbl)
-        layout.addWidget(self._workflow_frame)
-        self._detail_frames.append(self._workflow_frame)
-
-        self._operator_logs_frame = QFrame()
-        self._operator_logs_frame.setObjectName("syslog_term")
-        self._operator_logs_frame.setStyleSheet(
-            f"QFrame#syslog_term {{ background-color: {T.BG0}; border: 1px solid {T.BORDER}; }}"
-        )
-        term_layout = QVBoxLayout(self._operator_logs_frame)
-        term_layout.setContentsMargins(16, 16, 16, 16)
-        term_layout.setSpacing(10)
-
-        term_hdr = QHBoxLayout()
-        term_hdr.addWidget(_mono("OPERATOR LOGS", T.DIM, T.FS_TINY))
-        term_hdr.addStretch()
-        self._filter_cb = QComboBox()
-        self._filter_cb.addItems(["ALL", "WARN", "ERROR"])
-        self._filter_cb.setStyleSheet(
-            f"QComboBox {{ background: {T.BG1}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
-            f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; padding: 2px 6px; }}"
-        )
-        self._filter_cb.currentTextChanged.connect(self._set_log_filter)
-        term_hdr.addWidget(self._filter_cb)
-        term_layout.addLayout(term_hdr)
-
-        self._syslog = QPlainTextEdit()
-        self._syslog.setReadOnly(True)
-        self._syslog.setMinimumHeight(200)
-        self._syslog.setStyleSheet(
-            f"QPlainTextEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
-            f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-        )
-        term_layout.addWidget(self._syslog)
-        layout.addWidget(self._operator_logs_frame)
-        self._detail_frames.append(self._operator_logs_frame)
-
-        self._terminal_frame = QFrame()
-        self._terminal_frame.setObjectName("embedded_terminal")
-        self._terminal_frame.setStyleSheet(
-            f"QFrame#embedded_terminal {{ background-color: {T.BG0}; border: 1px solid {T.BORDER}; }}"
-        )
-        terminal_layout = QVBoxLayout(self._terminal_frame)
-        terminal_layout.setContentsMargins(16, 14, 16, 14)
-        terminal_layout.setSpacing(12)
-
-        terminal_hdr = QHBoxLayout()
-        terminal_hdr.addWidget(_mono("EMBEDDED TERMINAL", T.DIM, T.FS_TINY))
-        terminal_hdr.addStretch()
-        self._terminal_status_lbl = _mono("Shell idle", T.DIM, T.FS_TINY)
-        terminal_hdr.addWidget(self._terminal_status_lbl)
-        terminal_layout.addLayout(terminal_hdr)
-
-        self._terminal_output = QPlainTextEdit()
-        self._terminal_output.setReadOnly(True)
-        self._terminal_output.setMinimumHeight(200)
-        self._terminal_output.setStyleSheet(
-            f"QPlainTextEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
-            f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-        )
-        terminal_layout.addWidget(self._terminal_output)
-
-        terminal_input_row = QHBoxLayout()
-        self._terminal_input = QLineEdit()
-        self._terminal_input.setPlaceholderText("Enter a PowerShell command to run inside the launcher terminal")
-        self._terminal_input.returnPressed.connect(self._submit_terminal_command)
-        self._terminal_input.setStyleSheet(
-            f"QLineEdit {{ background: {T.BG1}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
-            f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; padding: 4px 8px; }}"
-        )
-        terminal_input_row.addWidget(self._terminal_input, stretch=1)
-
-        self._terminal_run_btn = QPushButton("RUN")
-        self._terminal_run_btn.setToolTip("Run the current PowerShell command in the embedded terminal.")
-        self._terminal_run_btn.clicked.connect(self._submit_terminal_command)
-        self._terminal_clear_btn = QPushButton("CLEAR")
-        self._terminal_clear_btn.setToolTip("Clear the terminal output pane.")
-        self._terminal_clear_btn.clicked.connect(self._terminal_output.clear)
-        self._terminal_stop_btn = QPushButton("STOP")
-        self._terminal_stop_btn.setToolTip("Stop the currently running terminal command.")
-        self._terminal_stop_btn.clicked.connect(self._stop_terminal_process)
-        for button in (self._terminal_run_btn, self._terminal_clear_btn, self._terminal_stop_btn):
-            button.setStyleSheet(
-                f"QPushButton {{ background: {T.BG1}; color: {T.DIM}; border: 1px solid {T.BORDER};"
-                f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-                f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; }}"
-            )
-            terminal_input_row.addWidget(button)
-        terminal_layout.addLayout(terminal_input_row)
-        layout.addWidget(self._terminal_frame)
-        self._detail_frames.append(self._terminal_frame)
+        panel_build_workflow_section(self, layout, _mono)
+        panel_build_operator_logs_section(self, layout, _mono)
+        panel_build_terminal_section(self, layout, _mono)
 
         layout.addStretch()
         scroll.setWidget(content)

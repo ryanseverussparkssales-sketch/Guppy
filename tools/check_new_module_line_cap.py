@@ -35,24 +35,12 @@ class Waiver:
 # current strangler work still needs to land.
 WAIVED_PATHS: dict[str, Waiver] = {
     "src/guppy/api/server_runtime_snapshot.py": Waiver(
-        max_lines=1419,
-        rationale="Runtime snapshot compatibility shell is materially smaller after instance/governance, telemetry, and realtime-route extraction, but it still carries the assembled compatibility surface pending one more bounded decomposition pass.",
-    ),
-    "src/guppy/merlin/core.py": Waiver(
-        max_lines=1071,
-        rationale="Merlin is now a bounded retained specialist surface over specialist_support, but the spell catalog and system prompt contract still keep the core module above the base cap.",
+        max_lines=1141,
+        rationale="Runtime snapshot compatibility shell is materially smaller after instance/governance, telemetry, realtime-route, status-context, and runtime-state extraction plus the runtime-support split, but it still carries the assembled compatibility surface pending one final bounded decomposition pass.",
     ),
     "ui/launcher/launcher_window.py": Waiver(
-        max_lines=2648,
-        rationale="Launcher shell is materially smaller after workspace snapshot coordination extraction and earlier shell splits, but it still carries top-level hub orchestration and request routing pressure pending the next bounded pass.",
-    ),
-    "ui/launcher/views/settings_operations_panel.py": Waiver(
-        max_lines=738,
-        rationale="Settings operations is now mostly a composition shell, but diagnostics, recovery, and workflow ownership still keep it slightly above the base cap pending one more reduction pass.",
-    ),
-    "ui/launcher/views/models_view.py": Waiver(
-        max_lines=969,
-        rationale="Models hub is materially smaller after library/panel extraction, but route and runtime-ops coordination still keep the main view above the base cap pending the next bounded split.",
+        max_lines=2141,
+        rationale="Launcher shell is materially smaller after runtime-control and Windows Ops mixin extraction plus earlier shell splits, but it still carries top-level hub orchestration and request routing pressure pending the next bounded pass.",
     ),
 }
 

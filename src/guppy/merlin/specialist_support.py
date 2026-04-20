@@ -7,6 +7,7 @@ helpers so ``core.py`` can stay focused on spell catalog wiring and dispatch.
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import hashlib
 import os
 import subprocess
@@ -47,6 +48,108 @@ def merlin_clear_cache() -> str:
     """Clear the analysis cache when starting fresh reviews."""
     _ANALYSIS_CACHE.clear()
     return "Analysis cache cleared."
+
+
+def run_spells_parallel(spells_and_args: list, *, spell_runner) -> dict:
+    """Run multiple spells concurrently through the provided spell runner."""
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {}
+        for name, args in spells_and_args:
+            future = executor.submit(spell_runner, name, args)
+            futures[future] = name
+
+        for future in concurrent.futures.as_completed(futures):
+            name = futures[future]
+            try:
+                results[name] = future.result()
+            except Exception as exc:
+                results[name] = f"Error: {exc}"
+    return results
+
+
+def run_spell(name: str, inp: dict, *, run_tool) -> object:
+    """Translate a spell name to its implementation and execute it."""
+    if name == "research":
+        return _research(inp.get("query", ""), inp.get("url", ""))
+    if name == "scry_clipboard":
+        return _get_clipboard()
+    if name == "fill_clipboard":
+        return _set_clipboard(inp.get("text", ""))
+    if name == "seek_torrent":
+        return _seek_torrent(inp.get("query", ""), inp.get("category", "all"))
+    if name == "summon_torrent":
+        return _summon_torrent(inp.get("url", ""))
+    if name == "view_torrents":
+        return _view_torrents()
+    if name == "banish_torrent":
+        return _banish_torrent(inp.get("hash", ""), inp.get("delete_data", False))
+    if name == "analyze_python":
+        return _analyze_python(
+            inp.get("filepath", ""),
+            inp.get("check_syntax", True),
+            inp.get("extract_structure", True),
+        )
+    if name == "generate_patch":
+        return _generate_patch(
+            inp.get("filepath", ""),
+            inp.get("old_code", ""),
+            inp.get("new_code", ""),
+            inp.get("reason", "Code improvement"),
+        )
+    if name == "plex_status":
+        return _plex_status()
+    if name == "vpn_status":
+        return _vpn_status()
+    if name == "chronicle_scroll":
+        return run_tool("draft_email", inp)
+    if name == "forge_report":
+        return run_tool("create_call_report", inp)
+    if name == "kindle_tome":
+        return run_tool("open_kindle", inp)
+    if name == "remind_apprentice":
+        return run_tool("remind_me", inp)
+    if name == "read_reminders":
+        return run_tool("get_reminders", inp)
+    if name == "lift_reminder":
+        return run_tool("cancel_reminder", inp)
+    if name == "switch_scroll_vault":
+        return run_tool("gmail_switch_account", inp)
+    if name == "purify_vault":
+        return run_tool("gmail_smart_cleanup", inp)
+    return None
+
+
+def get_merlin_startup_system(
+    *,
+    memory_enabled: bool,
+    base_system: str,
+    query_context: str | None,
+    memory_module,
+    memory_store,
+    needs_memory_context,
+    build_semantic_prompt_context,
+) -> str:
+    """Return Merlin's startup system prompt with optional memory context."""
+    if not memory_enabled:
+        system = base_system
+    else:
+        try:
+            if needs_memory_context(query_context):
+                briefing = memory_store.get_startup_context()
+                system = base_system + "\n\n" + briefing
+            else:
+                system = base_system
+        except Exception:
+            system = base_system
+    try:
+        if query_context and callable(build_semantic_prompt_context):
+            semantic_context = build_semantic_prompt_context(query_context, n=4)
+            if semantic_context:
+                system += "\n\n" + semantic_context
+        return system
+    except Exception:
+        return system
 
 
 def _get_clipboard() -> str:
