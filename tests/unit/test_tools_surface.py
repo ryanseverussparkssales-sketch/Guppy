@@ -56,6 +56,7 @@ def test_tool_card_debug_console_respects_workspace_role_surface(
 
     assert debug_card.state == "ready"
     assert "available in builder-collab" in debug_card._scope_lbl.text().lower()
+    assert debug_card._action_line_lbl.text() == 'Say or type: "Inspect runtime state"'
     assert "needs read access" in debug_card._guard_lbl.text().lower()
     assert not debug_card._guard_lbl.isHidden()
     assert debug_card._hint_btn.isEnabled()
@@ -101,6 +102,44 @@ def test_tool_card_surfaces_host_auth_fix_hint_for_restricted_connector_reasonin
     assert "Sign-in detail: credential file missing" in card._policy_lbl.text()
     assert "Note: Builder stays inside workspace boundaries." in card._policy_lbl.text()
     assert not card._hint_btn.isEnabled()
+
+
+def test_tool_card_offers_settings_owned_management_route_for_blocked_connector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tools_view_module,
+        "check_instance_tool_permission",
+        lambda *args, **kwargs: (
+            False,
+            "Machine Gmail auth is not ready for this workspace binding.",
+            {
+                "_auth_mode": "local_only",
+                "_connector": "gmail",
+                "_connector_auth_state": "missing",
+                "_connector_auth_source": "machine",
+                "_policy_reason_code": "connector_host_auth_missing",
+            },
+        ),
+    )
+    monkeypatch.setattr(tools_view_module, "required_capability_for_tool", lambda key: "network")
+    monkeypatch.setattr(tools_view_module, "auth_mode_label", lambda value: "local only")
+
+    tool = next(item for item in tools_view_module.INSTANCE_TOOL_CATALOG if item["key"] == "send_email")
+    card = tools_view_module.ToolCard(tool)
+    emitted: list[dict[str, str]] = []
+    card.manage_requested.connect(emitted.append)
+
+    card.apply_context("builder-collab", "builder_instance")
+    card._manage_btn.click()
+
+    assert not card._manage_btn.isHidden()
+    assert card._manage_btn.text() == "OPEN APP MGMT"
+    assert "Settings > Device & Accounts" in card._manage_btn.toolTip()
+    assert "Gmail" in card._manage_btn.toolTip()
+    assert emitted
+    assert emitted[-1]["connector"] == "gmail"
+    assert emitted[-1]["destination"] == "settings_device_accounts"
 
 
 def test_settings_operations_panel_renders_recent_evidence_and_operator_notes() -> None:
@@ -239,3 +278,36 @@ def test_tools_view_reflows_cards_for_narrower_widths() -> None:
             wider_first_row_columns.add(column)
 
     assert wider_first_row_columns == {0, 1, 2}
+
+
+def test_tools_view_relays_management_request_from_tool_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tools_view_module,
+        "check_instance_tool_permission",
+        lambda *args, **kwargs: (
+            False,
+            "Machine Gmail auth is not ready for this workspace binding.",
+            {
+                "_auth_mode": "local_only",
+                "_connector": "gmail",
+                "_connector_auth_state": "missing",
+                "_connector_auth_source": "machine",
+                "_policy_reason_code": "connector_host_auth_missing",
+            },
+        ),
+    )
+    monkeypatch.setattr(tools_view_module, "required_capability_for_tool", lambda key: "network")
+    monkeypatch.setattr(tools_view_module, "auth_mode_label", lambda value: "local only")
+
+    view = tools_page_module.ToolsView()
+    routed: list[dict[str, str]] = []
+    view.tool_management_requested.connect(routed.append)
+    view.set_instance_context({"name": "builder-collab", "type": "builder_instance"}, {"limits": {}})
+
+    card = view._tool_cards["send_email"]
+    card._manage_btn.click()
+
+    assert routed
+    assert routed[-1]["connector"] == "gmail"

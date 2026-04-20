@@ -7,7 +7,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -195,11 +197,15 @@ class LibraryView(QWidget):
         )
         self._note_cancel_btn.clicked.connect(self._reset_note_editor)
         self._note_cancel_btn.setVisible(False)
+        self._note_title.textChanged.connect(self._refresh_note_editor_state)
+        self._note_body.textChanged.connect(self._refresh_note_editor_state)
         note_top.addWidget(self._note_title, stretch=1)
         note_top.addWidget(self._note_save_btn)
         note_top.addWidget(self._note_cancel_btn)
         note_row.addLayout(note_top)
         note_row.addWidget(self._note_body)
+        self._note_editor_hint = _body("", color=T.DIM, size=T.FS_TINY)
+        note_row.addWidget(self._note_editor_hint)
         manager_layout.addLayout(note_row)
 
         artifact_row = QHBoxLayout()
@@ -262,6 +268,18 @@ class LibraryView(QWidget):
 
         self._browse_header = _mono("BROWSE ROOT FILES", T.PRIMARY, T.FS_TINY, True)
         layout.addWidget(self._browse_header)
+        browse_picker_row = QHBoxLayout()
+        browse_picker_row.setSpacing(8)
+        self._root_picker = QComboBox()
+        self._root_picker.setToolTip("Switch between approved roots without scrolling back to the approved-root cards")
+        self._root_picker.setStyleSheet(
+            f"QComboBox {{ background: rgba(255,255,255,0.90); border: 1px solid rgba(214,197,174,0.56); color: {T.TEXT};"
+            f" border-radius: 14px; padding: 6px 10px; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; }}"
+            "QComboBox::drop-down { border: none; padding-right: 6px; }"
+        )
+        self._root_picker.currentIndexChanged.connect(self._on_root_picker_changed)
+        browse_picker_row.addWidget(self._root_picker, stretch=1)
+        layout.addLayout(browse_picker_row)
         self._selected_root_status = _mono("", T.SECONDARY, T.FS_TINY, True)
         layout.addWidget(self._selected_root_status)
         self._browse_hint = _body("", color=T.DIM)
@@ -341,6 +359,44 @@ class LibraryView(QWidget):
         scroll.setWidget(content)
         outer.addWidget(scroll)
         self.set_instance_context({}, {})
+        self._refresh_note_editor_state()
+
+    def _apply_density_mode(self, width: int) -> None:
+        compact = width <= 1120
+        tight = width <= 920
+        self._search.setPlaceholderText(
+            "Search Library" if tight else "Search files, notes, and saved workspace context"
+        )
+        self._root_repo_btn.setText("REPO" if tight else "USE REPO")
+        self._root_browse_btn.setText("FOLDER" if tight else "PICK FOLDER")
+        self._root_save_btn.setText("SAVE" if compact else "SAVE ROOT")
+        self._note_save_btn.setText(
+            "UPDATE" if self._editing_note_id > 0 and tight else
+            "UPDATE NOTE" if self._editing_note_id > 0 else
+            "SAVE NOTE" if compact else
+            "PIN NOTE"
+        )
+        self._note_cancel_btn.setText("CANCEL" if compact else "CANCEL EDIT")
+        self._artifact_browse_btn.setText("FILE" if compact else "PICK FILE")
+        self._artifact_save_btn.setText(
+            "UPDATE" if self._editing_artifact_id > 0 and compact else
+            "UPDATE ARTIFACT" if self._editing_artifact_id > 0 else
+            "SAVE" if compact else
+            "SAVE ARTIFACT"
+        )
+        self._artifact_cancel_btn.setText("CANCEL" if compact else "CANCEL EDIT")
+        self._roots_hint.setVisible(not tight)
+        self._recent_hint.setVisible(not tight)
+        self._saved_hint.setVisible(not tight)
+
+    def showEvent(self, event: QShowEvent) -> None:  # type: ignore[override]
+        super().showEvent(event)
+        self._apply_density_mode(self.width())
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._apply_density_mode(event.size().width())
+        self._refresh_note_editor_state()
 
     def _clear_dynamic_layout(self, layout: QVBoxLayout) -> None:
         while layout.count():
@@ -395,12 +451,22 @@ class LibraryView(QWidget):
         self._rebuild_state()
         self._apply_state()
 
+    def set_selected_root(self, root_path: str) -> None:
+        path = str(root_path or "").strip()
+        if not path:
+            return
+        self._selected_root_path = path
+        self._rebuild_state()
+        self._apply_state()
+
     def _begin_note_edit(self, item_id: int, title: str, summary: str) -> None:
         self._editing_note_id = max(0, int(item_id or 0))
         self._note_title.setText(title)
         self._note_body.setPlainText(summary)
-        self._note_save_btn.setText("UPDATE NOTE")
-        self._note_cancel_btn.setVisible(True)
+        self._refresh_note_editor_state()
+        if self.isVisible():
+            self._apply_density_mode(self.width())
+        self._note_body.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _begin_artifact_edit(self, item_id: int, title: str, item_path: str) -> None:
         self._editing_artifact_id = max(0, int(item_id or 0))
@@ -408,13 +474,16 @@ class LibraryView(QWidget):
         self._artifact_path.setText(item_path)
         self._artifact_save_btn.setText("UPDATE ARTIFACT")
         self._artifact_cancel_btn.setVisible(True)
+        if self.isVisible():
+            self._apply_density_mode(self.width())
 
     def _reset_note_editor(self) -> None:
         self._editing_note_id = 0
         self._note_title.clear()
         self._note_body.clear()
-        self._note_save_btn.setText("PIN NOTE")
-        self._note_cancel_btn.setVisible(False)
+        self._refresh_note_editor_state()
+        if self.isVisible():
+            self._apply_density_mode(self.width())
 
     def _reset_artifact_editor(self) -> None:
         self._editing_artifact_id = 0
@@ -422,6 +491,8 @@ class LibraryView(QWidget):
         self._artifact_path.clear()
         self._artifact_save_btn.setText("SAVE ARTIFACT")
         self._artifact_cancel_btn.setVisible(False)
+        if self.isVisible():
+            self._apply_density_mode(self.width())
 
     def _emit_root_request(self) -> None:
         raw_path = self._root_path.text().strip()
@@ -451,6 +522,58 @@ class LibraryView(QWidget):
 
     def set_root_feedback(self, message: str, *, is_error: bool = False) -> None:
         self._set_root_feedback(message, is_error=is_error)
+
+    def _on_root_picker_changed(self, index: int) -> None:
+        if index < 0:
+            return
+        root_path = str(self._root_picker.itemData(index) or "").strip()
+        if not root_path or root_path == self._selected_root_path:
+            return
+        self._browse_root(root_path)
+
+    def _sync_root_picker(self) -> None:
+        self._root_picker.blockSignals(True)
+        try:
+            self._root_picker.clear()
+            for root in self._state.approved_roots:
+                label = str(root.get("label", "") or "Approved root").strip() or "Approved root"
+                detail = str(root.get("detail", "") or "").strip()
+                text = label if not detail else f"{label} - {detail}"
+                self._root_picker.addItem(text, str(root.get("root_path", "") or "").strip())
+            if self._root_picker.count() > 0:
+                selected_index = next(
+                    (
+                        index
+                        for index, root in enumerate(self._state.approved_roots)
+                        if str(root.get("root_path", "") or "").strip() == self._selected_root_path
+                    ),
+                    0,
+                )
+                self._root_picker.setCurrentIndex(max(0, min(selected_index, self._root_picker.count() - 1)))
+        finally:
+            self._root_picker.blockSignals(False)
+        self._root_picker.setVisible(self._root_picker.count() > 0)
+
+    def _refresh_note_editor_state(self) -> None:
+        editing = self._editing_note_id > 0
+        title = self._note_title.text().strip()
+        body_text = self._note_body.toPlainText()
+        stripped_body = body_text.strip()
+        line_count = len([line for line in body_text.splitlines() if line.strip()])
+        self._note_save_btn.setText("UPDATE NOTE" if editing else "PIN NOTE")
+        self._note_cancel_btn.setVisible(editing)
+        self._note_save_btn.setEnabled(bool(title))
+        if editing:
+            hint = f"Editing pinned note: {title or 'untitled note'}."
+            if stripped_body:
+                hint += f" Body ready: {len(stripped_body)} chars across {max(1, line_count)} line(s)."
+            else:
+                hint += " Add or revise the body, then update it in place."
+        elif stripped_body:
+            hint = f"New pinned note draft: {len(stripped_body)} chars across {max(1, line_count)} line(s)."
+        else:
+            hint = "Multiline notes stay in Library and can be reused in Home with USE IN CHAT."
+        self._note_editor_hint.setText(hint)
 
     def _add_media_action(self, header: QHBoxLayout, card_state: dict[str, str]) -> None:
         if not bool(card_state.get("is_media")):
@@ -585,10 +708,11 @@ class LibraryView(QWidget):
             title = str(card_state.get("title", "") or "").strip()
             detail = str(card_state.get("detail", "") or "").strip()
             item_path = str(card_state.get("item_path", "") or "").strip()
+            context_ref = str(card_state.get("context_ref", "") or "").strip() or item_path
             prompt = str(card_state.get("prompt", "") or "").strip()
             kind = str(card_state.get("kind", "file") or "file").strip()
             action.clicked.connect(
-                lambda _=False, t=title, p=item_path, k=kind, prompt_text=prompt: self.context_requested.emit(t, p, k, prompt_text)
+                lambda _=False, t=title, p=context_ref, k=kind, prompt_text=prompt: self.context_requested.emit(t, p, k, prompt_text)
             )
             top.addWidget(action)
             self._add_media_action(top, card_state)
@@ -636,10 +760,11 @@ class LibraryView(QWidget):
             title = str(card_state.get("title", "") or "").strip()
             detail = str(card_state.get("detail", "") or "").strip()
             item_path = str(card_state.get("item_path", "") or "").strip()
+            context_ref = str(card_state.get("context_ref", "") or "").strip() or item_path
             prompt = str(card_state.get("prompt", "") or "").strip()
             kind = str(card_state.get("kind", "file") or "file").strip()
             action.clicked.connect(
-                lambda _=False, t=title, p=item_path, k=kind, prompt_text=prompt: self.context_requested.emit(t, p, k, prompt_text)
+                lambda _=False, t=title, p=context_ref, k=kind, prompt_text=prompt: self.context_requested.emit(t, p, k, prompt_text)
             )
             top.addWidget(action)
             self._add_media_action(top, card_state)
@@ -701,11 +826,12 @@ class LibraryView(QWidget):
             title = str(card_state.get("full_title", card_state.get("title", "")) or "").strip()
             detail = str(card_state.get("detail", "") or "").strip()
             item_path = str(card_state.get("item_path", "") or "").strip()
+            context_ref = str(card_state.get("context_ref", "") or "").strip() or item_path
             summary = str(card_state.get("summary", "") or "").strip()
             prompt = str(card_state.get("prompt", "") or "").strip()
             kind = str(card_state.get("kind", "note") or "note").strip()
             use_btn.clicked.connect(
-                lambda _=False, t=title, p=item_path, k=kind, prompt_text=prompt: self.context_requested.emit(t, p, k, prompt_text)
+                lambda _=False, t=title, p=context_ref, k=kind, prompt_text=prompt: self.context_requested.emit(t, p, k, prompt_text)
             )
             if kind == "note":
                 edit_btn.clicked.connect(lambda _=False, i=item_id, t=title, s=summary: self._begin_note_edit(i, t, s))
@@ -734,6 +860,7 @@ class LibraryView(QWidget):
         self._study_copy.setText(self._state.study_summary)
         self._coding_copy.setText(self._state.coding_summary)
         self._artifact_copy.setText(self._state.artifact_summary)
+        self._sync_root_picker()
         self._rebuild_roots()
         self._rebuild_browse_cards()
         self._rebuild_recent_cards()
@@ -741,6 +868,8 @@ class LibraryView(QWidget):
         self._root_label.setPlaceholderText(f"Label for {self._state.workspace_label.lower()} root")
         if not self._selected_root_path and self._state.approved_roots:
             self._selected_root_path = str(self._state.approved_roots[0].get("root_path", "") or "").strip()
+        if self.isVisible():
+            self._apply_density_mode(self.width())
 
     def set_instance_context(self, instance: dict[str, object], snapshot: dict[str, object] | None = None) -> None:
         del snapshot

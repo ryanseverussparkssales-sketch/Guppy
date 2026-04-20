@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -49,6 +50,13 @@ class SettingsHubView(QWidget):
         self._settings_view = settings_view
         self._device_accounts_panel = device_accounts_panel
         self._operations_panel = operations_panel
+        self._scroll_area: QScrollArea | None = None
+        self._configuration_frame: QFrame | None = None
+        self._device_frame: QFrame | None = None
+        self._operations_frame: QFrame | None = None
+        self._overview_grid: QGridLayout | None = None
+        self._overview_cards: list[QWidget] = []
+        self._focus_buttons: list[QPushButton] = []
         self._wire_child_signals()
         self._build_ui()
 
@@ -86,6 +94,7 @@ class SettingsHubView(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self._scroll_area = scroll
 
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -129,6 +138,7 @@ class SettingsHubView(QWidget):
         grid = QGridLayout()
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(10)
+        self._overview_grid = grid
         cards = [
             (
                 "Configuration",
@@ -150,7 +160,7 @@ class SettingsHubView(QWidget):
             ),
             (
                 "Connectors",
-                "Friendly account linking and connector inventory now live in this hub.",
+                "Friendly account linking, API-key storage, and connector inventory now live in Device & Accounts inside this hub.",
                 "Owned by Settings Hub",
                 self.open_connectors_requested,
             ),
@@ -168,7 +178,9 @@ class SettingsHubView(QWidget):
             ),
         ]
         for index, (heading, description, owner, signal) in enumerate(cards):
-            grid.addWidget(self._build_section_card(heading, description, owner, signal), index // 2, index % 2)
+            card = self._build_section_card(heading, description, owner, signal)
+            self._overview_cards.append(card)
+            grid.addWidget(card, index // 2, index % 2)
         overview_layout.addLayout(grid)
         layout.addWidget(overview)
 
@@ -187,6 +199,7 @@ class SettingsHubView(QWidget):
         )
         configuration_layout.addWidget(self._settings_view)
         layout.addWidget(configuration_frame)
+        self._configuration_frame = configuration_frame
 
         device_frame = QFrame()
         device_frame.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
@@ -203,6 +216,7 @@ class SettingsHubView(QWidget):
         )
         device_layout.addWidget(self._device_accounts_panel)
         layout.addWidget(device_frame)
+        self._device_frame = device_frame
 
         operations_frame = QFrame()
         operations_frame.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
@@ -219,6 +233,7 @@ class SettingsHubView(QWidget):
         )
         operations_layout.addWidget(self._operations_panel)
         layout.addWidget(operations_frame)
+        self._operations_frame = operations_frame
         layout.addStretch(1)
 
         scroll.setWidget(content)
@@ -243,14 +258,42 @@ class SettingsHubView(QWidget):
             button = QPushButton("FOCUS SECTION")
             button.setToolTip(f"Scroll to the {heading} section in this hub")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setMinimumHeight(36)
             button.setStyleSheet(
                 f"QPushButton {{ background: {T.BG0}; color: {T.PRIMARY}; border: 1px solid {T.PRIMARY};"
                 f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
                 f"QPushButton:hover {{ background: {T.PRIMARY}; color: {T.BG}; }}"
             )
             button.clicked.connect(signal.emit)
+            self._focus_buttons.append(button)
             layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignLeft)
         return frame
+
+    def _overview_columns(self, width: int) -> int:
+        return 1 if width <= 1180 else 2
+
+    def _apply_density_mode(self, width: int) -> None:
+        compact = width <= 1040
+        for button in self._focus_buttons:
+            button.setText("OPEN" if compact else "FOCUS SECTION")
+        if self._overview_grid is None or not self._overview_cards:
+            return
+        while self._overview_grid.count():
+            item = self._overview_grid.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+        columns = self._overview_columns(width)
+        for index, card in enumerate(self._overview_cards):
+            self._overview_grid.addWidget(card, index // columns, index % columns)
+
+    def showEvent(self, event: QShowEvent) -> None:  # type: ignore[override]
+        super().showEvent(event)
+        self._apply_density_mode(self.width())
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._apply_density_mode(event.size().width())
 
     def set_daily_context_activity(self, text: str) -> None:
         self._operations_panel.set_daily_context_activity(text)
@@ -280,8 +323,9 @@ class SettingsHubView(QWidget):
         self._operations_panel.set_automation_status(status, ok=ok)
 
     def set_connector_inventory(self, inventory: list[dict[str, object]], summary: str = "") -> None:
-        self._device_accounts_panel.set_connector_inventory(inventory, summary)
-        self._operations_panel.set_connector_inventory(inventory, summary)
+        del summary
+        self._device_accounts_panel.set_connector_inventory(inventory)
+        self._operations_panel.set_connector_inventory(inventory)
 
     def set_windows_snapshot(self, snapshot: dict[str, object]) -> None:
         self._device_accounts_panel.set_windows_snapshot(snapshot)
@@ -294,6 +338,26 @@ class SettingsHubView(QWidget):
 
     def set_account_result(self, text: str, ok: bool = True) -> None:
         self._device_accounts_panel.set_account_result(text, ok=ok)
+
+    def focus_connectors(
+        self,
+        connector_id: str = "",
+        *,
+        provider: str = "",
+        account_id: str = "",
+        note: str = "",
+    ) -> None:
+        if self._scroll_area is not None and self._device_frame is not None:
+            self._scroll_area.ensureWidgetVisible(self._device_frame, 0, 48)
+        focus = getattr(self._device_accounts_panel, "focus_connector", None)
+        if callable(focus):
+            focus(
+                connector_id,
+                provider=provider,
+                account_id=account_id,
+                note=note,
+            )
+        self.open_connectors_requested.emit()
 
     def windows_ops_snapshot(self) -> dict[str, str]:
         return self._operations_panel.windows_ops_snapshot()

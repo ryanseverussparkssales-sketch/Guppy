@@ -2,15 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QApplication, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from src.guppy.experience_config import (
@@ -40,6 +36,8 @@ from src.guppy.launcher_application.models_presenter import (
     normalize_models_policy,
 )
 from .. import tokens as T
+from .models_runtime_workers import LocalRuntimeFetchThread, ModelHealthCheckThread, ModelWarmSpawnThread, OllamaModelOpThread
+from .models_sections import build_models_loadout_section, build_models_runtime_section
 from .models_runtime_library import (
     assign_runtime_model as runtime_library_assign_runtime_model,
     refresh_runtime_library as runtime_library_refresh_runtime_library,
@@ -121,145 +119,6 @@ def _model_use_hint(name: str, display: str, tier: str, context: str = "", note:
     if "30b" in joined or "32b" in joined or "24b" in joined:
         return "Good for heavier work when you can trade speed for depth."
     return "Use this when it best fits the work you are doing."
-
-class _LocalRuntimeFetch(QThread):
-    finished = Signal(dict)
-
-    def __init__(self, backend: str, base_url: str = "", parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._backend = (backend or "ollama").strip().lower()
-        self._base_url = (base_url or "").strip()
-
-    def run(self) -> None:
-        try:
-            if self._backend == "lemonade":
-                url = f"{(self._base_url or _DEFAULT_LEMONADE_BASE_URL).rstrip('/')}/models"
-                req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
-                with urllib.request.urlopen(req, timeout=4) as resp:
-                    data = json.loads(resp.read())
-                models = [{"name": str(item.get("id", "")).strip(), "display": str(item.get("id", "")).strip().replace("-", " ").replace("_", " ").title(), "size": 0, "context": "GGUF / OpenAI API", "note": "Downloaded in Lemonade"} for item in data.get("data", []) if isinstance(item, dict) and str(item.get("id", "")).strip()]
-            else:
-                req = urllib.request.Request("http://127.0.0.1:11434/api/tags", headers={"Accept": "application/json"})
-                with urllib.request.urlopen(req, timeout=4) as resp:
-                    data = json.loads(resp.read())
-                models = [{"name": str(item.get("name", "")).strip(), "display": str(item.get("name", "")).strip().split(":")[0].replace("-", " ").title(), "size": int(item.get("size", 0) or 0), "context": "Installed on this PC", "note": ""} for item in data.get("models", []) if isinstance(item, dict) and str(item.get("name", "")).strip()]
-            self.finished.emit({"backend": self._backend, "models": models, "error": ""})
-        except Exception as exc:
-            self.finished.emit({"backend": self._backend, "models": [], "error": str(exc)})
-
-
-class _ModelWarmSpawn(QThread):
-    finished = Signal(dict)
-
-    def __init__(self, models: list[str], parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._models = [str(item or "").strip() for item in models if str(item or "").strip()]
-
-    def run(self) -> None:
-        warmed: list[str] = []
-        failed: list[str] = []
-        for model in self._models:
-            try:
-                req = urllib.request.Request(
-                    "http://127.0.0.1:11434/api/generate",
-                    data=json.dumps(
-                        {
-                            "model": model,
-                            "prompt": "warmup",
-                            "stream": False,
-                            "keep_alive": "20m",
-                            "options": {"num_predict": 1},
-                        }
-                    ).encode("utf-8"),
-                    headers={"Content-Type": "application/json", "Accept": "application/json"},
-                    method="POST",
-                )
-                with urllib.request.urlopen(req, timeout=8):
-                    pass
-                warmed.append(model)
-            except Exception:
-                failed.append(model)
-        self.finished.emit({"warmed": warmed, "failed": failed})
-
-
-class _ModelHealthCheck(QThread):
-    finished = Signal(dict)
-
-    def __init__(self, lemonade_base_url: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._lemonade_base_url = (lemonade_base_url or _DEFAULT_LEMONADE_BASE_URL).strip() or _DEFAULT_LEMONADE_BASE_URL
-
-    def _probe_json(self, url: str, timeout: float = 3.5) -> tuple[bool, str]:
-        try:
-            req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = json.loads(resp.read() or b"{}")
-            return True, f"ok ({len(data.get('data', data.get('models', [])) if isinstance(data, dict) else 0)} models)"
-        except Exception as exc:
-            return False, str(exc)
-
-    def run(self) -> None:
-        statuses: dict[str, str] = {}
-        anth_key = bool((os.environ.get("ANTHROPIC_API_KEY", "") or "").strip())
-        openai_key = bool((os.environ.get("OPENAI_API_KEY", "") or "").strip())
-        gemini_key = bool((os.environ.get("GEMINI_API_KEY", "") or "").strip())
-        ollama_api_key = bool((os.environ.get("OLLAMA_API_KEY", "") or "").strip())
-        statuses["anthropic"] = "key configured" if anth_key else "missing API key"
-        statuses["openai"] = "key configured" if openai_key else "missing API key"
-        statuses["gemini"] = "key configured" if gemini_key else "missing API key"
-        statuses["ollama_api"] = "key configured" if ollama_api_key else "missing API key"
-
-        ok_ollama, detail_ollama = self._probe_json("http://127.0.0.1:11434/api/tags")
-        statuses["ollama_local"] = detail_ollama if ok_ollama else f"offline ({detail_ollama})"
-
-        lmstudio_base = (os.environ.get("GUPPY_LMSTUDIO_BASE_URL", _DEFAULT_LMSTUDIO_BASE_URL) or _DEFAULT_LMSTUDIO_BASE_URL).rstrip("/")
-        ok_lms, detail_lms = self._probe_json(f"{lmstudio_base}/models")
-        statuses["lmstudio_local"] = detail_lms if ok_lms else f"offline ({detail_lms})"
-
-        lemonade_base = self._lemonade_base_url.rstrip("/")
-        ok_lem, detail_lem = self._probe_json(f"{lemonade_base}/models")
-        statuses["lemonade_local"] = detail_lem if ok_lem else f"offline ({detail_lem})"
-
-        harness_base = (os.environ.get("GUPPY_LOCAL_HARNESS_BASE_URL", _DEFAULT_LOCAL_HARNESS_BASE_URL) or _DEFAULT_LOCAL_HARNESS_BASE_URL).rstrip("/")
-        ok_harness, detail_harness = self._probe_json(f"{harness_base}/health")
-        statuses["local_harness"] = detail_harness if ok_harness else f"offline ({detail_harness})"
-
-        self.finished.emit(statuses)
-
-
-class _OllamaModelOp(QThread):
-    finished = Signal(dict)
-
-    def __init__(self, operation: str, model_name: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._operation = (operation or "pull").strip().lower()
-        self._model_name = (model_name or "").strip()
-
-    def run(self) -> None:
-        if not self._model_name:
-            self.finished.emit({"ok": False, "summary": "model name is required"})
-            return
-        if shutil.which("ollama") is None:
-            self.finished.emit({"ok": False, "summary": "ollama CLI was not found in PATH"})
-            return
-        verb = "pull" if self._operation == "pull" else "rm"
-        try:
-            result = subprocess.run(
-                ["ollama", verb, self._model_name],
-                capture_output=True,
-                text=True,
-                timeout=600,
-                check=False,
-            )
-            ok = result.returncode == 0
-            summary = (result.stdout or result.stderr or "").strip()
-            if len(summary) > 260:
-                summary = summary[:260] + "..."
-            if not summary:
-                summary = "completed"
-            self.finished.emit({"ok": ok, "summary": summary})
-        except Exception as exc:
-            self.finished.emit({"ok": False, "summary": str(exc)})
 
 
 class _ModelCard(QFrame):
@@ -384,10 +243,10 @@ class ModelsView(QWidget):
             "local_sub_model_b": os.environ.get("GUPPY_SUB_MODEL_B", os.environ.get("GUPPY_LOCAL_CODE_MODEL", "guppy-code")).strip() or "guppy-code",
         }
         self._loadout_inputs: dict[str, QComboBox] = {}
-        self._loadout_spawn_thread: _ModelWarmSpawn | None = None
+        self._loadout_spawn_thread: ModelWarmSpawnThread | None = None
         self._mix_route_inputs: dict[str, QComboBox] = {}
-        self._health_thread: _ModelHealthCheck | None = None
-        self._model_op_thread: _OllamaModelOp | None = None
+        self._health_thread: ModelHealthCheckThread | None = None
+        self._model_op_thread: OllamaModelOpThread | None = None
         self._build_ui()
         self._load_runtime_settings()
         self._load_route_config()
@@ -442,152 +301,49 @@ class ModelsView(QWidget):
         library_shell.addWidget(self._library_summary_lbl)
         library_shell.addLayout(search_row)
 
-        self._loadout_frame = QFrame()
-        self._loadout_frame.setStyleSheet(f"background-color: {T.BG1}; border: 1px solid {T.BORDER};")
-        loadout_layout = QVBoxLayout(self._loadout_frame)
-        loadout_layout.setContentsMargins(10, 10, 10, 10)
-        loadout_layout.setSpacing(8)
-        loadout_header = QHBoxLayout()
-        loadout_title = QLabel("LOCAL LOADOUT (MAIN + 2 SUB MODELS)")
-        loadout_title.setStyleSheet(f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
-        self._loadout_status_lbl = QLabel("Set a main model and two spawnable sub models")
-        self._loadout_status_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
-        loadout_header.addWidget(loadout_title)
-        loadout_header.addStretch()
-        loadout_header.addWidget(self._loadout_status_lbl)
-        loadout_layout.addLayout(loadout_header)
-
-        loadout_grid = QGridLayout()
-        loadout_grid.setHorizontalSpacing(10)
-        loadout_grid.setVerticalSpacing(8)
-        for index, (field_name, field_label) in enumerate(_LOADOUT_FIELDS):
-            lbl = QLabel(field_label)
-            lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
-            combo = QComboBox()
-            combo.setEditable(True)
-            combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-            combo.setMinimumWidth(240)
-            combo.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG0}; border: 1px solid {T.BORDER}; padding: 4px 6px;")
-            combo.currentTextChanged.connect(lambda value, target=field_name: self._on_loadout_changed(target, value))
-            loadout_grid.addWidget(lbl, index, 0)
-            loadout_grid.addWidget(combo, index, 1)
-            self._loadout_inputs[field_name] = combo
-        loadout_layout.addLayout(loadout_grid)
-
-        loadout_buttons = QHBoxLayout()
-        self._apply_loadout_btn = QPushButton("APPLY LOADOUT")
-        self._apply_loadout_btn.setFixedHeight(28)
-        self._apply_loadout_btn.setToolTip("Save and apply the current main and sub model loadout configuration")
-        self._apply_loadout_btn.clicked.connect(self._apply_model_loadout)
-        self._spawn_main_btn = QPushButton("SPAWN MAIN")
-        self._spawn_main_btn.setFixedHeight(28)
-        self._spawn_main_btn.setToolTip("Start the main model on the local runtime engine")
-        self._spawn_main_btn.clicked.connect(lambda: self._spawn_loadout_models(include_main=True, include_subs=False))
-        self._spawn_subs_btn = QPushButton("SPAWN SUBS")
-        self._spawn_subs_btn.setFixedHeight(28)
-        self._spawn_subs_btn.setToolTip("Start sub-agent models A and B on the local runtime engine")
-        self._spawn_subs_btn.clicked.connect(lambda: self._spawn_loadout_models(include_main=False, include_subs=True))
-        self._spawn_all_btn = QPushButton("SPAWN ALL")
-        self._spawn_all_btn.setFixedHeight(28)
-        self._spawn_all_btn.setToolTip("Start the main model and both sub-agent models on the local runtime engine")
-        self._spawn_all_btn.clicked.connect(lambda: self._spawn_loadout_models(include_main=True, include_subs=True))
-        loadout_buttons.addWidget(self._apply_loadout_btn)
-        loadout_buttons.addWidget(self._spawn_main_btn)
-        loadout_buttons.addWidget(self._spawn_subs_btn)
-        loadout_buttons.addWidget(self._spawn_all_btn)
-        loadout_buttons.addStretch()
-        loadout_layout.addLayout(loadout_buttons)
-
-        self._loadout_help_lbl = QLabel("")
-        self._loadout_help_lbl.setWordWrap(True)
-        self._loadout_help_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
-        loadout_layout.addWidget(self._loadout_help_lbl)
+        loadout_section = build_models_loadout_section(
+            loadout_fields=_LOADOUT_FIELDS,
+            on_loadout_changed=self._on_loadout_changed,
+            on_apply_loadout=self._apply_model_loadout,
+            on_spawn_main=lambda: self._spawn_loadout_models(include_main=True, include_subs=False),
+            on_spawn_subs=lambda: self._spawn_loadout_models(include_main=False, include_subs=True),
+            on_spawn_all=lambda: self._spawn_loadout_models(include_main=True, include_subs=True),
+        )
+        self._loadout_frame = loadout_section.frame
+        self._loadout_status_lbl = loadout_section.status_label
+        self._loadout_inputs = loadout_section.inputs
+        self._apply_loadout_btn = loadout_section.apply_button
+        self._spawn_main_btn = loadout_section.spawn_main_button
+        self._spawn_subs_btn = loadout_section.spawn_subs_button
+        self._spawn_all_btn = loadout_section.spawn_all_button
+        self._loadout_help_lbl = loadout_section.help_label
         library_shell.addWidget(self._loadout_frame)
         root.addWidget(self._library_summary_frame)
 
-        self._runtime_bar = QFrame()
-        self._runtime_bar.setStyleSheet(f"background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER};")
-        rtl = QVBoxLayout(self._runtime_bar)
-        rtl.setContentsMargins(28, 12, 28, 12)
-        rtl.setSpacing(8)
-        row = QHBoxLayout(); row.setSpacing(10)
-        row.addWidget(QLabel("LOCAL RUNTIME"))
-        self._runtime_backend_cb = QComboBox()
-        self._runtime_backend_cb.addItems(["OLLAMA", "LEMONADE"])
-        self._runtime_backend_cb.setFixedWidth(160)
-        self._runtime_backend_cb.currentTextChanged.connect(self._on_runtime_backend_changed)
-        row.addWidget(self._runtime_backend_cb)
-        row.addWidget(QLabel("LEMONADE ENDPOINT"))
-        self._lemonade_base_url_input = QLineEdit()
-        self._lemonade_base_url_input.setPlaceholderText(_DEFAULT_LEMONADE_BASE_URL)
-        self._lemonade_base_url_input.setMinimumWidth(280)
-        self._lemonade_base_url_input.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 6px 8px;")
-        self._save_runtime_btn = QPushButton("SAVE RUNTIME")
-        self._save_runtime_btn.setFixedHeight(28)
-        self._save_runtime_btn.setToolTip("Save current runtime settings including base URL and model role assignments")
-        self._save_runtime_btn.clicked.connect(self._save_runtime_settings)
-        row.addWidget(self._lemonade_base_url_input); row.addWidget(self._save_runtime_btn); row.addStretch()
-        rtl.addLayout(row)
-
-        grid = QGridLayout(); grid.setHorizontalSpacing(10); grid.setVerticalSpacing(8)
-        for index, (field_name, label_text) in enumerate(_LEMONADE_ROLE_FIELDS):
-            label = QLabel(label_text)
-            label.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
-            combo = QComboBox()
-            combo.setEditable(True)
-            combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-            combo.setMinimumWidth(220)
-            combo.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 4px 6px;")
-            combo.currentTextChanged.connect(lambda _=None, target_field=field_name: self._set_selected_runtime_role(target_field))
-            grid.addWidget(label, index // 3, (index % 3) * 2)
-            grid.addWidget(combo, index // 3, (index % 3) * 2 + 1)
-            self._lemonade_role_inputs[field_name] = combo
-        rtl.addLayout(grid)
-
-        self._runtime_library_frame = QFrame()
-        self._runtime_library_frame.setStyleSheet(f"background-color: {T.BG1}; border: 1px solid {T.BORDER};")
-        library_layout = QVBoxLayout(self._runtime_library_frame)
-        library_layout.setContentsMargins(10, 10, 10, 10)
-        library_layout.setSpacing(8)
-        library_hdr = QHBoxLayout()
-        self._runtime_library_title = QLabel("LEMONADE MODEL PICKER")
-        self._runtime_library_title.setStyleSheet(f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
-        self._runtime_library_target_lbl = QLabel("Assigning to FAST")
-        self._runtime_library_target_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
-        library_hdr.addWidget(self._runtime_library_title)
-        library_hdr.addStretch()
-        library_hdr.addWidget(self._runtime_library_target_lbl)
-        library_layout.addLayout(library_hdr)
-        self._runtime_library_search = QLineEdit()
-        self._runtime_library_search.setPlaceholderText("Search downloaded models...")
-        self._runtime_library_search.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG0}; border: 1px solid {T.BORDER}; padding: 6px 8px;")
-        self._runtime_library_search.textChanged.connect(lambda _=None: self._refresh_runtime_library())
-        library_layout.addWidget(self._runtime_library_search)
-        self._runtime_library_summary_lbl = QLabel("")
-        self._runtime_library_summary_lbl.setWordWrap(True)
-        self._runtime_library_summary_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
-        library_layout.addWidget(self._runtime_library_summary_lbl)
-        self._runtime_library_host = QWidget()
-        self._runtime_library_grid = QGridLayout(self._runtime_library_host)
-        self._runtime_library_grid.setContentsMargins(0, 0, 0, 0)
-        self._runtime_library_grid.setHorizontalSpacing(8)
-        self._runtime_library_grid.setVerticalSpacing(8)
-        library_layout.addWidget(self._runtime_library_host)
-        rtl.addWidget(self._runtime_library_frame)
-
-        self._runtime_summary_lbl = QLabel("")
-        self._runtime_summary_lbl.setWordWrap(True)
-        self._runtime_summary_lbl.setStyleSheet(f"color: {T.PRIMARY_DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;")
-        self._runtime_policy_lbl = QLabel("")
-        self._runtime_policy_lbl.setWordWrap(True)
-        self._runtime_policy_lbl.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;")
-        self._runtime_live_lbl = QLabel("Live lane evidence will appear here after the next /status poll.")
-        self._runtime_live_lbl.setWordWrap(True)
-        self._runtime_live_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;")
-        self._runtime_status_lbl = QLabel("Local runtime controls ready")
-        self._runtime_status_lbl.setWordWrap(True)
-        self._runtime_status_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
-        rtl.addWidget(self._runtime_summary_lbl); rtl.addWidget(self._runtime_policy_lbl); rtl.addWidget(self._runtime_live_lbl); rtl.addWidget(self._runtime_status_lbl)
+        runtime_section = build_models_runtime_section(
+            lemonade_role_fields=_LEMONADE_ROLE_FIELDS,
+            default_lemonade_base_url=_DEFAULT_LEMONADE_BASE_URL,
+            on_runtime_backend_changed=self._on_runtime_backend_changed,
+            on_save_runtime_settings=self._save_runtime_settings,
+            on_set_selected_runtime_role=self._set_selected_runtime_role,
+            on_refresh_runtime_library=self._refresh_runtime_library,
+        )
+        self._runtime_bar = runtime_section.frame
+        self._runtime_backend_cb = runtime_section.backend_combo
+        self._lemonade_base_url_input = runtime_section.lemonade_base_url_input
+        self._save_runtime_btn = runtime_section.save_button
+        self._lemonade_role_inputs = runtime_section.lemonade_role_inputs
+        self._runtime_library_frame = runtime_section.runtime_library_frame
+        self._runtime_library_title = runtime_section.runtime_library_title
+        self._runtime_library_target_lbl = runtime_section.runtime_library_target_label
+        self._runtime_library_search = runtime_section.runtime_library_search
+        self._runtime_library_summary_lbl = runtime_section.runtime_library_summary_label
+        self._runtime_library_host = runtime_section.runtime_library_host
+        self._runtime_library_grid = runtime_section.runtime_library_grid
+        self._runtime_summary_lbl = runtime_section.runtime_summary_label
+        self._runtime_policy_lbl = runtime_section.runtime_policy_label
+        self._runtime_live_lbl = runtime_section.runtime_live_label
+        self._runtime_status_lbl = runtime_section.runtime_status_label
         root.addWidget(self._runtime_bar)
 
         self._route_bar = QFrame()
@@ -1141,7 +897,7 @@ class ModelsView(QWidget):
             self._set_ops_status("Health check already running", ok=False)
             return
         self._set_ops_status("Checking provider and model health...", ok=True)
-        self._health_thread = _ModelHealthCheck(self._lemonade_base_url_input.text().strip(), self)
+        self._health_thread = ModelHealthCheckThread(self._lemonade_base_url_input.text().strip(), self)
         self._health_thread.finished.connect(self._on_health_checked)
         self._health_thread.start()
 
@@ -1162,7 +918,7 @@ class ModelsView(QWidget):
             return
         action = "download" if operation == "pull" else "uninstall"
         self._set_ops_status(f"Running {action} for {model_name}...", ok=True)
-        self._model_op_thread = _OllamaModelOp(operation, model_name, self)
+        self._model_op_thread = OllamaModelOpThread(operation, model_name, self)
         self._model_op_thread.finished.connect(self._on_model_op_finished)
         self._model_op_thread.start()
 
@@ -1273,7 +1029,7 @@ class ModelsView(QWidget):
             self._set_loadout_status("Spawn already running", ok=False)
             return
         self._set_loadout_status("Spawning selected models...", ok=True)
-        self._loadout_spawn_thread = _ModelWarmSpawn(deduped, self)
+        self._loadout_spawn_thread = ModelWarmSpawnThread(deduped, self)
         self._loadout_spawn_thread.finished.connect(self._on_spawn_finished)
         self._loadout_spawn_thread.start()
 
@@ -1324,7 +1080,7 @@ class ModelsView(QWidget):
     def _refresh(self) -> None:
         self._refresh_btn.setEnabled(False)
         self._refresh_btn.setText("FETCHING...")
-        self._fetch_thread = _LocalRuntimeFetch(self._local_runtime_backend, self._lemonade_base_url_input.text().strip(), self)
+        self._fetch_thread = LocalRuntimeFetchThread(self._local_runtime_backend, self._lemonade_base_url_input.text().strip(), self)
         self._fetch_thread.finished.connect(self._on_local_result)
         self._fetch_thread.start()
 

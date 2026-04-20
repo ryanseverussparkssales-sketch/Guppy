@@ -162,21 +162,21 @@ class _NavItem(QWidget):
         if active:
             # Glass warm-sand active state: SAND_1 background + teal left accent border
             self._btn.setStyleSheet(
-                f"QPushButton {{ background-color: {T.SAND_1}; color: {T.ACCENT_TEAL};"
+                f"QPushButton {{ background-color: {T.SAND_1}; color: {T.ACCENT_TEAL_TEXT};"
                 f" border: none; border-radius: 22px;"
-                f" border-left: 3px solid {T.ACCENT_TEAL};"
+                f" border-left: 3px solid {T.ACCENT_TEAL_TEXT};"
                 " font-family: 'Segoe UI Symbol';"
                 f" font-size: {T.FS_LABEL + 1}pt; font-weight: bold; }}"
             )
             self._label.setStyleSheet(
-                f"color: {T.ACCENT_TEAL}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
+                f"color: {T.ACCENT_TEAL_TEXT}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
             )
             return
         self._btn.setStyleSheet(
-            f"QPushButton {{ background-color: rgba(255,255,255,0.88); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.64);"
+            f"QPushButton {{ background-color: {T.SURFACE_ELEVATED_92}; color: {T.DIM}; border: 1px solid {T.BORDER_SOFT_68};"
             " border-radius: 22px; font-family: 'Segoe UI Symbol';"
             f" font-size: {T.FS_LABEL + 1}pt; font-weight: bold; }}"
-            f"QPushButton:hover {{ color: {T.TERTIARY}; border-color: {T.TERTIARY}; background-color: #ffffff; }}"
+            f"QPushButton:hover {{ color: {T.TERTIARY}; border-color: {T.TERTIARY}; background-color: {T.WHITE}; }}"
         )
         self._label.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
@@ -203,7 +203,7 @@ class Sidebar(QFrame):
         self.setFixedWidth(T.SIDEBAR_W)
         self.setObjectName("sidebar")
         self.setStyleSheet(
-            "QFrame#sidebar { background-color: rgba(255,253,248,0.86); border-right: 1px solid rgba(214,197,174,0.60); }"
+            f"QFrame#sidebar {{ background-color: {T.SURFACE_ELEVATED_92}; border-right: 1px solid {T.BORDER_SOFT_68}; }}"
         )
 
         root = QVBoxLayout(self)
@@ -222,7 +222,9 @@ class Sidebar(QFrame):
         self._deck = QLabel("GUPPY")
         self._deck.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self._deck.setStyleSheet(
-            f"color: rgba(255,255,255,0.88); font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;"
+            f"color: {T.TEXT_INVERSE_92}; background-color: rgba(22,32,43,0.28);"
+            f" border-radius: 9px; padding: 2px 8px; font-family: '{T.FF_MONO}';"
+            f" font-size: {T.FS_TINY}pt; letter-spacing: 2px;"
         )
         art_layout.addWidget(self._deck)
         root.addWidget(self._art_card)
@@ -231,7 +233,7 @@ class Sidebar(QFrame):
         self._g_mark = QLabel("G")
         self._g_mark.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self._g_mark.setStyleSheet(
-            f"color: {T.ACCENT_TEAL}; font-family: '{T.FONT_SERIF}', '{T.FF_HEAD}', serif;"
+            f"color: {T.ACCENT_TEAL_TEXT}; font-family: '{T.FONT_SERIF}', '{T.FF_HEAD}', serif;"
             " font-size: 28pt; font-weight: bold; padding: 4px 0 0 0;"
         )
         root.addWidget(self._g_mark)
@@ -256,9 +258,9 @@ class Sidebar(QFrame):
         self._collapse_btn = QPushButton("COLLAPSE")
         self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._collapse_btn.setStyleSheet(
-            f"QPushButton {{ background-color: rgba(255,255,255,0.88); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.64);"
+            f"QPushButton {{ background-color: {T.SURFACE_ELEVATED_88}; color: {T.DIM}; border: 1px solid {T.BORDER_SOFT_64};"
             f" border-radius: 12px; padding: 5px 9px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; }}"
-            f"QPushButton:hover {{ color: {T.TERTIARY}; border-color: {T.TERTIARY}; background-color: #ffffff; }}"
+            f"QPushButton:hover {{ color: {T.TERTIARY}; border-color: {T.TERTIARY}; background-color: {T.WHITE}; }}"
         )
         self._collapse_btn.clicked.connect(self.toggle_collapsed)
         root.addWidget(self._collapse_btn, alignment=Qt.AlignmentFlag.AlignHCenter)

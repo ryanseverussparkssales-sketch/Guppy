@@ -55,4 +55,7 @@ class LauncherNavChromeSmokeTests(unittest.TestCase):
 
         self.assertEqual(visible_nav, [])
         self.assertFalse(topbar._search.isVisible())
+        self.assertFalse(topbar._workspace_shell.isVisible())
+        self.assertFalse(topbar._summary_shell.isHidden())
+        self.assertEqual(topbar._launcher_summary_btn.text(), "CTX")
         self.assertIn("MAIN MODEL:", topbar._summary_primary_lbl.full_text())

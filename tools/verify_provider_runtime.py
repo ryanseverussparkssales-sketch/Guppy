@@ -69,6 +69,7 @@ def _build_validation_scope(*, smoke_enabled: bool) -> dict[str, object]:
             "provider library availability",
             "optional lightweight provider model-list smoke checks" if smoke_enabled else "lightweight provider model-list smoke checks skipped",
         ],
+        "live_provider_validation_included": bool(smoke_enabled),
         "real_device_coverage_included": False,
         "follow_up": [
             "Run real-device voice validation using docs/generated/VOICE_VALIDATION_MATRIX.md.",
@@ -144,12 +145,22 @@ def main() -> int:
     else:
         print("\n[3] Lightweight API smoke checks (skipped)")
 
+    missing_keys = [k for k, v in keys.items() if not v]
+    smoke_failed = any(not v.get("ok", False) for v in smoke_results.values())
+    libs_ready = all(v != "not-installed" for v in libs.values())
+    if not libs_ready or smoke_failed:
+        overall_state = "NOT_READY"
+    elif args.smoke:
+        overall_state = "READY"
+    else:
+        overall_state = "STRUCTURAL_READY"
     out = {
         "timestamp_utc": ts,
         "key_presence": keys,
         "libraries": libs,
         "smoke_results": smoke_results,
         "validation_scope": _build_validation_scope(smoke_enabled=args.smoke),
+        "overall_state": overall_state,
     }
 
     out_path = Path(args.snapshot_file)
@@ -165,15 +176,11 @@ def main() -> int:
             if text:
                 print(f"Follow-up: {text}")
 
-    missing_keys = [k for k, v in keys.items() if not v]
-    smoke_failed = any(not v.get("ok", False) for v in smoke_results.values())
-    # READY means runtime tooling is intact; key completeness is advisory.
-    ready = all(v != "not-installed" for v in libs.values()) and not smoke_failed
-    print("Overall:", "READY" if ready else "NOT READY")
+    print("Overall:", overall_state)
     if missing_keys:
         print("Missing keys (optional, provider-specific): " + ", ".join(missing_keys))
 
-    return 0 if ready else 1
+    return 0 if overall_state in {"READY", "STRUCTURAL_READY"} else 1
 
 
 if __name__ == "__main__":

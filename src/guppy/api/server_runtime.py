@@ -28,7 +28,6 @@ Security:
 import json
 import hashlib
 import importlib.util
-import inspect
 import logging
 import os
 import re
@@ -40,7 +39,7 @@ import time
 import asyncio
 import threading
 from datetime import datetime, timezone
-from functools import partial, wraps
+from functools import partial
 from typing import Optional, AsyncGenerator, Any, Dict, List
 from pathlib import Path
 from collections import Counter
@@ -282,6 +281,14 @@ from src.guppy.api.server_runtime_startup_support import (
     build_lifespan,
 )
 from src.guppy.api.server_runtime_auth_request_support import bind_auth_request_support
+from src.guppy.api.server_runtime_bindings import (
+    bind_owner,
+    bind_owner_async,
+    build_owner_binding_alias_map,
+    call_module_attr,
+    module_owner,
+)
+from src.guppy.api import server_runtime_path_support
 from src.guppy.api import (
     services_briefing,
     services_host,
@@ -380,158 +387,25 @@ _VOICE_TTS_BACKEND, _VOICE_STT_BACKEND, _VOICE_BACKEND_DETAILS = _detect_voice_b
 _api_metrics_lock = _runtime_state.api_metrics_lock
 _api_metrics = _runtime_state.api_metrics
 
-_CHAT_IDEMPOTENCY_TTL_SECONDS = max(
-    60.0,
-    float(os.environ.get("GUPPY_CHAT_IDEMPOTENCY_TTL_SECONDS", "300") or "300"),
+_module_owner = partial(module_owner, __name__)
+_call_module_attr = partial(call_module_attr, __name__)
+_bind_owner = partial(bind_owner, __name__)
+_bind_owner_async = partial(bind_owner_async, __name__)
+_apply_path_config = _bind_owner(server_runtime_path_support.apply_path_config)
+_set_path_config_for_tests = _bind_owner(server_runtime_path_support.set_path_config_for_tests)
+globals().update(
+    build_owner_binding_alias_map(
+        bind_owner=_bind_owner,
+        bind_owner_async=_bind_owner_async,
+        services_realtime_module=services_realtime,
+        services_ops_module=services_ops,
+        services_instances_module=services_instances,
+        services_host_module=services_host,
+        services_briefing_module=services_briefing,
+        services_runtime_module=services_runtime,
+    )
 )
-_chat_idempotency_lock = threading.Lock()
-_chat_idempotency_records: Dict[str, Dict[str, Any]] = {}
 
-
-def _apply_path_config(path_config: ServerPathConfig) -> ServerPathConfig:
-    global _path_config
-    global _runtime_dir, _config_dir, _instances_path, _connector_bindings_path
-    global _instance_state_path, _REPAIR_TOKEN_FILE, _ops_telemetry_db, _stream_jsonl_map
-    _path_config = path_config
-    _runtime_dir = path_config.runtime_dir
-    _config_dir = path_config.config_dir
-    _instances_path = path_config.instances_path
-    _connector_bindings_path = path_config.connector_bindings_path
-    _instance_state_path = path_config.instance_state_path
-    _REPAIR_TOKEN_FILE = path_config.repair_token_file
-    _ops_telemetry_db = path_config.ops_telemetry_db
-    _stream_jsonl_map = dict(path_config.stream_jsonl_map)
-    if "_server_context" in globals():
-        _server_context.paths = path_config
-    return path_config
-
-
-def _set_path_config_for_tests(
-    *,
-    config_dir: Path | None = None,
-    runtime_dir: Path | None = None,
-    instances_path: Path | None = None,
-    connector_bindings_path: Path | None = None,
-    instance_state_path: Path | None = None,
-    repair_token_file: Path | None = None,
-    ops_telemetry_db: Path | None = None,
-) -> ServerPathConfig:
-    current = _path_config
-    next_root_config = ServerPathConfig.from_roots(
-        Path(config_dir) if config_dir is not None else current.config_dir,
-        Path(runtime_dir) if runtime_dir is not None else current.runtime_dir,
-    )
-    next_config = next_root_config.clone_with(
-        instances_path=instances_path if instances_path is not None else next_root_config.instances_path,
-        connector_bindings_path=connector_bindings_path
-        if connector_bindings_path is not None
-        else next_root_config.connector_bindings_path,
-        instance_state_path=instance_state_path
-        if instance_state_path is not None
-        else next_root_config.instance_state_path,
-        repair_token_file=repair_token_file
-        if repair_token_file is not None
-        else next_root_config.repair_token_file,
-        ops_telemetry_db=ops_telemetry_db
-        if ops_telemetry_db is not None
-        else next_root_config.ops_telemetry_db,
-    )
-    return _apply_path_config(next_config)
-
-
-def _module_owner() -> Any:
-    return sys.modules[__name__]
-
-
-def _call_module_attr(name: str, *args, **kwargs):
-    return getattr(_module_owner(), name)(*args, **kwargs)
-
-
-def _bind_owner(func):
-    signature = None
-    try:
-        original = inspect.signature(func)
-        signature = original.replace(parameters=list(original.parameters.values())[1:])
-    except Exception:
-        signature = None
-
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        return func(_module_owner(), *args, **kwargs)
-
-    if signature is not None:
-        wrapper.__signature__ = signature
-    return wrapper
-
-
-def _bind_owner_async(func):
-    signature = None
-    try:
-        original = inspect.signature(func)
-        signature = original.replace(parameters=list(original.parameters.values())[1:])
-    except Exception:
-        signature = None
-
-    @wraps(func)
-    async def wrapper(*args, **kwargs):
-        return await func(_module_owner(), *args, **kwargs)
-
-    if signature is not None:
-        wrapper.__signature__ = signature
-    return wrapper
-
-
-_prune_chat_idempotency_records = services_realtime.prune_chat_idempotency_records
-_build_chat_request_fingerprint = services_realtime.build_chat_request_fingerprint
-_register_chat_idempotency_key = services_realtime.register_chat_idempotency_key
-_resolve_chat_idempotency_key = services_realtime.resolve_chat_idempotency_key
-_takeover_chat_idempotency_key = services_realtime.takeover_chat_idempotency_key
-_complete_chat_idempotency_key = services_realtime.complete_chat_idempotency_key
-_clear_chat_idempotency_key = services_realtime.clear_chat_idempotency_key
-_should_use_rich_chat_prompt_context = services_realtime.should_use_rich_chat_prompt_context
-_should_use_rich_prompt_context = services_realtime.should_use_rich_prompt_context
-_build_chat_system_prompt = _bind_owner(services_realtime.build_chat_system_prompt)
-_save_voice_upload_tempfile = _bind_owner_async(services_realtime.save_voice_upload_tempfile)
-_read_jsonl_tail = services_ops.read_jsonl_tail
-_ensure_m2_instance_scaffold = _bind_owner(services_instances.ensure_m2_instance_scaffold)
-_load_instances_config = _bind_owner(services_instances.load_instances_config)
-_load_instance_state = _bind_owner(services_instances.load_instance_state)
-_save_instance_state = _bind_owner(services_instances.save_instance_state)
-_save_instances_config = _bind_owner(services_instances.save_instances_config)
-_load_normalized_instance_bundle = _bind_owner(services_instances.load_normalized_instance_bundle)
-_instance_config_entry = services_instances.instance_config_entry
-_default_instance_state = services_instances.default_instance_state
-_instance_names = services_instances.instance_names
-_get_instance_entry = services_instances.get_instance_entry
-_get_active_instance_context = _bind_owner(services_instances.get_active_instance_context)
-_coerce_int = services_instances.coerce_int
-_normalize_instances_config = services_instances.normalize_instances_config
-_normalize_instance_state = services_instances.normalize_instance_state
-_upsert_instance_config = services_instances.upsert_instance_config
-_activate_instance_state = services_instances.activate_instance_state
-_instance_limits_payload = services_instances.instance_limits_payload
-_emit_integration_heartbeat = _bind_owner(services_host.emit_integration_heartbeat)
-_read_daemon_runtime_status = _bind_owner(services_host.read_daemon_runtime_status)
-_read_window_context = _bind_owner(services_host.read_window_context)
-_read_resource_envelope_status = _bind_owner(services_ops.read_resource_envelope_status)
-_parse_iso_ts = services_ops.parse_iso_ts
-_p95 = services_ops.p95
-_query_sqlite_telemetry = _bind_owner(services_ops.query_sqlite_telemetry)
-_query_jsonl_telemetry = _bind_owner(services_ops.query_jsonl_telemetry)
-_build_telemetry_report = services_ops.build_telemetry_report
-_latest_stress_report_path = _bind_owner(services_ops.latest_stress_report_path)
-_normalize_brief_text = services_briefing.normalize_brief_text
-_looks_like_brief_affirmation = services_briefing.looks_like_brief_affirmation
-_history_offered_morning_brief = services_briefing.history_offered_morning_brief
-_request_is_morning_brief = services_briefing.request_is_morning_brief
-_latest_daily_report_path = _bind_owner(services_briefing.latest_daily_report_path)
-_strip_markdown_prefix = services_briefing.strip_markdown_prefix
-_parse_markdown_sections = services_briefing.parse_markdown_sections
-_preview_markdown_section = services_briefing.preview_markdown_section
-_preview_plain_block = services_briefing.preview_plain_block
-_build_morning_brief_response = _bind_owner(services_briefing.build_morning_brief_response)
-_collect_runtime_bundle = _bind_owner(services_ops.collect_runtime_bundle)
-_do_repair_action = _bind_owner(services_ops.do_repair_action)
 _startup_support = bind_startup_support(
     bind_owner=_bind_owner,
     services_host_module=services_host,
@@ -602,35 +476,6 @@ _LOCAL_RUNTIME_WARM_TTL_SECONDS = float(os.environ.get("GUPPY_LOCAL_RUNTIME_WARM
 _LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS", "20.0"))
 _local_runtime_warm_cache = _runtime_state.local_runtime_warm_cache
 _local_runtime_warm_lock = _runtime_state.local_runtime_warm_lock
-
-
-_selected_local_runtime_backend = _bind_owner(services_runtime.selected_local_runtime_backend)
-_local_runtime_base_url = _bind_owner(services_runtime.local_runtime_base_url)
-_resolve_local_runtime_model = _bind_owner(services_runtime.resolve_local_runtime_model)
-_local_runtime_role_models = _bind_owner(services_runtime.local_runtime_role_models)
-_warm_ollama_chat_lane = _bind_owner(services_runtime.warm_ollama_chat_lane)
-_current_local_runtime_chat_model = _bind_owner(services_runtime.current_local_runtime_chat_model)
-_refresh_local_runtime_warm_status = _bind_owner(services_runtime.refresh_local_runtime_warm_status)
-_local_runtime_warm_cached_or_unknown = _bind_owner(services_runtime.local_runtime_warm_cached_or_unknown)
-_trigger_local_runtime_warm_refresh = _bind_owner(services_runtime.trigger_local_runtime_warm_refresh)
-_fetch_lemonade_model_ids = _bind_owner(services_runtime.fetch_lemonade_model_ids)
-_build_local_runtime_status = _bind_owner(services_runtime.build_local_runtime_status)
-_call_lemonade_chat = _bind_owner(services_runtime.call_lemonade_chat)
-_call_selected_local_runtime = _bind_owner(services_runtime.call_selected_local_runtime)
-_run_blocking = services_realtime.run_blocking
-_extract_text_from_anthropic_blocks = services_realtime.extract_text_from_anthropic_blocks
-_sanitize_chat_history = services_realtime.sanitize_chat_history
-_build_router_messages = services_realtime.build_router_messages
-_request_is_cacheable = _bind_owner(services_realtime.request_is_cacheable)
-_augment_system_with_history = services_realtime.augment_system_with_history
-_is_rate_limited_error = services_realtime.is_rate_limited_error
-_call_unified_inference = _bind_owner(services_realtime.call_unified_inference)
-_call_claude_with_tools = _bind_owner(services_realtime.call_claude_with_tools)
-_call_ollama_with_tools = _bind_owner(services_realtime.call_ollama_with_tools)
-_stream_chunks = services_realtime.stream_chunks
-_governance_summary_payload = _bind_owner(services_instances.governance_summary_payload)
-_workspace_connector_payload = _bind_owner(services_instances.workspace_connector_payload)
-_connector_inventory_payload = _bind_owner(services_instances.connector_inventory_payload)
 
 _server_context = ServerContext(
     app=app,

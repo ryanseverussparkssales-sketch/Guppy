@@ -76,8 +76,8 @@ class TopBar(QFrame):
         self.setFixedHeight(T.TOPBAR_H)
         self.setObjectName("topbar")
         self.setStyleSheet(
-            f"QFrame#topbar {{ background-color: rgba(255,253,248,0.94);"
-            f" border-bottom: 1px solid {T.ACCENT_TEAL}; }}"
+            f"QFrame#topbar {{ background: {T.GRADIENT_SAND};"
+            f" border-bottom: 1px solid {T.BORDER_STRONG}; }}"
         )
 
         row = QHBoxLayout(self)
@@ -130,8 +130,8 @@ class TopBar(QFrame):
         workspace_shell = QFrame()
         self._workspace_shell = workspace_shell
         workspace_shell.setStyleSheet(
-            "background-color: rgba(244,239,231,0.88);"
-            " border: 1px solid rgba(214,197,174,0.72);"
+            f"background-color: {T.SURFACE_ELEVATED_92};"
+            f" border: 1px solid {T.BORDER_SOFT_72};"
             " border-radius: 18px;"
         )
         workspace_row = QHBoxLayout(workspace_shell)
@@ -158,13 +158,14 @@ class TopBar(QFrame):
         workspace_row.addWidget(inst_lbl)
         workspace_row.addWidget(self._instance_cb)
         workspace_row.addWidget(self._workspace_nav_btn)
+        self._workspace_shell.setToolTip("Current session and workspace controls.")
         row.addWidget(workspace_shell)
 
         summary_shell = QFrame()
         self._summary_shell = summary_shell
         summary_shell.setStyleSheet(
-            "background-color: rgba(244,239,231,0.82);"
-            " border: 1px solid rgba(214,197,174,0.68);"
+            f"background-color: {T.SURFACE_ELEVATED_92};"
+            f" border: 1px solid {T.BORDER_SOFT_72};"
             " border-radius: 18px;"
         )
         summary_row = QHBoxLayout(summary_shell)
@@ -192,13 +193,14 @@ class TopBar(QFrame):
         self._launcher_summary_btn.setMinimumWidth(56)
         self._launcher_summary_btn.setFixedHeight(28)
         self._launcher_summary_btn.setStyleSheet(
-            f"QPushButton {{ background-color: rgba(244,239,231,0.90); color: {T.TEXT};"
-            f" border: 1px solid rgba(214,197,174,0.72); border-radius: 14px; padding: 5px 10px;"
+            f"QPushButton {{ background-color: {T.SURFACE_BASE_90}; color: {T.TEXT};"
+            f" border: 1px solid {T.BORDER_SOFT_72}; border-radius: 14px; padding: 5px 10px;"
             f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; text-align: center; }}"
-            f"QPushButton:hover {{ border-color: {T.TERTIARY}; color: {T.INK}; background-color: #ffffff; }}"
+            f"QPushButton:hover {{ border-color: {T.TERTIARY}; color: {T.INK}; background-color: {T.WHITE}; }}"
         )
         self._launcher_summary_btn.clicked.connect(self.launcher_context_requested.emit)
         summary_row.addWidget(self._launcher_summary_btn)
+        self._summary_shell.setToolTip("Main and support model summary for this session.")
         row.addWidget(summary_shell)
 
         self._search = QLineEdit()
@@ -216,12 +218,22 @@ class TopBar(QFrame):
         system_shell = QFrame()
         system_shell.setObjectName("topbar_system_shell")
         system_shell.setStyleSheet(
-            "QFrame#topbar_system_shell { background-color: rgba(244,239,231,0.72);"
-            " border: 1px solid rgba(214,197,174,0.62); border-radius: 18px; }"
+            f"QFrame#topbar_system_shell {{ background-color: {T.SURFACE_ELEVATED_88};"
+            f" border: 1px solid {T.BORDER_SOFT_68}; border-radius: 18px; }}"
         )
         system_row = QHBoxLayout(system_shell)
         system_row.setContentsMargins(4, 3, 4, 3)
         system_row.setSpacing(3)
+
+        self._runtime_chip = QLabel("STARTING")
+        self._runtime_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._runtime_chip.setMinimumWidth(72)
+        self._runtime_chip.setFixedHeight(26)
+        self._runtime_chip.setToolTip("Launcher is still collecting startup readiness and runtime health.")
+        self._runtime_chip.setAccessibleName("Launcher runtime status")
+        self._runtime_chip.setAccessibleDescription("Shows current launcher startup and runtime readiness")
+        self._apply_runtime_chip_style("info")
+        system_row.addWidget(self._runtime_chip)
 
         notif_wrap = QWidget()
         notif_wrap.setFixedSize(32, 32)
@@ -270,6 +282,20 @@ class TopBar(QFrame):
         self.set_instances(["guppy-primary"], active_instance="guppy-primary")
         self.set_launcher_summary("AUTO / GUPPY / LIGHT")
 
+    def _apply_runtime_chip_style(self, severity: str) -> None:
+        palette = {
+            "ok": (T.GREEN, "rgba(44,123,89,0.12)"),
+            "warn": (T.PRIMARY, "rgba(201,106,43,0.12)"),
+            "error": (T.ERROR, "rgba(183,73,66,0.12)"),
+            "info": (T.TERTIARY, "rgba(70,98,199,0.10)"),
+        }
+        text_color, bg_color = palette.get((severity or "info").strip().lower(), palette["info"])
+        self._runtime_chip.setStyleSheet(
+            f"color: {text_color}; background-color: {bg_color};"
+            f" border: 1px solid {T.BORDER_SOFT_68}; border-radius: 13px;"
+            f" padding: 0 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
+        )
+
     @staticmethod
     def _nav_style(active: bool) -> str:
         if active:
@@ -278,17 +304,17 @@ class TopBar(QFrame):
                 f" padding: 0 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; }}"
             )
         return (
-            f"QPushButton {{ background-color: rgba(244,239,231,0.0); color: {T.DIM}; border: none; border-radius: 16px;"
+            f"QPushButton {{ background-color: transparent; color: {T.DIM}; border: none; border-radius: 16px;"
             f" padding: 0 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; }}"
-            f"QPushButton:hover {{ color: {T.INK}; background-color: rgba(70,98,199,0.08); }}"
+            f"QPushButton:hover {{ color: {T.INK}; background-color: {T.HOVER_TERTIARY_SOFT}; }}"
         )
 
     @staticmethod
     def _icon_button_style(bg: str, color: str) -> str:
         return (
-            f"QPushButton {{ background-color: {bg}; color: {color}; border: 1px solid rgba(214,197,174,0.72);"
+            f"QPushButton {{ background-color: {bg}; color: {color}; border: 1px solid {T.BORDER_SOFT_72};"
             f" border-radius: 16px; font-size: 11pt; }}"
-            f"QPushButton:hover {{ border-color: {T.TERTIARY}; color: {T.TERTIARY}; background-color: #ffffff; }}"
+            f"QPushButton:hover {{ border-color: {T.TERTIARY}; color: {T.TERTIARY}; background-color: {T.WHITE}; }}"
         )
 
     def _on_nav(self, tab_index: int) -> None:
@@ -349,6 +375,14 @@ class TopBar(QFrame):
         self._notif_count = max(0, int(count or 0))
         self._notif_severity = (severity or "info").strip().lower() or "info"
         self._apply_notif_style()
+
+    def set_runtime_status(self, label: str, *, detail: str = "", severity: str = "info") -> None:
+        text = (label or "STATUS").strip().upper() or "STATUS"
+        tooltip = (detail or text).strip() or text
+        self._runtime_chip.setText(text)
+        self._runtime_chip.setToolTip(tooltip)
+        self._runtime_chip.setAccessibleDescription(tooltip)
+        self._apply_runtime_chip_style(severity)
 
     def _apply_notif_style(self) -> None:
         btn_color = T.TEXT
@@ -438,13 +472,17 @@ class TopBar(QFrame):
                 continue
             btn.setVisible(not tight and idx == self._active_tab_index)
 
-        self._session_lbl.setVisible(not ultra)
+        self._session_lbl.setVisible(not compact)
         self._instance_lbl.setVisible(not tight)
         self._instance_cb.setMaximumWidth(150 if not compact else 122)
+        self._workspace_shell.setVisible(not tight)
         self._workspace_nav_btn.setVisible(not ultra)
         self._workspace_nav_btn.setText("SPACES" if not tight else "OPEN")
         self._summary_secondary_lbl.setVisible(not ultra)
         self._launcher_summary_btn.setVisible(not tight)
+        self._launcher_summary_btn.setText("CHAT" if not compact else "CTX")
         self._search.setVisible(not tight)
         self._search.setMaximumWidth(210 if not compact else 158)
         self._search.setPlaceholderText("Search Home, files, and Library" if not compact else "Search")
+        self._runtime_chip.setMinimumWidth(72 if not tight else 58)
+        self._runtime_chip.setVisible(not ultra)

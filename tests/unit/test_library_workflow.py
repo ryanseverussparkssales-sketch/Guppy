@@ -151,6 +151,57 @@ class LibraryWorkflowControllerTests(unittest.TestCase):
         self.assertEqual(active_items[0]["source_label"], "Pinned note")
         self.assertEqual(assistant.input_text, "Use Review packet")
 
+    def test_handle_context_requested_saved_reply_note_uses_saved_reply_origin_and_body(self) -> None:
+        status_panel = _StatusPanel()
+        log_event = Mock()
+        controller, active_items, _ = self._build_controller(status_panel, log_event)
+
+        with patch(
+            "src.guppy.launcher_application.library_workflow.list_workspace_library_items",
+            return_value=[
+                {
+                    "title": "Review packet",
+                    "summary": "Line one of the saved reply note.\nLine two keeps the context going.",
+                    "metadata": {"source": "assistant_reply"},
+                    "item_path": "",
+                }
+            ],
+        ):
+            controller.handle_context_requested("Review packet", "", "note", "Use Review packet")
+
+        self.assertEqual(active_items[0]["origin"], "assistant_reply")
+        self.assertEqual(active_items[0]["source_label"], "Saved reply note")
+        self.assertIn("Line one of the saved reply note.", active_items[0]["detail"])
+
+    def test_handle_context_requested_resolves_duplicate_titles_by_library_item_id(self) -> None:
+        status_panel = _StatusPanel()
+        log_event = Mock()
+        controller, active_items, _ = self._build_controller(status_panel, log_event)
+
+        with patch(
+            "src.guppy.launcher_application.library_workflow.list_workspace_library_items",
+            return_value=[
+                {
+                    "id": 14,
+                    "title": "Review packet",
+                    "summary": "Wrong note body.",
+                    "metadata": {"source": "assistant_reply"},
+                    "item_path": "",
+                },
+                {
+                    "id": 42,
+                    "title": "Review packet",
+                    "summary": "Correct note body for the selected card.",
+                    "metadata": {"source": "assistant_reply"},
+                    "item_path": "",
+                },
+            ],
+        ):
+            controller.handle_context_requested("Review packet", "library-item://42", "note", "Use Review packet")
+
+        self.assertEqual(active_items[0]["origin"], "assistant_reply")
+        self.assertIn("Correct note body", active_items[0]["detail"])
+
     def test_handle_context_requested_marks_media_origin_and_label(self) -> None:
         status_panel = _StatusPanel()
         log_event = Mock()
@@ -166,6 +217,58 @@ class LibraryWorkflowControllerTests(unittest.TestCase):
         self.assertEqual(active_items[0]["origin"], "library_media")
         self.assertEqual(active_items[0]["source_label"], "Local video")
         self.assertIn("Walkthrough clip", assistant.background_event)
+
+    def test_handle_context_requested_saved_reply_artifact_uses_saved_output_origin(self) -> None:
+        status_panel = _StatusPanel()
+        log_event = Mock()
+        controller, active_items, _ = self._build_controller(status_panel, log_event)
+
+        with patch(
+            "src.guppy.launcher_application.library_workflow.list_workspace_library_items",
+            return_value=[
+                {
+                    "title": "Release review artifact",
+                    "summary": "Checklist and validation notes ready for the next pass.",
+                    "metadata": {"source": "assistant_reply_artifact"},
+                    "item_path": "C:/tmp/release-review.txt",
+                }
+            ],
+        ):
+            controller.handle_context_requested(
+                "Release review artifact",
+                "C:/tmp/release-review.txt",
+                "artifact",
+                "Use Release review artifact",
+            )
+
+        self.assertEqual(active_items[0]["origin"], "assistant_reply_artifact")
+        self.assertEqual(active_items[0]["source_label"], "Saved reply artifact")
+        self.assertIn("Checklist and validation notes ready", active_items[0]["detail"])
+
+    def test_handle_context_requested_root_file_uses_approved_root_detail(self) -> None:
+        status_panel = _StatusPanel()
+        log_event = Mock()
+        controller, active_items, _ = self._build_controller(status_panel, log_event)
+
+        with patch(
+            "src.guppy.launcher_application.library_workflow.list_approved_roots",
+            return_value=[
+                {
+                    "label": "Current Guppy repo",
+                    "root_path": str(Path.cwd()),
+                }
+            ],
+        ):
+            controller.handle_context_requested(
+                "README",
+                str(Path.cwd() / "docs" / "PROJECT_BRIEF.md"),
+                "study",
+                "Use PROJECT_BRIEF",
+            )
+
+        self.assertEqual(active_items[0]["origin"], "library_source")
+        self.assertEqual(active_items[0]["source_label"], "Current Guppy repo")
+        self.assertIn("docs/PROJECT_BRIEF.md", active_items[0]["detail"])
 
     def test_save_and_load_workspace_defaults_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as td:

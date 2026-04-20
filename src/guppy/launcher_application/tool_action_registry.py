@@ -195,10 +195,20 @@ def get_tool_starters() -> list[dict[str, str]]:
     ]
 
 
+def get_canonical_action_line(tool_key: str) -> str:
+    """Return the plain-language user action line for a tool."""
+    entry = get_action_for_tool(tool_key)
+    if entry is None:
+        key = (tool_key or "").strip().replace("_", " ")
+        return f'Say or type: "{key}"'
+    return f'Say or type: "{entry.command_hint}"'
+
+
 __all__ = [
     "ToolActionEntry",
     "TOOL_ACTION_REGISTRY",
     "get_action_for_tool",
+    "get_canonical_action_line",
     "get_home_starter_prompt",
     "get_tool_starters",
 ]

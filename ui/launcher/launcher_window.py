@@ -7,12 +7,10 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import sys
 import threading
 import time
-import uuid
 from queue import Empty, SimpleQueue
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,7 +21,6 @@ import src.guppy.launcher_application as launcher_app
 from src.guppy.launcher_application import (
     LauncherStateSnapshot,
     LibraryWorkflowController,
-    WindowsOpsExecutionKind,
     apply_connector_action_feedback,
     apply_library_payload,
     apply_workspace_instance_switch,
@@ -157,6 +154,7 @@ from src.guppy.launcher_application.launch_attempt_guard import (
     launch_attempt_recent,
     mark_launch_attempt,
 )
+from src.guppy.launcher_application.first_run_wizard import FirstRunWizard
 from src.guppy.launcher_application.status_poll import (
     build_launcher_status_poll_snapshot,
     fetch_api_status,
@@ -165,13 +163,22 @@ from src.guppy.launcher_application.launcher_shell_support import (
     QuickActionPlan,
     build_notification_badge_state,
     build_quick_action_plan,
+    build_runtime_badge_state,
+)
+from src.guppy.launcher_application.launcher_command_flow import (
+    build_shell_model_loadout_summary,
+    derive_topbar_model_context,
+    handle_assistant_command,
 )
 from src.guppy.launcher_application.windows_ops_coordination import (
     WindowsOpsStateRecord,
-    begin_windows_ops_chain,
     complete_windows_ops_terminal_recipe,
     persist_windows_ops_state,
-    progress_windows_ops_chain,
+)
+from src.guppy.launcher_application.windows_ops_request_flow import (
+    dispatch_windows_ops_request,
+    start_windows_ops_chain_request,
+    update_windows_ops_chain_request,
 )
 from src.guppy.launcher_application.tools_trace_adapter import LauncherToolsTraceAdapter
 
@@ -445,11 +452,17 @@ class LauncherWindow(QMainWindow):
         self._wire_signals()
         self._assistant_view.set_session_id(self._chat_session_id)
         self._topbar.set_launcher_summary("AUTO / GUPPY / LIGHT [EDIT]")
+        self._topbar.set_runtime_status(
+            "STARTING",
+            detail="Launcher is still collecting startup readiness and runtime health.",
+            severity="info",
+        )
         self._sidebar.set_collapsed(True)
         self._topbar.set_sidebar_collapsed(True)
         self._set_status_panel_visible(False)
         self._bootstrap_instance_switcher()
         self._refresh_personalization_state()
+        self._refresh_first_run_banner()
         self._sync_automation_test_state()
         QTimer.singleShot(0, self._apply_start_destination)
 
@@ -482,6 +495,7 @@ class LauncherWindow(QMainWindow):
         self._settings_view.settings_saved.connect(self._on_settings_saved)
         self._tools_view.tool_state_changed.connect(self._on_tool_state_changed)
         self._tools_view.tool_hint_requested.connect(self._on_tool_hint_requested)
+        self._tools_view.tool_management_requested.connect(self._on_tool_management_requested)
         self._tools_view.builder_task_requested.connect(self._on_builder_task_requested)
         self._status_panel.tool_requested.connect(self._on_tool_hint_requested)
         self._settings_hub_view.recovery_requested.connect(self._on_recovery_requested)
@@ -495,7 +509,7 @@ class LauncherWindow(QMainWindow):
         self._models_hub_view.bindings_changed.connect(self._on_voice_bindings_changed)
         self._topbar.search_submitted.connect(self._on_search)
         self._topbar.quick_action.connect(self._on_quick_action)
-        self._topbar.launcher_context_requested.connect(lambda: self._on_quick_action("workspaces"))
+        self._topbar.launcher_context_requested.connect(lambda: self._on_quick_action("toggle_drawer"))
         self._assistant_view.command_submitted.connect(self._on_assistant_command)
         self._assistant_view.starter_requested.connect(self._on_home_starter_requested)
         self._assistant_view.cancel_requested.connect(self._on_cancel_assistant_request)
@@ -510,6 +524,7 @@ class LauncherWindow(QMainWindow):
         self._assistant_view.active_context_default_requested.connect(self._on_library_context_default_requested)
         self._assistant_view.active_context_library_requested.connect(self._on_library_context_opened)
         self._assistant_view.active_context_remove_requested.connect(self._on_library_context_removed)
+        self._assistant_view.first_run_action_requested.connect(self._on_first_run_action_requested)
         self.assistant_event_queued.connect(self._drain_assistant_events)
         self.connector_action_event_queued.connect(self._drain_connector_action_events)
         self._assistant_view.chat_context_changed.connect(self._on_chat_context_changed)
@@ -763,6 +778,9 @@ class LauncherWindow(QMainWindow):
             latency=str(data.get("latency", "-") or "-"),
             last_query=str(data.get("last_query", "-") or "-"),
         )
+        self._settings_hub_view.set_daily_context_runtime(self._assistant_view._runtime_facts.text())
+        self._settings_hub_view.set_daily_context_route(self._assistant_view._route_facts.text())
+        self._sync_topbar_model_context(main_model=active_model_id)
 
         # Update agent cards
         guppy_load = poll_snapshot.guppy_load
@@ -779,6 +797,21 @@ class LauncherWindow(QMainWindow):
         )
         runtime_health = poll_snapshot.runtime_health
         self._runtime_health_snapshot = runtime_health
+        startup_summary = summarize_startup_readiness(
+            poll_snapshot.api_status.get("startup_readiness", {})
+        )
+        runtime_badge = build_runtime_badge_state(
+            api_status=poll_snapshot.api_status,
+            runtime_overall=runtime_health.overall,
+            startup_summary=startup_summary,
+            startup_first_poll_ok=self._startup_first_poll_ok,
+            startup_over_budget=bool(self._startup_over_budget),
+        )
+        self._topbar.set_runtime_status(
+            runtime_badge.label,
+            detail=runtime_badge.detail,
+            severity=runtime_badge.severity,
+        )
         self._models_hub_view.set_status_snapshot(poll_snapshot.api_status)
         self._settings_hub_view.set_status_snapshot(poll_snapshot.settings_status_snapshot)
         windows_snapshot = self._settings_hub_view.windows_ops_snapshot()
@@ -864,25 +897,14 @@ class LauncherWindow(QMainWindow):
         setter = getattr(self._topbar, "set_model_context", None)
         if not callable(setter):
             return
-
         route_text = str(getattr(self._assistant_view, "_route_facts", QLabel("")).text() if hasattr(self, "_assistant_view") else "")
-        using_match = re.search(r"\busing\s+([A-Za-z0-9._:/-]+)", route_text, flags=re.IGNORECASE)
-        backup_match = re.search(r"\bbackup\s+([A-Za-z0-9._:/-]+)", route_text, flags=re.IGNORECASE)
-        route_match = re.search(r"\bvia\s+([A-Za-z0-9._:/-]+)", route_text, flags=re.IGNORECASE)
-
-        runtime = self._runtime_health_snapshot.local_runtime
-        normalized_main = str(main_model or runtime.chat_model or runtime.model or "").strip()
-        normalized_support = str(support_model or (backup_match.group(1) if backup_match else "")).strip()
-        if not normalized_main and using_match is not None:
-            normalized_main = str(using_match.group(1) or "").strip()
-        backend = str(runtime.backend or "").strip().lower()
-        route_name = str(route_match.group(1) if route_match else "").strip().upper()
-
         setter(
-            main_model=normalized_main,
-            support_model=normalized_support,
-            backend=backend,
-            route=route_name,
+            **derive_topbar_model_context(
+                route_text=route_text,
+                runtime=self._runtime_health_snapshot.local_runtime,
+                main_model=main_model,
+                support_model=support_model,
+            )
         )
 
     @staticmethod
@@ -936,36 +958,11 @@ class LauncherWindow(QMainWindow):
         settings_payload: dict[str, object] | None = None,
         environment: dict[str, str] | None = None,
     ) -> str:
-        settings = settings_payload if isinstance(settings_payload, dict) else {}
-        env = environment if isinstance(environment, dict) else dict(os.environ)
-        backend = (
-            str(settings.get("local_runtime_backend", "") or "").strip()
-            or str(runtime_backend or "").strip()
-            or str(env.get("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama") or "ollama").strip()
-            or "ollama"
-        )
-        main_model = (
-            str(settings.get("local_main_model", "") or "").strip()
-            or str(env.get("GUPPY_MAIN_MODEL", "") or "").strip()
-            or str(active_model or "").strip()
-            or str(env.get("OLLAMA_MODEL", "") or "").strip()
-            or "unset"
-        )
-        sub_a_model = (
-            str(settings.get("local_sub_model_a", "") or "").strip()
-            or str(env.get("GUPPY_SUB_MODEL_A", "") or "").strip()
-            or str(env.get("GUPPY_LOCAL_FAST_MODEL", "") or "").strip()
-            or "unset"
-        )
-        sub_b_model = (
-            str(settings.get("local_sub_model_b", "") or "").strip()
-            or str(env.get("GUPPY_SUB_MODEL_B", "") or "").strip()
-            or str(env.get("GUPPY_LOCAL_CODE_MODEL", "") or "").strip()
-            or "unset"
-        )
-        return (
-            f"MODELS / {backend.upper()} / "
-            f"MAIN {main_model} / SUB A {sub_a_model} / SUB B {sub_b_model}"
+        return build_shell_model_loadout_summary(
+            active_model=active_model,
+            runtime_backend=runtime_backend,
+            settings_payload=settings_payload,
+            environment=environment,
         )
 
     def _sync_shell_model_summary(
@@ -1024,8 +1021,8 @@ class LauncherWindow(QMainWindow):
 
     def _toggle_status_panel(self) -> None:
         if self._stack.currentIndex() == _HOME_VIEW_INDEX:
-            self._home_drawer_open = False
-            self._set_status_panel_visible(False)
+            self._home_drawer_open = not self._home_drawer_open
+            self._set_status_panel_visible(self._home_drawer_open)
             return
         self._set_status_panel_visible(not self._status_panel.isVisible())
 
@@ -1265,6 +1262,49 @@ class LauncherWindow(QMainWindow):
 
     def _refresh_instance_views(self, *, load_logs: bool = False, force: bool = False) -> None:
         refresh_workspace_instance_views(self, load_logs=load_logs, force=force)
+        LauncherWindow._refresh_first_run_banner(self)
+
+    def _refresh_first_run_banner(self) -> None:
+        assistant = getattr(self, "_assistant_view", None)
+        if assistant is None or not hasattr(assistant, "set_first_run_status"):
+            return
+        wizard = FirstRunWizard(workspace_id=self._active_instance_name)
+        if wizard.should_skip():
+            assistant.set_first_run_status(visible=False)
+            return
+
+        checkpoint1 = wizard.state.get_status(1).value
+        checkpoint2 = wizard.state.get_status(2).value
+        checkpoint3 = wizard.state.get_status(3).value
+
+        if checkpoint1 != "passed":
+            summary = "Finish desktop install checks first."
+            detail = "Open Settings to review install readiness, accounts, logs, and setup guidance before deeper model work."
+        elif checkpoint2 != "passed":
+            summary = "Choose and verify a local model runtime next."
+            detail = "Open Models to confirm Ollama, LM Studio, or the local harness path, then come back here for a short test ask."
+        else:
+            summary = "Send one short test ask from Home to prove first success."
+            detail = "The final checkpoint only closes after a real request verifier path succeeds, so keep this step honest."
+
+        assistant.set_first_run_status(
+            visible=True,
+            summary=summary,
+            detail=detail,
+            install_status=checkpoint1,
+            model_status=checkpoint2,
+            request_status=checkpoint3,
+        )
+
+    def _on_first_run_action_requested(self, action: str) -> None:
+        target = (action or "").strip().lower()
+        if target == "settings":
+            self._on_tab_change(_SETTINGS_VIEW_INDEX)
+            self._set_daily_activity("First-run guidance opened Settings")
+            return
+        if target == "models":
+            self._on_tab_change(_MODELS_VIEW_INDEX)
+            self._set_daily_activity("First-run guidance opened Models")
 
     def _build_launcher_state_snapshot(
         self,
@@ -1701,56 +1741,10 @@ class LauncherWindow(QMainWindow):
             self._settings_hub_view.set_windows_snapshot(snapshot_getter())
 
     def _start_windows_ops_chain(self, action: str) -> None:
-        normalized = str(action or "").strip().lower()
-        steps = self._windows_ops_chain_steps(normalized)
-        self._active_windows_ops_chain = begin_windows_ops_chain(
-            normalized,
-            steps=steps,
-            changes=self._windows_ops_chain_changes(normalized),
-        )
+        start_windows_ops_chain_request(self, action)
 
     def _update_windows_ops_chain(self, action: str, *, ok: bool, summary: str) -> bool:
-        progress = progress_windows_ops_chain(
-            self._active_windows_ops_chain,
-            action,
-            ok=ok,
-            summary=summary,
-            guidance_builder=lambda parent_action, overall_ok: self._windows_ops_guidance(
-                parent_action,
-                ok=overall_ok,
-                phase="completed",
-            ),
-            artifacts=self._windows_ops_artifact_refs(
-                str(self._active_windows_ops_chain.get("action", "") or action).strip().lower(),
-                self._collect_windows_service_snapshot(),
-            ) if isinstance(self._active_windows_ops_chain, dict) else [],
-            receipt_path=self._windows_release_receipt_path(),
-            summary_path=self._windows_release_summary_path(),
-        )
-        if not progress.matched:
-            return False
-        self._active_windows_ops_chain = progress.next_chain
-        if not progress.completed or progress.state_record is None or progress.event_fields is None:
-            return True
-        record = progress.state_record
-        self._record_windows_ops_state(
-            record.action,
-            record.summary,
-            record.changes,
-            ok=record.ok,
-            event_id=record.event_id,
-            steps_completed=record.steps_completed,
-            steps_total=record.steps_total,
-            phase=record.phase,
-            next_step=record.next_step,
-            fix_target=record.fix_target,
-            docs_hint=record.docs_hint,
-            entry_point=record.entry_point,
-            artifacts=record.artifacts,
-        )
-        self._log_launcher_event("windows_ops_completed", **progress.event_fields)
-        self._active_windows_ops_chain = None
-        return True
+        return update_windows_ops_chain_request(self, action, ok=ok, summary=summary)
 
     def _on_terminal_recipe_finished(self, payload: dict) -> None:
         if not isinstance(payload, dict):
@@ -2111,6 +2105,36 @@ class LauncherWindow(QMainWindow):
             status=states.get(key, "unknown"),
         )
         self._refresh_tools_debug_surface()
+
+    def _on_tool_management_requested(self, payload: dict) -> None:
+        if not isinstance(payload, dict):
+            return
+        connector_id = str(payload.get("connector", "") or "").strip().lower()
+        provider = str(payload.get("provider", "") or "").strip().lower()
+        account_id = str(payload.get("account_id", "") or "").strip().lower()
+        tool_key = str(payload.get("tool", "") or "").strip().lower()
+        note = str(payload.get("note", "") or "").strip()
+        self._on_tab_change(_SETTINGS_VIEW_INDEX)
+        focus = getattr(self._settings_hub_view, "focus_connectors", None)
+        if callable(focus):
+            focus(
+                connector_id,
+                provider=provider,
+                account_id=account_id,
+                note=note,
+            )
+        summary = f"Settings owns connector setup for {tool_key or connector_id or 'this tool'}."
+        self._assistant_view.add_system_message(summary)
+        self._set_daily_activity(summary)
+        self._status_panel.append_syslog(f"tool management redirect: {tool_key or connector_id or 'unknown'}")
+        self._log_launcher_event(
+            "tool_management_redirected",
+            tool=tool_key,
+            connector=connector_id,
+            provider=provider,
+            account_id=account_id,
+            target=str(payload.get('destination', '') or 'settings_device_accounts'),
+        )
 
     @staticmethod
     def _tool_prompt_for_home(tool_key: str) -> str:
@@ -2948,168 +2972,7 @@ class LauncherWindow(QMainWindow):
         return str(plan.get("label", "") or ""), [str(item) for item in plan.get("commands", []) if str(item).strip()]
 
     def _on_windows_ops_requested(self, action: str) -> None:
-        descriptor = build_windows_ops_descriptor(action)
-        target = descriptor.action
-        plan = self._windows_ops_plan(target)
-        label = str(descriptor.label or plan.get("label", "") or "").strip()
-        changes = str(descriptor.changes or plan.get("changes", "") or "").strip()
-        if descriptor.execution_kind == WindowsOpsExecutionKind.TERMINAL_RECIPE:
-            commands = list(descriptor.commands)
-            if not commands:
-                self._status_panel.append_syslog(f"windows ops unavailable: {action}")
-                return
-            guidance = self._windows_ops_guidance(target, ok=True, phase="queued")
-            queued = self._settings_hub_view.queue_terminal_recipe(
-                commands,
-                label=label,
-                recipe_context={
-                    "kind": "windows_ops",
-                    "action": target,
-                    "changes": changes,
-                    "pre_snapshot": self._collect_windows_service_snapshot(),
-                },
-            )
-            if queued:
-                summary = str(descriptor.request_summary or f"{label.title()} queued in Settings terminal")
-                self._set_daily_activity(summary)
-                self._status_panel.append_syslog(str(descriptor.syslog_message or f"{label.lower()} queued"))
-                self._record_windows_ops_state(
-                    target,
-                    summary,
-                    changes,
-                    ok=True,
-                    commands=commands,
-                    phase="queued",
-                    next_step=str(guidance.get("next_step", "") or ""),
-                    fix_target=str(guidance.get("fix_target", "") or ""),
-                    docs_hint=str(guidance.get("docs_hint", "") or ""),
-                    entry_point=str(guidance.get("entry_point", "") or ""),
-                )
-                self._log_launcher_event(
-                    "windows_ops_action",
-                    action=target,
-                    queued=True,
-                    commands=len(commands),
-                    next_step=str(guidance.get("next_step", "") or ""),
-                    fix_target=str(guidance.get("fix_target", "") or ""),
-                )
-            else:
-                summary = f"{label.title()} failed to queue"
-                self._status_panel.append_syslog(f"{label.lower()} failed to queue")
-                failed_guidance = self._windows_ops_guidance(target, ok=False, phase="queue_failed")
-                self._record_windows_ops_state(
-                    target,
-                    summary,
-                    changes or "No update commands were queued.",
-                    ok=False,
-                    commands=commands,
-                    phase="queue_failed",
-                    next_step=str(failed_guidance.get("next_step", "") or ""),
-                    fix_target=str(failed_guidance.get("fix_target", "") or ""),
-                    docs_hint=str(failed_guidance.get("docs_hint", "") or ""),
-                    entry_point=str(failed_guidance.get("entry_point", "") or ""),
-                )
-                self._log_launcher_event(
-                    "windows_ops_action",
-                    action=target,
-                    queued=False,
-                    commands=len(commands),
-                    next_step=str(failed_guidance.get("next_step", "") or ""),
-                    fix_target=str(failed_guidance.get("fix_target", "") or ""),
-                )
-            return
-        if descriptor.execution_kind == WindowsOpsExecutionKind.SUBPROCESS and target == "start_supervised_api":
-            guidance = self._windows_ops_guidance(target, ok=True, phase="queued")
-            summary = str(descriptor.request_summary or "Supervised API launch requested from Settings")
-            self._status_panel.append_syslog(str(descriptor.syslog_message or "supervised api requested"))
-            self._set_daily_activity(summary)
-            self._record_windows_ops_state(
-                target,
-                summary,
-                changes,
-                ok=True,
-                phase="queued",
-                next_step=str(guidance.get("next_step", "") or ""),
-                fix_target=str(guidance.get("fix_target", "") or ""),
-                docs_hint=str(guidance.get("docs_hint", "") or ""),
-                entry_point=str(guidance.get("entry_point", "") or ""),
-            )
-            self._log_launcher_event(
-                "windows_ops_action",
-                action=target,
-                queued=True,
-                next_step=str(guidance.get("next_step", "") or ""),
-                fix_target=str(guidance.get("fix_target", "") or ""),
-            )
-            started, detail = self._start_supervised_api_subprocess()
-            if started:
-                self._refresh_api_auth_state("start_supervised_api")
-            final_guidance = self._windows_ops_guidance(target, ok=started, phase="completed")
-            final_summary = detail or ("supervised api started and reachable" if started else "supervised api did not become reachable")
-            artifacts = self._windows_ops_artifact_refs(target, self._collect_windows_service_snapshot())
-            event_id = LauncherWindow._default_windows_ops_event_id(target)
-            self._record_windows_ops_state(
-                target,
-                final_summary,
-                changes,
-                ok=started,
-                event_id=event_id,
-                phase="completed",
-                next_step=str(final_guidance.get("next_step", "") or ""),
-                fix_target=str(final_guidance.get("fix_target", "") or ""),
-                docs_hint=str(final_guidance.get("docs_hint", "") or ""),
-                entry_point=str(final_guidance.get("entry_point", "") or ""),
-                artifacts=artifacts,
-            )
-            self._log_launcher_event(
-                "windows_ops_completed",
-                action=target,
-                ok=started,
-                summary=final_summary,
-                event_id=event_id,
-                next_step=str(final_guidance.get("next_step", "") or ""),
-                fix_target=str(final_guidance.get("fix_target", "") or ""),
-                artifacts=artifacts,
-                release_receipt=str(self._windows_release_receipt_path()),
-                release_summary=str(self._windows_release_summary_path()),
-            )
-            self._status_panel.append_syslog(final_summary)
-            self._settings_hub_view.append_log(final_summary)
-            self._set_daily_activity(final_summary)
-            return
-        if descriptor.execution_kind == WindowsOpsExecutionKind.RECOVERY_CHAIN and target in {"restart_runtime", "repair_runtime"}:
-            summary = str(descriptor.request_summary or f"{label.title()} queued")
-            self._status_panel.append_syslog(str(descriptor.syslog_message or f"{label.lower()} requested"))
-            self._set_daily_activity(summary)
-            self._start_windows_ops_chain(target)
-            guidance = self._windows_ops_guidance(target, ok=True, phase="queued")
-            self._record_windows_ops_state(
-                target,
-                summary,
-                changes,
-                ok=True,
-                steps_completed=0,
-                steps_total=len(descriptor.chain_steps),
-                phase="queued",
-                next_step=str(guidance.get("next_step", "") or ""),
-                fix_target=str(guidance.get("fix_target", "") or ""),
-                docs_hint=str(guidance.get("docs_hint", "") or ""),
-                entry_point=str(guidance.get("entry_point", "") or ""),
-            )
-            self._log_launcher_event(
-                "windows_ops_action",
-                action=target,
-                queued=True,
-                next_step=str(guidance.get("next_step", "") or ""),
-                fix_target=str(guidance.get("fix_target", "") or ""),
-            )
-            for step in descriptor.chain_steps:
-                if step.delay_ms <= 0:
-                    self._on_recovery_requested(step.name)
-                else:
-                    QTimer.singleShot(step.delay_ms, lambda recovery_action=step.name: self._on_recovery_requested(recovery_action))
-            return
-        self._status_panel.append_syslog(f"windows ops unavailable: {action}")
+        dispatch_windows_ops_request(self, action, delayed_scheduler=QTimer.singleShot)
 
     def _on_home_starter_requested(self, starter_id: str, prompt: str) -> None:
         self._on_tab_change(0)
@@ -3119,266 +2982,14 @@ class LauncherWindow(QMainWindow):
         self._log_launcher_event("home_starter_loaded", starter_id=starter_id)
 
     def _on_assistant_command(self, command: str) -> None:
-        cmd = (command or "").strip()
-        if not cmd:
-            return
-        if getattr(self, "_request_in_flight", False):
-            add_assistant = getattr(self._assistant_view, "add_assistant_message", None)
-            if callable(add_assistant):
-                add_assistant("A request is already in progress. Please wait for it to finish.")
-            else:
-                self._assistant_view.add_system_message("A request is already in progress. Please wait for it to finish.")
-            return
-        selected_mode = self._assistant_view.selected_mode()
-        mode_ok, mode_err = self._validate_mode_ready(selected_mode)
-        if not mode_ok:
-            self._assistant_view.set_status("Ready")
-            add_assistant = getattr(self._assistant_view, "add_assistant_message", None)
-            if callable(add_assistant):
-                add_assistant(mode_err)
-            else:
-                self._assistant_view.add_system_message(mode_err)
-            self._status_panel.append_syslog(f"chat blocked: {mode_err}")
-            return
-
-        self._last_command = cmd
-        instance_name = getattr(self, "_active_instance_name", "guppy-primary") or "guppy-primary"
-        chat_context_getter = getattr(self._assistant_view, "chat_context", None)
-        selected_persona = "guppy"
-        if callable(chat_context_getter):
-            try:
-                _mode, selected_persona = chat_context_getter()
-            except Exception:
-                selected_persona = "guppy"
-        route_updater = getattr(self, "_update_route_preview", None)
-        if callable(route_updater):
-            route_updater(cmd)
-        # Increment before starting the worker so any in-flight response from
-        # a prior command carries a stale sequence number and is dropped.
-        self._active_request_seq += 1
-        req_seq = self._active_request_seq
-        self._request_in_flight = True
-        history_getter = getattr(self._assistant_view, "recent_history", None)
-        history = history_getter(limit=12) if callable(history_getter) else []
-        active_library_items = list(getattr(self, "_active_library_context_items", []))
-        library_submission = build_library_chat_submission(cmd, history, active_library_items)
-        request_message = library_submission.request_message
-        history = library_submission.history
-        idempotency_key = f"launcher-{uuid.uuid4().hex}"
-        if library_submission.context_notice:
-            note_context_submission = getattr(self._assistant_view, "note_active_context_submission", None)
-            if callable(note_context_submission):
-                note_context_submission(library_submission.context_notice)
-        self._assistant_view.add_user_message(cmd)
-        if _INSTANCE_LOGGER_AVAILABLE:
-            append_instance_log(
-                instance_name,
-                {
-                    "role": "user",
-                    "source_instance": instance_name,
-                    "message": cmd,
-                    "status": "submitted",
-                    "model": selected_mode,
-                },
-            )
-        set_in_flight = getattr(self._assistant_view, "set_request_in_flight", None)
-        if callable(set_in_flight):
-            set_in_flight(True)
-        self._assistant_view.set_status(library_submission.status_text)
-        if library_submission.background_event:
-            self._assistant_view.set_background_event(library_submission.background_event)
-        activity_setter = getattr(self, "_set_daily_activity", None)
-        if callable(activity_setter):
-            activity_setter(f"Working on: {cmd[:96]}")
-        self._status_panel.append_syslog("command queued")
-        self._log_launcher_event("command_submitted", command=cmd, seq=req_seq, idempotency_key=idempotency_key)
-        request_timeout = self._chat_timeout_for_request(selected_mode, cmd)
-        retry_timeout = max(request_timeout + 20.0, 60.0)
-
-        def _worker() -> None:
-            payload = {
-                "message": request_message,
-                "session_id": self._chat_session_id,
-                "mode": selected_mode,
-                "persona": selected_persona,
-                "history": history,
-                "idempotency_key": idempotency_key,
-            }
-            try:
-                recovered_before_chat = False
-                if not self._api_reachable(timeout=0.8):
-                    recovered, recovery_detail = self._ensure_api_reachable_for_command()
-                    recovered_before_chat = recovered
-                    self._log_launcher_event(
-                        "command_api_recovery",
-                        seq=req_seq,
-                        ok=recovered,
-                        detail=recovery_detail,
-                        idempotency_key=idempotency_key,
-                    )
-                    if not recovered:
-                        raise RuntimeError(recovery_detail or "Could not reach the local API service.")
-                primary_timeout = max(request_timeout, 30.0) if recovered_before_chat else request_timeout
-                try:
-                    resp = self._http_json(
-                        "/chat",
-                        method="POST",
-                        payload=payload,
-                        timeout=primary_timeout,
-                        retry_auth_on_401=True,
-                        auth_retry_reason="chat",
-                    )
-                except Exception as first_exc:
-                    first_text = str(first_exc)
-                    lowered = first_text.lower()
-                    if "timed out" in lowered and recovered_before_chat:
-                        self._log_launcher_event(
-                            "command_recovery_warmup_timeout",
-                            seq=req_seq,
-                            timeout_s=primary_timeout,
-                            idempotency_key=idempotency_key,
-                        )
-                        raise RuntimeError(
-                            "The local API restarted, but the first reply is still warming up. Please retry now."
-                        ) from first_exc
-                    if "timed out" in lowered and primary_timeout < retry_timeout:
-                        self._log_launcher_event(
-                            "command_timeout_retry",
-                            seq=req_seq,
-                            timeout_s=primary_timeout,
-                            retry_timeout_s=retry_timeout,
-                            idempotency_key=idempotency_key,
-                        )
-                        resp = self._http_json(
-                            "/chat",
-                            method="POST",
-                            payload=payload,
-                            timeout=retry_timeout,
-                            retry_auth_on_401=True,
-                            auth_retry_reason="chat_timeout_retry",
-                        )
-                    elif any(token in lowered for token in ("10061", "connection refused", "actively refused")):
-                        recovered, recovery_detail = self._ensure_api_reachable_for_command()
-                        self._log_launcher_event(
-                            "command_api_recovery",
-                            seq=req_seq,
-                            ok=recovered,
-                            detail=recovery_detail,
-                            phase="retry_after_refused",
-                            idempotency_key=idempotency_key,
-                        )
-                        if recovered:
-                            resp = self._http_json(
-                                "/chat",
-                                method="POST",
-                                payload=payload,
-                                timeout=retry_timeout,
-                                retry_auth_on_401=True,
-                                auth_retry_reason="chat_connection_retry",
-                            )
-                        else:
-                            raise
-                    else:
-                        raise
-                text = str(resp.get("response") or "").strip()
-                if not text:
-                    text = "No response payload received."
-                if _INSTANCE_LOGGER_AVAILABLE:
-                    append_instance_log(
-                        instance_name,
-                        {
-                            "role": "assistant",
-                            "source_instance": instance_name,
-                            "message": text,
-                            "status": "ok",
-                            "model": selected_mode,
-                        },
-                    )
-                self._assistant_events.put(("assistant", text, req_seq))
-                emitter = getattr(self, "assistant_event_queued", None)
-                if emitter is not None and hasattr(emitter, "emit"):
-                    emitter.emit()
-                self._log_launcher_event(
-                    "command_response",
-                    ok=True,
-                    chars=len(text),
-                    seq=req_seq,
-                    idempotency_key=idempotency_key,
-                )
-            except Exception as e:
-                err_text = str(e)
-                if self._is_unauthorized_error(err_text):
-                    auth_code = self._extract_error_code(err_text)
-                    self._log_launcher_event(
-                        "command_auth_error",
-                        seq=req_seq,
-                        auth_code=auth_code,
-                        error=err_text,
-                        idempotency_key=idempotency_key,
-                    )
-                    self._refresh_api_auth_state("chat_401")
-                    try:
-                        retry_resp = self._http_json(
-                            "/chat",
-                            method="POST",
-                            payload=payload,
-                            timeout=retry_timeout,
-                            retry_auth_on_401=True,
-                            auth_retry_reason="chat_retry",
-                        )
-                        retry_text = str(retry_resp.get("response") or "").strip()
-                        if not retry_text:
-                            retry_text = "No response payload received."
-                        if _INSTANCE_LOGGER_AVAILABLE:
-                            append_instance_log(
-                                instance_name,
-                                {
-                                    "role": "assistant",
-                                    "source_instance": instance_name,
-                                    "message": retry_text,
-                                    "status": "ok",
-                                    "model": selected_mode,
-                                },
-                            )
-                        self._assistant_events.put(("assistant", retry_text, req_seq))
-                        emitter = getattr(self, "assistant_event_queued", None)
-                        if emitter is not None and hasattr(emitter, "emit"):
-                            emitter.emit()
-                        self._log_launcher_event(
-                            "command_response",
-                            ok=True,
-                            chars=len(retry_text),
-                            seq=req_seq,
-                            retried_after_401=True,
-                            idempotency_key=idempotency_key,
-                        )
-                        return
-                    except Exception as retry_error:
-                        retry_auth_code = self._extract_error_code(str(retry_error))
-                        if retry_auth_code:
-                            self._log_launcher_event(
-                                "command_auth_error",
-                                seq=req_seq,
-                                auth_code=retry_auth_code,
-                                phase="retry",
-                                error=str(retry_error),
-                                idempotency_key=idempotency_key,
-                            )
-                        err_text = f"{err_text}; retry failed: {retry_error}"
-
-                self._assistant_events.put(("error", err_text, req_seq))
-                emitter = getattr(self, "assistant_event_queued", None)
-                if emitter is not None and hasattr(emitter, "emit"):
-                    emitter.emit()
-                self._log_launcher_event(
-                    "command_response",
-                    ok=False,
-                    error=err_text,
-                    seq=req_seq,
-                    idempotency_key=idempotency_key,
-                )
-
-        threading.Thread(target=_worker, daemon=True).start()
+        handle_assistant_command(
+            self,
+            command,
+            instance_logger_available=_INSTANCE_LOGGER_AVAILABLE,
+            instance_log_appender=append_instance_log,
+            library_chat_submission_builder=build_library_chat_submission,
+            thread_factory=threading.Thread,
+        )
 
     def _on_quick_action(self, action: str) -> None:
         plan = self._build_quick_action_plan(action)

@@ -19,6 +19,37 @@ from src.guppy.workspace_governance import (
     set_instance_tool_permission_policy,
 )
 
+_SETTINGS_REQUEST_SOURCES = {
+    "settings_device_accounts",
+    "settings_operations_panel",
+}
+
+
+def _settings_owned_request_source(payload: dict) -> tuple[bool, str]:
+    source = str(payload.get("request_source", "") or "").strip().lower()
+    if not source:
+        return False, "missing_request_source"
+    return source in _SETTINGS_REQUEST_SOURCES, source
+
+
+def _reject_non_settings_owned_request(owner, payload: dict, *, action: str) -> bool:
+    allowed, source = _settings_owned_request_source(payload)
+    if allowed:
+        return False
+    connector_id = str(payload.get("connector", "") or "").strip().lower()
+    message = "Connector setup and account actions only run from Settings > Device & Accounts."
+    owner._settings_hub_view.set_account_result(message, ok=False)
+    owner._settings_hub_view.append_log(f"connector action rejected: {connector_id or 'unknown'} {action} from {source}")
+    owner._status_panel.append_syslog(f"connector action rejected: {connector_id or 'unknown'} {action} from {source}")
+    owner._log_launcher_event(
+        "connector_action_rejected",
+        connector=connector_id,
+        action=action,
+        request_source=source,
+        reason="settings_owned_only",
+    )
+    return True
+
 
 def save_instance_governance(owner, payload: dict, *, backend_available: bool) -> None:
     name = str(payload.get("name", "")).strip()
@@ -270,10 +301,15 @@ def drain_connector_action_events(owner) -> None:
 
 
 def handle_connector_action_request(owner, payload: dict, *, backend_available: bool) -> None:
+    action = str(payload.get("action", "") or "").strip().lower()
+    if _reject_non_settings_owned_request(owner, payload, action=action):
+        return
     start_connector_action_async(owner, payload, refresh_after=True, backend_available=backend_available)
 
 
 def handle_connector_guided_link_request(owner, payload: dict, *, backend_available: bool) -> None:
+    if _reject_non_settings_owned_request(owner, payload, action="guided_link"):
+        return
     connector_id = str(payload.get("connector", "")).strip().lower()
     if not connector_id:
         owner._settings_hub_view.set_account_result("Choose a connector before saving details.", ok=False)

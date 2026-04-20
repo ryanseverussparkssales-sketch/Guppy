@@ -70,7 +70,7 @@ def build_launcher_status_poll_snapshot(
     }
     if data["last_query"] in {"", "—"} and fallback_last_query:
         data["last_query"] = fallback_last_query
-    data["status"] = str(api_payload.get("status", "healthy" if guppy_online else "degraded") or "unknown")
+    data["status"] = str(api_payload.get("status", "unknown") or "unknown")
 
     launcher_online = guppy_online or ("guppy" in {str(item).strip().lower() for item in embedded_online})
     background_summary = _background_summary(
@@ -86,7 +86,7 @@ def build_launcher_status_poll_snapshot(
     )
     settings_status_snapshot = build_runtime_health_view_payload(
         runtime_health,
-        status=str(data.get("status", "healthy") or "healthy"),
+        status=str(data.get("status", "unknown") or "unknown"),
         voice_binding=str(voice_summary or "").strip(),
         route_evidence=str(route_evidence or "").strip(),
     )
@@ -119,4 +119,4 @@ def _background_summary(
     )
     active_type = str((active_payload or {}).get("type", "user_instance") or "user_instance")
     role = workspace_role_label(active_type)
-    return f"{role.upper()} {'READY' if guppy_online else 'NEEDS ATTENTION'}"
+    return f"{role.upper()} {'ONLINE' if guppy_online else 'NEEDS ATTENTION'}"

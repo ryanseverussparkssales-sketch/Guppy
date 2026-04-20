@@ -172,25 +172,21 @@ failure does not crash the launcher; it surfaces in the gate report.
 The following security concerns are **not** covered by the current launch gate
 and are acknowledged as out-of-scope for this tranche:
 
-1. **Automated CVE scanning** — No CI step currently runs `pip-audit`,
-   `safety`, or `snyk` against the dependency tree.  Operators should run
-   `pip-audit` manually before a public release.
-
-2. **OAuth PKCE enforcement** — The Gmail and Calendar connectors use an OAuth
+1. **OAuth PKCE enforcement** — The Gmail and Calendar connectors use an OAuth
    flow that was not audited for PKCE compliance.  Connectors using implicit
    or auth-code flows without PKCE are vulnerable to authorization-code
    interception on localhost redirects.
 
-3. **Full penetration test** — No external penetration test has been conducted.
+2. **Full penetration test** — No external penetration test has been conducted.
    The threat model above is based on design-time analysis, not adversarial
    testing.
 
-4. **Rate-limit bypass via localhost** — The rate-limiter applies to all routes,
+3. **Rate-limit bypass via localhost** — The rate-limiter applies to all routes,
    but a local attacker with process-level access can trivially reset the
    in-memory rate-limit store.  This is a deliberate trade-off for a local-only
    app.
 
-5. **Repair token file exposure** — When the OS keyring is unavailable,
+4. **Repair token file exposure** — When the OS keyring is unavailable,
    `runtime/repair_token.txt` is written in plaintext.  The `build_posture`
    check does not flag this file by name.  Operators running in degraded
    keyring mode should be aware of this exposure.

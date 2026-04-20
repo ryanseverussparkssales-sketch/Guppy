@@ -182,6 +182,8 @@ def build_provider_row(
         if missing_fields
         else f"{provider_label} provider is not configured yet."
     )
+    storage_posture = str(status_payload.get("storage_posture", "none") or "none")
+    storage_warning = str(status_payload.get("storage_warning", "") or "").strip()
     verify_summary = str(verify_payload.get("summary", "") or "").strip()
     verify_checks = (
         [item for item in verify_payload.get("checks", []) if isinstance(item, dict)]
@@ -207,11 +209,15 @@ def build_provider_row(
         "verify_checks": verify_checks,
         "scope_detail": scope_detail,
         "source": str(status_payload.get("source", "none") or "none"),
+        "storage_posture": storage_posture,
+        "storage_warning": storage_warning,
         "scope_label": scope_label,
         "endpoint_prefixes": endpoint_prefixes,
         "actions": actions,
         "connector": connector_id,
     }
+    if storage_warning:
+        payload["auth_detail"] = f"{payload['auth_detail']} {storage_warning}".strip()
     payload.update(build_provider_guidance(payload))
     return payload
 
@@ -268,6 +274,11 @@ def _build_provider_family_status(
         if selected_row
         else merge_secret_sources([str(row.get("source", "")) for row in ready_rows])
     )
+    storage_warning = (
+        str(selected_row.get("storage_warning", "") or "").strip()
+        if selected_row
+        else ""
+    )
     if connector_id == "crm":
         selected_label = str(selected_row.get("label", "") or "").strip()
         auth_detail = (
@@ -291,6 +302,8 @@ def _build_provider_family_status(
         )
         summary = "VoIP bindings can pin a calling provider and restrict call endpoint scope."
         action_ids = ["call"]
+    if storage_warning:
+        auth_detail = f"{auth_detail} {storage_warning}".strip()
     spec = connector_spec(connector_id)
     return {
         "auth_state": auth_state,

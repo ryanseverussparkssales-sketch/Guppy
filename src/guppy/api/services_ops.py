@@ -18,14 +18,19 @@ def read_jsonl_tail(path: Path, limit: int = 50) -> list[dict[str, Any]]:
     return _read_jsonl_tail(path, limit=limit)
 
 
-def read_resource_envelope_status(owner: Any) -> dict[str, Any]:
+def read_resource_envelope_status(
+    owner: Any,
+    *,
+    missing_message: str = "resource envelope status file missing",
+    unavailable_message: str = "resource envelope status unavailable",
+) -> dict[str, Any]:
     path = owner._path_config.runtime_dir / "resource_envelope.status.json"
     if not path.exists():
-        return {"state": "unknown", "message": "resource envelope status file missing"}
+        return {"state": "unknown", "message": missing_message}
     payload = _read_json_dict(path)
     if payload:
         return payload
-    return {"state": "unknown", "message": "resource envelope status unavailable"}
+    return {"state": "unknown", "message": unavailable_message}
 
 
 def parse_iso_ts(ts_value: Any) -> datetime | None:
@@ -239,11 +244,20 @@ def build_telemetry_report(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def latest_stress_report_path(owner: Any) -> Path | None:
-    reports_dir = owner._path_config.runtime_dir / "stress_reports"
-    if not reports_dir.exists():
+    runtime_dir = owner._path_config.runtime_dir
+    candidates: list[Path] = []
+
+    reports_dir = runtime_dir / "stress_reports"
+    if reports_dir.exists():
+        candidates.extend(reports_dir.glob("*.json"))
+
+    # Legacy snapshot compatibility: historical naming in runtime root.
+    candidates.extend(runtime_dir.glob("stress_report_*.json"))
+
+    if not candidates:
         return None
-    reports = sorted(reports_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return reports[0] if reports else None
+    reports = sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)
+    return reports[0]
 
 
 def collect_runtime_bundle(owner: Any) -> dict[str, Any]:
@@ -291,7 +305,27 @@ def do_repair_action(owner: Any, action: str, dry_run: bool) -> dict[str, Any]:
         return {"ok": True, "summary": "startup readiness refreshed; status cache invalidated"}
 
     if act == "restart_daemon":
-        return owner._restart_managed_daemon(dry_run=dry_run)
+        restart_daemon = getattr(owner, "_restart_managed_daemon", None)
+        if callable(restart_daemon):
+            return restart_daemon(dry_run=dry_run)
+
+        daemon_available = bool(getattr(owner, "GUPPY_DAEMON_AVAILABLE", False))
+        get_daemon_manager = getattr(owner, "get_daemon_manager", None)
+        if not daemon_available or not callable(get_daemon_manager):
+            return {"ok": False, "summary": "daemon module unavailable"}
+        daemon = get_daemon_manager()
+        if daemon is None:
+            return {"ok": False, "summary": "daemon manager unavailable"}
+        if dry_run:
+            return {
+                "ok": True,
+                "summary": "dry-run restart: would stop then start daemon manager",
+            }
+        if hasattr(daemon, "stop"):
+            daemon.stop()
+        if hasattr(daemon, "start"):
+            daemon.start()
+        return {"ok": True, "summary": "daemon manager restarted"}
 
     if act == "audit_runtime":
         bundle = collect_runtime_bundle(owner)
@@ -318,7 +352,12 @@ def do_repair_action(owner: Any, action: str, dry_run: bool) -> dict[str, Any]:
 
 def require_repair_token(owner: Any, request: Request) -> None:
     provided = (request.headers.get("X-Repair-Token") or "").strip()
-    expected = owner._read_repair_token(allow_persistent_fallback=False)
+    expected = ""
+    read_repair_token = getattr(owner, "_read_repair_token", None)
+    if callable(read_repair_token):
+        expected = str(read_repair_token(allow_persistent_fallback=False) or "").strip()
+    if not expected:
+        expected = str(getattr(owner, "_REPAIR_TOKEN", "") or "").strip()
 
     if not expected:
         owner.log_session_event(

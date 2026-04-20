@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -91,6 +92,8 @@ class SettingsOperationsPanel(QWidget):
         self._connector_inventory: list[dict[str, object]] = []
         self._detail_frames: list[QFrame] = []
         self._detail_widgets: list[QWidget] = []
+        self._quick_fix_buttons: dict[str, QPushButton] = {}
+        self._windows_action_buttons: dict[str, QPushButton] = {}
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -146,7 +149,8 @@ class SettingsOperationsPanel(QWidget):
         info_row.addWidget(dot)
         info_row.addWidget(_mono("SETTINGS + RECOVERY", T.PRIMARY, T.FS_TINY, True))
         info_row.addSpacing(12)
-        info_row.addWidget(_mono("SYSTEM HEALTH / CONNECTORS / AUTOMATION / DESKTOP RUNTIME", T.DIM, T.FS_TINY))
+        self._header_scope_lbl = _mono("SYSTEM HEALTH / CONNECTORS / AUTOMATION / DESKTOP RUNTIME", T.DIM, T.FS_TINY)
+        info_row.addWidget(self._header_scope_lbl)
         info_row.addStretch()
         header_layout.addLayout(info_row)
         subtitle = _mono(
@@ -221,12 +225,21 @@ class SettingsOperationsPanel(QWidget):
             ("AUDIT RUNTIME", "audit_runtime", T.SECONDARY),
         ]:
             btn = QPushButton(label)
+            btn.setToolTip(
+                {
+                    "health_snapshot": "Refresh launcher health and readiness details.",
+                    "warmup": "Run the safe warmup flow for the runtime.",
+                    "restart_daemon": "Restart the background runtime process when it is stuck.",
+                    "audit_runtime": "Run a deeper runtime audit and capture findings.",
+                }[action]
+            )
             btn.setStyleSheet(
                 f"QPushButton {{ background: {T.BG0}; color: {accent}; border: 1px solid {accent};"
                 f" padding: 5px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
                 f"QPushButton:hover {{ background: {accent}; color: {T.BG}; }}"
             )
             btn.clicked.connect(lambda _=False, a=action: self.recovery_requested.emit(a))
+            self._quick_fix_buttons[action] = btn
             action_row.addWidget(btn)
         action_row.addStretch()
         actions_layout.addLayout(action_row)
@@ -298,12 +311,24 @@ class SettingsOperationsPanel(QWidget):
             ("REPAIR", "repair_runtime", T.SECONDARY),
         ]:
             btn = QPushButton(label)
+            btn.setToolTip(
+                {
+                    "verify_runtime": "Check local runtime health and refresh launcher evidence.",
+                    "update_runtime": "Refresh or install the local runtime dependencies.",
+                    "package_desktop": "Run the packaging flow for a desktop build.",
+                    "release_dry_run": "Run the release-ready validation flow without shipping.",
+                    "start_supervised_api": "Start the local API through the launcher-controlled path.",
+                    "restart_runtime": "Restart the local runtime when it needs recovery.",
+                    "repair_runtime": "Run the repair flow for local runtime issues.",
+                }[action]
+            )
             btn.setStyleSheet(
                 f"QPushButton {{ background: {T.BG0}; color: {accent}; border: 1px solid {accent};"
                 f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
                 f"QPushButton:hover {{ background: {accent}; color: {T.BG}; }}"
             )
             btn.clicked.connect(lambda _=False, a=action: self.windows_ops_requested.emit(a))
+            self._windows_action_buttons[action] = btn
             windows_actions.addWidget(btn)
             if action in {"update_runtime", "package_desktop", "release_dry_run", "restart_runtime"}:
                 self._windows_detail_buttons.append(btn)
@@ -385,6 +410,16 @@ class SettingsOperationsPanel(QWidget):
             ("CLEAR SECRET", "clear_secret", T.ERROR),
         ]:
             btn = QPushButton(label)
+            btn.setToolTip(
+                {
+                    "verify": "Verify the selected service with the current account or key.",
+                    "connect": "Open the sign-in or connect flow for the selected service.",
+                    "reconnect": "Retry sign-in for the selected service.",
+                    "disconnect": "Remove the current linked account from this machine.",
+                    "save_secret": "Save the current key or secret value for this service.",
+                    "clear_secret": "Remove the saved key or secret value for this service.",
+                }[action]
+            )
             btn.setStyleSheet(
                 f"QPushButton {{ background: {T.BG0}; color: {accent}; border: 1px solid {accent};"
                 f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
@@ -424,6 +459,7 @@ class SettingsOperationsPanel(QWidget):
         self._detail_frames.append(self._connectors_frame)
 
         self._automation_frame = QFrame()
+        self._automation_frame.setToolTip("Use this guided check flow to verify readiness, review one safe builder draft, and run focused validation.")
         self._automation_frame.setStyleSheet(
             f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}"
         )
@@ -542,8 +578,10 @@ class SettingsOperationsPanel(QWidget):
         workflow_row.addWidget(self._workflow_cb, stretch=1)
 
         self._workflow_load_btn = QPushButton("LOAD FIRST CMD")
+        self._workflow_load_btn.setToolTip("Load the first command from the selected workflow into the embedded terminal.")
         self._workflow_load_btn.clicked.connect(self._load_workflow_recipe)
         self._workflow_run_btn = QPushButton("RUN ALL")
+        self._workflow_run_btn.setToolTip("Queue the full selected workflow in the embedded terminal.")
         self._workflow_run_btn.clicked.connect(self._run_workflow_recipe)
         for button in (self._workflow_load_btn, self._workflow_run_btn):
             button.setStyleSheet(
@@ -647,10 +685,13 @@ class SettingsOperationsPanel(QWidget):
         terminal_input_row.addWidget(self._terminal_input, stretch=1)
 
         self._terminal_run_btn = QPushButton("RUN")
+        self._terminal_run_btn.setToolTip("Run the current PowerShell command in the embedded terminal.")
         self._terminal_run_btn.clicked.connect(self._submit_terminal_command)
         self._terminal_clear_btn = QPushButton("CLEAR")
+        self._terminal_clear_btn.setToolTip("Clear the terminal output pane.")
         self._terminal_clear_btn.clicked.connect(self._terminal_output.clear)
         self._terminal_stop_btn = QPushButton("STOP")
+        self._terminal_stop_btn.setToolTip("Stop the currently running terminal command.")
         self._terminal_stop_btn.clicked.connect(self._stop_terminal_process)
         for button in (self._terminal_run_btn, self._terminal_clear_btn, self._terminal_stop_btn):
             button.setStyleSheet(
@@ -699,6 +740,56 @@ class SettingsOperationsPanel(QWidget):
         )
         self._sync_detail_visibility()
 
+    def showEvent(self, event: QShowEvent) -> None:  # type: ignore[override]
+        super().showEvent(event)
+        self._apply_density_mode(self.width())
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        if self.isVisible():
+            self._apply_density_mode(event.size().width())
+
+    def _apply_density_mode(self, width: int) -> None:
+        compact = width <= 1180
+        tight = width <= 980
+        self._header_scope_lbl.setVisible(not tight)
+        self._details_btn.setText(
+            "LESS ADVANCED" if self._details_visible and not tight else
+            "LESS" if self._details_visible else
+            "ADVANCED" if not tight else
+            "DETAILS"
+        )
+        self._automation_summary_lbl.setVisible(not tight)
+        self._workflow_evidence_lbl.setVisible(not tight)
+        self._terminal_input.setPlaceholderText(
+            "Enter a PowerShell command"
+            if tight
+            else "Enter a PowerShell command to run inside the launcher terminal"
+        )
+        for action, text in {
+            "health_snapshot": "SNAPSHOT",
+            "warmup": "WARMUP",
+            "restart_daemon": "RESTART" if compact else "RESTART DAEMON",
+            "audit_runtime": "AUDIT" if compact else "AUDIT RUNTIME",
+        }.items():
+            self._quick_fix_buttons[action].setText(text)
+        for action, text in {
+            "release_dry_run": "DRY RUN" if compact else "RELEASE DRY RUN",
+            "start_supervised_api": "START" if tight else "START API",
+        }.items():
+            self._windows_action_buttons[action].setText(text)
+        for action, text in {
+            "verify_now": "VERIFY" if tight else "VERIFY NOW",
+            "switch_builder_workspace": "BUILDER" if tight else "SWITCH TO BUILDER WORKSPACE",
+            "queue_dry_run": "DRY RUN",
+            "open_latest_report": "REFRESH" if tight else "REFRESH EVIDENCE PACK",
+            "approve_latest_staged_task": "APPROVE" if tight else "APPROVE LATEST STAGED TASK",
+            "run_validation": "VALIDATE" if tight else "RUN VALIDATION",
+        }.items():
+            self._automation_action_buttons[action].setText(text)
+        self._workflow_load_btn.setText("LOAD" if compact else "LOAD FIRST CMD")
+        self._workflow_run_btn.setText("RUN" if compact else "RUN ALL")
+
     def _toggle_details(self) -> None:
         self._details_visible = not self._details_visible
         self._sync_detail_visibility()
@@ -716,6 +807,8 @@ class SettingsOperationsPanel(QWidget):
             if self._details_visible
             else "Show deeper diagnostics, connectors, and terminal lanes"
         )
+        if self.isVisible():
+            self._apply_density_mode(self.width())
 
     def append_log(self, line: str) -> None:
         current = self._syslog.toPlainText().splitlines()

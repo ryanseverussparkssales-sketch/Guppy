@@ -25,9 +25,36 @@ def secret_ready(value: str) -> bool:
     return not any(tok in low for tok in placeholder_tokens)
 
 
+def _is_ready_state(state: str) -> bool:
+    return str(state or "").strip().upper() in {"READY", "OPTIONAL", "SKIPPED"}
+
+
+def _aggregate_required_states(states: list[str]) -> str:
+    normalized = [str(state or "").strip().upper() for state in states if str(state or "").strip()]
+    if not normalized or any(state in {"UNKNOWN"} for state in normalized):
+        return "UNKNOWN"
+    if any(state == "MISSING" for state in normalized):
+        return "MISSING"
+    if any(state == "PARTIAL" for state in normalized):
+        return "PARTIAL"
+    if all(_is_ready_state(state) for state in normalized):
+        return "READY"
+    return "PARTIAL"
+
+
+def _runtime_health_label(overall: str) -> str:
+    normalized = str(overall or "").strip().upper()
+    if normalized == "READY":
+        return "healthy"
+    if normalized in {"PARTIAL", "UNKNOWN"}:
+        return "degraded"
+    return "error"
+
+
 def build_startup_readiness_payload(owner: Any) -> dict:
     jwt_ready = secret_ready(owner.os.environ.get("GUPPY_JWT_SECRET", ""))
     turnstile_ready = secret_ready(owner.os.environ.get("TURNSTILE_SECRET", ""))
+    selected_backend = owner._selected_local_runtime_backend()
     local_runtime = owner._build_local_runtime_status()
     local_runtime_ready_for_chat = bool(local_runtime.get("chat_ready", False))
 
@@ -39,10 +66,14 @@ def build_startup_readiness_payload(owner: Any) -> dict:
     else:
         auth_detail = "missing one or more strict auth secrets"
 
-    ollama_state = "MISSING"
-    ollama_detail = "Guppy core unavailable"
+    ollama_state = "SKIPPED" if selected_backend != "ollama" else "MISSING"
+    ollama_detail = (
+        f"Ollama check skipped because {selected_backend} is the selected local runtime"
+        if selected_backend != "ollama"
+        else "Guppy core unavailable"
+    )
     ollama_model = (owner.os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()
-    if owner.GUPPY_CORE_AVAILABLE:
+    if selected_backend == "ollama" and owner.GUPPY_CORE_AVAILABLE:
         try:
             ok, err = owner.core.check_ollama(ollama_model)
             ollama_state = "READY" if ok else "MISSING"
@@ -51,26 +82,37 @@ def build_startup_readiness_payload(owner: Any) -> dict:
             ollama_state = "MISSING"
             ollama_detail = str(exc)
 
-    voice_state = "MISSING"
-    voice_detail = "voice module unavailable"
+    voice_state = "OPTIONAL"
+    voice_detail = "voice features are optional and no voice runtime is configured"
     voice_status = {
         "tts_backend": "unknown",
         "stt_backend": "unknown",
         "wake_backend": "idle",
     }
     if owner.GUPPY_VOICE_AVAILABLE:
-        voice_state = "PARTIAL"
-        voice_detail = "voice module available (detailed backend status in /status)"
+        voice_status = {
+            "tts_backend": str(owner._VOICE_TTS_BACKEND or "unknown"),
+            "stt_backend": str(owner._VOICE_STT_BACKEND or "unknown"),
+            "wake_backend": "idle",
+        }
+        voice_backends = {voice_status["tts_backend"].lower(), voice_status["stt_backend"].lower()}
+        ready_backends = {backend for backend in voice_backends if backend not in {"", "none", "unknown"}}
+        voice_state = "READY" if len(ready_backends) >= 2 else "PARTIAL" if ready_backends else "OPTIONAL"
+        voice_detail = (
+            "voice backends configured"
+            if voice_state == "READY"
+            else "voice module available but one or more voice backends still need setup"
+        )
 
     daemon_status = owner._read_daemon_runtime_status()
     daemon_state = str(daemon_status.get("state", "UNKNOWN") or "UNKNOWN")
     daemon_detail = str(daemon_status.get("detail", "") or "daemon runtime unavailable")
 
-    memory_state = "READY" if owner.GUPPY_MEMORY_AVAILABLE else "MISSING"
+    memory_state = "READY" if owner.GUPPY_MEMORY_AVAILABLE else "OPTIONAL"
     memory_detail = (
         "memory module available"
         if owner.GUPPY_MEMORY_AVAILABLE
-        else "memory module unavailable"
+        else "memory module unavailable; launcher can still run without memory support"
     )
 
     local_runtime_state = str(local_runtime.get("state", "UNKNOWN") or "UNKNOWN")
@@ -83,19 +125,7 @@ def build_startup_readiness_payload(owner: Any) -> dict:
             "state": local_runtime_state,
             "detail": f"{detail} | {chat_detail}",
         }
-    states = [
-        auth_state,
-        ollama_state,
-        voice_state,
-        daemon_state,
-        memory_state,
-        local_runtime_state,
-    ]
-    overall = (
-        "READY"
-        if all(state == "READY" for state in states)
-        else ("PARTIAL" if any(state in {"READY", "PARTIAL"} for state in states) else "MISSING")
-    )
+    overall = _aggregate_required_states([auth_state, daemon_state, local_runtime_state])
 
     return {
         "overall": overall,
@@ -140,8 +170,12 @@ def build_runtime_status_payload(
         "stt_backend": voice_stt,
         "details": owner._VOICE_BACKEND_DETAILS if owner.GUPPY_VOICE_AVAILABLE else [],
     }
+    startup_readiness = owner._startup_readiness_cached_or_unknown()
+    startup_overall = str(startup_readiness.get("overall", "UNKNOWN") or "UNKNOWN").strip().upper()
+    local_runtime = owner._build_local_runtime_status()
+    overall = startup_overall if startup_overall != "UNKNOWN" else str(local_runtime.get("state", "UNKNOWN") or "UNKNOWN").strip().upper()
     payload = {
-        "status": "healthy",
+        "status": _runtime_health_label(overall),
         "timestamp": str(timestamp or datetime.now(timezone.utc).isoformat()),
         "context": dict(context or {}),
         "memory_available": owner.GUPPY_MEMORY_AVAILABLE,
@@ -151,8 +185,8 @@ def build_runtime_status_payload(
         "voice_status": voice_status,
         "daemon_available": owner.GUPPY_DAEMON_AVAILABLE,
         "daemon_runtime": owner._read_daemon_runtime_status(),
-        "startup_readiness": owner._startup_readiness_cached_or_unknown(),
-        "local_runtime": owner._build_local_runtime_status(),
+        "startup_readiness": startup_readiness,
+        "local_runtime": local_runtime,
         "resource_envelope": owner._read_resource_envelope_status(),
     }
     return payload
@@ -342,6 +376,33 @@ def warm_ollama_chat_lane(owner: Any, model: str, keep_alive: str = "20m") -> tu
     return True, f"{normalized_model} warm"
 
 
+def warm_lemonade_chat_lane(owner: Any, model: str) -> tuple[bool, str]:
+    normalized_model = str(model or "").strip()
+    if not normalized_model:
+        return False, "no Lemonade model configured for warmup"
+    payload = {
+        "model": normalized_model,
+        "messages": [
+            {"role": "system", "content": "warmup"},
+            {"role": "user", "content": "ok"},
+        ],
+        "stream": False,
+        "max_tokens": 1,
+    }
+    req = urllib.request.Request(
+        f"{owner._local_runtime_base_url('lemonade').rstrip('/')}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=owner._LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS) as resp:
+        data = json.loads(resp.read())
+    choices = data.get("choices", []) if isinstance(data, dict) else []
+    if not choices:
+        return False, "Lemonade warmup returned no chat choices"
+    return True, f"{normalized_model} warm"
+
+
 def current_local_runtime_chat_model(owner: Any, backend: str) -> str:
     role_models = owner._local_runtime_role_models(backend)
     return str(role_models.get("complex") or role_models.get("fast") or "").strip()
@@ -362,27 +423,25 @@ def refresh_local_runtime_warm_status(owner: Any, force: bool = False) -> dict[s
         ):
             return cached
 
-    if backend == "lemonade":
-        payload = {
-            "backend": backend,
-            "model": model,
-            "checked_at": now,
-            "expires_at": now + max(30.0, owner._LOCAL_RUNTIME_WARM_TTL_SECONDS),
-            "chat_ready": True,
-            "chat_state": "READY",
-            "chat_detail": "Lemonade backend selected; chat lane treated as ready when registry is reachable",
-        }
-    else:
-        ok, detail = warm_ollama_chat_lane(owner, model)
-        payload = {
-            "backend": backend,
-            "model": model,
-            "checked_at": now,
-            "expires_at": now + max(30.0, owner._LOCAL_RUNTIME_WARM_TTL_SECONDS),
-            "chat_ready": bool(ok),
-            "chat_state": "READY" if ok else "WARMING",
-            "chat_detail": str(detail or ("local runtime warmed" if ok else "local runtime warmup failed")),
-        }
+    ok = False
+    detail = ""
+    try:
+        if backend == "lemonade":
+            ok, detail = warm_lemonade_chat_lane(owner, model)
+        else:
+            ok, detail = warm_ollama_chat_lane(owner, model)
+    except Exception as exc:
+        ok = False
+        detail = str(exc)
+    payload = {
+        "backend": backend,
+        "model": model,
+        "checked_at": now,
+        "expires_at": now + max(30.0, owner._LOCAL_RUNTIME_WARM_TTL_SECONDS),
+        "chat_ready": bool(ok),
+        "chat_state": "READY" if ok else "WARMING",
+        "chat_detail": str(detail or ("local runtime warmed" if ok else "local runtime warmup failed")),
+    }
     state = owner._runtime_state
     with state.local_runtime_warm_lock:
         state.local_runtime_warm_cache.update(payload)
@@ -596,15 +655,6 @@ def call_selected_local_runtime(
     warm_status = owner._local_runtime_warm_cached_or_unknown()
     if backend == "ollama" and not bool(warm_status.get("chat_ready", False)):
         owner._trigger_local_runtime_warm_refresh(force=True)
-        warm_model = str(
-            warm_status.get("model", "") or owner._current_local_runtime_chat_model(backend)
-        )
-        warm_detail = str(
-            warm_status.get("chat_detail", "") or "local runtime is still warming up"
-        )
-        raise RuntimeError(
-            f"Local runtime is still warming up for {warm_model or 'the configured model'}. {warm_detail}"
-        )
     if backend == "lemonade":
         return owner._call_lemonade_chat(
             user_text,

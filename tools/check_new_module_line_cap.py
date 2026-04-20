@@ -58,6 +58,10 @@ WAIVED_PATHS: dict[str, Waiver] = {
         max_lines=741,
         rationale="Runtime shell now binds extracted startup, briefing, and auth/request helpers directly, but route and request orchestration still keep the API surface above the cap pending the next bounded split.",
     ),
+    "src/guppy/launcher_application/library_workflow.py": Waiver(
+        max_lines=777,
+        rationale="Library workflow now carries richer source-origin shaping, default-source ordering, saved-output reuse, and the follow-through N3 context handoff contract; deeper controller/presenter extraction is still pending.",
+    ),
     "src/guppy/debug/console.py": Waiver(
         max_lines=717,
         rationale="Debug console remains oversized but out of scope for the current build tranche.",
@@ -71,8 +75,12 @@ WAIVED_PATHS: dict[str, Waiver] = {
         rationale="Launcher shell hotspot; automation-test coordination, windows-ops completion coordination, and the current C38/C39 launcher chrome and command-start hardening are now extracted or integrated, but the five-hub shell still carries workspace-access, request routing, and top-level orchestration pressure pending the next bounded split.",
     ),
     "ui/launcher/views/settings_operations_panel.py": Waiver(
-        max_lines=939,
-        rationale="Settings operations panel now owns the extracted diagnostics, recovery, connector-ops, and terminal workflow surface; presenter seams are still pending a later split.",
+        max_lines=1032,
+        rationale="Settings operations now also carries the broader PL-C11/PL-C12 clarity pass and the current launcher-facing packaging/runtime follow-through, but it still bundles diagnostics, recovery, connector-ops, and terminal workflow rendering pending a later presenter split.",
+    ),
+    "ui/launcher/views/settings_device_accounts_panel.py": Waiver(
+        max_lines=824,
+        rationale="Device & Accounts now owns direct connector focus, Settings-routed remediation follow-through, expanded provider field rendering, and registry-backed lifecycle wording/tooltips for onboarding, but the panel still bundles inventory, verify, and action render logic pending a later split.",
     ),
     "ui/launcher/views/models_view.py": Waiver(
         max_lines=1542,
@@ -83,12 +91,12 @@ WAIVED_PATHS: dict[str, Waiver] = {
         rationale="Workspace manager still bundles governance and render logic pending shared snapshots.",
     ),
     "ui/launcher/views/assistant_view.py": Waiver(
-        max_lines=1328,
-        rationale="Home chat carries active context, starter, and transcript orchestration; capped at observed size while the final Home cleanup keeps compatibility setters in place but removes operator surfaces from the visible daily chat screen. PL-C3 clarity pass added hub-purpose label and tooltips for send, starters, details, IN LIBRARY, and ATTACH NOW buttons.",
+        max_lines=1394,
+        rationale="Home chat now also surfaces first-run guidance and tighter small-window density behavior while still carrying active context, starter, and transcript orchestration; capped at the current observed size until a later Home split moves more onboarding/responsive logic into dedicated helpers. PL-C3 clarity pass added hub-purpose label and tooltips for send, starters, details, IN LIBRARY, and ATTACH NOW buttons.",
     ),
     "ui/launcher/views/library_view.py": Waiver(
-        max_lines=832,
-        rationale="Library now owns multiline note editing and local media handoff/control while still bundling browse/edit/render behavior; the dedicated media panel reduced some pressure, but deeper presenter extraction is still pending. PL-C3 clarity pass added hub-purpose label and tooltips for PIN NOTE, CANCEL EDIT, PICK FILE, SAVE ARTIFACT, and CANCEL EDIT buttons.",
+        max_lines=961,
+        rationale="Library now owns multiline note editing, inline approved-root switching, local media handoff/control, and the first narrow-width compacting pass while still bundling browse/edit/render behavior; the dedicated media panel reduced some pressure, but deeper presenter extraction is still pending. PL-C3 and the current PL-C11 sweep added purpose/tooltip coverage plus smaller-window label compaction for root, note, and artifact controls.",
     ),
     "ui/launcher/views/voices_view.py": Waiver(
         max_lines=866,
@@ -103,7 +111,7 @@ WAIVED_PATHS: dict[str, Waiver] = {
         rationale="Connector readiness and workspace binding evidence now route through a dedicated connector-workspace seam; remaining action/auth orchestration still keeps the compatibility facade oversized.",
     ),
     "utils/personalization_config.py": Waiver(
-        max_lines=1009,
+        max_lines=1035,
         rationale="Experience-config persistence expanded with multi-provider registry (6 new providers); awaiting split into provider_registry_service + persona_service under src/guppy/experience_config/.",
     ),
 }

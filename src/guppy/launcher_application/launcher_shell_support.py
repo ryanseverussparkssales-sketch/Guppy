@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 
 from src.guppy.launcher_application.automation_test_support import event_level
 from src.guppy.launcher_application.storage_io import read_jsonl_tail
@@ -38,6 +39,13 @@ class NotificationBadgeState:
     severity: str
     mtime: float
     changed: bool
+
+
+@dataclass(frozen=True)
+class RuntimeBadgeState:
+    label: str
+    severity: str
+    detail: str
 
 
 def build_quick_action_plan(
@@ -121,4 +129,59 @@ def build_notification_badge_state(
         severity=severity,
         mtime=mtime,
         changed=True,
+    )
+
+
+def build_runtime_badge_state(
+    *,
+    api_status: Mapping[str, object] | None,
+    runtime_overall: str = "",
+    startup_summary: str = "",
+    startup_first_poll_ok: bool,
+    startup_over_budget: bool,
+) -> RuntimeBadgeState:
+    summary = str(startup_summary or "").strip()
+    payload = dict(api_status) if isinstance(api_status, Mapping) else {}
+    status = str(payload.get("status", "") or "").strip().lower()
+    runtime_state = str(runtime_overall or "").strip().upper()
+
+    if not startup_first_poll_ok:
+        return RuntimeBadgeState(
+            label="STARTING",
+            severity="info",
+            detail=summary or "Launcher is still collecting startup readiness and runtime health.",
+        )
+
+    if startup_over_budget:
+        return RuntimeBadgeState(
+            label="STARTUP WARN",
+            severity="warn",
+            detail=(summary + " | " if summary else "") + "Startup took longer than the current launcher budget.",
+        )
+
+    if status == "healthy" or runtime_state == "READY":
+        return RuntimeBadgeState(
+            label="READY",
+            severity="ok",
+            detail=summary or "Launcher, startup checks, and the selected runtime look ready.",
+        )
+
+    if status == "degraded" or runtime_state == "PARTIAL":
+        return RuntimeBadgeState(
+            label="CHECK",
+            severity="warn",
+            detail=summary or "Some startup or runtime checks still need attention.",
+        )
+
+    if status or runtime_state:
+        return RuntimeBadgeState(
+            label="ATTN",
+            severity="error",
+            detail=summary or f"Runtime state needs attention: {status or runtime_state.lower()}",
+        )
+
+    return RuntimeBadgeState(
+        label="OFFLINE",
+        severity="error",
+        detail=summary or "The launcher cannot read current runtime status yet.",
     )

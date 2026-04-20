@@ -16,7 +16,7 @@ class VerifyProviderRuntimeTests(unittest.TestCase):
         self.assertFalse(scope["real_device_coverage_included"])
         self.assertIn("VOICE_VALIDATION_MATRIX", " ".join(scope["follow_up"]))
 
-    def test_main_writes_validation_scope_and_stays_ready_without_keys(self) -> None:
+    def test_main_writes_validation_scope_and_reports_structural_readiness_without_keys(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             snapshot = Path(td) / "provider_runtime_snapshot.json"
 
@@ -38,7 +38,9 @@ class VerifyProviderRuntimeTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("validation_scope", payload)
             self.assertFalse(payload["validation_scope"]["real_device_coverage_included"])
+            self.assertFalse(payload["validation_scope"]["live_provider_validation_included"])
             self.assertEqual(payload["smoke_results"], {})
+            self.assertEqual(payload["overall_state"], "STRUCTURAL_READY")
 
     def test_main_fails_when_smoke_check_fails(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
+_MIN_EXECUTABLE_BYTES = 50 * 1024 * 1024
+
 
 @dataclass(frozen=True, slots=True)
 class PackagingPathStatus:
@@ -86,6 +88,8 @@ def _check_build_script_contract(repo_root: Path) -> PackagingAssumptionStatus:
         "guppy_launcher.py",
         "bin\\Guppy.spec",
         "--name \"Guppy\"",
+        "--icon \"assets\\desktop\\guppy_launcher_icon.ico\"",
+        "--add-data \"config\\local_llm;config\\local_llm\"",
         "--add-data \"runtime;runtime\"",
     )
     missing = [token for token in required_tokens if token not in text]
@@ -132,12 +136,16 @@ def _check_packaging_doc_contract(repo_root: Path) -> PackagingAssumptionStatus:
         return PackagingAssumptionStatus("packaging doc contract", False, f"missing: {_display_path(repo_root, path)}")
     text = path.read_text(encoding="utf-8", errors="replace")
     required_tokens = (
-        "bin/build_executable.bat",
-        "runtime/windows_release_receipt.json",
-        "runtime/windows_release_summary.md",
-        "runtime/beta_release_dry_run_report.json",
+        ("bin/build_executable.bat",),
+        ("tools/ensure_desktop_launcher.ps1", "tools\\ensure_desktop_launcher.ps1"),
+        ("runtime/windows_release_receipt.json",),
+        ("runtime/windows_release_summary.md",),
+        ("runtime/beta_release_dry_run_report.json",),
     )
-    missing = [token for token in required_tokens if token not in text]
+    missing: list[str] = []
+    for variants in required_tokens:
+        if not any(token in text for token in variants):
+            missing.append(variants[0])
     if missing:
         return PackagingAssumptionStatus(
             "packaging doc contract",
@@ -160,8 +168,8 @@ def _check_release_handoff_contract(repo_root: Path) -> PackagingAssumptionStatu
     if not present:
         return PackagingAssumptionStatus(
             "release handoff contract",
-            True,
-            "release handoff receipts not present yet; packaging audit will validate them when generated",
+            False,
+            "release handoff artifacts are missing: runtime/windows_release_receipt.json, runtime/windows_release_summary.md, and runtime/beta_release_dry_run_report.json must exist before packaging can be marked GO",
         )
     if receipt_path.exists() != summary_path.exists():
         return PackagingAssumptionStatus(
@@ -210,12 +218,26 @@ def _check_dist_layout_contract(repo_root: Path) -> PackagingAssumptionStatus:
     one_file = repo_root / "dist" / "Guppy.exe"
     dist_root = repo_root / "dist"
     if one_dir.exists():
+        size = int(one_dir.stat().st_size or 0)
+        if size < _MIN_EXECUTABLE_BYTES:
+            return PackagingAssumptionStatus(
+                "dist artifact layout",
+                False,
+                f"dist/Guppy/Guppy.exe exists but is only {size // 1024 // 1024} MB; expected a real packaged build over 50 MB",
+            )
         return PackagingAssumptionStatus(
             "dist artifact layout",
             True,
             f"found canonical onedir package output at {_display_path(repo_root, one_dir)}",
         )
     if one_file.exists():
+        size = int(one_file.stat().st_size or 0)
+        if size < _MIN_EXECUTABLE_BYTES:
+            return PackagingAssumptionStatus(
+                "dist artifact layout",
+                False,
+                f"dist/Guppy.exe exists but is only {size // 1024 // 1024} MB; expected a real packaged build over 50 MB",
+            )
         return PackagingAssumptionStatus(
             "dist artifact layout",
             True,
@@ -229,8 +251,8 @@ def _check_dist_layout_contract(repo_root: Path) -> PackagingAssumptionStatus:
         )
     return PackagingAssumptionStatus(
         "dist artifact layout",
-        True,
-        "no built dist/ artifact present yet; canonical output paths remain dist/Guppy/Guppy.exe or dist/Guppy.exe",
+        False,
+        "no built dist/ artifact present yet; expected dist/Guppy/Guppy.exe or dist/Guppy.exe before packaging can be marked GO",
     )
 
 
@@ -241,6 +263,20 @@ def _validate_receipt_payload(payload: object) -> list[str]:
     for key in ("action", "ok", "paths", "operator_guidance"):
         if key not in payload:
             errors.append(f"windows release receipt missing '{key}'")
+    action = str(payload.get("action", "") or "").strip().lower()
+    release_stage = str(payload.get("release_stage", "") or "").strip().lower()
+    review_order = payload.get("review_order")
+    if action not in {"package_desktop", "release_dry_run"}:
+        errors.append("windows release receipt action must be package_desktop or release_dry_run for packaging sign-off")
+    if action == "package_desktop" and release_stage != "package":
+        errors.append("windows release receipt release_stage must be 'package' for package_desktop actions")
+    if action == "release_dry_run" and release_stage != "release_gate":
+        errors.append("windows release receipt release_stage must be 'release_gate' for release_dry_run actions")
+    if action == "release_dry_run":
+        if not isinstance(review_order, list) or "runtime/beta_release_dry_run_report.json" not in {
+            str(item).strip() for item in review_order
+        }:
+            errors.append("windows release receipt review_order must include runtime/beta_release_dry_run_report.json for release_dry_run actions")
     paths = payload.get("paths")
     if isinstance(paths, dict):
         receipt_path = str(paths.get("receipt_path", ""))

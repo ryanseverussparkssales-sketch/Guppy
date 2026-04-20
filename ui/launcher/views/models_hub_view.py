@@ -83,6 +83,10 @@ class ModelsHubView(QWidget):
             f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
         layout.addWidget(purpose)
+        purpose.setToolTip(
+                "This hub owns model selection, runtime routing, local LLM evidence, and voice stack. "
+                "Provider accounts and API keys live in Settings."
+            )
         layout.addWidget(
             _mono(
                 "Unified model ownership: local model library, main/sub loadouts, runtime routing, local LLM evidence, and voice flows now live here. "
@@ -135,6 +139,7 @@ class ModelsHubView(QWidget):
             card_layout.setSpacing(8)
             card_layout.addWidget(_mono(heading.upper(), T.TEXT, T.FS_TINY, True))
             card_layout.addWidget(_mono(detail, T.DIM, T.FS_SMALL))
+            card.setToolTip(detail)
             grid.addWidget(card, index // 2, index % 2)
         overview_layout.addLayout(grid)
         layout.addWidget(overview)

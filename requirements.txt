@@ -2,11 +2,11 @@
 # Updated 2026-04-12
 
 # ── Core UI ───────────────────────────────────────────────
-PySide6
+PySide6>=6.11.0
 
 # ── AI / LLM ──────────────────────────────────────────────
-anthropic
-openai
+anthropic>=0.86.0
+openai>=2.29.0
 google-generativeai
 mistralai
 
@@ -16,6 +16,10 @@ soundfile
 numpy
 faster-whisper
 kokoro
+
+# ── Security ──────────────────────────────────────────────
+cryptography>=46.0.0
+keyring>=25.0.0
 
 # ── Web / Scraping ────────────────────────────────────────
 requests

@@ -1,6 +1,6 @@
 # Guppy Project Brief
 
-Last updated: 2026-04-19
+Last updated: 2026-04-20
 
 ## Purpose
 
@@ -22,6 +22,21 @@ Product direction is constrained by `docs/GUPPY_PRODUCT_NORTH_STAR.md` and `docs
 3. `documentation/` owns canonical technical architecture, security, and truth-audit material.
 4. `docs/archive/` is historical only and does not define active priorities.
 5. The archived pre-merge roadmap lives at `docs/archive/root-history/ROADMAP_2026-04-17.md`.
+
+### Canonical Roadmap Rule (Cleanup)
+
+1. `docs/PROJECT_BRIEF.md` is the only file allowed to hold active execution priorities, status, tranche checkpoints, and handoff sequencing.
+2. `ROADMAP.md` must remain a pointer-only compatibility stub and must not duplicate active priorities.
+3. If wording differs between files, `docs/PROJECT_BRIEF.md` wins and the pointer docs should be aligned in the same pass.
+
+### North-Star Surface Mapping (Cleanup)
+
+1. The north-star doc names four primary product surfaces: Chat, Workspaces, Library, Settings.
+2. The current launcher executes a five-hub shell: Home, Models, Tools, Library, Settings.
+3. Mapping rule for consistency:
+   - `Home` maps to the north-star `Chat` daily path.
+   - `Workspaces` remains first-class behavior and persistence but is intentionally surfaced through Home context/topbar controls instead of a separate primary nav destination.
+   - `Models` and `Tools` are implementation hubs that support calm daily flow while remaining subordinate to the north-star daily path.
 
 ---
 
@@ -165,9 +180,9 @@ Apply `docs/PRODUCT_FEATURE_FILTER.md` to every tranche before expanding scope.
 
 ---
 
-## Health Check (April 19, 2026)
+## Health Check (April 20, 2026)
 
-1. Release lane is green as of April 19, 2026. `python tools/dev_workflow.py release-check` passed with ref `release-check-20260419-232547`, all 6 gates passed, `427 passed` in the default suite, and `130 passed` in the product smoke suite.
+1. Release lane is green as of April 20, 2026. `python tools/dev_workflow.py release-check` passed with ref `release-check-20260420-154801`, `8/8` gates passed, `543 passed` in the default suite, and `138 passed` in product smoke.
 2. The repository is healthy but still in active integration. The worktree remains intentionally active rather than clean, so this is green-for-continuation rather than clean-tag-ready.
 3. `P1` through `P5` are complete, and the automatic `P6` hardening slices through Tranche 51 are now release-green. There are no blocking tranche errors left in the shell consolidation work; the remaining follow-up risk is concentrated in the largest coordinator modules plus real-machine runtime and voice validation.
 4. The main technical pressure points are now the still-waived top-level coordinators: `server_runtime.py` (`741`), `server_runtime_snapshot.py` (`3098`), `launcher_window.py` (`3471`), `models_view.py` (`1529`), `assistant_view.py` (`1316`), and `settings_operations_panel.py` (`939`). Those hotspots are all guarded and have been shrinking tranche over tranche.
@@ -199,6 +214,102 @@ All three guardrail blockers from the April 18 audit have been resolved:
 5. Tools Hub ownership is complete; remaining Tools work is polish rather than missing trace/debug foundations.
 6. Voice lifecycle needs broader real-device validation across engines.
 7. Builder and off-hours flows need output-cleanup polish and repeated stress validation.
+
+---
+
+## Freeze-Readiness Debt Reduction Program (Post-Tranche 53)
+
+Execution note (April 20, 2026):
+
+- Tranche 53 closed the broad hardening/usability/security sweep, but the repo is not yet at a freezeable architecture state.
+- The remaining debt is now concentrated in a finite hotspot set with explicit waiver caps and known framework seams.
+- This program focuses on turning guarded transitional hotspots into smaller working components without changing five-hub ownership.
+- Definition of “freezeable” for this program:
+  1. no hotspot may grow during the program
+  2. top coordinators must either drop below the cap or lose enough responsibility that the remaining waiver is narrow and justified
+  3. launcher/runtime/provider/config seams must be explicit enough that release behavior is understandable without reading giant files
+  4. release-check stays green throughout
+
+Current hotspot inventory:
+
+1. `src/guppy/api/server_runtime_snapshot.py` `2232`
+2. `ui/launcher/launcher_window.py` `3354`
+3. `ui/launcher/views/models_view.py` `1542`
+4. `ui/launcher/views/assistant_view.py` `1394`
+5. `ui/launcher/views/settings_operations_panel.py` `1032`
+6. `ui/launcher/views/settings_device_accounts_panel.py` `824`
+7. `ui/launcher/views/library_view.py` `961`
+8. `ui/launcher/views/voices_view.py` `866`
+9. `utils/connector_manager.py` `670`
+10. `utils/personalization_config.py` `1029`
+11. `src/guppy/api/server_runtime.py` `586`
+12. `src/guppy/api/services_realtime.py` `599`
+
+Program tranches:
+
+1. `FR-C1 - API runtime snapshot decomposition`
+   - Extract prompt/rich-context assembly, runtime bundle shaping, readiness assembly, and connector/governance payload builders out of `server_runtime_snapshot.py`.
+   - Acceptance: `server_runtime_snapshot.py` becomes a bounded composition shell instead of the implementation home for unrelated helpers.
+
+2. `FR-C2 - Launcher shell coordinator reduction`
+   - Continue reducing `launcher_window.py` by moving request routing, workspace/status synchronization, and launcher action orchestration into `src/guppy/launcher_application/` helpers.
+   - Acceptance: launcher shell remains the composition root, but non-rendering orchestration lives outside the widget file.
+
+3. `FR-C3 - Models hub panel split`
+   - Split `models_view.py` into bounded panels/helpers for runtime status, model catalog operations, routing/loadout controls, and background worker coordination.
+   - Acceptance: `ModelsView` becomes a smaller assembler over purpose-specific subcomponents.
+
+4. `FR-C4 - Home chat coordinator split`
+   - Reduce `assistant_view.py` by separating transcript/composer/starter/detail behavior into dedicated view helpers where the extraction is stable.
+   - Acceptance: Home keeps its chat-first contract while shedding multi-purpose render/orchestration logic.
+
+5. `FR-C5 - Settings operations and device/accounts split`
+   - Separate diagnostics/recovery/runtime workflows from `settings_operations_panel.py`, and separate provider inventory/action sections from `settings_device_accounts_panel.py`.
+   - Acceptance: Settings panels stay Settings-owned but stop bundling every operator flow into one class each.
+
+6. `FR-C6 - Library and voice surface decomposition`
+   - Reduce `library_view.py` and `voices_view.py` by moving stable row/card/editor/player logic into dedicated components/helpers.
+   - Acceptance: the remaining parent views are smaller and easier to reason about without losing current behavior.
+
+7. `FR-C7 - Connector manager extraction`
+   - Move state/history/readiness/action orchestration out of `utils/connector_manager.py` into named `src/guppy/...` services, leaving only compatibility shims if still needed.
+   - Acceptance: connector behavior no longer feels like hidden app logic inside `utils`.
+
+8. `FR-C8 - Personalization config service split`
+   - Split `utils/personalization_config.py` into dedicated services for provider registry, persona config, and voice bindings under `src/guppy/experience_config/` or equivalent bounded seams.
+   - Acceptance: config persistence and normalization are service-shaped, not one giant utility file.
+
+9. `FR-C9 - Runtime/request lane reduction`
+   - Continue trimming `server_runtime.py` and `services_realtime.py` by isolating route groups, auth/request orchestration, and idempotency/request helper seams.
+   - Acceptance: runtime service code stops mixing unrelated route and request concerns.
+
+10. `FR-C10 - Freeze audit and waiver reset`
+    - Re-audit every remaining waiver, remove stale waiver headroom, document what is truly still transitional, and run full guarded validation.
+    - Acceptance: the worktree is freezeable for a stabilization branch, with current docs, current receipts, and no misleading hotspot metadata.
+
+Recommended execution order:
+
+1. `FR-C1`, `FR-C2`, and `FR-C3` first because they attack the largest runtime and launcher coordinators directly.
+2. `FR-C5`, `FR-C7`, and `FR-C8` next because they reduce Settings/provider/config debt and prevent `utils/` from acting like an app layer.
+3. `FR-C4`, `FR-C6`, and `FR-C9` after those contracts stabilize.
+4. `FR-C10` last as the freeze-readiness closeout.
+
+Recommended agent lane split:
+
+1. Lane A: `FR-C1` API snapshot decomposition
+2. Lane B: `FR-C2` launcher shell reduction
+3. Lane C: `FR-C3` models hub split
+4. Lane D: `FR-C5` Settings panels split
+5. Lane E: `FR-C7` plus `FR-C8` connector/config extraction
+6. Lead lane: tranche integration, guardrail updates, and freeze audit sequencing
+
+Success metrics:
+
+1. Every tranche must reduce at least one active hotspot measurably or document the exact blocking seam.
+2. `release-check` remains green after each integrated tranche.
+3. `utils/` shrinks as a behavior layer and becomes more clearly compatibility-focused.
+4. The biggest UI coordinators become composition shells rather than implementation monoliths.
+5. Freeze-readiness ends with current waiver caps, current docs, and no stale release/tranche truth drift.
 
 ---
 
@@ -239,17 +350,54 @@ Overall suggestion:
 
 ---
 
+## Consultant Review Integration (April 19, 2026)
+
+**Source:** Paid engineering + design consultant audit against goals, north star, credentials audit, packaging docs, and voice status.
+
+**Five critical findings and their fixes:**
+
+1. **North star vs complexity gap** - The product thesis is calm, personal, persistent. The current build still leaks too much operator complexity into the first-run surface. Fix: enforce the 3-click rule for anything outside the first 10 minutes; add progressive disclosure in Settings and Tools; reduce first-run to three tasks only (install check, model runtime, first request).
+
+2. **Provider and dependency sprawl** - Four AI SDKs, three TTS options, five integration stubs, and no clear signal about which ones work today. Fix: introduce a formal provider tier system: Core (works with no credentials), Supported Optional (works with a key), Experimental (hidden by default). The registry shows tier and health inline. No bespoke onboarding UX per provider.
+
+3. **Engineering hotspot concentration** - The six tracked coordinator modules are being reduced in P6, but each waiver still needs an explicit weekly reduction target, not just a size cap. Fix: each hotspot waiver is a debt token. Every tranche touching a waived module must reduce its observed size or document why not.
+
+4. **Security posture not launch-simple** - keyring is installed and the hardening suite exists, but there is no explicit launch gate enforcing keychain-first storage, connector least-privilege, or clean dependency posture. Fix: make PL-C6 a release-check step that fails the gate if any of these are unresolved. This is a hard blocker.
+
+5. **First-run path still operationally heavy** - Track 1 vs Track 2 split in PACKAGING.md is the right framing. What is missing is a stateful wizard that guides users through it and a measurable completion rate. Fix: add a three-checkpoint first-run wizard and log first_run_checkpoint_N_completed per checkpoint.
+
+**Design direction adopted from consultant review:**
+- Quiet hierarchy: one primary accent color, fewer competing badge stacks, no permanent status blocks in Home Chat.
+- Large hit targets (primary buttons >= 36px, secondary >= 28px) are non-negotiable.
+- PL-C3 (clarity) must land before PL-C2 (branding). Branding over unresolved layout makes it worse.
+- Reference product for first-run: ChatGPT Desktop (immediate comprehension without explanation).
+
+**Competitive positioning notes:**
+- Claude Desktop: best-in-class calm interaction model. Guppy Home Chat should feel this quiet.
+- Cursor: contextual actions scoped to immediate relevance. Guppy Tools should surface only what is actionable right now.
+- LM Studio: local runtime status stays demoted from daily chat. Guppy Models Hub should follow this.
+- Open WebUI: excellent operator power, poor first-run experience. Guppy must not inherit that cost.
+
+**Revised success metrics for Tranche 52 exit:**
+- Time to first successful request on a clean machine: target under 5 minutes.
+- Hub purpose comprehension: first-time user can name each hub purpose in under 3 seconds.
+- First-run wizard completion rate: target >= 80% from checkpoint 1 to checkpoint 3.
+- Security gate: release-check passes the security gate step on every release candidate.
+- Provider setup: Core providers require zero credentials; Supported Optional require under 2 minutes to verify.
+
+---
+
 ## Executable Pre-Launch Tranche (Tranche 52: Pre-Launch Usability, Onboarding, and Trust)
 
-Execution note (April 19, 2026):
+Execution note (April 20, 2026 closeout):
 
-- This tranche converts the current pre-launch concerns into executable product work instead of leaving them as a roadmap wish list.
-- It assumes the five-hub structure remains intact: Home, Models, Tools, Library, and Settings do not change ownership again.
-- Google Stitch guidance from the downloaded `stitch_azure_reef_assistant.zip` bundle is treated as bounded visual direction for the launcher UI and logo refinement, not as a requirement to recreate the mockups literally.
+- This tranche is now closed with release-green evidence and a generated readiness report.
+- The five-hub ownership model remained intact: Home, Models, Tools, Library, and Settings did not change domain ownership.
+- Stitch guidance remained bounded visual direction while clarity and trust foundations landed first; the dedicated branding lane (`PL-C2`) has now been executed as part of tranche closeout follow-through.
 
 What ships:
 
-1. `PL-C1 - Tool action registry and starter-command unification` `planned`
+1. `PL-C1 - Tool action registry and starter-command unification` `complete`
    - Build one shared tool action registry that pairs each tool with:
      - a launcher-visible label
      - a short command line a user can type or speak
@@ -257,7 +405,7 @@ What ships:
      - a button action path from Tools or other hubs
    - Remove the current split between tool prompts in `ui/launcher/launcher_window.py`, starter copy in `src/guppy/launcher_application/home_presenter.py`, and catalog-only data in `ui/launcher/views/tools_view_cards.py`.
    - Acceptance: a user can discover the same action from button, starter, dropdown, and plain-language prompt without the wording changing across surfaces.
-2. `PL-C2 - Stitch-guided visual system and logo refinement` `planned`
+2. `PL-C2 - Stitch-guided visual system and logo refinement` `complete`
    - Add a bounded standard-mode visual pass using the reviewed Stitch guidance:
      - warm sand surface hierarchy
      - turquoise/sunset-orange accent system
@@ -266,7 +414,7 @@ What ships:
      - light glass/gradient treatment for select surfaces only
    - Review and integrate the downloaded premium “Guppy G” logo direction as a refinement path for launcher/taskbar/sidebar branding.
    - Acceptance: launcher chrome feels more branded and cohesive without reducing legibility, information density, or interaction clarity.
-3. `PL-C3 - Senior-friendly clarity, spacing, and hover-help pass` `planned`
+3. `PL-C3 - Senior-friendly clarity, spacing, and hover-help pass` `complete`
    - Audit every hub for:
      - button hit-target clarity
      - spacing rhythm at common desktop sizes
@@ -274,11 +422,11 @@ What ships:
      - hover-help or tooltip support where labels are not self-explanatory
    - Use the “80-year-old user” bar as the product test for wording, visual grouping, and button confidence.
    - Acceptance: each primary screen explains itself plainly, and key controls no longer depend on hidden product knowledge.
-4. `PL-C4 - Unified provider, account, and API-key onboarding` `planned`
+4. `PL-C4 - Unified provider, account, and API-key onboarding` `complete`
    - Normalize vendor onboarding behind one provider/plugin registry with typed secret fields, account slots, verify/reconnect flows, and guided next steps.
    - Cover current and planned external lanes such as TTS vendors, image/doc viewing helpers, Docker/Desktop-linked services, Lemonade/runtime challengers, and future provider plugins.
    - Acceptance: Settings can save, verify, reconnect, and explain provider status consistently, and new providers can be added without bespoke one-off UX each time.
-5. `PL-C5 - Install package and local base-model first-success split` `planned`
+5. `PL-C5 - Install package and local base-model first-success split` `complete`
    - Separate “basic desktop install” from “first local base model works” into two explicit readiness contracts.
    - Define acceptance evidence for:
      - package/install success
@@ -286,7 +434,7 @@ What ships:
      - local runtime detection
      - first local model success path
    - Acceptance: the roadmap and validation evidence no longer blur installer readiness with local-model readiness.
-6. `PL-C6 - Launch-grade security gate` `planned`
+6. `PL-C6 - Launch-grade security gate` `complete`
    - Convert the current strong development hardening posture into a launch gate with explicit checks for:
      - secret storage defaults
      - localhost versus external boundary assumptions
@@ -295,30 +443,47 @@ What ships:
      - dependency and vulnerability review
      - written threat model / truth summary
    - Acceptance: launch security is evaluated by a dedicated gate, not inferred only from existing regression tests.
-7. `PL-C7 - Validation, docs, and pre-launch handoff evidence` `planned`
+7. `PL-C7 - Validation, docs, and pre-launch handoff evidence` `complete`
    - Update active truth docs with progress, tradeoffs, and final acceptance for the tranche.
    - Add focused tests for the new tool action registry, onboarding flows, and any touched launcher UI behavior.
    - Run `check_doc_ownership.py`, `dev-check --guard-scope delta`, and `release-check`.
 
-Acceptance:
+Acceptance (closeout status):
 
-1. Tool actions are discoverable through at least two user-facing entry paths and share the same prompt wording.
-2. The launcher gets a branded standard mode informed by the Stitch bundle without regressing readability or density.
-3. Cross-hub spacing, hover-help, and plain-language guidance are materially improved.
-4. Provider/account/API-key onboarding is more uniform and easier to extend.
-5. Installer readiness and local-model readiness are represented as separate, testable tracks.
-6. Security gets an explicit launch gate with documented evidence.
-7. Validation stays green before the tranche is considered complete.
+1. Tool actions are discoverable through shared registry paths and consistent wording.
+2. Cross-hub spacing, hover-help, and plain-language guidance landed and are smoke-covered.
+3. Provider/account/API-key onboarding now carries provider-tier metadata and consistent selector badges.
+4. Installer readiness and local-model readiness are represented as separate, testable tracks.
+5. Security is enforced through an explicit release-check launch gate with documented evidence.
+6. Validation is green for the tranche closeout, with receipts and summary written under `.tmp/dev-workflow/reports/`.
+7. Dedicated Stitch-guided branding (`PL-C2`) is complete with bounded launcher token/style updates and topbar chrome alignment.
 
-Recommended execution order:
+Next tranche focus from current gaps:
 
-1. `PL-C1` first so tool-entry consistency can inform onboarding and hover-help copy.
-2. `PL-C3` second so the clarity and spacing standards are defined before the branding pass lands too much chrome.
-3. `PL-C2` third so Stitch-guided visuals refine a stable usability baseline instead of masking unresolved layout problems.
-4. `PL-C4` in parallel with `PL-C2` once the wording and component patterns are stable enough for provider onboarding.
-5. `PL-C5` after the onboarding contracts are clear, because installer and local-model success need explicit first-run expectations.
-6. `PL-C6` as a blocking closeout lane before any launch claim.
-7. `PL-C7` last with full evidence.
+1. Validate and tune the shipped `PL-C2` branding tokens against readability and contrast checks on real machines.
+2. Deepen Agent Tools vs App Mgmt execution enforcement (behavior and permission routing, not labels only).
+3. Expand Library workflow depth (root selection ergonomics, note editing flow, richer source reuse).
+4. Run broader real-device voice preview validation and document matrix results.
+5. Improve live route/status signaling depth while preserving current hub boundaries.
+6. Continue builder/off-hours polish with repeated stress validation.
+7. Close collaboration-cue and local-model decision evidence gaps for the May 22 checkpoint.
+
+Execution checkpoint (April 20, 2026 - tranche follow-through wave 1):
+
+1. `PL-C2` completion evidence: bounded quiet-hierarchy branding updates landed in `ui/launcher/tokens.py`, `ui/launcher/stylesheet.py`, `ui/launcher/components/topbar.py`, `ui/launcher/components/sidebar.py`, and `ui/launcher/components/status_panel.py` (warm-sand surface aliases, softer border tokens, and aligned launcher chrome treatment).
+2. Dedicated launcher-chrome smoke validations are green after the branding pass: `tests/smoke/test_launcher_interactions_smoke.py` and `tests/smoke/test_launcher_nav_chrome_smoke.py`.
+3. Live route/status signaling depth improved in launcher polling: `ui/launcher/launcher_window.py` now refreshes daily runtime + route context and re-syncs topbar model context every poll tick after runtime facts update.
+4. Off-hours stress validation was rerun with a bounded profile and wrote a fresh evidence artifact at `runtime/stress_reports/stress_report_20260420_024522.json` (`failure_count: 0` across auth, endpoint, reminder, and logging lanes).
+5. Validation snapshot for this wave: `python tools/check_doc_ownership.py` passed, `python tools/dev_workflow.py dev-check --guard-scope delta` passed, and focused regression suite passed (`21 passed`) for launcher/status/route/provider-runtime coverage.
+
+Execution checkpoint (April 20, 2026 - tranche follow-through wave 2 / N1-N5):
+
+1. `N1` branding/readability tuning is now live and test-covered: deeper contrast-safe accent text tokens plus quieter launcher chrome landed in `ui/launcher/tokens.py`, `ui/launcher/components/topbar.py`, `ui/launcher/components/sidebar.py`, and `ui/launcher/components/status_panel.py`, with focused validation in `tests/unit/test_launcher_branding_tokens.py`.
+2. `N2` Agent Tools versus App Mgmt execution enforcement is now behaviorally routed instead of copy-only: blocked connector-tool remediation requests now move through `ui/launcher/views/tools_view.py`, `ui/launcher/views/tools_view_cards.py`, `src/guppy/launcher_application/tool_readiness.py`, `src/guppy/launcher_application/connector_workflow.py`, and `ui/launcher/launcher_window.py` so Settings owns connector/account fixes while workspace-policy-only issues stay out of Settings.
+3. `N3` Library follow-through is live: `ui/launcher/views/library_view.py`, `src/guppy/launcher_application/library_workflow.py`, and `src/guppy/launcher_application/library_presenter.py` now support inline approved-root switching, clearer multiline note edit guidance, and richer `USE IN CHAT` detail/origin reuse for saved reply notes, saved reply artifacts, and approved-root files.
+4. `N4` voice/runtime evidence was refreshed structurally on the current machine: `python tools/verify_provider_runtime.py` wrote `runtime/provider_runtime_snapshot.json`, and `python tools/generate_voice_runtime_prefill.py` wrote `docs/generated/VOICE_RUNTIME_VALIDATION_PREFILL.md` with current machine/audio metadata plus pending-matrix counts (`VOICE: 11`, `RUNTIME: 6`). Manual real-device sign-off is still required for those remaining matrix rows.
+5. `N5` live route/status signaling depth is now explicitly locked by tests: `tests/unit/test_shell_status.py` covers route-preview mirroring into Settings, daily-activity sync, and right-tray context sync for the `src/guppy/launcher_application/shell_status.py` seam.
+6. Focused N1-N5 regression validation is green: launcher branding, tool routing, library workflow, voice/runtime prefill, provider-runtime scope, shell-status sync, Settings hub smoke, Library hub smoke, and launcher interaction smoke all passed (`72 passed` across the focused bundle).
 
 Recommended lane split:
 
@@ -328,6 +493,175 @@ Recommended lane split:
 4. Lane D: provider/account/API-key onboarding registry and verification flows
 5. Lane E: installer versus local-model readiness contracts plus security gate planning
 6. Lead integrator: merge sequencing, docs, guardrails, and release evidence
+
+---
+
+## Planned Mega-Tranche (Tranche 53: Massive Hardening, Usability, UI Quality, And Tool-System Sweep)
+
+Execution note (April 20, 2026):
+
+- This is the next planned pre-launch tranche after the Tranche 52 follow-through waves.
+- It is intentionally split into 10 high-impact execution packs so the work can be parallelized without dissolving into unbounded polish.
+- The tranche explicitly combines desktop launcher/startup hardening, large usability sweeps, a UI review against Guppy goals plus Stitch and inspiration sources, a full tool-system audit, packaging/install/local-runtime readiness, and trust/security hardening.
+- Framework rule: keep the existing PySide6 + `launcher_application` + `runtime_application` shape; do not introduce new top-level destinations or a framework rewrite.
+- Current planning context: release truth is now intentionally strict. Packaging remains blocked until a real `dist/` artifact exists, so this tranche must treat build/install evidence as active execution work.
+
+What ships:
+
+1. `PL-C8 - Product goals, UI goals, and first-run contract audit` `planned`
+   - Lock a written pass/fail audit against Guppy’s actual goals: calm chat-first, 5-minute useful success, grandma-readable screens, and progressive disclosure for operator features.
+   - Produce one matrix per hub: Home, Models, Tools, Library, Settings.
+   - Acceptance: every major hub has a written pass/fail assessment and every failing item maps to one of the cards below.
+2. `PL-C9 - Stitch and inspiration-source UI review with implementation deltas` `planned`
+   - Review the shipped UI against Google Stitch guidance, Guppy’s blue/orange island-flavor constraints, and reference products such as Claude Desktop, ChatGPT Desktop, Cursor, and LM Studio.
+   - Convert that review into a keep/change/remove delta table for chrome, hierarchy, spacing, typography, and token use.
+   - Acceptance: one explicit implementation delta table exists and later UI work references it directly.
+3. `PL-C10 - Desktop launcher hardening and startup hardening` `planned`
+   - Audit and tighten launcher startup, hidden/direct API start, supervised launch, duplicate-window risk, browser-open behavior, startup timing, retries, and failure messaging.
+   - Acceptance: no known normal-use duplicate window path remains, startup/recovery messaging is plain-language, and startup-state transitions are test-covered.
+4. `PL-C11 - Cross-hub usability sweep and responsive layout pass` `complete`
+   - Run a full cross-hub sweep for spacing rhythm, hit-target sizing, control grouping, tooltip coverage, and responsive behavior at smaller launcher widths.
+   - Acceptance: no obvious right-edge overflow remains, all hubs stay usable at smaller widths, and new smoke coverage locks the most fragile layouts.
+5. `PL-C12 - Home and launcher chrome calmness pass` `complete`
+   - Re-evaluate topbar/sidebar/Home against the calm chat-first north star.
+   - Demote or remove remaining chrome that competes with daily chat and review secondary window use of screen space.
+   - Acceptance: Home remains visually first, model/sub-agent state is visible without clutter, and operator-heavy surfaces do not leak back into Home.
+6. `PL-C13 - Full tool-system audit and tool-entry hardening` `complete`
+   - Audit tools end to end: tool registry/starter consistency, typed and spoken command discoverability, card clarity, traces/debug evidence, blocked/remediation routing, and permission posture display.
+   - Acceptance: every visible tool has one canonical user-facing action line, blocked tools explain why they are blocked and where to fix them, and stale/duplicate wording is removed.
+7. `PL-C14 - Provider, account, connector, and plugin lifecycle hardening` `complete`
+   - Continue unified onboarding with stronger lifecycle coverage: install, verify, reconnect, disable, and remove states, plus registry-first addition for future providers/plugins.
+   - Acceptance: provider lifecycle is consistent across save/verify/reconnect/remove, new providers do not require bespoke UI ownership decisions, and account/key state remains explainable from one Settings-owned surface.
+8. `PL-C15 - Packaging, installer, local-model, and real-time execution readiness` `complete`
+   - Treat current release-truth gaps as active work: build a real `dist/` artifact path, validate installer/build assumptions against actual output, tighten first-success local-model flow, and verify Ollama, LM Studio, local harness, and declared runtime options honestly.
+   - Acceptance: packaging no longer claims GO without a real built artifact, installer readiness and local runtime readiness each have current evidence, and the release-check packaging lane is green for the right reason.
+9. `PL-C16 - Massive trust and security hardening sweep` `complete`
+   - Expand the launch-grade security gate into a broader trust sweep: secret storage and keychain-first enforcement, network exposure review, connector least privilege, dependency/CVE scanning, packaged-build posture, and honest trust/readiness labels.
+   - Acceptance: no misleading `READY`, `GO`, or `healthy` labels remain in launch-critical flows, and trust copy aligns with actual enforcement.
+10. `PL-C17 - Integrated code audit, docs audit, UI audit, tool audit, and release closeout` `complete`
+   - Close the tranche with one top-to-bottom pass across code, docs, UI, tools/connectors, and guarded validation.
+   - Acceptance: docs, code, tests, and release evidence agree, and remaining blockers are specific and ranked.
+
+April 20, 2026 execution checkpoint:
+
+- `PL-C8` is now started with a repo-grounded baseline in `docs/generated/TRANCHE_53_GOALS_UI_AUDIT_20260420.md`.
+- `PL-C9` is now started with a keep/change/remove implementation delta in `docs/generated/TRANCHE_53_STITCH_DELTA_20260420.md`.
+- `PL-C10` has its first live shell fixes in code:
+  - the topbar now shows a visible runtime/startup status chip
+  - the topbar `CHAT` control now routes to chat-context drawer behavior instead of Workspaces
+  - Home drawer toggling now actually opens and closes on Home
+- Focused validation for the first wave is expected to cover `launcher_shell_support`, `TopBar`, and launcher interaction smoke before broader tranche work continues.
+
+April 20, 2026 second execution checkpoint:
+
+- `PL-C10` and `PL-C11` now have a second live follow-through in Home:
+  - Home surfaces a first-run banner with install/model/first-ask status chips
+  - the banner gives direct Settings and Models navigation plus a fast path back to the composer
+  - Home now applies a tighter density mode at smaller widths so starter and detail controls stop competing with the main chat lane
+- The first-run banner is driven from the existing `FirstRunWizard` state file and refreshed when workspace views refresh, so the launcher now exposes setup state without introducing a new route or modal dependency.
+
+April 20, 2026 third execution checkpoint:
+
+- `PL-C11` now has its first broader cross-hub responsive sweep beyond Home:
+  - Settings overview cards now collapse from two columns to one at tighter widths, and section shortcut buttons shorten to `OPEN` instead of forcing overflow
+  - Device & Accounts connector cards now reflow to 1, 2, or 3 columns based on width, and the desktop/action rows compress without changing workflow meaning
+  - Library manager controls now shorten labels on smaller widths and suppress lower-priority hint copy so file, note, and artifact controls stop crowding the main content lane
+  - Tools now hide the type-tab strip at narrow widths, shorten the details affordance, and tighten the search/control stack for smaller launcher windows
+- Focused clarity smoke now covers these compact-mode behaviors directly, so the responsive pass is validated instead of being visual-only.
+
+April 20, 2026 fourth execution checkpoint:
+
+- `PL-C11` and `PL-C12` now have a closeout pass across launcher chrome, dense secondary panels, and tooltip/plain-language coverage:
+  - the topbar now demotes workspace chrome earlier at smaller widths so the visible model/session summary stays present while search and workspace controls stop crowding the header
+  - Settings Operations now carries broader hover-help on recovery/runtime/connector/workflow/terminal actions and compresses long secondary button labels when the surface is narrower
+  - tool cards now mirror their evidence, policy, and guard text into tooltips so the longer explanations remain available without forcing every card open
+- The result is a calmer chat-first shell and a more explainable secondary operations surface without removing the visible model/runtime state that earlier tranche work established.
+
+April 20, 2026 fifth execution checkpoint:
+
+- `PL-C13` now closes around the shared tool action registry instead of one-off card wording:
+  - tool cards now surface one canonical typed/spoken action line directly from `tool_action_registry.py`
+  - the same registry-backed phrasing still feeds Home starters, launcher prompt priming, and tool-card hint affordances, so visible tool-entry wording no longer drifts by surface
+  - blocked tool remediation keeps the same Settings-owned route, but the manage tooltip now carries the destination plus the current note instead of a generic handoff
+- `PL-C14` now closes around provider-registry-backed lifecycle guidance in Settings:
+  - provider entries now carry both pre-connect guidance and post-connect example prompts
+  - Device & Accounts now uses that registry-backed lifecycle copy for next steps, connected hints, and action tooltips
+  - the result is a more registry-first provider extension path, with fewer connector-specific copy branches living only in the panel
+
+April 20, 2026 sixth execution checkpoint:
+
+- `PL-C15` is now complete with real packaging and readiness evidence instead of structural placeholders:
+  - `src/guppy/launcher_application/install_readiness.py` now treats release handoff evidence and a real `dist/` build as part of Track 1, and the root-path bug in the install/model/first-run helpers was fixed so the checks read the repo and runtime directories correctly
+  - `src/guppy/launcher_application/local_model_readiness.py` now passes on any honest declared local route (`ollama`, `lmstudio`, or `local_harness`) instead of treating Ollama as the only valid success path, while still reporting optional challengers such as Lemonade honestly
+  - `src/guppy/launcher_application/packaging_audit.py` now rejects stale non-packaging release receipts and tiny fake `dist` outputs, so packaging cannot claim `GO` from an old verify receipt or a stub executable
+
+April 20, 2026 seventh execution checkpoint:
+
+- `PL-C16` is now materially advanced with trust/readiness enforcement tightening in code instead of doc-only intent:
+  - degraded keyring backends now count as unavailable in `utils/secret_store.py`, so insecure/plaintext keyring fallbacks no longer masquerade as real OS-backed secret storage
+  - `src/guppy/launcher_application/security_gate.py` now checks both Settings-owned connector action enforcement and auth-state/secret-read gating when evaluating connector scope
+  - provider secret readiness now surfaces environment-backed storage posture through `src/guppy/workspace_governance/machine_auth.py` and `provider_status.py`, so “ready” states that still rely on env fallback carry an explicit hardening warning
+  - `src/guppy/launcher_application/connector_workflow.py` now only accepts the known Settings request sources instead of any `settings*` prefix
+  - `src/guppy/launcher_application/status_poll.py` no longer defaults missing API status to `healthy`, and background launcher copy now reports `ONLINE` instead of overclaiming `READY`
+- Focused trust/security validation is green: targeted unit tests passed, `tools/run_security_gate.py` reported `Launch ready: YES`, and `dev-check --guard-scope delta` passed.
+
+April 20, 2026 eighth execution checkpoint:
+
+- `PL-C17` is now complete as the integrated audit and doc closeout lane:
+  - active truth docs were refreshed to the current tranche state and current release-lane contract instead of older April 19 packaging-era snapshots
+  - `docs/generated/PRE_LAUNCH_READINESS_20260420.md` was replaced with an honest tranche-53 checkpoint that no longer overclaims launch `GO` from an older tranche/receipt
+  - `docs/generated/TRANCHE_53_INTEGRATED_AUDIT_20260420.md` now records the bounded code/docs/UI/tool audit findings fixed in this pass plus the ranked remaining blockers
+  - packaging/install wording drift was cleaned up so Track 1 / Track 2 language, default Windows build output, and release-closeout evidence read consistently across code and docs
+
+April 20, 2026 ninth execution checkpoint:
+
+- `PL-C16` is now complete as a release-backed trust/security lane instead of an advisory-only sweep:
+  - `tools/dev_workflow.py release-check` now runs `tools/run_dependency_audit.py`, and the dependency audit writes machine-readable `pip-audit` evidence to `.tmp/dev-workflow/reports/pip-audit-report.json`
+  - the current dependency audit is green with no known vulnerabilities found in `requirements.txt`, so the tranche now has real dependency/CVE evidence instead of a manual reminder
+  - desktop launcher support was re-verified on this machine by refreshing `tools/ensure_desktop_launcher.ps1`, and the supported desktop shortcut now targets `dist/Guppy/Guppy.exe` directly when the packaged build exists
+  - `docs/generated/TRANCHE_53_SECURITY_AUDIT_20260420.md` now records the trust/security closeout evidence, remaining non-launch blockers, and the supported launcher-link posture
+- With `PL-C16` and `PL-C17` both closed, Tranche 53 is now complete as an integrated hardening/usability/security sweep.
+
+Acceptance:
+
+1. Launcher and startup behavior are materially more stable and easier to understand.
+2. The UI has a written review against Guppy goals, Stitch direction, and inspiration sources.
+3. All five hubs receive a real usability sweep, not isolated button polish.
+4. Tool discovery, tool wording, tool blocking, and remediation are audited end to end.
+5. Provider/account/plugin lifecycle remains unified in Settings and is cheaper to extend.
+6. Packaging/install/local-runtime evidence is honest and current, including a real `dist/` path.
+7. Security/trust language and actual enforcement align.
+8. The tranche closes with one integrated audit and a ranked blocker list.
+
+Recommended execution order:
+
+1. `PL-C8` to lock the goals/usability contract.
+2. `PL-C9` so the Stitch/inspo review becomes implementation guidance.
+3. `PL-C10`, `PL-C11`, and `PL-C12` as the first main execution wave for launcher, Home, and responsive usability hardening.
+4. `PL-C13` and `PL-C14` in parallel once UI wording/routing contracts are stable.
+5. `PL-C15` as an active execution lane because packaging truth is currently the main release blocker.
+6. `PL-C16` throughout the tranche, then explicitly closed before release evidence.
+7. `PL-C17` last as the integrated audit and closeout.
+
+Recommended lane split:
+
+1. Lane A: `PL-C8` + `PL-C9` goals/UI/Stitch/inspo contract baseline
+2. Lane B: `PL-C10` launcher/startup hardening
+3. Lane C: `PL-C11` + `PL-C12` cross-hub usability and chrome calmness
+4. Lane D: `PL-C13` tool-system audit and tool-entry hardening
+5. Lane E: `PL-C14` provider/account/plugin lifecycle hardening
+6. Lane F: `PL-C15` packaging/install/local-runtime readiness
+7. Lane G: `PL-C16` trust/security sweep
+8. Main integration lane: `PL-C17` docs/code/UI/tool audit, evidence, and final validation
+
+High-impact success metrics:
+
+1. Time to first useful result on a clean machine stays under 5 minutes.
+2. Every primary hub purpose is understandable in under 3 seconds by a first-time user.
+3. No right-edge overflow or obvious spacing break remains at smaller launcher widths.
+4. Tool invocation wording is canonical and consistent across button, starter, typed, and spoken paths.
+5. Packaging/install readiness is backed by a real built artifact, not assumptions.
+6. Launch-critical trust/readiness labels remain honest.
 
 Code and repo evaluation summary:
 
@@ -353,7 +687,7 @@ Release-lane closeout uses `python tools/dev_workflow.py release-check`, which w
 2. Track status
    `P1`, `P2`, `P3`, `P4`, and `P5` are complete as of April 19, 2026; `P6` remains active as the platform-hardening and packaging-readiness lane, with Tranches 46 through 51 now closed and green.
 3. Gate snapshot
-   Release lane is green today: `release-check-20260419-232547` passed all 6 gates, with `427 passed` in the default suite and `130 passed` in product smoke.
+   Release lane is green today: `release-check-20260420-154801` passed at `8/8`, with `543 passed` in the default suite and `138 passed` in product smoke.
 4. Active risks
    The remaining risk is no longer destination ownership. It is concentrated in the still-waived runtime and launcher coordinators plus broader real-machine validation for voice playback, local runtime behavior, and packaged-environment spot checks.
 5. This-week decisions
@@ -720,7 +1054,7 @@ What the next hotspot tranche should optimize for:
 3. Avoid pushing new orchestration back into `utils/`; if a hotspot still needs legacy utilities, keep that import behind an application or runtime seam.
 4. Pair each reduction card with focused runtime or launcher validation so the tranche stays executable rather than speculative.
 
-## Planned Hotspot Reduction Tranche (Framework Pass)
+## Hotspot Reduction Tranche (Framework Pass)
 
 Execution note (April 19, 2026):
 
@@ -730,27 +1064,27 @@ Execution note (April 19, 2026):
 
 What ships:
 
-1. `P6-C33 - Runtime route/request boundary split` `planned`
+1. `P6-C33 - Runtime route/request boundary split` `complete`
    - Reduce `src/guppy/api/server_runtime.py` by extracting one more coherent route and request-orchestration seam.
    - Preferred targets: request middleware binding, route registration clusters, provider/runtime request prep, or shared failure shaping that still lives inline.
    - New logic should prefer `src/guppy/api/*_support.py` or `src/guppy/runtime_application/` helpers instead of expanding the top-level runtime shell.
-2. `P6-C34 - Launcher shell action/routing split` `planned`
+2. `P6-C34 - Launcher shell action/routing split` `complete`
    - Reduce `ui/launcher/launcher_window.py` by extracting one higher-level shell/action seam into `src/guppy/launcher_application/`.
    - Preferred targets: top-level request routing, launcher action dispatch, workspace-driven shell transitions, or other large coordination branches that are still shell-owned.
    - The launcher shell should stay the composition and signal hub, not the long-term home for growing action orchestration.
-3. `P6-C35 - Runtime snapshot composition split` `planned`
+3. `P6-C35 - Runtime snapshot composition split` `complete`
    - Reduce `src/guppy/api/server_runtime_snapshot.py` through one more support-module extraction around a coherent behavior cluster.
    - Preferred targets: runtime snapshot assembly, provider/runtime summaries, machine-status payload shaping, or other shared-runtime helper clusters that still duplicate service-level shaping.
    - Extracted logic should land in bounded support modules instead of widening route-local logic.
-4. `P6-C36 - Shared framework and dependency contract lock` `planned`
+4. `P6-C36 - Shared framework and dependency contract lock` `complete`
    - Keep the tranche inside the live architecture map: `ui/` renders and emits intents, `launcher_application` owns launcher-facing orchestration, `runtime_application` and bounded API support helpers own runtime shaping, and `utils/` does not gain new application-layer ownership.
    - Where the three hotspots share payload shaping or readiness rules, centralize that behavior once rather than splitting the same logic in parallel.
    - Do not introduce a new UI framework, route framework, or cross-layer shortcut imports as part of this tranche.
-5. `P6-C37 - Hotspot validation and runtime execution closeout` `planned`
+5. `P6-C37 - Hotspot validation and runtime execution closeout` `complete`
    - Add or extend focused coverage around the extracted seams and run real executable validation against the touched launcher/runtime paths.
    - Minimum closeout remains `python tools/check_doc_ownership.py`, `.venv\Scripts\python.exe tools/dev_workflow.py dev-check --guard-scope delta`, `.venv\Scripts\python.exe tools/dev_workflow.py dev-check --guard-scope baseline`, and `.venv\Scripts\python.exe tools/dev_workflow.py release-check`.
    - If the hotspot work changes runtime or voice flow assumptions, follow through on the corresponding rows in `docs/generated/RUNTIME_VALIDATION_MATRIX.md` and `docs/generated/VOICE_VALIDATION_MATRIX.md` before calling the tranche complete.
-6. `P6-C38 - User-session chrome, layout, and navigation correction pack` `planned`
+6. `P6-C38 - User-session chrome, layout, and navigation correction pack` `complete`
    - Fold the current user-session findings into the launcher hotspot pass instead of treating them as detached polish.
    - Correct the left-rail/logo artifact and spacing issue in the launcher chrome, including the stale or ghosted logo placement seen in the current user screenshots.
    - Remove or reduce non-essential top-toolbar options, make the loaded main-agent model and spawned/sub-agent model state clearly visible, and keep model selectors explicit instead of visually leaking into the search and utility area.
@@ -799,16 +1133,79 @@ Acceptance:
 4. Lane D: responsive launcher/topbar/sidebar/tools layout review plus focused tests and runtime/voice validation follow-through
 5. Lead integrator: merge sequencing, guardrail passes, waiver refreshes, and final closeout evidence
 
+### Next Automatable Queue (Spawned-Agent Execution)
+
+Execution note (April 19, 2026):
+
+- The following queue was built from spawned-agent lane analysis and is scoped to bounded seams that can be completed automatically with low-to-medium risk.
+- Tandem lanes are designed to avoid overlap by file ownership.
+
+Tandem batch A (parallel):
+
+1. `P6-C33A - Runtime path/binding seam split` `complete`
+    - Extract path-config mutation and owner-binding alias wiring from `src/guppy/api/server_runtime.py` into:
+       - `src/guppy/api/server_runtime_path_support.py`
+       - `src/guppy/api/server_runtime_bindings.py`
+    - Validation target: `tests/unit/test_chat_routing_routes.py`, `tests/unit/test_server_runtime_auth_request_support.py`, `tests/smoke/test_runtime_smoke.py`, `dev-check --guard-scope delta`.
+
+2. `P6-C34A - Launcher windows-ops request-flow split` `complete`
+    - Extract windows-ops request dispatch and chain-update orchestration from `ui/launcher/launcher_window.py` into:
+       - `src/guppy/launcher_application/windows_ops_request_flow.py`
+    - Validation target: `tests/unit/test_windows_ops_coordination.py`, launcher interaction smoke, `dev-check --guard-scope delta`.
+
+Tandem batch B (parallel):
+
+3. `P6-C35A - Snapshot instance scaffold lifecycle split` `complete`
+    - Extract scaffold/config/state load-save + normalized bundle lifecycle from `src/guppy/api/server_runtime_snapshot.py` into:
+       - `src/guppy/api/services_instances.py`
+    - Validation target: `tests/unit/test_chat_routing_routes.py`, snapshot-focused smoke, `dev-check --guard-scope delta`.
+
+4. `P6-C35B - Snapshot ops telemetry/repair split` `complete`
+    - Extract jsonl-tail, diagnostics bundle shaping, and repair action helpers from `src/guppy/api/server_runtime_snapshot.py` into:
+       - `src/guppy/api/services_ops.py`
+    - Validation target: `tests/unit/test_services_telemetry.py`, `tests/unit/test_security_hardening.py`, `dev-check --guard-scope delta`.
+
+Succession batch C (merge last):
+
+5. `P6-C35C - Snapshot realtime prompt/inference utility split` `complete`
+    - Extract prompt-context, cacheability, voice upload temp-file, and inference utility helpers from `src/guppy/api/server_runtime_snapshot.py` into:
+       - `src/guppy/api/services_realtime.py`
+    - Validation target: `tests/unit/test_chat_routing_routes.py`, `tests/unit/test_chat_routing_module_contract.py`, voice-upload route coverage, `dev-check --guard-scope delta`.
+
+6. `P6-C37A - Integrated closeout` `complete`
+    - Run merge-sequenced validation for the completed cards:
+       - `python tools/check_doc_ownership.py`
+       - `.venv\Scripts\python.exe tools/dev_workflow.py dev-check --guard-scope delta`
+       - `.venv\Scripts\python.exe tools/dev_workflow.py dev-check --guard-scope baseline`
+       - `.venv\Scripts\python.exe tools/dev_workflow.py release-check`
+    - Record receipt and summary refs in this brief.
+
+Spawned-agent assignment (operational):
+
+1. Spawned agent A: `P6-C33A`
+2. Spawned agent B: `P6-C34A`
+3. Spawned agent C: `P6-C35A`
+4. Spawned agent D: `P6-C35B`
+5. Lead integrator lane: merge order, conflict resolution, and `P6-C37A` closeout.
+
 ### Execution Checkpoint
 
-April 19, 2026 active pass:
+April 20, 2026 closeout pass:
 
-1. `P6-C38` is materially in progress in live code.
+1. `P6-C38` is fully closed in live code.
 2. Launcher chrome now uses a denser responsive topbar and tighter sidebar chrome, the stale left-rail badge artifact path is removed from the sidebar badge, and visible model summary text is now surfaced in the topbar instead of staying tooltip-only.
 3. The launcher shell no longer collides the Settings alias with the Models hub index, and model-loadout summary sync now refreshes when the Models hub is active.
 4. Tools cards now reflow by available width so smaller windows do not leave the same dead-space/right-edge pressure pattern.
 5. `P6-C39` is fully closed in live code: launcher startup debounce for API/hub autostart is reconfirmed, repeated supervised/direct API command-start attempts are debounced, and normal task recovery now stays on the hidden direct-start path instead of re-entering the supervised batch launcher.
 6. The supervised batch path remains available only in the explicit App Mgmt / Windows ops lane, so duplicate-window stabilization now closes inside the launcher shell rather than depending on deferred real-machine follow-through.
+7. `P6-C35` is fully closed in live code: chat idempotency ownership and replay-state logic was extracted from `src/guppy/api/server_runtime_snapshot.py` into the new bounded seam `src/guppy/api/chat_idempotency.py`, reducing snapshot inline coordinator pressure while preserving `/chat` behavior.
+8. Focused validation for the extraction is green: `tests/unit/test_chat_routing_routes.py` passed and `python tools/dev_workflow.py dev-check --guard-scope delta` passed.
+9. `P6-C35` advanced again with a second bounded support extraction: instance config/state normalization and limits shaping moved from `src/guppy/api/server_runtime_snapshot.py` into `src/guppy/api/instance_state_support.py`, and snapshot now aliases those helpers through the seam.
+10. Focused validation for the second extraction is green: `tests/unit/test_runtime_challengers.py` + `tests/unit/test_chat_routing_routes.py` passed, and `python tools/dev_workflow.py dev-check --guard-scope delta` passed.
+11. Spawned queue closeout cards are complete in sequence: `P6-C33A`, `P6-C34A`, `P6-C35A`, `P6-C35B`, `P6-C35C`, then integrator closeout `P6-C37A`.
+12. Integrator gate run is fully green for this queue closeout: `python tools/check_doc_ownership.py` passed, `python tools/dev_workflow.py dev-check --guard-scope delta` passed, `python tools/dev_workflow.py dev-check --guard-scope baseline` passed, and `python tools/dev_workflow.py release-check` passed.
+13. Current release handoff ref is `release-check-20260420-154801` with gate state `8/8 passed`; summary and receipt are recorded at `.tmp/dev-workflow/reports/release-check-summary.txt` and `.tmp/dev-workflow/reports/release-check-receipt.json`.
+14. Post-closeout verification rerun is still green on the current worktree: `python tools/check_doc_ownership.py`, `python tools/dev_workflow.py dev-check --guard-scope delta`, `python tools/dev_workflow.py dev-check --guard-scope baseline`, and `python tools/dev_workflow.py release-check` all pass with the same handoff ref and gate state.
 
 ## Closed Prior Tranche (Tranche 45: April 20 - May 20)
 

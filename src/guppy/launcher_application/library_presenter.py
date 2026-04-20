@@ -110,8 +110,21 @@ def _item_prompt(item: dict[str, object], workspace_name: str) -> str:
     if kind == "artifact":
         return f"Use {title} as artifact context for {workspace_name} and help me work with the latest outputs."
     if kind == "note":
+        source_label = _metadata_source_label(item).strip().lower()
+        if source_label == "saved reply note":
+            return f"Use the saved reply note {title} as context for {workspace_name} and help me continue from it."
         return f"Use the pinned note {title} as context for {workspace_name} and help me continue from it."
     return f"Use {title} as file context for {workspace_name} and help me work with it."
+
+
+def _context_ref(item: dict[str, object]) -> str:
+    item_id = str(item.get("id", "") or "").strip()
+    if item_id:
+        return f"library-item://{item_id}"
+    item_path = str(item.get("item_path", "") or "").strip()
+    if item_path:
+        return item_path
+    return str(item.get("title", "") or "").strip()
 
 
 def build_library_surface_state(
@@ -221,6 +234,7 @@ def build_library_surface_state(
                 "detail": _card_detail(item),
                 "kind": kind,
                 "item_path": str(item.get("item_path", "") or "").strip(),
+                "context_ref": _context_ref(item),
                 "summary": str(item.get("summary", "") or "").strip(),
                 "is_media": describe_library_media_path(str(item.get("item_path", "") or "").strip()).is_media,
                 "media_kind": describe_library_media_path(str(item.get("item_path", "") or "").strip()).media_kind,
@@ -247,6 +261,8 @@ def build_library_surface_state(
                 "detail": _card_detail(item),
                 "kind": str(item.get("item_kind", "file") or "file").strip().lower(),
                 "item_path": str(item.get("item_path", "") or "").strip(),
+                "id": str(item.get("id", "") or "").strip(),
+                "context_ref": _context_ref(item),
                 "is_media": media.is_media,
                 "media_kind": media.media_kind,
                 "media_path": media.path if media.is_media else "",
@@ -351,7 +367,7 @@ def build_library_surface_state(
         approved_roots=approved_roots,
         selected_root_label=selected_root_label or "Approved root",
         selected_root_hint=(
-            f"Active root: {selected_root_label or 'Approved root'}. Browse files here, then use USE IN CHAT to attach one as source context."
+            f"Active root: {selected_root_label or 'Approved root'}. Switch roots from the picker or cards below, then use USE IN CHAT to attach one as source context."
             if selected_root
             else "Pick an approved root to browse files before using USE IN CHAT. Guppy only browses approved folders."
         ),

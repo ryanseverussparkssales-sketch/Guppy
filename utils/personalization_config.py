@@ -70,6 +70,7 @@ DEFAULT_PROVIDER_REGISTRY: dict[str, Any] = {
             "enabled": True,
             "api_base": "https://api.anthropic.com",
             "auth_env": "ANTHROPIC_API_KEY",
+                "provider_tier": "supported_optional",
             "models": [
                 {
                     "id": "claude-haiku-4-5-20251001",
@@ -101,6 +102,7 @@ DEFAULT_PROVIDER_REGISTRY: dict[str, Any] = {
             "enabled": True,
             "api_base": "https://api.openai.com/v1",
             "auth_env": "OPENAI_API_KEY",
+                "provider_tier": "supported_optional",
             "models": [
                 {
                     "id": "gpt-4.1-mini",
@@ -132,6 +134,7 @@ DEFAULT_PROVIDER_REGISTRY: dict[str, Any] = {
             "enabled": True,
             "api_base": "https://generativelanguage.googleapis.com/v1beta",
             "auth_env": "GEMINI_API_KEY",
+                "provider_tier": "supported_optional",
             "models": [
                 {
                     "id": "gemini-2.0-flash",
@@ -163,6 +166,7 @@ DEFAULT_PROVIDER_REGISTRY: dict[str, Any] = {
             "enabled": True,
             "api_base": "https://ollama.com/api",
             "auth_env": "OLLAMA_API_KEY",
+                "provider_tier": "supported_optional",
             "models": [
                 {
                     "id": "llama3.1:8b",
@@ -183,6 +187,7 @@ DEFAULT_PROVIDER_REGISTRY: dict[str, Any] = {
             "enabled": True,
             "api_base": "http://127.0.0.1:1234/v1",
             "auth_env": "",
+                "provider_tier": "core",
             "models": [
                 {
                     "id": "local-model",
@@ -203,6 +208,7 @@ DEFAULT_PROVIDER_REGISTRY: dict[str, Any] = {
             "enabled": True,
             "api_base": "http://127.0.0.1:8001",
             "auth_env": "",
+                "provider_tier": "core",
             "models": [
                 {
                     "id": "harness-default",
@@ -223,6 +229,7 @@ DEFAULT_PROVIDER_REGISTRY: dict[str, Any] = {
             "enabled": True,
             "api_base": "http://127.0.0.1:11434",
             "auth_env": "",
+                "provider_tier": "core",
             "models": [
                 {
                     "id": "guppy",
@@ -425,6 +432,19 @@ def _normalize_provider_registry(data: Any, diagnostics: list[str] | None = None
             if dropped_models:
                 notes.append(f"provider {pid} ignored {dropped_models} invalid model entries")
             provider["models"] = cleaned_models
+            # Normalize provider_tier — default "core" for local providers, "supported_optional" otherwise
+            _valid_tiers = {"core", "supported_optional", "experimental"}
+            tier = provider.get("provider_tier")
+            if tier not in _valid_tiers:
+                auth_env = str(provider.get("auth_env") or "").strip()
+                api_base = str(provider.get("api_base") or "").strip()
+                _local_hosts = ("127.0.0.1", "localhost", "::1")
+                is_local = not auth_env and any(h in api_base for h in _local_hosts)
+                provider["provider_tier"] = "core" if is_local else "supported_optional"
+                if tier is not None:
+                    notes.append(
+                        f"provider {pid} had invalid provider_tier {tier!r}; defaulted to {provider['provider_tier']!r}"
+                    )
             cleaned_providers.append(provider)
         if dropped_providers:
             notes.append(f"ignored {dropped_providers} invalid provider entries")

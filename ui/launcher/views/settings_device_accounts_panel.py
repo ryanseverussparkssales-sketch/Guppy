@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -16,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.guppy.launcher_application.provider_registry import get_provider
+from src.guppy.launcher_application.provider_registry import get_example_prompt, get_provider
 from src.guppy.workspace_governance import secret_field_meta
 from .. import tokens as T
 
@@ -74,7 +75,9 @@ class SettingsDeviceAccountsPanel(QWidget):
         self._connector_inventory: list[dict[str, object]] = []
         self._field_rows: list[tuple[QWidget, QLabel, QLineEdit, QLabel]] = []
         self._connector_card_buttons: list[tuple[str, QPushButton]] = []
+        self._desktop_action_buttons: list[QPushButton] = []
         self._current_auth_kind = "unknown"
+        self._scroll_area: QScrollArea | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -86,6 +89,7 @@ class SettingsDeviceAccountsPanel(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self._scroll_area = scroll
 
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -136,6 +140,7 @@ class SettingsDeviceAccountsPanel(QWidget):
             )
             btn.clicked.connect(lambda _=False, a=action: self.windows_ops_requested.emit(a))
             action_row.addWidget(btn)
+            self._desktop_action_buttons.append(btn)
         action_row.addStretch()
         desktop_layout.addLayout(action_row)
         layout.addWidget(desktop_frame)
@@ -197,24 +202,7 @@ class SettingsDeviceAccountsPanel(QWidget):
         self._fields_host = QVBoxLayout()
         self._fields_host.setContentsMargins(0, 0, 0, 0)
         self._fields_host.setSpacing(8)
-        for _ in range(3):
-            row = QWidget()
-            row_layout = QVBoxLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(4)
-            label = _mono("", T.TEXT, T.FS_TINY, True)
-            input_box = QLineEdit()
-            input_box.setStyleSheet(
-                f"QLineEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
-                f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
-            )
-            hint = _mono("", T.DIM, T.FS_TINY)
-            row_layout.addWidget(label)
-            row_layout.addWidget(input_box)
-            row_layout.addWidget(hint)
-            row.setVisible(False)
-            self._fields_host.addWidget(row)
-            self._field_rows.append((row, label, input_box, hint))
+        self._ensure_field_row_count(3)
         accounts_layout.addLayout(self._fields_host)
 
         action_row = QHBoxLayout()
@@ -278,10 +266,36 @@ class SettingsDeviceAccountsPanel(QWidget):
         self._rebuild_connector_cards()
         self._sync_account_controls()
 
-    def set_account_result(self, text: str, ok: bool = True) -> None:
-        self._account_step_lbl.setText(("Latest result: " if ok else "Needs attention: ") + str(text or "").strip())
+    def _ensure_field_row_count(self, count: int) -> None:
+        while len(self._field_rows) < max(0, count):
+            row = QWidget()
+            row_layout = QVBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(4)
+            label = _mono("", T.TEXT, T.FS_TINY, True)
+            input_box = QLineEdit()
+            input_box.setStyleSheet(
+                f"QLineEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
+                f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
+            )
+            hint = _mono("", T.DIM, T.FS_TINY)
+            row_layout.addWidget(label)
+            row_layout.addWidget(input_box)
+            row_layout.addWidget(hint)
+            row.setVisible(False)
+            self._fields_host.addWidget(row)
+            self._field_rows.append((row, label, input_box, hint))
+
+    def set_account_result(self, text: str, ok: bool | None = True) -> None:
+        if ok is None:
+            prefix = "Heads up: "
+            color = T.SECONDARY
+        else:
+            prefix = "Latest result: " if ok else "Needs attention: "
+            color = T.GREEN if ok else T.ERROR
+        self._account_step_lbl.setText(prefix + str(text or "").strip())
         self._account_step_lbl.setStyleSheet(
-            f"color: {T.GREEN if ok else T.ERROR}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
 
     def _current_connector_payload(self) -> dict[str, object]:
@@ -303,12 +317,23 @@ class SettingsDeviceAccountsPanel(QWidget):
             label += f" [{auth_state}]"
         return label
 
+    @staticmethod
+    def _provider_tier_badge(tier: str) -> str:
+        """Return a short suffix badge for provider_tier values."""
+        return {
+            "core": " [CORE]",
+            "supported_optional": " [OPT]",
+            "experimental": " [BETA]",
+        }.get(str(tier or "").strip().lower(), "")
+
     def _sync_combo(self, combo: QComboBox, rows: list[dict[str, object]], previous: str, placeholder: str) -> None:
         combo.blockSignals(True)
         combo.clear()
         combo.addItem(placeholder, "")
         for row in rows:
-            combo.addItem(self._selector_label(row, fallback=placeholder.strip("()")), str(row.get("id", "")))
+            tier_badge = self._provider_tier_badge(str(row.get("provider_tier", "") or ""))
+            base_label = self._selector_label(row, fallback=placeholder.strip("()"))
+            combo.addItem(base_label + tier_badge, str(row.get("id", "")))
         idx = combo.findData(previous)
         if idx >= 0:
             combo.setCurrentIndex(idx)
@@ -340,6 +365,7 @@ class SettingsDeviceAccountsPanel(QWidget):
             empty = _mono("No services are available on this machine yet.", T.DIM, T.FS_SMALL)
             self._connector_cards_grid.addWidget(empty, 0, 0)
             return
+        columns = self._connector_grid_columns()
         for index, item in enumerate(self._connector_inventory):
             connector_id = str(item.get("id", "")).strip().lower()
             label = str(item.get("label", connector_id.title()) or connector_id.title())
@@ -351,9 +377,70 @@ class SettingsDeviceAccountsPanel(QWidget):
             button.setCheckable(True)
             button.clicked.connect(lambda _=False, cid=connector_id: self._select_connector_card(cid))
             button.setProperty("connector_id", connector_id)
-            self._connector_cards_grid.addWidget(button, index // 3, index % 3)
+            self._connector_cards_grid.addWidget(button, index // columns, index % columns)
             self._connector_card_buttons.append((connector_id, button))
         self._refresh_connector_card_styles()
+
+    def _connector_grid_columns(self) -> int:
+        width = self.width()
+        if self._scroll_area is not None and self._scroll_area.viewport() is not None:
+            width = max(width, self._scroll_area.viewport().width())
+        if width <= 900:
+            return 1
+        if width <= 1280:
+            return 2
+        return 3
+
+    def _apply_density_mode(self, width: int) -> None:
+        compact = width <= 1080
+        tight = width <= 920
+        action_labels = ["VERIFY", "UPDATE", "START API", "RESTART", "REPAIR"]
+        compact_action_labels = ["VERIFY", "UPDATE", "START", "RESTART", "REPAIR"]
+        tight_action_labels = ["VERIFY", "UPDATE", "START", "RESET", "REPAIR"]
+        chosen_labels = tight_action_labels if tight else compact_action_labels if compact else action_labels
+        for button, text in zip(self._desktop_action_buttons, chosen_labels):
+            button.setText(text)
+
+        if self._current_auth_kind == "api_key":
+            connect_text = "BROWSER SIGN-IN"
+            save_text = "SAVE API KEY"
+            verify_text = "TEST KEY"
+            disconnect_text = "REMOVE KEY"
+        elif self._current_auth_kind == "provider_secret":
+            connect_text = "BROWSER SIGN-IN"
+            save_text = "SAVE DETAILS"
+            verify_text = "CHECK SETUP"
+            disconnect_text = "CLEAR DETAILS"
+        elif self._current_auth_kind == "oauth_file_token":
+            connect_text = "SIGN IN"
+            save_text = "SAVE & VERIFY"
+            verify_text = "CHECK SIGN-IN"
+            disconnect_text = "REMOVE SIGN-IN"
+        elif self._current_auth_kind == "oauth_secret":
+            connect_text = "OPEN SIGN-IN"
+            save_text = "SAVE APP KEYS"
+            verify_text = "CHECK CONNECTION"
+            disconnect_text = "REMOVE CONNECTION"
+        else:
+            connect_text = "SIGN IN"
+            save_text = "SAVE"
+            verify_text = "CHECK"
+            disconnect_text = "REMOVE"
+
+        self._connect_btn.setText("SIGN IN" if compact else connect_text)
+        self._save_btn.setText("SAVE" if tight else save_text)
+        self._verify_btn.setText("CHECK" if tight else verify_text)
+        self._disconnect_btn.setText("CLEAR" if tight else disconnect_text)
+
+    def showEvent(self, event: QShowEvent) -> None:  # type: ignore[override]
+        super().showEvent(event)
+        self._rebuild_connector_cards()
+        self._apply_density_mode(self.width())
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._rebuild_connector_cards()
+        self._apply_density_mode(event.size().width())
 
     def _select_connector_card(self, connector_id: str) -> None:
         idx = self._connector_cb.findData(connector_id)
@@ -451,11 +538,14 @@ class SettingsDeviceAccountsPanel(QWidget):
         fields: list[dict[str, Any]],
     ) -> tuple[str, str, str]:
         label = str(item.get("label", "This service") or "This service")
+        registry_entry = get_provider(str(item.get("id", "") or ""))
         purpose = _service_purpose(str(item.get("id", "") or ""))
         auth_kind = str(item.get("auth_kind", "unknown") or "unknown").strip().lower()
         auth_state = str(item.get("auth_state", "missing") or "missing").strip().lower()
+        auth_detail = str(item.get("auth_detail", "") or "").strip()
         first_field = fields[0] if fields else {}
         first_field_label = str(first_field.get("label", "details") or "details")
+        connect_hint = (registry_entry.connect_hint if registry_entry else "").strip()
 
         if auth_kind == "api_key":
             status = f"{label} helps with {purpose.lower()} on this PC."
@@ -464,7 +554,7 @@ class SettingsDeviceAccountsPanel(QWidget):
             elif auth_state == "ready":
                 detail = f"Your {label} API key is saved and ready to use."
             else:
-                detail = f"{label} uses a single API key on this PC."
+                detail = connect_hint or f"{label} uses a single API key on this PC."
             step = f"Paste your {first_field_label.lower()}, then click Save API Key."
             return status, detail, "Next step: " + step
 
@@ -475,7 +565,7 @@ class SettingsDeviceAccountsPanel(QWidget):
             elif auth_state == "partial":
                 detail = f"{label} is almost ready, but browser sign-in still needs to finish."
             else:
-                detail = f"{label} still needs the downloaded Google credentials file on this PC before browser sign-in can start."
+                detail = auth_detail or connect_hint or f"{label} still needs the downloaded Google credentials file on this PC before browser sign-in can start."
             if auth_state == "missing":
                 step = f"Add the {label.lower()} credentials JSON on this PC, then come back here to sign in."
             elif len(accounts) > 1:
@@ -488,7 +578,7 @@ class SettingsDeviceAccountsPanel(QWidget):
             status = f"{label} needs app details before it can sign in."
             if providers and not str(self._provider_cb.currentData() or "").strip():
                 return status, f"Choose which {label} provider you use first.", f"Next step: pick your {label} provider."
-            detail = f"{label} uses app credentials plus browser sign-in."
+            detail = connect_hint or f"{label} uses app credentials plus browser sign-in."
             step = f"Add your {first_field_label.lower()}, save it, then use Sign In."
             return status, detail, "Next step: " + step
 
@@ -499,7 +589,7 @@ class SettingsDeviceAccountsPanel(QWidget):
             if auth_state in {"ready", "optional"}:
                 detail = f"{label} is ready. You can now allow it in a workspace when you need it."
             else:
-                detail = f"Enter the provider details Guppy needs for {label.lower()}."
+                detail = connect_hint or f"Enter the provider details Guppy needs for {label.lower()}."
             step = f"Add your {first_field_label.lower()}, then click Save Details."
             return status, detail, "Next step: " + step
 
@@ -517,8 +607,8 @@ class SettingsDeviceAccountsPanel(QWidget):
         )
         field_details = [row for row in selected_provider.get("field_details", []) if isinstance(row, dict)] if isinstance(selected_provider, dict) else []
         if field_details:
-            return field_details[:3]
-        return [secret_field_meta(field) for field in item.get("secret_fields", []) if str(field).strip()][:3]
+            return field_details
+        return [secret_field_meta(field) for field in item.get("secret_fields", []) if str(field).strip()]
 
     def _sync_account_controls(self) -> None:
         item = self._current_connector_payload()
@@ -563,6 +653,7 @@ class SettingsDeviceAccountsPanel(QWidget):
         self._current_auth_kind = auth_kind
         self._refresh_connector_card_styles()
 
+        self._ensure_field_row_count(len(self._current_field_payloads()))
         for row_widget, label, input_box, hint in self._field_rows:
             row_widget.setVisible(False)
             label.setText("")
@@ -591,6 +682,9 @@ class SettingsDeviceAccountsPanel(QWidget):
         self._account_status_lbl.setText(friendly_status)
         self._account_detail_lbl.setText(friendly_detail)
         self._account_step_lbl.setText(friendly_step)
+        self._account_status_lbl.setToolTip(friendly_status)
+        self._account_detail_lbl.setToolTip(friendly_detail)
+        self._account_step_lbl.setToolTip(friendly_step)
         self._account_step_lbl.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
@@ -599,9 +693,12 @@ class SettingsDeviceAccountsPanel(QWidget):
         is_verified = auth_state in {"ready", "optional"}
         registry_entry = get_provider(connector_id)
         hint_text = (registry_entry.next_step_hint if registry_entry else "").strip()
+        example_prompt = get_example_prompt(connector_id).strip()
         if is_verified and hint_text:
-            self._next_step_hint_lbl.setText(f"Connected — {hint_text}")
+            extra = f" {example_prompt}" if example_prompt else ""
+            self._next_step_hint_lbl.setText(f"Connected — {hint_text}{extra}")
             self._next_step_hint_lbl.setVisible(True)
+            self._next_step_hint_lbl.setToolTip(self._next_step_hint_lbl.text())
         else:
             self._next_step_hint_lbl.setText("")
             self._next_step_hint_lbl.setVisible(False)
@@ -644,12 +741,23 @@ class SettingsDeviceAccountsPanel(QWidget):
         self._verify_btn.setEnabled("verify" in supports)
         self._disconnect_btn.setVisible("disconnect" in supports)
         self._disconnect_btn.setEnabled("disconnect" in supports)
+        connect_hint = (registry_entry.connect_hint if registry_entry else "").strip() or f"Connect {connector_label} on this PC."
+        self._connect_btn.setToolTip(connect_hint)
+        self._save_btn.setToolTip(f"Save the current {connector_label} details on this PC.")
+        verify_hint = f"Verify {connector_label} on this PC."
+        if example_prompt:
+            verify_hint += f" {example_prompt}"
+        self._verify_btn.setToolTip(verify_hint)
+        self._disconnect_btn.setToolTip(f"Remove the current {connector_label} connection from this PC.")
+        if self.isVisible():
+            self._apply_density_mode(self.width())
 
     def _base_connector_payload(self) -> dict[str, str]:
         return {
             "connector": str(self._connector_cb.currentData() or "").strip(),
             "provider": str(self._provider_cb.currentData() or "").strip(),
             "account_id": str(self._account_cb.currentData() or "").strip(),
+            "request_source": "settings_device_accounts",
         }
 
     def _emit_basic_connector_action(self, action: str) -> None:
@@ -676,3 +784,41 @@ class SettingsDeviceAccountsPanel(QWidget):
             self.set_account_result("Add an API key or account details before saving.", ok=False)
             return
         self.connector_guided_link_requested.emit({**payload, "secrets": secrets, "verify_after": True})
+
+    def focus_connector(
+        self,
+        connector_id: str,
+        *,
+        provider: str = "",
+        account_id: str = "",
+        note: str = "",
+    ) -> None:
+        normalized_connector = str(connector_id or "").strip().lower()
+        if not normalized_connector:
+            return
+        connector_index = self._connector_cb.findData(normalized_connector)
+        if connector_index >= 0:
+            self._connector_cb.setCurrentIndex(connector_index)
+        if provider:
+            provider_index = self._provider_cb.findData(str(provider or "").strip().lower())
+            if provider_index >= 0:
+                self._provider_cb.setCurrentIndex(provider_index)
+        if account_id:
+            account_index = self._account_cb.findData(str(account_id or "").strip().lower())
+            if account_index >= 0:
+                self._account_cb.setCurrentIndex(account_index)
+        self._sync_account_controls()
+        if note:
+            self.set_account_result(note, ok=None)
+        focus_target = next(
+            (
+                input_box
+                for row_widget, _label, input_box, _hint in self._field_rows
+                if row_widget.isVisible()
+            ),
+            self._provider_cb if self._provider_cb.isVisible() else self._account_cb if self._account_cb.isVisible() else self._connector_cb,
+        )
+        if focus_target is not None:
+            focus_target.setFocus(Qt.FocusReason.OtherFocusReason)
+        if self._scroll_area is not None:
+            self._scroll_area.ensureWidgetVisible(self, 0, 48)

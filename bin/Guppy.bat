@@ -1,20 +1,39 @@
 @echo off
+setlocal
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "ROOT=%%~fI"
-:: Guppy desktop launcher (no console window).
-:: Drop this on the Desktop or pin to Start. Uses pythonw so no terminal pops up.
+set "PACKAGED_ONEDIR=%ROOT%\dist\Guppy\Guppy.exe"
+set "PACKAGED_ONEFILE=%ROOT%\dist\Guppy.exe"
+
+:: Repo-local launcher helper.
+:: Keep this file in bin\ so the relative repo path stays valid.
+:: Use tools\ensure_desktop_launcher.ps1 to create Desktop or Start-facing launchers.
 
 cd /d "%ROOT%"
 
-:: Prefer venv pythonw; fall back to system pythonw; fall back to visible python.
+if exist "%PACKAGED_ONEDIR%" (
+    start "" /D "%ROOT%\dist\Guppy" "%PACKAGED_ONEDIR%"
+    exit /b 0
+)
+
+if exist "%PACKAGED_ONEFILE%" (
+    start "" /D "%ROOT%\dist" "%PACKAGED_ONEFILE%"
+    exit /b 0
+)
+
 if exist ".venv\Scripts\pythonw.exe" (
-    start "" ".venv\Scripts\pythonw.exe" src\guppy\cli\launch.py launcher
-    exit
+    start "" /D "%ROOT%" ".venv\Scripts\pythonw.exe" src\guppy\cli\launch.py launcher
+    exit /b 0
 )
+
 where pythonw >nul 2>&1 && (
-    start "" pythonw src\guppy\cli\launch.py launcher
-    exit
+    start "" /D "%ROOT%" pythonw src\guppy\cli\launch.py launcher
+    exit /b 0
 )
-:: Last resort: visible console (so you can see any startup errors).
-.venv\Scripts\python.exe src\guppy\cli\launch.py launcher
+
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" src\guppy\cli\launch.py launcher
+) else (
+    python src\guppy\cli\launch.py launcher
+)
 pause

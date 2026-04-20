@@ -6,6 +6,7 @@ from pathlib import Path
 from src.guppy.launcher_application.launcher_shell_support import (
     build_notification_badge_state,
     build_quick_action_plan,
+    build_runtime_badge_state,
 )
 
 
@@ -67,3 +68,41 @@ def test_build_notification_badge_state_skips_unchanged_files(tmp_path) -> None:
     state = build_notification_badge_state(events_path=events_path, previous_mtime=current_mtime)
 
     assert state.changed is False
+
+
+def test_build_runtime_badge_state_marks_starting_before_first_poll() -> None:
+    state = build_runtime_badge_state(
+        api_status={},
+        runtime_overall="UNKNOWN",
+        startup_summary="startup unknown",
+        startup_first_poll_ok=False,
+        startup_over_budget=False,
+    )
+
+    assert state.label == "STARTING"
+    assert state.severity == "info"
+    assert "startup unknown" in state.detail
+
+
+def test_build_runtime_badge_state_marks_degraded_and_warn_states() -> None:
+    degraded = build_runtime_badge_state(
+        api_status={"status": "degraded"},
+        runtime_overall="PARTIAL",
+        startup_summary="startup partial | chat partial",
+        startup_first_poll_ok=True,
+        startup_over_budget=False,
+    )
+    over_budget = build_runtime_badge_state(
+        api_status={"status": "healthy"},
+        runtime_overall="READY",
+        startup_summary="startup ready | chat ready",
+        startup_first_poll_ok=True,
+        startup_over_budget=True,
+    )
+
+    assert degraded.label == "CHECK"
+    assert degraded.severity == "warn"
+    assert "startup partial" in degraded.detail
+    assert over_budget.label == "STARTUP WARN"
+    assert over_budget.severity == "warn"
+    assert "longer than the current launcher budget" in over_budget.detail

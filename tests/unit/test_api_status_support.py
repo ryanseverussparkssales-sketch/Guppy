@@ -49,6 +49,17 @@ def test_build_runtime_status_payload_keeps_launcher_visible_shape() -> None:
     assert payload["resource_envelope"] == {"cpu": "steady"}
 
 
+def test_build_runtime_status_payload_marks_partial_startup_as_degraded() -> None:
+    owner = _fake_owner(
+        _startup_readiness_cached_or_unknown=lambda: {"overall": "PARTIAL", "checks": {"auth": {"state": "READY"}}},
+        _build_local_runtime_status=lambda: {"state": "PARTIAL", "backend": "lemonade", "chat_ready": False},
+    )
+
+    payload = services_runtime.build_runtime_status_payload(owner)
+
+    assert payload["status"] == "degraded"
+
+
 def test_build_status_response_uses_cache_before_reloading_window_context() -> None:
     calls: list[str] = []
 

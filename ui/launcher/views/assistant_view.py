@@ -5,6 +5,7 @@ Home chat surface with a calmer, messenger-style launcher layout.
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -26,6 +27,7 @@ from src.guppy.launcher_application.home_presenter import (
 )
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
 from .. import tokens as T
+from .assistant_first_run_banner import FirstRunBanner
 from .assistant_active_context import clear_active_context_row, populate_active_context_row
 from .assistant_context import (
     active_context_titles as context_active_context_titles,
@@ -90,6 +92,7 @@ class AssistantView(QWidget):
     assistant_reply_artifact_requested = Signal(str)
     latest_saved_output_attach_requested = Signal(str, str)
     latest_saved_output_library_requested = Signal(str)
+    first_run_action_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -121,6 +124,7 @@ class AssistantView(QWidget):
         self._home_operator_details_enabled = False
         self._home_workspace_details_enabled = False
         self._launcher_context_controls_enabled = False
+        self._first_run_banner_visible = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 14, 18, 14)
@@ -170,6 +174,14 @@ class AssistantView(QWidget):
         )
         root.addWidget(self._purpose_lbl)
         root.addWidget(self._identity_frame)
+
+        self._first_run_frame = FirstRunBanner(self)
+        self._first_run_frame.settings_requested.connect(lambda: self.first_run_action_requested.emit("settings"))
+        self._first_run_frame.models_requested.connect(lambda: self.first_run_action_requested.emit("models"))
+        self._first_run_frame.focus_input_requested.connect(lambda: self._input.setFocus(Qt.FocusReason.OtherFocusReason))
+        self._first_run_summary = self._first_run_frame._summary_lbl
+        self._first_run_install_chip = self._first_run_frame._install_chip
+        root.addWidget(self._first_run_frame)
 
         self._hero_title = QLabel("Start with one ask.")
         self._hero_subtitle = QLabel(_hero_subtitle_for_workspace("user_instance"))
@@ -671,6 +683,7 @@ class AssistantView(QWidget):
         self._refresh_composer_guidance()
         self._update_workspace_details_visibility()
         self._update_starter_visibility()
+        self._apply_density_mode(self.width())
         self._launcher_panel.setVisible(False)
         self._identity_details_btn.setVisible(False)
         self._workspace_details_strip.setVisible(False)
@@ -718,7 +731,7 @@ class AssistantView(QWidget):
         self._workspace_details_host.setVisible(self._workspace_details_expanded)
 
     def _update_starter_visibility(self) -> None:
-        self._starter_buttons_host.setVisible(self._starters_expanded)
+        self._starter_buttons_host.setVisible(self._starters_expanded and self.width() >= 920)
         self._starters_btn.setText("HIDE STARTERS" if self._starters_expanded else "STARTERS")
 
     def _build_empty_state(self) -> QFrame:
@@ -1312,6 +1325,59 @@ class AssistantView(QWidget):
         )
         self._input.setPlaceholderText(placeholder)
         self._starter_summary.setText(starter_summary)
+
+    def _focus_input_for_first_run(self) -> None:
+        self._input.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def set_first_run_status(
+        self,
+        *,
+        visible: bool,
+        summary: str = "",
+        detail: str = "",
+        install_status: str = "pending",
+        model_status: str = "pending",
+        request_status: str = "pending",
+    ) -> None:
+        self._first_run_banner_visible = bool(visible)
+        self._first_run_frame.set_status(
+            visible=visible,
+            summary=summary,
+            detail=detail,
+            install_status=install_status,
+            model_status=model_status,
+            request_status=request_status,
+        )
+        self._apply_density_mode(self.width())
+
+    def showEvent(self, event: QShowEvent) -> None:  # type: ignore[override]
+        super().showEvent(event)
+        self._apply_density_mode(self.width())
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._apply_density_mode(event.size().width())
+
+    def _apply_density_mode(self, width: int) -> None:
+        width = max(int(width or 0), 0)
+        compact = width < 1120
+        tight = width < 920
+        ultra = width < 780
+        self._identity_mode_chip.setVisible(not ultra)
+        self._instance_chip.setVisible(not tight)
+        self._starter_summary.setVisible(not tight)
+        self._starter_buttons_host.setVisible(self._starters_expanded and not tight)
+        self._first_run_frame.apply_density_mode(width)
+        self._workspace_details_btn.setText(
+            "OPEN"
+            if compact and not self._workspace_details_expanded
+            else ("HIDE DETAILS" if self._workspace_details_expanded else "DETAILS")
+        )
+        self._identity_details_btn.setText(
+            "OPEN"
+            if compact and not self._workspace_details_expanded
+            else ("HIDE DETAILS" if self._workspace_details_expanded else "DETAILS")
+        )
 
     def _emit_context_changed(self, _text: str) -> None:
         self.chat_context_changed.emit(self.selected_mode(), self.selected_persona())

@@ -189,3 +189,63 @@ def test_drain_connector_action_events_refreshes_only_last_batch_record() -> Non
 
     assert owner._settings_hub_view.logs == ["step one", "step two"]
     assert owner._refresh_calls == [(False, True)]
+
+
+def test_handle_connector_action_request_rejects_non_settings_source() -> None:
+    owner = _Owner()
+
+    connector_workflow.handle_connector_action_request(
+        owner,
+        {
+            "connector": "gmail",
+            "action": "verify",
+            "request_source": "tools_view",
+        },
+        backend_available=True,
+    )
+
+    assert owner._settings_hub_view.result == (
+        "Connector setup and account actions only run from Settings > Device & Accounts.",
+        False,
+    )
+    assert owner._event_log[-1][0] == "connector_action_rejected"
+    assert owner._refresh_calls == []
+
+
+def test_handle_connector_action_request_rejects_missing_request_source() -> None:
+    owner = _Owner()
+
+    connector_workflow.handle_connector_action_request(
+        owner,
+        {
+            "connector": "gmail",
+            "action": "verify",
+        },
+        backend_available=True,
+    )
+
+    assert owner._settings_hub_view.result == (
+        "Connector setup and account actions only run from Settings > Device & Accounts.",
+        False,
+    )
+    assert owner._event_log[-1][1]["request_source"] == "missing_request_source"
+
+
+def test_handle_connector_action_request_rejects_non_allowlisted_settings_like_source() -> None:
+    owner = _Owner()
+
+    connector_workflow.handle_connector_action_request(
+        owner,
+        {
+            "connector": "gmail",
+            "action": "verify",
+            "request_source": "settings_device_accounts_debug",
+        },
+        backend_available=True,
+    )
+
+    assert owner._settings_hub_view.result == (
+        "Connector setup and account actions only run from Settings > Device & Accounts.",
+        False,
+    )
+    assert owner._event_log[-1][1]["request_source"] == "settings_device_accounts_debug"

@@ -133,7 +133,9 @@ def _release_check_steps() -> list[tuple[str, list[str], dict[str, str]]]:
         ("release comment-debt guard", _python_command("tools/check_release_comment_debt.py"), {}),
         ("default tests", _python_command("tools/dev_workflow.py", "test-default"), {}),
         ("product smoke", _python_command("tools/dev_workflow.py", "test-smoke"), {}),
+        ("dependency audit", _python_command("tools/run_dependency_audit.py"), {}),
         ("build validation", _python_command("tools/validate_build_checks.py"), {}),
+        ("security gate", _python_command("tools/run_security_gate.py"), {}),
     ]
 
 

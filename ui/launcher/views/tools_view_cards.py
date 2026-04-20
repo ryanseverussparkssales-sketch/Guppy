@@ -4,12 +4,16 @@ Helpers for the Tools catalog and per-tool policy rendering.
 """
 from __future__ import annotations
 
-from src.guppy.launcher_application.tool_action_registry import get_action_for_tool
+from src.guppy.launcher_application.tool_action_registry import (
+    get_action_for_tool,
+    get_canonical_action_line,
+)
 from src.guppy.launcher_application.tool_readiness import (
     read_workspace_tool_readiness,
     tool_policy_fix_hint,
     tool_readiness_debug_fields,
     tool_readiness_summary,
+    tool_settings_route,
 )
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -199,6 +203,7 @@ def _render_endpoint_scope(allow: list[str], block: list[str]) -> str:
 
 class ToolCard(QFrame):
     hint_requested = Signal(str)
+    manage_requested = Signal(dict)
 
     def __init__(self, tool: dict[str, object], parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -206,6 +211,7 @@ class ToolCard(QFrame):
         self._state = "ready"
         self._reason = ""
         self._debug_evidence: dict[str, object] = {}
+        self._manage_payload: dict[str, str] = {}
         self._details_visible = False
         self.setObjectName("agent_tool_card")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -235,6 +241,9 @@ class ToolCard(QFrame):
             f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
         )
         root.addWidget(self._desc_lbl)
+        self._action_line_lbl = mono_label(get_canonical_action_line(str(tool.get("key", ""))), T.TERTIARY, T.FS_TINY, True)
+        self._action_line_lbl.setToolTip("Canonical typed and spoken command line for this tool.")
+        root.addWidget(self._action_line_lbl)
 
         meta = QHBoxLayout()
         meta.addWidget(
@@ -277,6 +286,17 @@ class ToolCard(QFrame):
         )
         self._hint_btn.clicked.connect(lambda: self.hint_requested.emit(str(self._tool.get("key", ""))))
         actions.addWidget(self._hint_btn)
+        self._manage_btn = QPushButton("OPEN APP MGMT")
+        self._manage_btn.setToolTip("Open the Settings-owned connector setup flow for this tool")
+        self._manage_btn.setStyleSheet(
+            f"QPushButton {{ background: {T.BG0}; color: {T.SECONDARY}; border: 1px solid {T.SECONDARY};"
+            f" padding: 4px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton:hover {{ background: {T.SECONDARY}; color: {T.BG}; }}"
+            f"QPushButton:disabled {{ color: {T.BORDER}; border-color: {T.BORDER}; }}"
+        )
+        self._manage_btn.clicked.connect(self._emit_manage_requested)
+        self._manage_btn.setVisible(False)
+        actions.addWidget(self._manage_btn)
         actions.addStretch()
         root.addLayout(actions)
         self.set_details_visible(False)
@@ -341,6 +361,7 @@ class ToolCard(QFrame):
         ]
         connector_binding_note = str(permissions.get("_connector_binding_note", "") or "").strip()
         policy_reason_code = str(permissions.get("_policy_reason_code", "") or "").strip().lower()
+        settings_route = tool_settings_route(self.tool_key, policy_reason_code, readiness)
         readiness_state = str(readiness.get("state", "") or "").strip().lower()
         readiness_summary = tool_readiness_summary(readiness)
         binding_validation_message = str(binding_validation.get("message", "") or "").strip()
@@ -353,6 +374,8 @@ class ToolCard(QFrame):
             policy_text += " Home prompting only appears when the real action is allowed."
         self._guard_lbl.setText(policy_text)
         self._evidence_lbl.setText(readiness_summary)
+        self._guard_lbl.setToolTip(policy_text)
+        self._evidence_lbl.setToolTip(readiness_summary)
         governance_text = " | ".join(
             [
                 f"SIGN-IN: {auth_mode}",
@@ -394,6 +417,7 @@ class ToolCard(QFrame):
         if policy_note:
             governance_text += f" | Note: {policy_note}"
         self._policy_lbl.setText(governance_text)
+        self._policy_lbl.setToolTip(governance_text)
         self._debug_evidence = {
             "tool": self.tool_key,
             "allowed": allowed,
@@ -427,6 +451,7 @@ class ToolCard(QFrame):
             "governance_text": governance_text,
             "evidence_text": readiness_summary,
             "guard_text": policy_text,
+            "settings_route": dict(settings_route),
             **tool_readiness_debug_fields(readiness),
         }
         if allowed:
@@ -438,7 +463,10 @@ class ToolCard(QFrame):
             if readiness_state in {"pending_verify", "verification_failed", "host_setup_incomplete"}:
                 availability_text += " " + str(readiness.get("label", "") or "").strip()
             self._scope_lbl.setText(availability_text)
+            self._scope_lbl.setToolTip(availability_text)
             self._hint_btn.setEnabled(True)
+            self._manage_payload = {}
+            self._manage_btn.setVisible(False)
             return
 
         self._status_lbl.setText("RESTRICTED")
@@ -451,7 +479,28 @@ class ToolCard(QFrame):
             f"{self._name_lbl.text().title()} is not available in {instance_name} ({workspace_type_label(instance_type)}) right now. {restriction}"
             + (f" {fix_hint}" if fix_hint else "")
         )
+        self._scope_lbl.setToolTip(self._scope_lbl.text())
         self._hint_btn.setEnabled(False)
+        self._manage_payload = {
+            **settings_route,
+            "instance": instance_name,
+            "tool_label": self._name_lbl.text(),
+        }
+        self._manage_btn.setVisible(bool(settings_route))
+        self._manage_btn.setEnabled(bool(settings_route))
+        if settings_route:
+            button_label = str(settings_route.get("button_label", "") or "").strip() or "OPEN APP MGMT"
+            destination_label = str(settings_route.get("destination_label", "") or "").strip()
+            note = str(settings_route.get("note", "") or "").strip()
+            self._manage_btn.setText(button_label)
+            tooltip = (
+                f"Open {destination_label} for connector setup and verification"
+                if destination_label
+                else "Open the Settings-owned connector setup flow"
+            )
+            if note:
+                tooltip += f" | {note}"
+            self._manage_btn.setToolTip(tooltip)
 
     @property
     def tool_key(self) -> str:
@@ -479,6 +528,10 @@ class ToolCard(QFrame):
     @property
     def debug_evidence(self) -> dict[str, object]:
         return dict(self._debug_evidence)
+
+    def _emit_manage_requested(self) -> None:
+        if self._manage_payload:
+            self.manage_requested.emit(dict(self._manage_payload))
 
 
 __all__ = [

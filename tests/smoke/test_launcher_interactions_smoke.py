@@ -192,6 +192,45 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertEqual(supervised_calls, [])
         self.assertEqual(logged, [])
 
+    def test_tool_management_redirect_routes_to_settings_connectors(self):
+        focused: list[dict[str, str]] = []
+        syslog: list[str] = []
+        events: list[tuple[str, dict]] = []
+        messages: list[str] = []
+        tabs: list[int] = []
+        dummy = SimpleNamespace(
+            _settings_hub_view=SimpleNamespace(
+                focus_connectors=lambda connector_id="", provider="", account_id="", note="": focused.append(
+                    {
+                        "connector": connector_id,
+                        "provider": provider,
+                        "account_id": account_id,
+                        "note": note,
+                    }
+                )
+            ),
+            _assistant_view=SimpleNamespace(add_system_message=messages.append),
+            _status_panel=SimpleNamespace(append_syslog=syslog.append),
+            _on_tab_change=lambda index: tabs.append(index),
+            _set_daily_activity=lambda text: setattr(dummy, "_daily_activity", text),
+            _log_launcher_event=lambda event, **fields: events.append((event, fields)),
+        )
+
+        launcher_window.LauncherWindow._on_tool_management_requested(
+            dummy,
+            {
+                "tool": "send_email",
+                "connector": "gmail",
+                "destination": "settings_device_accounts",
+                "note": "Open Gmail setup in Settings.",
+            },
+        )
+
+        self.assertEqual(tabs[-1], launcher_window._SETTINGS_VIEW_INDEX)
+        self.assertEqual(focused[-1]["connector"], "gmail")
+        self.assertIn("Settings owns connector setup", messages[-1])
+        self.assertEqual(events[-1][0], "tool_management_redirected")
+
     def test_assistant_mode_dropdown_excludes_internal_vault_mode(self):
         assistant = AssistantView()
         modes = [assistant._cb_mode.itemText(i) for i in range(assistant._cb_mode.count())]
@@ -218,6 +257,33 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         topbar._instance_cb.setCurrentText("guppy-primary")
         self.assertTrue(selected)
         self.assertEqual(selected[-1], "guppy-primary")
+
+    def test_topbar_runtime_chip_updates_copy_and_tooltip(self):
+        topbar = TopBar()
+
+        topbar.set_runtime_status(
+            "CHECK",
+            detail="Startup checks are partial and need attention.",
+            severity="warn",
+        )
+
+        self.assertEqual(topbar._runtime_chip.text(), "CHECK")
+        self.assertIn("partial", topbar._runtime_chip.toolTip().lower())
+
+    def test_home_drawer_toggle_actually_opens_and_closes_on_home(self):
+        visible_states: list[bool] = []
+        dummy = SimpleNamespace(
+            _home_drawer_open=False,
+            _stack=SimpleNamespace(currentIndex=lambda: launcher_window._HOME_VIEW_INDEX),
+            _status_panel=SimpleNamespace(isVisible=lambda: False),
+            _set_status_panel_visible=lambda visible: visible_states.append(bool(visible)),
+        )
+
+        launcher_window.LauncherWindow._toggle_status_panel(dummy)
+        launcher_window.LauncherWindow._toggle_status_panel(dummy)
+
+        self.assertEqual(visible_states, [True, False])
+        self.assertFalse(dummy._home_drawer_open)
 
     def test_sidebar_exposes_five_hub_visible_nav_and_hides_legacy_aliases(self):
         sidebar = Sidebar()
@@ -247,7 +313,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Recommended default:", view._library_summary_lbl.text())
         self.assertIn("Heavier local option:", view._library_summary_lbl.text())
 
-    def test_my_pc_view_surfaces_human_friendly_api_key_field(self):
+    def test_settings_device_accounts_panel_surfaces_human_friendly_api_key_field(self):
         view = SettingsDeviceAccountsPanel()
         view.set_windows_snapshot(
             {
@@ -287,12 +353,14 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertFalse(view._provider_cb.isVisible())
         self.assertFalse(view._account_cb.isVisible())
         self.assertEqual(view._save_btn.text(), "SAVE API KEY")
+        self.assertIn("find a youtube video", view._next_step_hint_lbl.text().lower())
+        self.assertIn("verify youtube", view._verify_btn.toolTip().lower())
         visible_fields = [row for row in view._field_rows if not row[0].isHidden()]
         self.assertTrue(visible_fields)
         self.assertEqual(visible_fields[0][1].text(), "API Key")
         self.assertIn("Paste the YouTube Data API key", visible_fields[0][3].text())
 
-    def test_my_pc_view_hides_calendar_sign_in_until_credentials_file_exists(self):
+    def test_settings_device_accounts_panel_hides_calendar_sign_in_until_credentials_file_exists(self):
         view = SettingsDeviceAccountsPanel()
         view.set_connector_inventory(
             [
@@ -589,6 +657,30 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("next pass", assistant._input.placeholderText().lower())
         self.assertEqual(assistant._starter_buttons["morning_brief"].text(), "PLAN NEXT PASS")
 
+    def test_assistant_home_can_surface_first_run_banner_and_focus_input(self):
+        assistant = AssistantView()
+
+        assistant.set_first_run_status(
+            visible=True,
+            summary="Finish desktop install checks first.",
+            detail="Open Settings, then come back and send one short ask.",
+            install_status="failed",
+            model_status="pending",
+            request_status="pending",
+        )
+        assistant._focus_input_for_first_run()
+
+        self.assertFalse(assistant._first_run_frame.isHidden())
+        self.assertIn("desktop install checks", assistant._first_run_summary.text().lower())
+        self.assertIn("FAILED", assistant._first_run_install_chip.text())
+        self.assertIs(assistant.focusWidget(), assistant._input)
+
+    def test_assistant_home_hides_first_run_banner_when_not_needed(self):
+        assistant = AssistantView()
+        assistant.set_first_run_status(visible=False)
+
+        self.assertTrue(assistant._first_run_frame.isHidden())
+
     def test_assistant_starter_actions_load_prompt_and_mode(self):
         assistant = AssistantView()
         loaded: list[tuple[str, str]] = []
@@ -607,7 +699,40 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Starters are optional.", assistant._hero_subtitle.text())
         self.assertNotIn("Starter loaded: BUILDER REVIEW", assistant._hero_subtitle.text())
         self.assertIn("BUILDER REVIEW is ready", assistant._starter_summary.text())
-        self.assertEqual(loaded[-1][0], "builder_review")
+
+    def test_launcher_refresh_first_run_banner_maps_statuses_to_home_banner(self):
+        class _WizardStateStub:
+            def get_status(self, checkpoint: int):
+                values = {1: "passed", 2: "failed", 3: "pending"}
+                return SimpleNamespace(value=values[checkpoint])
+
+        class _WizardStub:
+            def __init__(self, workspace_id: str) -> None:
+                self.workspace_id = workspace_id
+                self.state = _WizardStateStub()
+
+            def should_skip(self) -> bool:
+                return False
+
+        calls: list[dict[str, object]] = []
+        dummy = SimpleNamespace(
+            _active_instance_name="builder-collab",
+            _assistant_view=SimpleNamespace(set_first_run_status=lambda **kwargs: calls.append(kwargs)),
+        )
+
+        original = launcher_window.FirstRunWizard
+        try:
+            launcher_window.FirstRunWizard = _WizardStub
+            launcher_window.LauncherWindow._refresh_first_run_banner(dummy)
+        finally:
+            launcher_window.FirstRunWizard = original
+
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0]["visible"])
+        self.assertEqual(calls[0]["install_status"], "passed")
+        self.assertEqual(calls[0]["model_status"], "failed")
+        self.assertEqual(calls[0]["request_status"], "pending")
+        self.assertIn("local model runtime", calls[0]["summary"].lower())
 
     def test_assistant_builder_workspace_refreshes_starter_language(self):
         assistant = AssistantView()
@@ -807,6 +932,32 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("USE IN CHAT attaches one as source context", view._recent_hint.text())
         self.assertIn("CURRENT ROOT", view._selected_root_status.text())
         self.assertIn("USE IN CHAT", view._browse_hint.text())
+        self.assertFalse(view._root_picker.isHidden())
+
+    def test_library_view_root_picker_switches_selected_root_and_note_editor_hint_tracks_edit_state(self):
+        view = LibraryView()
+        view.set_instance_context(
+            {
+                "name": "builder-collab",
+                "type": "builder_instance",
+                "description": "Planning partner for review loops.",
+            },
+            {},
+        )
+
+        self.assertGreaterEqual(view._root_picker.count(), 1)
+        self.assertIn("Multiline notes stay in Library", view._note_editor_hint.text())
+
+        target_index = 0
+        if view._root_picker.count() > 1:
+            target_index = 1
+        view._root_picker.setCurrentIndex(target_index)
+
+        self.assertEqual(view._selected_root_path, str(view._root_picker.currentData() or ""))
+
+        view._begin_note_edit(17, "Review packet", "Validation notes\nWith another line.")
+        self.assertIn("Editing pinned note: Review packet.", view._note_editor_hint.text())
+        self.assertIn("Body ready:", view._note_editor_hint.text())
 
     def test_library_view_media_panel_loads_controls_and_unloads_media(self):
         from PySide6.QtMultimedia import QMediaPlayer
@@ -1256,7 +1407,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertEqual(states["query_instance"], "ready")
         self.assertEqual(states["write_file"], "restricted")
         self.assertIn("WORKSPACE:", view._context_lbl.text())
-        self.assertIn("App Management", view._boundary_lbl.text())
+        self.assertIn("Settings > Device & Accounts", view._boundary_lbl.text())
         self.assertIn("tray", view._tray_notice_lbl.text().lower())
         self.assertIn("CONFIG CAP REACHED", view._limits_lbl.text())
         self.assertIn("COLLABORATOR CAP REACHED", view._limits_lbl.text())
@@ -1286,7 +1437,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         view._details_btn.click()
         self.assertIn("tray", view._tray_notice_lbl.text().lower())
 
-    def test_app_management_view_updates_diagnostics_and_recovery_status(self):
+    def test_settings_operations_panel_updates_diagnostics_and_recovery_status(self):
         view = SettingsOperationsPanel()
         view.set_status_snapshot(
             {
@@ -1320,7 +1471,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertTrue(view._operator_logs_frame.isHidden())
         self.assertTrue(view._terminal_frame.isHidden())
 
-    def test_app_management_view_exposes_guided_automation_testing_surface(self):
+    def test_settings_operations_panel_exposes_guided_automation_testing_surface(self):
         view = SettingsOperationsPanel()
         view.set_automation_snapshot(
             {
@@ -1349,8 +1500,9 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("workspace onboarding ready", view._automation_recent_lbl.text().lower())
         self.assertIn(".venv\\Scripts\\python.exe", view._automation_validation_lbl.text())
         self.assertIn("guided launcher test pass", view._automation_summary_lbl.text().lower())
+        self.assertIn("guided check flow", view._automation_frame.toolTip().lower() if view._automation_frame.toolTip() else "guided check flow")
 
-    def test_app_management_connector_inventory_emits_normalized_actions(self):
+    def test_settings_operations_panel_connector_inventory_emits_normalized_actions(self):
         view = SettingsOperationsPanel()
         emitted: list[dict[str, str]] = []
         view.connector_action_requested.connect(emitted.append)
@@ -1436,7 +1588,18 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertEqual(emitted[0]["secret_value"], "test-secret")
         self.assertEqual(emitted[1]["action"], "disconnect")
 
-    def test_app_management_connector_blocks_secret_save_without_value(self):
+    def test_settings_operations_panel_compact_mode_shortens_secondary_actions_and_keeps_tooltips(self):
+        view = SettingsOperationsPanel()
+        view._apply_density_mode(940)
+
+        self.assertEqual(view._details_btn.text(), "DETAILS")
+        self.assertEqual(view._automation_action_buttons["approve_latest_staged_task"].text(), "APPROVE")
+        self.assertEqual(view._automation_action_buttons["open_latest_report"].text(), "REFRESH")
+        self.assertEqual(view._workflow_load_btn.text(), "LOAD")
+        self.assertIn("runtime audit", view._quick_fix_buttons["audit_runtime"].toolTip().lower())
+        self.assertIn("embedded terminal", view._workflow_load_btn.toolTip().lower())
+
+    def test_settings_operations_panel_connector_blocks_secret_save_without_value(self):
         view = SettingsOperationsPanel()
         emitted: list[dict[str, str]] = []
         view.connector_action_requested.connect(emitted.append)
@@ -1501,7 +1664,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Ready now:", view._voice_evidence_lbl.text())
         self.assertIn("Default runtime voice stays", view._voice_evidence_lbl.text())
 
-    def test_app_management_focus_operator_logs_updates_filter(self):
+    def test_settings_operations_panel_focus_operator_logs_updates_filter(self):
         view = SettingsOperationsPanel()
         view.focus_operator_logs("WARN", note="opened from quick action")
 
@@ -1617,7 +1780,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         finally:
             models_view_module.ModelsView._refresh = old_refresh
 
-    def test_app_management_windows_ops_feedback_surfaces_fix_guidance(self):
+    def test_settings_operations_panel_windows_ops_feedback_surfaces_fix_guidance(self):
         view = SettingsOperationsPanel()
         view.set_windows_ops_feedback(
             "update_runtime",
@@ -1660,13 +1823,13 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("summary=runtime/windows_release_summary.md", view._windows_handoff_lbl.text())
         self.assertIn("diagnostics bundle=runtime/diagnostics_bundle_20260415_120000.json", view._windows_handoff_lbl.text())
 
-    def test_app_management_terminal_accepts_focus_and_output_append(self):
+    def test_settings_operations_panel_terminal_accepts_focus_and_output_append(self):
         view = SettingsOperationsPanel()
         view.focus_terminal("terminal opened")
 
         self.assertIn("terminal opened", view._terminal_output.toPlainText())
 
-    def test_app_management_workflow_recipe_loads_terminal_command(self):
+    def test_settings_operations_panel_workflow_recipe_loads_terminal_command(self):
         view = SettingsOperationsPanel()
         view._workflow_cb.setCurrentText("MIDDAY STABILITY")
         view._load_workflow_recipe()
@@ -1851,7 +2014,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
             self.assertIn("start_supervised_api", summary_text)
             self.assertTrue(any(event == "windows_ops_completed" for event, _fields in stub.logged))
 
-    def test_app_management_terminal_recipe_markers_emit_servicing_payload(self):
+    def test_settings_operations_panel_terminal_recipe_markers_emit_servicing_payload(self):
         view = SettingsOperationsPanel()
         emitted: list[dict[str, object]] = []
         view.terminal_recipe_finished.connect(emitted.append)

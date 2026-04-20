@@ -34,6 +34,7 @@ from .tools_view_cards import (
 class ToolsView(QWidget):
     tool_state_changed = Signal(str, bool)
     tool_hint_requested = Signal(str)
+    tool_management_requested = Signal(dict)
     builder_task_requested = Signal(dict)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -134,6 +135,7 @@ class ToolsView(QWidget):
         title_row.addStretch()
         self._details_btn = QPushButton("SHOW DETAILS")
         self._details_btn.setToolTip("Show or hide governance details and permission explanations for each tool")
+        self._details_btn.setMinimumHeight(36)
         self._details_btn.setStyleSheet(
             f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER};"
             f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
@@ -162,7 +164,7 @@ class ToolsView(QWidget):
         layout.addWidget(self._context_lbl)
         layout.addWidget(self._limits_lbl)
         self._boundary_lbl = mono_label(
-            "Open Settings for setup, recovery, and logs. Stay here when you want task-level actions for the active workspace.",
+            "Open Settings > Device & Accounts for connector setup, recovery, and logs. Stay here when you want task-level actions for the active workspace.",
             T.DIM,
             T.FS_SMALL,
         )
@@ -201,6 +203,8 @@ class ToolsView(QWidget):
         filters = QHBoxLayout()
         self._search = QLineEdit()
         self._search.setPlaceholderText("Find a workspace tool...")
+        self._search.setToolTip("Type a keyword to filter workspace tools by name or description")
+        self._search.setMinimumHeight(36)
         self._search.setStyleSheet(
             f"QLineEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
             f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
@@ -210,6 +214,8 @@ class ToolsView(QWidget):
 
         self._filter_cb = QComboBox()
         self._filter_cb.addItems(["ALL", "READ", "WRITE", "CODE", "QUERY", "DEBUG", "RESTRICTED"])
+        self._filter_cb.setToolTip("Filter tools by permission category")
+        self._filter_cb.setMinimumHeight(36)
         self._filter_cb.currentTextChanged.connect(self._apply_filters)
 
         self._type_tabs = QTabWidget()
@@ -256,6 +262,7 @@ class ToolsView(QWidget):
         for tool in INSTANCE_TOOL_CATALOG:
             card = ToolCard(tool)
             card.hint_requested.connect(self.tool_hint_requested.emit)
+            card.manage_requested.connect(self.tool_management_requested.emit)
             self._tool_cards[card.tool_key] = card
             self._tool_card_order.append(card.tool_key)
             self._register_scroll_proxy(card)
@@ -315,7 +322,7 @@ class ToolsView(QWidget):
             limits_text += " | COLLABORATOR CAP REACHED"
         self._limits_lbl.setText(limits_text)
         self._boundary_lbl.setText(
-            f"Use the workspace drawer for fast moves in {name}. Open App Management or Settings for setup, recovery, diagnostics, and logs."
+            f"Use the workspace drawer for fast moves in {name}. Open Settings > Device & Accounts for connector setup and Settings for recovery, diagnostics, and logs."
         )
         self._tray_notice_lbl.setText(
             f"{name} can launch common actions from the workspace drawer or tray. This page keeps richer task context and optional access detail."
@@ -332,6 +339,7 @@ class ToolsView(QWidget):
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
+        self._apply_density_mode(event.size().width())
         self._relayout_cards()
 
     def set_builder_status(self, text: str, ok: bool = True) -> None:
@@ -403,6 +411,17 @@ class ToolsView(QWidget):
         for card in self._tool_cards.values():
             card.set_details_visible(self._details_visible)
         self.refresh_debug_surface()
+        if self.isVisible():
+            self._apply_density_mode(self.width())
+
+    def _apply_density_mode(self, width: int) -> None:
+        compact = width <= 1100
+        tight = width <= 900
+        self._search.setPlaceholderText("Search tools" if compact else "Find a workspace tool...")
+        if not self._details_visible:
+            self._details_btn.setText("DETAILS" if tight else "SHOW DETAILS")
+        self._type_tabs.setVisible(not tight)
+        self._boundary_lbl.setVisible(not tight)
 
     def _apply_type_tab_filter(self, index: int) -> None:
         mapping = {

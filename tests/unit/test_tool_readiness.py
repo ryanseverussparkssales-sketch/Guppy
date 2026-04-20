@@ -2,6 +2,7 @@ from src.guppy.launcher_application.tool_readiness import (
     tool_policy_fix_hint,
     tool_readiness_debug_fields,
     tool_readiness_summary,
+    tool_settings_route,
 )
 
 
@@ -42,3 +43,33 @@ def test_tool_readiness_summary_and_debug_fields_use_payload() -> None:
         "readiness_auth_state": "ready",
         "readiness_auth_source": "keyring",
     }
+
+
+def test_tool_settings_route_only_surfaces_settings_owned_connector_fixes() -> None:
+    route = tool_settings_route(
+        "send_email",
+        "connector_host_auth_missing",
+        {
+            "next_step": "App Mgmt: connect Gmail on this machine, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+        },
+    )
+    workspace_only = tool_settings_route(
+        "send_email",
+        "connector_unbound",
+        {
+            "next_step": "Use Workspaces to bind Gmail.",
+            "fix_target": "Workspaces > Connector Bindings",
+        },
+    )
+
+    assert route == {
+        "connector": "gmail",
+        "tool": "send_email",
+        "destination": "settings_device_accounts",
+        "button_label": "OPEN APP MGMT",
+        "destination_label": "Settings > Device & Accounts",
+        "note": "App Mgmt: connect Gmail on this machine, then run Verify.",
+        "fix_target": "App Mgmt > Connector Inventory",
+    }
+    assert workspace_only == {}

@@ -8,6 +8,8 @@ from pathlib import Path
 from src.guppy.launcher_application.library_media import describe_library_media_path
 from src.guppy.launcher_application.library_storage import (
     delete_workspace_library_item,
+    list_approved_roots,
+    list_root_files,
     list_workspace_library_items,
     save_workspace_library_item,
     update_workspace_library_item,
@@ -128,33 +130,50 @@ def build_saved_output_context_item(title: str, summary: str) -> dict[str, str]:
 
 
 def build_library_context_item(title: str, item_path: str, item_kind: str) -> dict[str, str]:
+    return build_library_context_item_with_details(title, item_path, item_kind)
+
+
+def build_library_context_item_with_details(
+    title: str,
+    item_path: str,
+    item_kind: str,
+    *,
+    detail: str = "",
+    source_label: str = "",
+    origin: str = "",
+    context_ref: str = "",
+) -> dict[str, str]:
     title_text = str(title or "").strip() or "Selected library item"
     item_path_text = str(item_path or "").strip()
     kind_text = str(item_kind or "file").strip().lower() or "file"
+    normalized_context_ref = str(context_ref or item_path_text or f"{kind_text}:{title_text}").strip()
     media = describe_library_media_path(item_path_text)
     if kind_text == "note":
         return {
             "title": title_text,
             "kind": kind_text,
-            "detail": "Pinned note from Library. Use this as the current source for the next reply.",
-            "origin": "library_note",
-            "source_label": "Pinned note",
+            "detail": detail or "Pinned note from Library. Use this as the current source for the next reply.",
+            "origin": origin or "library_note",
+            "source_label": source_label or "Pinned note",
+            "context_ref": normalized_context_ref,
         }
     if media.is_media:
-        media_label = media.source_label or "Local media"
+        media_label = str(source_label or media.source_label or "Local media").strip() or "Local media"
         return {
             "title": title_text,
             "kind": kind_text,
-            "detail": f"{media_label} from Library | {item_path_text or media.path}",
-            "origin": "library_media",
+            "detail": detail or f"{media_label} from Library | {item_path_text or media.path}",
+            "origin": origin or "library_media",
             "source_label": media_label,
+            "context_ref": normalized_context_ref,
         }
     return {
         "title": title_text,
         "kind": kind_text,
-        "detail": item_path_text or f"{kind_text} context from the active workspace library",
-        "origin": "library_source",
-        "source_label": "",
+        "detail": detail or item_path_text or f"{kind_text} context from the active workspace library",
+        "origin": origin or "library_source",
+        "source_label": str(source_label or "").strip(),
+        "context_ref": normalized_context_ref,
     }
 
 
@@ -163,6 +182,134 @@ def _truncate_context_text(text: str, limit: int = 220) -> str:
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _metadata_source_label(metadata: dict[str, object] | object) -> str:
+    if not isinstance(metadata, dict):
+        return ""
+    explicit = str(metadata.get("source_label", "") or "").strip()
+    if explicit:
+        return explicit
+    source = str(metadata.get("source", "") or "").strip().lower()
+    if source == "assistant_reply":
+        return "Saved reply note"
+    if source == "assistant_reply_artifact":
+        return "Saved reply artifact"
+    return ""
+
+
+def _approved_root_detail(item_path: str) -> tuple[str, str]:
+    normalized = str(item_path or "").strip()
+    if not normalized:
+        return "", ""
+    try:
+        resolved = Path(normalized).expanduser().resolve()
+    except OSError:
+        return "", ""
+    for root in list_approved_roots(limit=24):
+        root_path = str(root.get("root_path", "") or "").strip()
+        if not root_path:
+            continue
+        try:
+            root_resolved = Path(root_path).expanduser().resolve()
+            relative = resolved.relative_to(root_resolved)
+        except (OSError, ValueError):
+            continue
+        label = str(root.get("label", "") or "").strip() or root_resolved.name or str(root_resolved)
+        return label, relative.as_posix()
+    return "", ""
+
+
+def _library_item_id_from_ref(item_ref: str) -> int:
+    normalized = str(item_ref or "").strip()
+    if not normalized.lower().startswith("library-item://"):
+        return 0
+    try:
+        return int(normalized.rsplit("/", 1)[-1].strip())
+    except Exception:
+        return 0
+
+
+def _resolve_saved_context_payload(
+    workspace_name: str,
+    *,
+    title: str,
+    item_path: str,
+    item_kind: str,
+) -> tuple[str, str, str]:
+    normalized_kind = str(item_kind or "file").strip().lower() or "file"
+    normalized_title = str(title or "").strip()
+    normalized_path = str(item_path or "").strip()
+    normalized_item_id = _library_item_id_from_ref(normalized_path)
+    media = describe_library_media_path(normalized_path)
+    root_label, relative_path = _approved_root_detail(normalized_path)
+
+    if normalized_kind in {"note", "artifact"}:
+        candidates = list_workspace_library_items(workspace_name, kinds=(normalized_kind,), limit=24)
+        matched: dict[str, object] | None = None
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            candidate_id = int(str(item.get("id", "0") or "0"))
+            candidate_title = str(item.get("title", "") or "").strip()
+            candidate_path = str(item.get("item_path", "") or "").strip()
+            if normalized_item_id > 0 and candidate_id == normalized_item_id:
+                matched = item
+                break
+            if normalized_path and candidate_path and candidate_path == normalized_path:
+                matched = item
+                break
+            if normalized_title and candidate_title == normalized_title:
+                matched = item
+                if not normalized_path:
+                    break
+        if isinstance(matched, dict):
+            metadata = matched.get("metadata", {}) if isinstance(matched.get("metadata", {}), dict) else {}
+            source = str(metadata.get("source", "") or "").strip().lower()
+            saved_summary = _truncate_context_text(str(matched.get("summary", "") or ""))
+            if normalized_kind == "note":
+                return (
+                    saved_summary or "Pinned note from Library. Use this as the current source for the next reply.",
+                    "Saved reply note" if source == "assistant_reply" else (_metadata_source_label(metadata) or "Pinned note"),
+                    "assistant_reply" if source == "assistant_reply" else "library_note",
+                )
+            detail_bits = [bit for bit in (saved_summary, relative_path, root_label) if bit]
+            if not detail_bits and normalized_path:
+                detail_bits.append(normalized_path)
+            if source == "assistant_reply_artifact":
+                return (
+                    " | ".join(detail_bits) or "Saved reply artifact from the latest assistant output",
+                    "Saved reply artifact",
+                    "assistant_reply_artifact",
+                )
+            if media.is_media:
+                media_label = media.source_label or "Local media"
+                return (
+                    " | ".join(detail_bits) or f"{media_label} from Library | {normalized_path or media.path}",
+                    media_label,
+                    "library_media",
+                )
+            return (
+                " | ".join(detail_bits) or normalized_path or "artifact context from the active workspace library",
+                _metadata_source_label(metadata) or root_label,
+                "library_source",
+            )
+
+    if normalized_kind == "note":
+        return (
+            "Pinned note from Library. Use this as the current source for the next reply.",
+            "Pinned note",
+            "library_note",
+        )
+
+    detail_bits = [bit for bit in (relative_path, root_label) if bit]
+    detail = " | ".join(detail_bits) or normalized_path
+    if media.is_media:
+        media_label = media.source_label or "Local media"
+        if detail:
+            detail = f"{media_label} from {root_label or 'Library'} | {detail}"
+        return detail, media_label, "library_media"
+    return detail, root_label, "library_source"
 
 
 @dataclass(frozen=True)
@@ -289,25 +436,34 @@ class LibraryWorkflowController:
         item_path_text = str(item_path or "").strip()
         kind_text = str(item_kind or "file").strip().lower() or "file"
         prompt_text = str(prompt or "").strip() or f"Use {title_text} as context and help me work with it."
-        next_primary = build_library_context_item(title_text, item_path_text, kind_text)
-        if kind_text == "note":
-            for item in list_workspace_library_items(self._active_workspace_name(), kinds=("note",), limit=24):
-                item_title = str(item.get("title", "") or "").strip()
-                if item_title != title_text:
-                    continue
-                metadata = item.get("metadata", {}) if isinstance(item.get("metadata", {}), dict) else {}
-                source = str(metadata.get("source", "") or "").strip().lower()
-                note_body = _truncate_context_text(str(item.get("summary", "") or ""))
-                next_primary["detail"] = note_body or next_primary["detail"]
-                next_primary["source_label"] = "Saved reply note" if source == "assistant_reply" else "Pinned note"
-                break
+        detail, source_label, origin = _resolve_saved_context_payload(
+            self._active_workspace_name(),
+            title=title_text,
+            item_path=item_path_text,
+            item_kind=kind_text,
+        )
+        next_primary = build_library_context_item_with_details(
+            title_text,
+            item_path_text,
+            kind_text,
+            detail=detail,
+            source_label=source_label,
+            origin=origin,
+            context_ref=item_path_text or f"{kind_text}:{title_text}",
+        )
+        next_primary_ref = str(next_primary.get("context_ref", "") or "").strip()
         active_items = self._get_active_items()
         next_items = [
             next_primary,
             *[
                 item
                 for item in active_items
-                if str(item.get("title", "")).strip() != title_text
+                if str(item.get("context_ref", "") or "").strip() != next_primary_ref
+                and (
+                    str(item.get("context_ref", "") or "").strip()
+                    or str(item.get("title", "")).strip()
+                )
+                != (next_primary_ref or title_text)
             ],
         ][:3]
         next_items = self._prioritize_workspace_default(next_items)
@@ -438,6 +594,8 @@ class LibraryWorkflowController:
         root_label = str(label or "").strip() or (resolved.name.strip() if resolved.name else "Approved root")
         saved = upsert_approved_root(normalized_path, label=root_label, source="library_ui", enabled=True)
         self._refresh_library_surface()
+        if library_view is not None and hasattr(library_view, "set_selected_root"):
+            library_view.set_selected_root(saved["root_path"])
         self._status_panel.append_syslog(f"approved root saved: {saved['label']}")
         self._set_daily_activity(f"Library root saved: {saved['label']}")
         self._log_launcher_event("library_root_saved", label=saved["label"], root_path=saved["root_path"])
@@ -462,7 +620,7 @@ class LibraryWorkflowController:
             item_id,
             title=title,
             summary=summary,
-            metadata={"source": "library_ui"},
+            metadata={"edited_in_library": True},
         )
         if not saved:
             self._status_panel.append_syslog("library note update failed")
@@ -492,7 +650,7 @@ class LibraryWorkflowController:
             title=title,
             summary=summary,
             item_path=item_path or "",
-            metadata={"source": "library_ui"},
+            metadata={"edited_in_library": True},
         )
         if not saved:
             self._status_panel.append_syslog("library artifact update failed")

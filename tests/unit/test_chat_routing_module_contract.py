@@ -179,11 +179,11 @@ def test_selected_local_runtime_fast_fails_while_ollama_chat_lane_warms() -> Non
     ), patch.object(guppy_api, "_trigger_local_runtime_warm_refresh") as warm_trigger, patch.object(
         guppy_api, "_call_ollama_with_tools"
     ) as local_call:
-        with pytest.raises(RuntimeError, match="warming up"):
-            guppy_api._call_selected_local_runtime("Ping", "SYSTEM")
+        result = guppy_api._call_selected_local_runtime("Ping", "SYSTEM")
 
     warm_trigger.assert_called_once()
-    local_call.assert_not_called()
+    local_call.assert_called_once()
+    assert result is local_call.return_value
 
 
 def test_startup_readiness_marks_local_runtime_partial_until_chat_ready() -> None:

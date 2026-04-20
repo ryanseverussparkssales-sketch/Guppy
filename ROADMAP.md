@@ -6,6 +6,10 @@ Last updated: 2026-04-19
 
 Use `docs/PROJECT_BRIEF.md` for all active planning, roadmap, status, and handoff work.
 
+Canonical rule:
+1. Active priorities, tranche sequencing, and status updates belong only in `docs/PROJECT_BRIEF.md`.
+2. This file must stay pointer-only to avoid duplicate roadmap drift.
+
 Current planning truth is the 5-hub architecture:
 1. Home Chat
 2. Settings Hub

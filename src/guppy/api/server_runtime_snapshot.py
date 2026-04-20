@@ -25,7 +25,6 @@ Security:
 """
 
 import json
-import hashlib
 import importlib.util
 import logging
 import os
@@ -50,6 +49,24 @@ from jose import JWTError, jwt
 import urllib.request
 
 from src.guppy.paths import CONFIG_DIR, RUNTIME_DIR
+from src.guppy.api.chat_idempotency import (
+    build_chat_request_fingerprint,
+    complete_chat_idempotency_key,
+    register_chat_idempotency_key,
+    resolve_chat_idempotency_key,
+    takeover_chat_idempotency_key,
+)
+from src.guppy.api.instance_state_support import (
+    activate_instance_state as _activate_instance_state,
+    default_instance_state as _default_instance_state,
+    get_instance_entry as _get_instance_entry,
+    instance_config_entry as _instance_config_entry,
+    instance_limits_payload as _instance_limits_payload,
+    instance_names as _instance_names,
+    normalize_instance_state as _normalize_instance_state,
+    normalize_instances_config as _normalize_instances_config,
+    upsert_instance_config as _upsert_instance_config,
+)
 from utils.env_bootstrap import load_env_file
 try:
     from utils import secret_store as _secret_store
@@ -268,7 +285,15 @@ from src.guppy.api._server_fragment_models import (
     TurnstileToken,
     VoiceChatRequest,
 )
-from src.guppy.api import services_briefing, services_runtime, services_telemetry
+from src.guppy.api import (
+    services_briefing,
+    services_instances,
+    services_ops,
+    services_realtime,
+    services_runtime,
+    services_telemetry,
+    snapshot_instances_support,
+)
 from src.guppy.api.status_support import (
     build_startup_check_response,
     build_status_response,
@@ -336,6 +361,13 @@ _INTEGRATION_HEARTBEAT_SECONDS = float(os.environ.get("GUPPY_INTEGRATION_HEARTBE
 _last_integration_heartbeat_ts = 0.0
 _integration_heartbeat_lock = threading.Lock()
 _instance_query_lock = threading.Lock()
+_path_config = SimpleNamespace(
+    config_dir=_config_dir,
+    runtime_dir=_runtime_dir,
+    instances_path=_instances_path,
+    connector_bindings_path=_connector_bindings_path,
+    instance_state_path=_instance_state_path,
+)
 
 # Detect voice backends once at module load so /status never pays import probe cost
 def _detect_voice_backends() -> tuple[str, str, list[str]]:
@@ -386,167 +418,10 @@ _api_metrics = {
     "status_counts": {},
 }
 
-_CHAT_IDEMPOTENCY_TTL_SECONDS = max(
-    60.0,
-    float(os.environ.get("GUPPY_CHAT_IDEMPOTENCY_TTL_SECONDS", "300") or "300"),
-)
-_chat_idempotency_lock = threading.Lock()
-_chat_idempotency_records: Dict[str, Dict[str, Any]] = {}
-
-
-def _prune_chat_idempotency_records(now: float | None = None) -> None:
-    cutoff = (time.monotonic() if now is None else now) - _CHAT_IDEMPOTENCY_TTL_SECONDS
-    stale_keys = [
-        key
-        for key, record in _chat_idempotency_records.items()
-        if float(record.get("created_at", 0.0) or 0.0) < cutoff
-    ]
-    for key in stale_keys:
-        _chat_idempotency_records.pop(key, None)
-
-
-def _build_chat_request_fingerprint(request: "ChatRequest") -> str:
-    payload = {
-        "message": request.message,
-        "session_id": request.session_id or "",
-        "mode": request.mode or "",
-        "persona": request.persona or "",
-        "history": request.history or [],
-    }
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-
-def _register_chat_idempotency_key(key: str, fingerprint: str) -> tuple[bool, threading.Event]:
-    now = time.monotonic()
-    with _chat_idempotency_lock:
-        _prune_chat_idempotency_records(now)
-        record = _chat_idempotency_records.get(key)
-        if isinstance(record, dict):
-            return False, record["event"]
-        event = threading.Event()
-        _chat_idempotency_records[key] = {
-            "created_at": now,
-            "event": event,
-            "fingerprint": fingerprint,
-            "response": None,
-            "error": None,
-            "status": None,
-            "headers": None,
-        }
-        return True, event
-
-
-def _resolve_chat_idempotency_key(key: str, fingerprint: str) -> Dict[str, Any] | None:
-    with _chat_idempotency_lock:
-        record = _chat_idempotency_records.get(key)
-        if not isinstance(record, dict):
-            return None
-        if str(record.get("fingerprint", "") or "") != fingerprint:
-            return None
-        event = record.get("event")
-        if not isinstance(event, threading.Event) or not event.is_set():
-            return None
-        response = record.get("response")
-        payload: Dict[str, Any] = {
-            "status": int(record.get("status", 500) or 500),
-            "headers": dict(record.get("headers", {})) if isinstance(record.get("headers"), dict) else None,
-        }
-        if isinstance(response, dict):
-            payload["response"] = dict(response)
-            return payload
-        error = record.get("error")
-        if error:
-            payload["error"] = error
-            return payload
-        return None
-
-
-def _takeover_chat_idempotency_key(key: str, fingerprint: str) -> tuple[bool, threading.Event, bool]:
-    now = time.monotonic()
-    with _chat_idempotency_lock:
-        _prune_chat_idempotency_records(now)
-        record = _chat_idempotency_records.get(key)
-        if isinstance(record, dict):
-            event = record.get("event")
-            if not isinstance(event, threading.Event):
-                event = threading.Event()
-            stored_fingerprint = str(record.get("fingerprint", "") or "")
-            if stored_fingerprint == fingerprint:
-                return False, event, False
-            if not event.is_set():
-                return False, event, False
-            _chat_idempotency_records.pop(key, None)
-        event = threading.Event()
-        _chat_idempotency_records[key] = {
-            "created_at": now,
-            "event": event,
-            "fingerprint": fingerprint,
-            "response": None,
-            "error": None,
-            "status": None,
-            "headers": None,
-        }
-        return True, event, True
-
-
-def _complete_chat_idempotency_key(
-    key: str,
-    *,
-    response: Dict[str, Any] | None = None,
-    error: Any = None,
-    status_code: int = 200,
-    headers: Dict[str, str] | None = None,
-) -> None:
-    with _chat_idempotency_lock:
-        record = _chat_idempotency_records.get(key)
-        if not isinstance(record, dict):
-            return
-        record["created_at"] = time.monotonic()
-        record["response"] = dict(response) if isinstance(response, dict) else None
-        record["error"] = error
-        record["status"] = int(status_code or 500)
-        record["headers"] = dict(headers) if isinstance(headers, dict) else None
-        event = record.get("event")
-        if isinstance(event, threading.Event):
-            event.set()
-
-
-def _clear_chat_idempotency_key(key: str) -> None:
-    with _chat_idempotency_lock:
-        _chat_idempotency_records.pop(key, None)
-
 # â”€â”€ Pydantic Models â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-_RICH_PROMPT_DIRECT_CUES = (
-    "remember",
-    "recall",
-    "earlier",
-    "previous",
-    "follow up",
-    "continue",
-    "same as",
-    "project",
-    "task",
-    "todo",
-    "debug",
-    "refactor",
-    "design",
-    "compare",
-    "tradeoff",
-    "teach",
-    "explain",
-    "why",
-    "how",
-)
-
-
 def _should_use_rich_chat_prompt_context(request: ChatRequest) -> bool:
-    return _should_use_rich_prompt_context(
-        message=request.message,
-        mode=request.mode,
-        history=request.history,
-    )
+    return services_realtime.should_use_rich_chat_prompt_context(request)
 
 
 def _should_use_rich_prompt_context(
@@ -555,25 +430,11 @@ def _should_use_rich_prompt_context(
     mode: str | None = None,
     history: Any = None,
 ) -> bool:
-    if _sanitize_chat_history(history):
-        return True
-
-    normalized_mode = str(mode or "auto").strip().lower()
-    if normalized_mode in {"teaching", "code", "vault"}:
-        return True
-
-    normalized_message = str(message or "").strip()
-    if not normalized_message:
-        return False
-    if len(normalized_message) >= 80:
-        return True
-
-    normalized = re.sub(r"\s+", " ", normalized_message.lower())
-    if any(cue in normalized for cue in _RICH_PROMPT_DIRECT_CUES):
-        return True
-    if "?" in normalized_message and len(normalized.split()) >= 10:
-        return True
-    return False
+    return services_realtime.should_use_rich_prompt_context(
+        message=message,
+        mode=mode,
+        history=history,
+    )
 
 
 def _build_chat_system_prompt(
@@ -585,479 +446,56 @@ def _build_chat_system_prompt(
     model_id: str | None = None,
     history: Any = None,
 ) -> str:
-    use_rich_prompt_context = _should_use_rich_prompt_context(
+    return services_realtime.build_chat_system_prompt(
+        _module_owner(),
         message=message,
+        session_id=session_id,
         mode=mode,
+        persona=persona,
+        model_id=model_id,
         history=history,
     )
-    system_prompt = core.get_startup_system(
-        session_id=session_id,
-        query_context=message,
-        include_memory_context=use_rich_prompt_context,
-        include_semantic_context=use_rich_prompt_context,
-    )
-    try:
-        _persona_payload, overlay = build_persona_prompt_overlay(
-            requested_persona=str(persona or "").strip(),
-            model_id=str(model_id or "").strip(),
-        )
-        if overlay:
-            system_prompt += "\n\n" + overlay
-    except Exception:
-        pass
-    return system_prompt
 
 
 async def _save_voice_upload_tempfile(file: UploadFile) -> str:
-    """Stream an uploaded audio file to disk with size and type guardrails."""
-    filename = str(getattr(file, "filename", "") or "").strip()
-    content_type = str(getattr(file, "content_type", "") or "").strip().lower()
-    if not filename:
-        raise HTTPException(status_code=400, detail="Audio file is required")
-    if content_type and not (content_type.startswith("audio/") or content_type == "application/octet-stream"):
-        raise HTTPException(status_code=400, detail="Unsupported audio upload type")
-
-    suffix = Path(filename).suffix or ".wav"
-    bytes_written = 0
-    temp_path = ""
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-            temp_path = temp_file.name
-            while True:
-                chunk = await file.read(VOICE_UPLOAD_CHUNK_BYTES)
-                if not chunk:
-                    break
-                bytes_written += len(chunk)
-                if bytes_written > VOICE_UPLOAD_MAX_BYTES:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"Audio upload exceeds {VOICE_UPLOAD_MAX_BYTES} bytes",
-                    )
-                temp_file.write(chunk)
-        if bytes_written <= 0:
-            raise HTTPException(status_code=400, detail="Audio file was empty")
-        return temp_path
-    except HTTPException:
-        if temp_path:
-            Path(temp_path).unlink(missing_ok=True)
-        raise
-    except Exception:
-        if temp_path:
-            Path(temp_path).unlink(missing_ok=True)
-        raise
-    finally:
-        await file.close()
+    return await services_realtime.save_voice_upload_tempfile(_module_owner(), file)
 
 
 def _read_jsonl_tail(path: Path, limit: int = 50):
-    lim = max(1, min(int(limit), 500))
-    if not path.exists():
-        return []
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except Exception:
-        return []
-    out = []
-    for line in lines[-lim:]:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            out.append(json.loads(line))
-        except Exception:
-            out.append({"raw": line, "parse_error": True})
-    return out
+    return services_ops.read_jsonl_tail(path, limit=limit)
 
 # === END _server_fragment_bootstrap.py ===
 
 # === BEGIN _server_fragment_instances_telemetry.py ===
 def _ensure_m2_instance_scaffold() -> None:
-    _config_dir.mkdir(parents=True, exist_ok=True)
-    _runtime_dir.mkdir(parents=True, exist_ok=True)
-
-    if not _instances_path.exists():
-        _instances_path.write_text(
-            json.dumps(
-                {
-                    "version": 1,
-                    "active_instance": "guppy-primary",
-                    "instances": [
-                        {
-                            "name": "guppy-primary",
-                            "description": "Primary foreground assistant instance",
-                            "mode": "auto",
-                            "persona": "guppy",
-                            "voice": "default",
-                            "enabled": True,
-                            "type": "user_instance",
-                            "created_at": datetime.now(timezone.utc).isoformat(),
-                        },
-                        {
-                            "name": "builder-collab",
-                            "description": "Background collaborator instance",
-                            "mode": "teaching",
-                            "persona": "guppy",
-                            "voice": "default",
-                            "enabled": False,
-                            "type": "builder_instance",
-                            "created_at": datetime.now(timezone.utc).isoformat(),
-                        },
-                    ],
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-
-    if not _instance_state_path.exists():
-        _instance_state_path.write_text(
-            json.dumps(
-                {
-                    "version": 1,
-                    "active_instance": "guppy-primary",
-                    "instances": {
-                        "guppy-primary": {
-                            "status": "idle",
-                            "last_message": "",
-                            "last_updated": None,
-                            "message_count": 0,
-                            "model_currently_using": "auto",
-                        },
-                        "builder-collab": {
-                            "status": "idle",
-                            "last_message": "",
-                            "last_updated": None,
-                            "message_count": 0,
-                            "model_currently_using": "teaching",
-                        },
-                    },
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+    services_instances.ensure_m2_instance_scaffold(_module_owner())
 
 
 def _load_instances_config() -> dict[str, Any]:
-    _ensure_m2_instance_scaffold()
-    try:
-        data = json.loads(_instances_path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    return services_instances.load_instances_config(_module_owner())
 
 
 def _load_instance_state(config: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    _ensure_m2_instance_scaffold()
-    try:
-        data = json.loads(_instance_state_path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    return services_instances.load_instance_state(_module_owner(), config)
 
 
 def _save_instance_state(state: dict[str, Any]) -> None:
-    _instance_state_path.parent.mkdir(parents=True, exist_ok=True)
-    if _ATOMIC_JSON_IO:
-        if not write_json_atomic(_instance_state_path, state):
-            raise OSError(f"Failed to write instance state atomically: {_instance_state_path}")
-    else:
-        _instance_state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    services_instances.save_instance_state(_module_owner(), state)
 
 
 def _save_instances_config(config: dict[str, Any]) -> None:
-    _instances_path.parent.mkdir(parents=True, exist_ok=True)
-    if _ATOMIC_JSON_IO:
-        if not write_json_atomic(_instances_path, config):
-            raise OSError(f"Failed to write instances config atomically: {_instances_path}")
-    else:
-        _instances_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    services_instances.save_instances_config(_module_owner(), config)
 
 
 def _load_normalized_instance_bundle(*, persist_repairs: bool = False) -> tuple[dict[str, Any], dict[str, Any], list[str], list[str]]:
-    raw_config = _load_instances_config()
-    config, config_warnings = _normalize_instances_config(raw_config)
-    if persist_repairs and raw_config != config:
-        _save_instances_config(config)
-        config_warnings = list(config_warnings) + ["persisted normalized instances config"]
-
-    raw_state = _load_instance_state(config)
-    state, state_warnings = _normalize_instance_state(
-        raw_state,
-        valid_names=_instance_names(config),
-        active_instance=str(config.get("active_instance", "guppy-primary")),
+    return services_instances.load_normalized_instance_bundle(
+        _module_owner(),
+        persist_repairs=persist_repairs,
     )
-    if persist_repairs and raw_state != state:
-        _save_instance_state(state)
-        state_warnings = list(state_warnings) + ["persisted normalized instance runtime state"]
-
-    return config, state, config_warnings, state_warnings
-
-
-def _instance_config_entry(
-    *,
-    name: str,
-    description: str = "",
-    mode: str = "auto",
-    persona: str = "guppy",
-    voice: str = "default",
-    enabled: bool = True,
-    instance_type: str = "user_instance",
-    created_at: str | None = None,
-) -> dict[str, Any]:
-    return {
-        "name": name,
-        "description": description,
-        "mode": mode,
-        "persona": persona,
-        "voice": voice,
-        "enabled": enabled,
-        "type": instance_type,
-        "created_at": created_at or datetime.now(timezone.utc).isoformat(),
-    }
-
-
-def _default_instance_state(mode: str = "auto") -> dict[str, Any]:
-    return {
-        "status": "idle",
-        "last_message": "",
-        "last_updated": None,
-        "message_count": 0,
-        "model_currently_using": mode,
-    }
-
-
-def _instance_names(config: dict[str, Any]) -> list[str]:
-    names: list[str] = []
-    for item in config.get("instances", []):
-        if isinstance(item, dict):
-            name = str(item.get("name", "")).strip()
-            if name:
-                names.append(name)
-    return names
-
-
-def _get_instance_entry(config: dict[str, Any], name: str) -> dict[str, Any] | None:
-    target = str(name or "").strip()
-    for item in config.get("instances", []):
-        if isinstance(item, dict) and str(item.get("name", "")).strip() == target:
-            return item
-    return None
 
 
 def _get_active_instance_context() -> tuple[str | None, str | None, str | None, str | None]:
-    config, _state, _warnings, _state_warnings = _load_normalized_instance_bundle(persist_repairs=True)
-    active_name = str(config.get("active_instance", "")).strip()
-    entry = _get_instance_entry(config, active_name)
-    instance_type = str((entry or {}).get("type", "user_instance") or "user_instance").strip() or "user_instance"
-    persona = str((entry or {}).get("persona", "guppy") or "guppy").strip() or "guppy"
-    voice = str((entry or {}).get("voice", "default") or "default").strip() or "default"
-    return (active_name or None, instance_type, persona, voice)
-
-
-def _coerce_int(value: Any, default: int = 0) -> int:
-    try:
-        return int(value)
-    except Exception:
-        return default
-
-
-def _normalize_instances_config(raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
-    warnings: list[str] = []
-    version = max(1, _coerce_int(raw.get("version", 1), 1))
-    raw_instances = raw.get("instances")
-    if not isinstance(raw_instances, list):
-        warnings.append("instances must be a list; using default instance set")
-        raw_instances = []
-
-    seen: set[str] = set()
-    items: list[dict[str, Any]] = []
-    for idx, entry in enumerate(raw_instances):
-        if not isinstance(entry, dict):
-            warnings.append(f"instances[{idx}] ignored: expected object")
-            continue
-        name = str(entry.get("name", "")).strip()
-        if not name:
-            warnings.append(f"instances[{idx}] ignored: missing name")
-            continue
-        if name in seen:
-            warnings.append(f"instances[{idx}] ignored: duplicate name '{name}'")
-            continue
-        seen.add(name)
-        items.append(
-            _instance_config_entry(
-                name=name,
-                description=str(entry.get("description", "")).strip(),
-                mode=str(entry.get("mode", "auto") or "auto").strip().lower() or "auto",
-                persona=str(entry.get("persona", "guppy") or "guppy").strip() or "guppy",
-                voice=str(entry.get("voice", "default") or "default").strip() or "default",
-                enabled=bool(entry.get("enabled", True)),
-                instance_type=str(entry.get("type", "user_instance") or "user_instance").strip() or "user_instance",
-                created_at=str(entry.get("created_at", "")).strip() or None,
-            )
-        )
-
-    if not items:
-        warnings.append("no valid instance entries found; restored default primary instance")
-        items = [
-            _instance_config_entry(
-                name="guppy-primary",
-                description="Primary foreground assistant instance",
-                mode="auto",
-                persona="guppy",
-                voice="default",
-                enabled=True,
-                instance_type="user_instance",
-            )
-        ]
-
-    configured_active = str(raw.get("active_instance", "")).strip()
-    valid_names = [item["name"] for item in items]
-    active_instance = configured_active if configured_active in valid_names else valid_names[0]
-    if configured_active and configured_active not in valid_names:
-        warnings.append(f"active_instance '{configured_active}' not found; using '{active_instance}'")
-    elif not configured_active:
-        warnings.append(f"active_instance missing; using '{active_instance}'")
-
-    return {
-        "version": version,
-        "active_instance": active_instance,
-        "instances": items,
-    }, warnings
-
-
-def _normalize_instance_state(
-    raw: dict[str, Any],
-    *,
-    valid_names: list[str],
-    active_instance: str,
-) -> tuple[dict[str, Any], list[str]]:
-    warnings: list[str] = []
-    raw_instances = raw.get("instances")
-    if not isinstance(raw_instances, dict):
-        warnings.append("state.instances must be an object; rebuilding instance runtime state")
-        raw_instances = {}
-
-    normalized_instances: dict[str, dict[str, Any]] = {}
-    for key in raw_instances.keys():
-        if key not in valid_names:
-            warnings.append(f"state instance '{key}' ignored: not present in config")
-
-    allowed_status = {"idle", "busy", "error", "starting", "active", "running"}
-    for name in valid_names:
-        entry = raw_instances.get(name, {})
-        if not isinstance(entry, dict):
-            warnings.append(f"state for '{name}' invalid; resetting to defaults")
-            entry = {}
-
-        status = str(entry.get("status", "idle") or "idle").strip().lower()
-        if status not in allowed_status:
-            warnings.append(f"state for '{name}' had invalid status '{status}'; using 'idle'")
-            status = "idle"
-
-        message_count = max(0, _coerce_int(entry.get("message_count", 0), 0))
-        normalized_instances[name] = {
-            "status": status,
-            "last_message": str(entry.get("last_message", "") or ""),
-            "last_updated": entry.get("last_updated"),
-            "message_count": message_count,
-            "model_currently_using": str(entry.get("model_currently_using", "") or ""),
-        }
-
-    active = active_instance if active_instance in valid_names else (valid_names[0] if valid_names else "guppy-primary")
-    active_slots = 0
-    for name, item in normalized_instances.items():
-        if name == active:
-            item["status"] = "active"
-            active_slots += 1
-            continue
-        if item.get("status") in {"active", "running", "busy"}:
-            if active_slots < 2:
-                if item.get("status") == "active":
-                    item["status"] = "running"
-                active_slots += 1
-            else:
-                item["status"] = "idle"
-    return {
-        "version": 1,
-        "active_instance": active,
-        "instances": normalized_instances,
-    }, warnings
-
-
-def _upsert_instance_config(
-    config: dict[str, Any],
-    payload: InstanceConfigRequest,
-) -> tuple[dict[str, Any], str]:
-    items = list(config.get("instances", [])) if isinstance(config.get("instances"), list) else []
-    target = (payload.name or "").strip()
-    if not target:
-        raise HTTPException(status_code=400, detail="instance name is required")
-
-    existing_idx = -1
-    existing_created_at = None
-    for idx, item in enumerate(items):
-        if isinstance(item, dict) and str(item.get("name", "")).strip() == target:
-            existing_idx = idx
-            existing_created_at = str(item.get("created_at", "")).strip() or None
-            break
-
-    if existing_idx < 0 and len(items) >= 5:
-        raise HTTPException(status_code=409, detail="instance limit reached (max 5 configured)")
-
-    entry = _instance_config_entry(
-        name=target,
-        description=(payload.description or "").strip(),
-        mode=(payload.mode or "auto").strip().lower() or "auto",
-        persona=(payload.persona or "guppy").strip() or "guppy",
-        voice=(payload.voice or "default").strip() or "default",
-        enabled=bool(payload.enabled),
-        instance_type=(payload.type or "user_instance").strip() or "user_instance",
-        created_at=existing_created_at,
-    )
-    action = "updated" if existing_idx >= 0 else "created"
-    if existing_idx >= 0:
-        items[existing_idx] = entry
-    else:
-        items.append(entry)
-    config["instances"] = items
-    if str(config.get("active_instance", "")).strip() not in _instance_names(config):
-        config["active_instance"] = target
-    return config, action
-
-
-def _activate_instance_state(state: dict[str, Any], target: str) -> dict[str, Any]:
-    instances = state.get("instances", {}) if isinstance(state.get("instances"), dict) else {}
-    current_active = str(state.get("active_instance", "")).strip()
-    if current_active and current_active in instances and current_active != target:
-        previous = instances.get(current_active)
-        if isinstance(previous, dict) and previous.get("status") != "busy":
-            previous["status"] = "idle"
-    target_entry = instances.get(target)
-    if isinstance(target_entry, dict):
-        target_entry["status"] = "active"
-        target_entry["last_updated"] = datetime.now(timezone.utc).isoformat()
-    state["active_instance"] = target
-    return state
-
-
-def _instance_limits_payload(config: dict[str, Any], state: dict[str, Any]) -> dict[str, int]:
-    config_items = config.get("instances", []) if isinstance(config.get("instances"), list) else []
-    configured = len([item for item in config_items if isinstance(item, dict) and str(item.get("name", "")).strip()])
-    runtime_items = state.get("instances", {}) if isinstance(state.get("instances"), dict) else {}
-    active_runtime = 0
-    for item in runtime_items.values():
-        if not isinstance(item, dict):
-            continue
-        status = str(item.get("status", "idle") or "idle").strip().lower()
-        if status in {"active", "running", "busy"}:
-            active_runtime += 1
-    return {
-        "configured": configured,
-        "max_configured": 5,
-        "active_runtime": active_runtime,
-        "max_active_runtime": 2,
-    }
+    return services_instances.get_active_instance_context(_module_owner())
 
 
 def _emit_integration_heartbeat(reason: str) -> None:
@@ -1090,30 +528,18 @@ def _emit_integration_heartbeat(reason: str) -> None:
 
 
 def _read_resource_envelope_status() -> dict[str, Any]:
-    path = _runtime_dir / "resource_envelope.status.json"
-    if not path.exists():
-        return {
-            "state": "unknown",
-            "message": "resource envelope status not available",
-        }
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        pass
-    return {
-        "state": "unknown",
-        "message": "resource envelope status unreadable",
-    }
+    return services_ops.read_resource_envelope_status(
+        _module_owner(),
+        missing_message="resource envelope status not available",
+        unavailable_message="resource envelope status unreadable",
+    )
 
 
 # === END _server_fragment_instances_telemetry.py ===
 
 # === BEGIN _server_fragment_ops.py ===
 def _latest_stress_report_path() -> Path | None:
-    reports = sorted(_runtime_dir.glob("stress_report_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return reports[0] if reports else None
+    return services_ops.latest_stress_report_path(_module_owner())
 
 
 _request_is_morning_brief = services_briefing.request_is_morning_brief
@@ -1128,75 +554,11 @@ def _build_morning_brief_response() -> str:
 
 
 def _collect_runtime_bundle() -> dict[str, Any]:
-    status_files = [
-        _runtime_dir / "guppy.status",
-        _runtime_dir / "resource_envelope.status.json",
-    ]
-    out: dict[str, Any] = {
-        "runtime_dir": str(_runtime_dir),
-        "files": {},
-    }
-    latest_report = _latest_stress_report_path()
-    if latest_report and latest_report.exists():
-        out["latest_stress_report"] = str(latest_report)
-        try:
-            out["files"][latest_report.name] = json.loads(latest_report.read_text(encoding="utf-8"))
-        except Exception:
-            out["files"][latest_report.name] = {"error": "unreadable"}
-    else:
-        out["latest_stress_report"] = None
-
-    for path in status_files:
-        if not path.exists():
-            out["files"][path.name] = {"missing": True}
-            continue
-        try:
-            out["files"][path.name] = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            out["files"][path.name] = {"error": "unreadable"}
-    return out
+    return services_ops.collect_runtime_bundle(_module_owner())
 
 
 def _do_repair_action(action: str, dry_run: bool) -> dict[str, Any]:
-    act = (action or "").strip().lower()
-    if act == "warmup":
-        if dry_run:
-            return {"ok": True, "summary": "dry-run warmup: would refresh startup readiness and clear status cache"}
-        _startup_readiness_snapshot()
-        _status_cache["expires_at"] = 0.0
-        _status_cache["payload"] = None
-        return {"ok": True, "summary": "startup readiness refreshed; status cache invalidated"}
-
-    if act == "restart_daemon":
-        if not GUPPY_DAEMON_AVAILABLE:
-            return {"ok": False, "summary": "daemon module unavailable"}
-        daemon = get_daemon_manager()
-        if daemon is None:
-            return {"ok": False, "summary": "daemon manager unavailable"}
-        if dry_run:
-            return {"ok": True, "summary": "dry-run restart: would stop then start daemon manager"}
-        if hasattr(daemon, "stop"):
-            daemon.stop()
-        if hasattr(daemon, "start"):
-            daemon.start()
-        return {"ok": True, "summary": "daemon manager restarted"}
-
-    if act == "audit_runtime":
-        bundle = _collect_runtime_bundle()
-        if dry_run:
-            return {
-                "ok": True,
-                "summary": "dry-run diagnostics: would collect latest stress report and runtime status files",
-                "bundle_preview": {
-                    "latest_stress_report": bundle.get("latest_stress_report"),
-                    "file_count": len((bundle.get("files") or {}).keys()),
-                },
-            }
-        out = _runtime_dir / f"diagnostics_bundle_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
-        out.write_text(json.dumps(bundle, indent=2), encoding="utf-8")
-        return {"ok": True, "summary": f"diagnostics bundle written: {out.name}", "bundle_path": str(out)}
-
-    raise HTTPException(status_code=400, detail="unsupported action (expected: warmup|restart_daemon|audit_runtime)")
+    return services_ops.do_repair_action(_module_owner(), action, dry_run)
 
 
 def _secret_ready(value: str) -> bool:
@@ -1479,84 +841,51 @@ _fetch_lemonade_model_ids = _bind_runtime_service(services_runtime.fetch_lemonad
 _build_local_runtime_status = _bind_runtime_service(services_runtime.build_local_runtime_status)
 _call_lemonade_chat = _bind_runtime_service(services_runtime.call_lemonade_chat)
 _call_selected_local_runtime = _bind_runtime_service(services_runtime.call_selected_local_runtime)
+_build_instance_list_response = _bind_runtime_service(snapshot_instances_support.build_instance_list_response)
+_create_or_update_instance_response = _bind_runtime_service(snapshot_instances_support.create_or_update_instance_response)
+_save_instance_governance_response = _bind_runtime_service(snapshot_instances_support.save_instance_governance_response)
+_list_connectors_response = _bind_runtime_service(snapshot_instances_support.list_connectors_response)
+_run_connector_action_response = _bind_runtime_service(snapshot_instances_support.run_connector_action_response)
+_list_instance_connectors_response = _bind_runtime_service(snapshot_instances_support.list_instance_connectors_response)
+_save_instance_connector_binding_response = _bind_runtime_service(snapshot_instances_support.save_instance_connector_binding_response)
+_activate_instance_response = _bind_runtime_service(snapshot_instances_support.activate_instance_response)
+_delete_instance_response = _bind_runtime_service(snapshot_instances_support.delete_instance_response)
+_build_instance_logs_response = _bind_runtime_service(snapshot_instances_support.build_instance_logs_response)
 
 # === END _server_fragment_local_runtime.py ===
 
 # === BEGIN _server_fragment_runtime_status.py ===
 async def _run_blocking(func, *args, timeout_seconds: float, **kwargs):
-    """Run blocking work in a thread with a hard timeout."""
-    try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(partial(func, *args, **kwargs)),
-            timeout=timeout_seconds,
-        )
-    except asyncio.TimeoutError as exc:
-        raise HTTPException(status_code=504, detail="Request timed out") from exc
+    return await services_realtime.run_blocking(
+        func,
+        *args,
+        timeout_seconds=timeout_seconds,
+        **kwargs,
+    )
 
 
 def _extract_text_from_anthropic_blocks(blocks) -> str:
-    parts = []
-    for b in blocks:
-        if getattr(b, "type", None) == "text" and getattr(b, "text", "").strip():
-            parts.append(b.text.strip())
-    return "\n".join(parts).strip()
+    return services_realtime.extract_text_from_anthropic_blocks(blocks)
 
 
 def _sanitize_chat_history(history: Any, limit: int = 12) -> list[dict[str, str]]:
-    if not isinstance(history, list):
-        return []
-    out: list[dict[str, str]] = []
-    for item in history[-max(1, limit):]:
-        if not isinstance(item, dict):
-            continue
-        role = str(item.get("role", "")).strip().lower()
-        content = str(item.get("content", "")).strip()
-        if role not in {"user", "assistant"} or not content:
-            continue
-        out.append({"role": role, "content": content[:2000]})
-    return out
+    return services_realtime.sanitize_chat_history(history, limit=limit)
 
 
 def _build_router_messages(system_prompt: str, user_text: str, history: list[dict[str, str]]) -> list[dict[str, str]]:
-    trimmed = list(history)
-    if trimmed and trimmed[-1].get("role") == "user" and trimmed[-1].get("content", "").strip() == user_text.strip():
-        trimmed = trimmed[:-1]
-
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(trimmed)
-    messages.append({"role": "user", "content": user_text})
-    return messages
+    return services_realtime.build_router_messages(system_prompt, user_text, history)
 
 
 def _request_is_cacheable(request: ChatRequest) -> bool:
-    if not response_cache_enabled():
-        return False
-    if request.session_id:
-        return False
-    if _sanitize_chat_history(request.history):
-        return False
-    mode = (request.mode or "auto").strip().lower()
-    if mode in {"teaching", "vault"}:
-        return False
-    return bool((request.message or "").strip())
+    return services_realtime.request_is_cacheable(_module_owner(), request)
 
 
 def _augment_system_with_history(system_prompt: str, history: list[dict[str, str]]) -> str:
-    if not history:
-        return system_prompt
-    lines = ["LIVE SESSION HISTORY (RECENT TURNS):"]
-    for item in history[-8:]:
-        speaker = "Ryan" if item.get("role") == "user" else "Guppy"
-        snippet = item.get("content", "").replace("\n", " ").strip()
-        if len(snippet) > 240:
-            snippet = snippet[:240] + "..."
-        lines.append(f"- {speaker}: {snippet}")
-    return f"{system_prompt}\n\n" + "\n".join(lines)
+    return services_realtime.augment_system_with_history(system_prompt, history)
 
 
 def _is_rate_limited_error(error: Exception | str) -> bool:
-    txt = str(error or "").lower()
-    return "429" in txt or "rate limit" in txt or "too many requests" in txt
+    return services_realtime.is_rate_limited_error(error)
 
 
 def _call_unified_inference(
@@ -1567,166 +896,15 @@ def _call_unified_inference(
     instance_name: Optional[str] = None,
     instance_type: Optional[str] = None,
 ) -> str:
-    """
-    NEW: Unified inference using intelligent router.
-    Priority: local (guppy) -> haiku -> sonnet
-    Automatically falls back if local model is unavailable.
-
-    This is now the PRIMARY inference method.
-    """
-    if not GUPPY_CORE_AVAILABLE:
-        raise RuntimeError("Guppy core not available.")
-
-    if not INFERENCE_ROUTER_AVAILABLE:
-        # Fallback to Claude if router unavailable
-        logger.warning("Router unavailable, falling back to Claude")
-        return _call_claude_with_tools(
-            user_text,
-            system_prompt,
-            instance_name=instance_name,
-            instance_type=instance_type,
-        )
-
-    router = get_router()
-    clean_history = _sanitize_chat_history(history)
-    augmented_system_prompt = _augment_system_with_history(system_prompt, clean_history)
-    router_messages = _build_router_messages(augmented_system_prompt, user_text, clean_history)
-    requested_mode = (mode or os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto").strip().lower()
-
-    try:
-        # Local-only mode for overnight low-compute reliability.
-        if requested_mode == "local":
-            task_type = router._classify_task(user_text, augmented_system_prompt)
-            model_name = router.LOCAL_TIER_MAP.get(task_type, router.LOCAL_MODEL)
-            paired = os.environ.get("GUPPY_LOCAL_PAIRED", "0").strip().lower() in {"1", "true", "yes", "on"}
-            if paired and task_type != "simple":
-                result = router.query_local_paired(
-                    augmented_system_prompt,
-                    user_text,
-                    task_type,
-                    core.TOOLS,
-                    router_messages,
-                )
-                if not result:
-                    raise RuntimeError("Local-only paired mode failed (Ollama/model unavailable)")
-                response = str(result.get("response", "")).strip()
-                if not response:
-                    raise RuntimeError("Local-only paired mode returned empty response")
-                source = str(result.get("source", "local"))
-                metadata = dict(result.get("metadata", {}))
-            else:
-                response = _call_selected_local_runtime(
-                    user_text,
-                    augmented_system_prompt,
-                    instance_name=instance_name,
-                    instance_type=instance_type,
-                    model_override=model_name,
-                )
-                source = "local"
-                metadata = {"route_mode": "local", "model": model_name}
-        elif requested_mode == "code":
-            result = router.query_with_boost(
-                system_prompt=augmented_system_prompt,
-                user_text=user_text,
-                model=router.LOCAL_CODE_MODEL,
-                boost_mode=router.HAIKU_BOOST_CODE_REVIEW,
-                tools=None,
-                messages=router_messages,
-            )
-            if not result:
-                raise RuntimeError("Code mode local model unavailable")
-            response = str(result.get("response", ""))
-            source = str(result.get("source", "local"))
-            metadata = dict(result.get("metadata", {}))
-        else:
-            route_decision = router.resolve_ui_route(
-                user_text=user_text,
-                system_prompt=augmented_system_prompt,
-                mode=requested_mode,
-                api_key_available=bool(getattr(router, "anthropic_available", False)),
-            )
-            executor = str(route_decision.get("executor", "") or "").strip().lower()
-            target_model = str(route_decision.get("model", "") or "").strip()
-            backup_model = str(route_decision.get("backup_model", "") or "").strip()
-
-            if executor == "error":
-                raise RuntimeError(str(route_decision.get("error") or route_decision.get("route_reason") or "Requested route unavailable"))
-
-            if executor == "claude":
-                response = _call_claude_with_tools(
-                    user_text,
-                    augmented_system_prompt,
-                    instance_name=instance_name,
-                    instance_type=instance_type,
-                    preferred_model=target_model or None,
-                    backup_model=backup_model or None,
-                )
-                source = "haiku" if "haiku" in (target_model or "").lower() else "sonnet"
-                metadata = {"route_decision": route_decision}
-            elif executor in {"ollama", "ollama_paired"}:
-                if executor == "ollama_paired":
-                    result = router.query_local_paired(
-                        augmented_system_prompt,
-                        user_text,
-                        str(route_decision.get("task_type", "complex") or "complex"),
-                        core.TOOLS,
-                        router_messages,
-                    )
-                    if not result:
-                        raise RuntimeError("Local paired route failed")
-                    response = str(result.get("response", "")).strip()
-                    if not response:
-                        raise RuntimeError("Local paired route returned empty response")
-                    source = str(result.get("source", "local"))
-                    metadata = dict(result.get("metadata", {}))
-                else:
-                    response = _call_selected_local_runtime(
-                        user_text,
-                        augmented_system_prompt,
-                        instance_name=instance_name,
-                        instance_type=instance_type,
-                        model_override=target_model or None,
-                    )
-                    source = "local"
-                    metadata = {"route_decision": route_decision}
-            else:
-                response, source, metadata = router.query_smart(
-                    system_prompt=augmented_system_prompt,
-                    user_text=user_text,
-                    tools=core.TOOLS,
-                    messages=router_messages,
-                )
-
-        logger.info(f"Inference completed via {source}. Tokens: {metadata.get('usage', {}).get('output_tokens', '?')}")
-        return response
-
-    except Exception as e:
-        # Do NOT fall back to Claude when mode is explicitly 'local' or 'code' â€”
-        # those modes are intentional; silently spending cloud quota is wrong and
-        # hides the real error (e.g. Ollama not running).
-        if requested_mode in {"local", "code", "claude", "ollama"}:
-            logger.error(f"Inference failed in explicit mode '{requested_mode}': {e}")
-            raise
-        logger.error(f"Unified inference failed: {e}. Escalating to Claude Sonnet.")
-        # Final fallback to Claude (auto/teaching/default modes only).
-        # If cloud quota is throttled, fall back to local Ollama text mode before giving up.
-        try:
-            return _call_claude_with_tools(
-                user_text,
-                augmented_system_prompt,
-                instance_name=instance_name,
-                instance_type=instance_type,
-            )
-        except Exception as cloud_error:
-            if _is_rate_limited_error(cloud_error):
-                logger.warning("Claude fallback hit rate limits; trying local Ollama fallback")
-                return _call_ollama_with_tools(
-                    user_text,
-                    augmented_system_prompt,
-                    instance_name=instance_name,
-                    instance_type=instance_type,
-                )
-            raise
+    return services_realtime.call_unified_inference(
+        _module_owner(),
+        user_text,
+        system_prompt,
+        mode=mode,
+        history=history,
+        instance_name=instance_name,
+        instance_type=instance_type,
+    )
 
 
 
@@ -1976,81 +1154,11 @@ async def startup_check(deep: bool = False, user_id: str = Depends(require_rate_
     return snapshot
 
 
-def _governance_summary_payload(instance_name: str, instance_type: str) -> dict[str, Any]:
-    permissions = resolve_instance_permissions(instance_name, instance_type)
-    return {
-        "auth_mode": str(permissions.get("_auth_mode", "runtime_default") or "runtime_default"),
-        "auth_mode_label": auth_mode_label(str(permissions.get("_auth_mode", "runtime_default") or "runtime_default")),
-        "tool_allow": list(permissions.get("_tool_allow", [])),
-        "tool_block": list(permissions.get("_tool_block", [])),
-        "endpoint_allow": list(permissions.get("_endpoint_allow", [])),
-        "endpoint_block": list(permissions.get("_endpoint_block", [])),
-        "policy_note": str(permissions.get("_policy_note", "") or ""),
-        "capabilities": {
-            "read": bool(permissions.get("read", False)),
-            "write": bool(permissions.get("write", False)),
-            "execute": bool(permissions.get("execute", False)),
-            "network": bool(permissions.get("network", False)),
-        },
-    }
-
-
-def _workspace_connector_payload(instance_name: str) -> list[dict[str, Any]]:
-    return workspace_connector_inventory(instance_name, config_path=_config_dir / "connector_bindings.json")
-
-
-def _connector_inventory_payload() -> list[dict[str, Any]]:
-    return connector_inventory()
-
-
 @app.get("/instances")
 async def list_instances(user_id: str = Depends(require_rate_limit)):
     """Contract-first M2 endpoint: list configured instances with lightweight runtime state."""
     del user_id
-    config, state, config_warnings, state_warnings = _load_normalized_instance_bundle(persist_repairs=True)
-
-    items: list[dict[str, Any]] = []
-    instance_state = state.get("instances", {}) if isinstance(state, dict) else {}
-    for item in config.get("instances", []):
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name", "")).strip()
-        if not name:
-            continue
-        st = instance_state.get(name, {}) if isinstance(instance_state, dict) else {}
-        items.append(
-            {
-                "name": name,
-                "description": str(item.get("description", "")),
-                "mode": str(item.get("mode", "auto") or "auto"),
-                "persona": str(item.get("persona", "guppy") or "guppy"),
-                "voice": str(item.get("voice", "default") or "default"),
-                "type": str(item.get("type", "user_instance") or "user_instance"),
-                "created_at": item.get("created_at"),
-                "enabled": bool(item.get("enabled", True)),
-                "status": str(st.get("status", "idle")),
-                "last_message": str(st.get("last_message", "")),
-                "last_updated": st.get("last_updated"),
-                "message_count": int(st.get("message_count", 0) or 0),
-                "model_currently_using": str(st.get("model_currently_using", item.get("mode", "auto")) or "auto"),
-                "governance": _governance_summary_payload(name, str(item.get("type", "user_instance") or "user_instance")),
-                "connectors": _workspace_connector_payload(name),
-            }
-        )
-    limits = _instance_limits_payload(config, state)
-    warnings = config_warnings + state_warnings
-    if limits["configured"] >= limits["max_configured"]:
-        warnings.append("configured instance cap reached (5 / 5)")
-    if limits["active_runtime"] >= limits["max_active_runtime"]:
-        warnings.append("runtime-active instance cap reached (2 / 2)")
-
-    return {
-        "version": int(config.get("version", 1) or 1),
-        "active_instance": str(config.get("active_instance", "guppy-primary")),
-        "instances": items,
-        "limits": limits,
-        "warnings": warnings,
-    }
+    return _build_instance_list_response()
 
 
 @app.post("/instances")
@@ -2059,32 +1167,7 @@ async def create_or_update_instance(
     user_id: str = Depends(require_rate_limit),
 ):
     del user_id
-    raw_config = _load_instances_config()
-    config, _warnings = _normalize_instances_config(raw_config)
-    config, action = _upsert_instance_config(config, request)
-    _save_instances_config(config)
-
-    names = _instance_names(config)
-    raw_state = _load_instance_state(config)
-    state, _state_warnings = _normalize_instance_state(
-        raw_state,
-        valid_names=names,
-        active_instance=str(config.get("active_instance", names[0] if names else "guppy-primary")),
-    )
-    instances = state.get("instances", {}) if isinstance(state.get("instances"), dict) else {}
-    instances[str(request.name).strip()] = _default_instance_state((request.mode or "auto").strip().lower() or "auto")
-    state["instances"] = instances
-    _activate_instance_state(state, str(config.get("active_instance", names[0] if names else request.name)).strip())
-    _save_instance_state(state)
-    limits = _instance_limits_payload(config, state)
-
-    return {
-        "ok": True,
-        "action": action,
-        "instance": str(request.name).strip(),
-        "active_instance": str(config.get("active_instance", "guppy-primary")),
-        "limits": limits,
-    }
+    return _create_or_update_instance_response(request)
 
 
 @app.post("/instances/{name}/governance")
@@ -2094,41 +1177,13 @@ async def save_instance_governance(
     user_id: str = Depends(require_rate_limit),
 ):
     del user_id
-    target = (name or "").strip()
-    config, _state, _warnings, _state_warnings = _load_normalized_instance_bundle(persist_repairs=True)
-    target_entry = _get_instance_entry(config, target)
-    if not isinstance(target_entry, dict):
-        raise HTTPException(status_code=404, detail=f"unknown instance: {target}")
-    instance_type = str(target_entry.get("type", "user_instance") or "user_instance").strip() or "user_instance"
-    resolved = resolve_instance_permissions(target, instance_type)
-    set_instance_tool_permission_policy(
-        target,
-        {
-            "read": bool(resolved.get("read", False)),
-            "write": bool(resolved.get("write", False)),
-            "execute": bool(resolved.get("execute", False)),
-            "network": bool(resolved.get("network", False)),
-            "auth_mode": request.auth_mode,
-            "tool_allow": request.tool_allow,
-            "tool_block": request.tool_block,
-            "endpoint_allow": request.endpoint_allow,
-            "endpoint_block": request.endpoint_block,
-            "policy_note": request.policy_note,
-        },
-    )
-    return {
-        "ok": True,
-        "instance": target,
-        "governance": _governance_summary_payload(target, instance_type),
-    }
+    return _save_instance_governance_response(name, request)
 
 
 @app.get("/connectors")
 async def list_connectors(user_id: str = Depends(require_rate_limit)):
     del user_id
-    return {
-        "connectors": _connector_inventory_payload(),
-    }
+    return _list_connectors_response()
 
 
 @app.post("/connectors/{connector_id}/verify")
@@ -2138,15 +1193,7 @@ async def verify_connector(
     user_id: str = Depends(require_rate_limit),
 ):
     del user_id
-    result = run_connector_action(
-        connector_id,
-        "verify",
-        provider=request.provider,
-        account_id=request.account_id,
-        secret_key=request.secret_key,
-        secret_value=request.secret_value,
-    )
-    return {"connector": str(connector_id or "").strip().lower(), **result}
+    return _run_connector_action_response(connector_id, "verify", request)
 
 
 @app.post("/connectors/{connector_id}/connect")
@@ -2156,15 +1203,7 @@ async def connect_connector(
     user_id: str = Depends(require_rate_limit),
 ):
     del user_id
-    result = run_connector_action(
-        connector_id,
-        "connect",
-        provider=request.provider,
-        account_id=request.account_id,
-        secret_key=request.secret_key,
-        secret_value=request.secret_value,
-    )
-    return {"connector": str(connector_id or "").strip().lower(), **result}
+    return _run_connector_action_response(connector_id, "connect", request)
 
 
 @app.post("/connectors/{connector_id}/reconnect")
@@ -2174,15 +1213,7 @@ async def reconnect_connector(
     user_id: str = Depends(require_rate_limit),
 ):
     del user_id
-    result = run_connector_action(
-        connector_id,
-        "reconnect",
-        provider=request.provider,
-        account_id=request.account_id,
-        secret_key=request.secret_key,
-        secret_value=request.secret_value,
-    )
-    return {"connector": str(connector_id or "").strip().lower(), **result}
+    return _run_connector_action_response(connector_id, "reconnect", request)
 
 
 @app.post("/connectors/{connector_id}/disconnect")
@@ -2192,15 +1223,7 @@ async def disconnect_connector(
     user_id: str = Depends(require_rate_limit),
 ):
     del user_id
-    result = run_connector_action(
-        connector_id,
-        "disconnect",
-        provider=request.provider,
-        account_id=request.account_id,
-        secret_key=request.secret_key,
-        secret_value=request.secret_value,
-    )
-    return {"connector": str(connector_id or "").strip().lower(), **result}
+    return _run_connector_action_response(connector_id, "disconnect", request)
 
 
 @app.get("/instances/{name}/connectors")
@@ -2209,15 +1232,7 @@ async def list_instance_connectors(
     user_id: str = Depends(require_rate_limit),
 ):
     del user_id
-    target = (name or "").strip()
-    config, _state, _warnings, _state_warnings = _load_normalized_instance_bundle(persist_repairs=True)
-    target_entry = _get_instance_entry(config, target)
-    if not isinstance(target_entry, dict):
-        raise HTTPException(status_code=404, detail=f"unknown instance: {target}")
-    return {
-        "instance": target,
-        "connectors": _workspace_connector_payload(target),
-    }
+    return _list_instance_connectors_response(name)
 
 
 @app.post("/instances/{name}/connectors/{connector_id}")
@@ -2228,33 +1243,7 @@ async def save_instance_connector_binding(
     user_id: str = Depends(require_rate_limit),
 ):
     del user_id
-    target = (name or "").strip()
-    normalized_connector = (connector_id or "").strip().lower()
-    config, _state, _warnings, _state_warnings = _load_normalized_instance_bundle(persist_repairs=True)
-    target_entry = _get_instance_entry(config, target)
-    if not isinstance(target_entry, dict):
-        raise HTTPException(status_code=404, detail=f"unknown instance: {target}")
-    save_workspace_connector_binding(
-        target,
-        normalized_connector,
-        {
-            "enabled": bool(request.enabled),
-            "account_id": request.account_id,
-            "provider": request.provider,
-            "action_allow": request.action_allow,
-            "action_block": request.action_block,
-            "endpoint_allow": request.endpoint_allow,
-            "endpoint_block": request.endpoint_block,
-            "note": request.note,
-        },
-        config_path=_config_dir / "connector_bindings.json",
-    )
-    return {
-        "ok": True,
-        "instance": target,
-        "connector": normalized_connector,
-        "connectors": _workspace_connector_payload(target),
-    }
+    return _save_instance_connector_binding_response(name, connector_id, request)
 
 
 @app.post("/instances/{name}/activate")
@@ -2263,29 +1252,7 @@ async def activate_instance(
     user_id: str = Depends(require_rate_limit),
 ):
     del user_id
-    target = (name or "").strip()
-    raw_config = _load_instances_config()
-    config, _warnings = _normalize_instances_config(raw_config)
-    names = _instance_names(config)
-    if target not in names:
-        raise HTTPException(status_code=404, detail=f"unknown instance: {target}")
-
-    config["active_instance"] = target
-    _save_instances_config(config)
-
-    raw_state = _load_instance_state(config)
-    state, _state_warnings = _normalize_instance_state(
-        raw_state,
-        valid_names=names,
-        active_instance=target,
-    )
-    _activate_instance_state(state, target)
-    _save_instance_state(state)
-    return {
-        "ok": True,
-        "active_instance": target,
-        "limits": _instance_limits_payload(config, state),
-    }
+    return _activate_instance_response(name)
 
 
 @app.delete("/instances/{name}")
@@ -2294,40 +1261,7 @@ async def delete_instance(
     user_id: str = Depends(require_rate_limit),
 ):
     del user_id
-    target = (name or "").strip()
-    raw_config = _load_instances_config()
-    config, _warnings = _normalize_instances_config(raw_config)
-    items = list(config.get("instances", [])) if isinstance(config.get("instances"), list) else []
-    kept = [item for item in items if not (isinstance(item, dict) and str(item.get("name", "")).strip() == target)]
-    if len(kept) == len(items):
-        raise HTTPException(status_code=404, detail=f"unknown instance: {target}")
-    if not kept:
-        raise HTTPException(status_code=400, detail="cannot delete the last configured instance")
-
-    config["instances"] = kept
-    names = _instance_names(config)
-    if str(config.get("active_instance", "")).strip() == target:
-        config["active_instance"] = names[0]
-    _save_instances_config(config)
-
-    raw_state = _load_instance_state(config)
-    state, _state_warnings = _normalize_instance_state(
-        raw_state,
-        valid_names=names,
-        active_instance=str(config.get("active_instance", names[0])),
-    )
-    instances = state.get("instances", {}) if isinstance(state.get("instances"), dict) else {}
-    instances.pop(target, None)
-    state["instances"] = instances
-    _save_instance_state(state)
-    if _INSTANCE_LOGGER_AVAILABLE:
-        delete_instance_log(target)
-    return {
-        "ok": True,
-        "deleted": target,
-        "active_instance": str(config.get("active_instance", names[0])),
-        "limits": _instance_limits_payload(config, state),
-    }
+    return _delete_instance_response(name)
 
 # === END _server_fragment_runtime_calls.py ===
 
@@ -2339,16 +1273,7 @@ async def get_instance_logs(
     user_id: str = Depends(require_rate_limit),
 ):
     del user_id
-    target = (name or "").strip()
-    raw_config = _load_instances_config()
-    config, _warnings = _normalize_instances_config(raw_config)
-    if target not in _instance_names(config):
-        raise HTTPException(status_code=404, detail=f"unknown instance: {target}")
-    return {
-        "instance": target,
-        "entries": read_instance_log_tail(target, limit=limit) if _INSTANCE_LOGGER_AVAILABLE else [],
-        "summary": read_instance_log_summary(target) if _INSTANCE_LOGGER_AVAILABLE else {"entry_count": 0, "roles": {}, "statuses": {}},
-    }
+    return _build_instance_logs_response(name, limit=limit)
 
 
 @app.post("/instances/{name}/query")
@@ -2638,46 +1563,7 @@ async def telemetry_report(
 
 def _require_repair_token(request: Request) -> None:
     """Dependency: verify X-Repair-Token matches the in-memory token set at startup."""
-    provided = (request.headers.get("X-Repair-Token") or "").strip()
-
-    if not _REPAIR_TOKEN:
-        log_session_event(
-            "api",
-            "repair_token_rejected",
-            level="warning",
-            reason_code="repair_token_uninitialized",
-            has_header=bool(provided),
-        )
-        raise HTTPException(
-            status_code=403,
-            detail={"code": "repair_token_uninitialized", "message": "Invalid repair token"},
-        )
-
-    if not provided:
-        log_session_event(
-            "api",
-            "repair_token_rejected",
-            level="warning",
-            reason_code="repair_token_missing",
-            has_header=False,
-        )
-        raise HTTPException(
-            status_code=403,
-            detail={"code": "repair_token_missing", "message": "Invalid repair token"},
-        )
-
-    if not secrets.compare_digest(_REPAIR_TOKEN, provided):
-        log_session_event(
-            "api",
-            "repair_token_rejected",
-            level="warning",
-            reason_code="repair_token_mismatch",
-            has_header=True,
-        )
-        raise HTTPException(
-            status_code=403,
-            detail={"code": "repair_token_mismatch", "message": "Invalid repair token"},
-        )
+    services_ops.require_repair_token(_module_owner(), request)
 
 
 @app.get("/repair-token/refresh")
@@ -2771,18 +1657,24 @@ async def chat(request: ChatRequest, user_id: str = Depends(require_rate_limit))
         raise HTTPException(status_code=503, detail="Guppy core not available")
 
     idempotency_key = str(request.idempotency_key or "").strip()
-    request_fingerprint = _build_chat_request_fingerprint(request) if idempotency_key else ""
+    request_fingerprint = build_chat_request_fingerprint(
+        message=request.message,
+        session_id=request.session_id,
+        mode=request.mode,
+        persona=request.persona,
+        history=request.history,
+    ) if idempotency_key else ""
     idempotency_owner = False
     if idempotency_key:
         while True:
-            idempotency_owner, idempotency_event = _register_chat_idempotency_key(idempotency_key, request_fingerprint)
+            idempotency_owner, idempotency_event = register_chat_idempotency_key(idempotency_key, request_fingerprint)
             if idempotency_owner:
                 break
             await _run_blocking(
                 idempotency_event.wait,
                 timeout_seconds=max(CHAT_TIMEOUT_SECONDS, 120.0),
             )
-            idempotent_result = _resolve_chat_idempotency_key(idempotency_key, request_fingerprint)
+            idempotent_result = resolve_chat_idempotency_key(idempotency_key, request_fingerprint)
             if isinstance(idempotent_result, dict):
                 response_payload = idempotent_result.get("response")
                 if isinstance(response_payload, dict):
@@ -2793,7 +1685,7 @@ async def chat(request: ChatRequest, user_id: str = Depends(require_rate_limit))
                         detail=idempotent_result.get("error"),
                         headers=idempotent_result.get("headers") if isinstance(idempotent_result.get("headers"), dict) else None,
                     )
-            idempotency_owner, idempotency_event, took_ownership = _takeover_chat_idempotency_key(
+            idempotency_owner, idempotency_event, took_ownership = takeover_chat_idempotency_key(
                 idempotency_key,
                 request_fingerprint,
             )
@@ -2825,7 +1717,7 @@ async def chat(request: ChatRequest, user_id: str = Depends(require_rate_limit))
                         )
             payload = {"response": response, "session_id": request.session_id, "brief": True}
             if idempotency_owner and idempotency_key:
-                _complete_chat_idempotency_key(idempotency_key, response=payload, status_code=200)
+                complete_chat_idempotency_key(idempotency_key, response=payload, status_code=200)
             return payload
 
         system_prompt = _build_chat_system_prompt(
@@ -2854,7 +1746,7 @@ async def chat(request: ChatRequest, user_id: str = Depends(require_rate_limit))
                     if cached_response:
                         payload = {"response": cached_response, "session_id": request.session_id, "cached": True}
                         if idempotency_owner and idempotency_key:
-                            _complete_chat_idempotency_key(idempotency_key, response=payload, status_code=200)
+                            complete_chat_idempotency_key(idempotency_key, response=payload, status_code=200)
                         return payload
             except Exception as e:
                 logger.debug("Response cache lookup skipped: %s", e)
@@ -2882,12 +1774,12 @@ async def chat(request: ChatRequest, user_id: str = Depends(require_rate_limit))
 
         payload = {"response": response, "session_id": request.session_id}
         if idempotency_owner and idempotency_key:
-            _complete_chat_idempotency_key(idempotency_key, response=payload, status_code=200)
+            complete_chat_idempotency_key(idempotency_key, response=payload, status_code=200)
         return payload
 
     except HTTPException as exc:
         if idempotency_owner and idempotency_key:
-            _complete_chat_idempotency_key(
+            complete_chat_idempotency_key(
                 idempotency_key,
                 error=getattr(exc, "detail", "chat request failed"),
                 status_code=int(getattr(exc, "status_code", 500) or 500),
@@ -2905,7 +1797,7 @@ async def chat(request: ChatRequest, user_id: str = Depends(require_rate_limit))
             error=str(e),
         )
         if idempotency_owner and idempotency_key:
-            _complete_chat_idempotency_key(idempotency_key, error=str(e), status_code=500)
+            complete_chat_idempotency_key(idempotency_key, error=str(e), status_code=500)
         raise HTTPException(status_code=500, detail=str(e))
 
 # === END _server_fragment_routes_core.py ===

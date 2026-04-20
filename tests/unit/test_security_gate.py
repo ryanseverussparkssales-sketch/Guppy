@@ -20,6 +20,7 @@ from src.guppy.launcher_application.security_gate import (
     SECURITY_GATE_CHECKS,
     _check_build_posture,
     _check_network_boundary,
+    _check_secret_storage,
 )
 
 
@@ -138,6 +139,18 @@ class TestBuildPostureCheck:
 
 
 # ── network_boundary check is non-blocking ────────────────────────────────────
+
+class TestSecretStorageCheck:
+    def test_secret_storage_check_flags_degraded_backend(self):
+        with patch.object(security_gate.secret_store, "_KEYRING_AVAILABLE", False), patch.object(
+            security_gate.secret_store,
+            "_KEYRING_BACKEND_NAME",
+            "PlaintextKeyring",
+        ):
+            ok, detail = _check_secret_storage()
+        assert ok is False
+        assert "degraded backend" in detail
+
 
 class TestNetworkBoundaryNonBlocking:
     def test_network_boundary_check_is_non_blocking(self, tmp_path):

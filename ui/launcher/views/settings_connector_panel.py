@@ -133,5 +133,6 @@ def emit_connector_action(owner, action: str) -> None:
             "account_id": str(owner._connector_account.currentData() or "").strip(),
             "secret_key": selected_secret_key,
             "secret_value": secret_value,
+            "request_source": "settings_operations_panel",
         }
     )

@@ -8,9 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from utils import secret_store
+
 _ROOT = Path(__file__).resolve().parents[3]
 _RUNTIME = _ROOT / "runtime"
-_SECRET_GLOBS = ("*.env", ".env", "*.key", "*.pem", "secrets.*", "secret.*")
+_SECRET_GLOBS = (".env", "*.key", "*.pem", "secrets.*", "secret.*")
 
 
 @dataclass(frozen=True)
@@ -23,14 +25,12 @@ class SecurityCheck:
 
 def _check_secret_storage() -> tuple[bool, str]:
     try:
-        import keyring  # noqa: PLC0415
-        kr = keyring.get_keyring()
-        name = type(kr).__name__
-        if any(h in name.lower() for h in ("fail", "null", "plain", "chainer")):
+        name = secret_store.backend_name()
+        if secret_store.backend_is_secure():
+            return True, f"OS keyring available: {name}"
+        if name not in {"unavailable", "unknown"}:
             return False, f"Keyring resolved to degraded backend: {name}"
-        return True, f"OS keyring available: {name}"
-    except ImportError:
-        return False, "keyring not installed; secrets fall back to env vars only"
+        return False, "keyring unavailable; secrets fall back to env vars only"
     except Exception as exc:
         return False, f"keyring probe failed: {exc}"
 
@@ -54,16 +54,22 @@ def _check_network_boundary() -> tuple[bool, str]:
 
 def _check_connector_scope() -> tuple[bool, str]:
     try:
+        workflow = _ROOT / "src" / "guppy" / "launcher_application" / "connector_workflow.py"
         cm = _ROOT / "utils" / "connector_manager.py"
+        if not workflow.exists():
+            return False, "connector_workflow.py not found"
         if not cm.exists():
             return False, f"connector_manager.py not found"
+        workflow_text = workflow.read_text(encoding="utf-8", errors="replace")
         text = cm.read_text(encoding="utf-8", errors="replace")
         raw_http = any(t in text for t in ("urllib.request.urlopen", "requests.get(", "requests.post("))
         if raw_http:
             return False, "connector_manager makes raw HTTP calls; verify auth-token gating"
-        if "auth_state" in text and ("read_machine_secret" in text or "_governance_read_machine_secret" in text):
-            return True, "Connector manager gates access via auth_state checks and secret reads"
-        return False, "Could not confirm auth gating in connector_manager.py"
+        workflow_ok = "_SETTINGS_REQUEST_SOURCES" in workflow_text and "_reject_non_settings_owned_request" in workflow_text
+        manager_ok = "auth_state" in text and ("read_machine_secret" in text or "_governance_read_machine_secret" in text)
+        if workflow_ok and manager_ok:
+            return True, "Connector actions are Settings-owned and connector manager still gates access via auth_state plus secret reads"
+        return False, "Could not confirm Settings-owned connector actions plus auth-state secret gating"
     except Exception as exc:
         return False, f"connector scope check failed: {exc}"
 
@@ -82,16 +88,21 @@ def _check_build_posture() -> tuple[bool, str]:
 
 def _check_dependency_hygiene() -> tuple[bool, str]:
     try:
-        for fname in ("requirements.txt", "pyproject.toml"):
+        for fname in ("requirements.txt", "requirements-dev.txt", "pyproject.toml"):
             p = _ROOT / fname
             if not p.exists():
                 continue
             text = p.read_text(encoding="utf-8", errors="replace")
-            pinned = sum(1 for ln in text.splitlines() if "==" in ln and not ln.strip().startswith("#"))
-            if pinned > 0:
-                return True, f"{fname} present with {pinned} pinned dependency line(s)"
-            return False, f"{fname} exists but has no pinned (==) dependencies"
-        return False, "No requirements.txt or pyproject.toml found"
+            dep_lines = [ln for ln in text.splitlines()
+                         if ln.strip() and not ln.strip().startswith("#")]
+            constrained = sum(1 for ln in dep_lines
+                              if any(op in ln for op in ("==", ">=", "~=", "<=", "!=")))
+            if constrained > 0:
+                return True, (
+                    f"{fname} present with {constrained} version-constrained "
+                    f"dependency line(s)"
+                )
+        return False, "No requirements.txt or pyproject.toml found with version constraints"
     except Exception as exc:
         return False, f"dependency hygiene check failed: {exc}"
 

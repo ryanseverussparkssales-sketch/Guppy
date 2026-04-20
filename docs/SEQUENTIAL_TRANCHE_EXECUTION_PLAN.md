@@ -35,7 +35,7 @@ Each tranche contains:
 **Sub-agents:** Code gen specialists (4-5 working in parallel)
 
 **Execution note (April 19, 2026):**
-- Tranche 1 is landing as a safe ownership-and-routing foundation.
+- Tranche 1 is complete as a safe ownership-and-routing foundation.
 - `Settings Hub` becomes the direct settings stack destination.
 - Configuration is embedded directly in the new hub using the existing `SettingsView`.
 - Diagnostics, Recovery, and Terminal remain on the existing `AdvancedView` lane for this tranche.
@@ -43,16 +43,16 @@ Each tranche contains:
 - Advanced no longer rehosts the full settings surface; it now shows a handoff note back to Settings Hub.
 
 **What ships:**
-- [ ] Current ownership matrix documented (my_pc, advanced, connector_panel, advanced_terminal → settings sections)
-- [ ] SettingsHubConsolidated stub created (loads all 4 old surfaces into one view, no logic changes yet)
-- [ ] Feature-free routing: launcher_window selects SettingsHubConsolidated (no flags, just direct load)
-- [ ] All old tests pass (nothing broken, just new view created)
-- [ ] docs/SETTINGS_HUB_PHASE_1_COMPLETE.md explains what's shipped
+- [x] Current ownership matrix documented (my_pc, advanced, connector_panel, advanced_terminal → settings sections)
+- [x] `SettingsHubView` foundation landed as the unified settings hub destination (routing + handoff only, no logic extraction yet)
+- [x] Feature-free routing: launcher_window selects `SettingsHubView` (no flags, just direct load)
+- [x] Existing focused tests pass (nothing broken, foundation-only routing change)
+- [x] Active truth docs updated with tranche completion context
 
 **Acceptance:**
 - ✅ New hub loads without errors
-- ✅ All 6 sections visible (Configuration, Diagnostics, Recovery, Connectors, System, Terminal)
-- ✅ Old view logic still works (copied into new view, not refactored yet)
+- ✅ Settings stack routes to the unified hub while Diagnostics/Recovery/Terminal remain on Advanced and Connectors/System remain on My PC for this phase
+- ✅ Old view logic still works (preserved on existing lanes, not extracted yet)
 - ✅ Guardrails passing (dev-check delta, release-check, line cap)
 
 **Rollback:** `git revert [commit]` (one commit, clean)
@@ -766,41 +766,324 @@ Residual non-blocking notes:
 - Highest-priority additions after the current hotspot lane are tool-entry/starter unification, senior-friendly clarity and hover-help, unified vendor/account onboarding, install-versus-local-model onboarding split, and a dedicated launch-grade security gate.
 - The downloaded Google Stitch bundle (`stitch_azure_reef_assistant.zip`) is now explicitly part of that roadmap input, with Atoll Editorial / Tropical Editorial guidance and premium “Guppy G” logo exploration folded into the planned UI-branding lane.
 
+---
+
+## Consultant Review Integration (April 19, 2026)
+
+**Source:** Paid engineering + design consultant audit against goals, north star, credentials audit, packaging docs, and voice status.
+
+**Summary findings:**
+1. **North star vs complexity gap** - Product claims calm chat-first but still carries too much visible operator surface. Fix: enforce the 3-click rule for anything outside the first-10-minute path; add progressive disclosure in Settings and Tools; reduce first-run to three tasks only.
+2. **Provider and dependency sprawl** - Optional/stubbed/partial integrations are not cleanly separated from ready ones. Fix: tier providers into Core / Supported Optional / Experimental; hide Experimental by default; enforce a single provider registry UX with typed validation and in-line verify.
+3. **Hotspot concentration still high** - Already tracked in P6 but needs explicit weekly burn-down targets and a no-new-responsibilities rule for waived modules. Fix: treat each waiver as a debt token with a written reduction target, not just a cap.
+4. **Security posture not launch-simple** - Secret handling mixes inline env examples with keyring availability; no explicit launch gate exists. Fix: OS keychain-first for all secrets; permission scopes per connector action; dependency scanning and secret audit in release gate.
+5. **Packaging and first-model paths still operationally heavy** - Already split into Track 1/Track 2 (good), but no guided first-run stateful wizard and no clean-machine completion-rate metric. Fix: add a guided first-run wizard with stateful checkpoints and plain-language remediation; define clean-machine completion rate as a primary success metric.
+6. **Design direction** - Adopt quiet hierarchy: one strong accent, fewer competing badges, fewer persistent status blocks. Do PL-C3 (clarity) before PL-C2 (branding). Large hit targets and explicit microcopy are non-negotiable for trust/accessibility.
+
+**Competitive product comparisons used:**
+- Claude Desktop: calm primary interaction model, minimal persistent chrome -> adopt for Home Chat.
+- Cursor: high-signal contextual actions scoped to relevance -> adopt for tool/context surfaces.
+- LM Studio: transparent local-runtime status kept demoted from daily chat -> adopt for Models Hub.
+- ChatGPT Desktop: immediate comprehension on first open -> target this for first-run success standard.
+- Open WebUI: pays full onboarding cost for operator power -> avoid for Guppy personal-assistant positioning.
+
+**30-day execution plan driven by consultant findings:**
+1. Weeks 1-2: Onboarding and provider registry simplification (PL-C1, PL-C3, PL-C4).
+2. Week 2-3: Hotspot reduction sprint on top three coordinator files.
+3. Week 3: Security gate hardening and secret-handling cleanup (PL-C6).
+4. Week 4: First-run UX test loop; fix top friction points (PL-C5, PL-C7).
+
+**Mapping of consultant findings to Tranche 52 cards:**
+- PL-C1 now requires a shared action registry and a plain-language command line per tool.
+- PL-C2 now has explicit quiet-hierarchy constraints and defers logo novelty until after PL-C3.
+- PL-C3 now requires an 80-year-old-user bar and a 3-click rule audit.
+- PL-C4 now requires Core/Optional/Experimental tiering and OS keychain-first.
+- PL-C5 now requires a stateful first-run wizard and a clean-machine completion rate measurement.
+- PL-C6 is now a hard launch blocker, not a nice-to-have.
+
+---
+
 ## Planned Pre-Launch Tranche (Tranche 52)
 
 **Execution note (April 19, 2026):**
 - This tranche turns the current pre-launch wishlist into executable work.
-- Stitch guidance is used as bounded visual direction, not as a literal rebuild requirement.
+- Stitch guidance is used as bounded visual direction with a quiet-hierarchy constraint, not as a literal rebuild.
 - The five-hub launcher ownership model remains fixed during this tranche.
+- All cards below are enriched with consultant-review acceptance criteria for clean agent auto-execution.
 
 **What ships:**
-- [ ] `PL-C1` Tool action registry and starter-command unification
-- [ ] `PL-C2` Stitch-guided visual system and logo refinement
-- [ ] `PL-C3` Senior-friendly clarity, spacing, and hover-help pass
-- [ ] `PL-C4` Unified provider, account, and API-key onboarding
-- [ ] `PL-C5` Install package and local base-model first-success split
-- [ ] `PL-C6` Launch-grade security gate
-- [ ] `PL-C7` Validation, docs, and pre-launch handoff evidence
+
+### PL-C1 - Tool Action Registry and Starter-Command Unification
+- **Owner:** Lane A agent
+- **Key files:** ui/launcher/views/tools_view_cards.py, src/guppy/launcher_application/home_presenter.py, ui/launcher/launcher_window.py
+- **Work:**
+  - Create src/guppy/launcher_application/tool_action_registry.py with a typed ToolAction datatype: tool_id, label, short_command (plain-language), starter_text (Home dropdown), button_path, voice_hint.
+  - Wire the registry into the Home starter list so each tool entry resolves from the same datatype.
+  - Wire the registry into the Tools hub card render so label and command text are always in sync.
+  - Wire the registry into _tool_prompt_for_home in launcher_window.py so prompt wording matches short_command.
+  - Remove duplicate inline literal strings for tool names and commands across the three source locations.
+- **Acceptance:**
+  - A user can discover the same action via button, starter dropdown, voice hint, and typed prompt with identical wording.
+  - Adding a new tool requires touching only the registry, not three separate files.
+  - Tests: new unit test for registry consistency plus one smoke test confirming Home starters draw from registry.
+- **Consultant note:** Closes the discoverable action gap. Without it, onboarding copy in PL-C3/C4 cannot stay in sync.
+
+### PL-C2 - Stitch-Guided Visual System and Logo Refinement (Quiet Hierarchy)
+- **Owner:** Lane C agent -- run after PL-C3 is complete
+- **Key files:** ui/launcher/launcher_window.py (chrome), theme/style modules, assets
+- **Work:**
+  - Apply quiet-hierarchy visual pass: one turquoise/sunset-orange accent, warm neutral surface for key areas, no competing badge stacks, no permanent status blocks in Home.
+  - Integrate Stitch Atoll Editorial guidance: editorial serif for primary headings only, clean sans for body and controls.
+  - Refine the Guppy logo/taskbar mark with the Stitch Guppy G direction; treat as identity refinement, not rebrand.
+  - All visual changes token-driven in one theme/style module -- no inline hex strings in widget files.
+- **Acceptance:**
+  - Home Chat feels calm and branded without reducing legibility or adding visual clutter.
+  - Visual tokens exist in one location; no inline hex strings added to widget files.
+  - Does not regress any PL-C3 clarity/spacing work.
+  - Tested: smoke visual integrity check confirms hub layout is not broken.
+- **Consultant constraint:** Run PL-C3 first. Branding layered onto confusing layout makes it worse.
+
+### PL-C3 - Senior-Friendly Clarity, Spacing, and Hover-Help Pass (3-Click Rule)
+- **Owner:** Lane B agent -- first executing lane
+- **Key files:** All five hub views, Home Chat, Settings, Tools, Library, Models
+- **Work:**
+  - Audit every hub with the 80-year-old-user bar: does this screen answer what is this page for, what happens if I press this, what should I do next.
+  - Add a one-line hub-purpose label at the top of each primary hub (visually understated, always present).
+  - Enforce the 3-click rule: any action not needed in the first 10 minutes must be reachable in 3 clicks from its hub but not visible on initial load.
+  - Audit hit targets: all primary action buttons >= 36px tall; secondary controls >= 28px.
+  - Add or fix tooltips on every non-obvious control; use plain-language copy matching the PL-C1 registry where applicable.
+  - Fix spacing rhythm inconsistencies already noted in P6-C6/C38.
+- **Acceptance:**
+  - Each primary hub screen has a visible one-line purpose statement.
+  - All primary buttons meet the 36px hit target.
+  - All non-obvious controls have tooltips.
+  - A first-time user can identify each hub purpose in under 3 seconds without explanation.
+  - Tests: new smoke test confirming purpose labels present and tooltips exist on target controls.
+- **Consultant note:** This is a launch requirement, not polish. Highest-leverage pre-launch UX investment.
+
+### PL-C4 - Unified Provider, Account, and API-Key Onboarding (Core/Optional/Experimental Tiering)
+- **Owner:** Lane D agent
+- **Key files:** ui/launcher/views/settings_device_accounts_panel.py, utils/personalization_config.py, config/connector_bindings.json
+- **Work:**
+  - Introduce a provider_tier field to the provider/connector registry: Core (works by default), Supported Optional (key-verified), Experimental (hidden by default, toggled in Settings).
+  - Normalize all vendor onboarding to: type secret -> in-line verify -> status badge -> next-step guidance. No bespoke UX per provider.
+  - Enforce OS keychain-first (keyring already installed): all secret storage must write to OS keyring. Env-var fallback only for GUPPY_DEV_MODE=1.
+  - Display provider health as a compact badge (pass / warn / fail) without requiring Settings expansion.
+- **Acceptance:**
+  - Core providers work with no credentials on a fresh install.
+  - Supported Optional providers onboard via standard typed-secret + verify flow.
+  - Experimental providers hidden until explicitly toggled.
+  - All secrets written to OS keyring; no secrets in plain config unless GUPPY_DEV_MODE=1.
+  - Tests: unit test for keyring write/read path + smoke test confirming tier visibility defaults.
+- **Consultant note:** Closes the onboarding complexity gap. OS keychain-first is both a security requirement (PL-C6) and a trust prerequisite for external beta.
+
+### PL-C5 - Install Package and Local Base-Model First-Success Path (Stateful First-Run Wizard)
+- **Owner:** Lane E agent (co-run with PL-C6)
+- **Key files:** src/guppy/launcher_application/install_readiness.py, src/guppy/launcher_application/local_model_readiness.py, first-run wizard entry point
+- **Work:**
+  - Add a stateful first-run wizard surface that runs on first launch when no workspace is configured.
+  - Three stateful checkpoints: (1) app install check passes, (2) model runtime detected, (3) first successful request completed.
+  - Each checkpoint shows plain-language status, a one-action remediation button, and a skip-for-now option.
+  - Log first_run_checkpoint_N_completed events per checkpoint so clean-machine completion rate is measurable.
+  - Wizard is skipped if a saved workspace already exists (returning user).
+  - Track 1 (install) and Track 2 (local model) remain separate gates; wizard surfaces them as two distinct steps.
+- **Acceptance:**
+  - A clean-machine user reaches first successful request in under 5 minutes without external docs.
+  - Each checkpoint has a recoverable state.
+  - first_run_checkpoint_N_completed log events exist and are queryable.
+  - Tests: unit test for wizard state machine + smoke test confirming each checkpoint is reachable.
+- **Consultant note:** Clearest signal of product readiness. If this is not smooth, every other quality signal is moot.
+
+### PL-C6 - Launch-Grade Security Gate (Hard Launch Blocker)
+- **Owner:** Lane E agent (co-run with PL-C5)
+- **Key files:** tests/test_security_hardening.py, tools/dev_workflow.py, documentation/SECURITY.md
+- **Work:**
+  - Secret storage audit: verify all secret write paths go through keyring after PL-C4 lands; fail gate if any plaintext secret write remains outside dev-mode.
+  - Localhost vs external boundary audit: every port binding and network-open call explicitly justified; no 0.0.0.0 binding without an explicit config override.
+  - Connector least-privilege audit: each connector action must declare its required scope; no connector may request broad permissions when only narrow access is needed.
+  - Dependency vulnerability scan: add pip-audit run to release gate; gate fails if any HIGH or CRITICAL CVE exists in locked dependencies.
+  - Write threat model summary to documentation/SECURITY.md covering: secret storage, network exposure, connector permissions, and packaged-build posture.
+  - Add a security-gate step to tools/dev_workflow.py release-check that runs the above checks and writes runtime/security_gate_report.json.
+- **Acceptance:**
+  - release-check includes and passes a security gate step.
+  - Zero plaintext secrets in any code path outside GUPPY_DEV_MODE=1.
+  - Zero 0.0.0.0 default bindings without explicit justification.
+  - pip-audit finds no HIGH/CRITICAL CVEs.
+  - documentation/SECURITY.md threat model is present and current.
+  - Tests: existing security hardening suite passes; new audit check integrated into release-check.
+- **Consultant note:** Hard launch blocker. External beta without a clean security gate is a reputational and liability risk regardless of every other quality signal.
+
+### PL-C7 - Validation, Docs, and Pre-Launch Handoff Evidence
+- **Owner:** Main integration lane
+- **Work:**
+  - Run focused tests for all PL-C1 through PL-C6 changes.
+  - Update docs/PROJECT_BRIEF.md active state and gaps with tranche completion notes.
+  - Run check_doc_ownership.py, dev-check --guard-scope delta, dev-check --guard-scope baseline, and release-check.
+  - Produce docs/generated/PRE_LAUNCH_READINESS_[DATE].md with: all six gates checked, first-run wizard completion status, security gate status, and a GO / LIMITED GO / NO GO recommendation.
+- **Acceptance:**
+  - All checks pass.
+  - Pre-launch readiness doc exists with a GO or LIMITED GO recommendation supported by evidence.
 
 **Recommended execution order:**
-1. `PL-C1`
-2. `PL-C3`
-3. `PL-C2`
-4. `PL-C4`
-5. `PL-C5`
-6. `PL-C6`
-7. `PL-C7`
+1. PL-C1 - registry foundation (other cards depend on consistent wording)
+2. PL-C3 - clarity and spacing (must land before branding)
+3. PL-C2 - visual and branding (only after clarity baseline is solid)
+4. PL-C4 - provider onboarding and keychain-first (parallel with PL-C2 once PL-C3 wording is stable)
+5. PL-C5 - first-run wizard (parallel with PL-C4 once onboarding contracts are clear)
+6. PL-C6 - security gate (final closing lane, runs as PL-C4/C5 land)
+7. PL-C7 - integration, validation, release evidence
 
 **Lane split:**
-- Lane A: tool action registry
-- Lane B: clarity, spacing, hover-help
-- Lane C: Stitch-guided branding/theme/logo pass
-- Lane D: provider/account onboarding
-- Lane E: install/local-model readiness plus security planning
-- Main lane: integration, docs, and validation
+- Lane A: PL-C1 tool action registry
+- Lane B: PL-C3 clarity, spacing, and hover-help
+- Lane C: PL-C2 Stitch-guided branding and visual tokens
+- Lane D: PL-C4 provider/account/keychain onboarding
+- Lane E: PL-C5 first-run wizard + PL-C6 security gate
+- Main lane: integration, wiring PL-C1 output into PL-C3/C4 copy, docs, and validation
+
+**Success metrics (consultant-derived):**
+- First successful request on a clean machine: under 5 minutes.
+- Hub purpose comprehension: first-time user identifies each hub purpose in under 3 seconds without docs.
+- First-run wizard completion rate: target >= 80% from checkpoint 1 to checkpoint 3.
+- Security gate: passes clean on every release candidate.
+- Provider setup: Core providers require zero credentials; Supported Optional require under 2 minutes to verify.
+
+**April 20, 2026 follow-through checkpoint (N1-N5):**
+- `N1` branding/readability tuning is now live and test-covered through `ui/launcher/tokens.py`, `ui/launcher/components/topbar.py`, `ui/launcher/components/sidebar.py`, `ui/launcher/components/status_panel.py`, and `tests/unit/test_launcher_branding_tokens.py`.
+- `N2` Tools/App Mgmt enforcement now routes blocked connector remediation into Settings-owned connector/account setup from the Tools surface via `ui/launcher/views/tools_view.py`, `ui/launcher/views/tools_view_cards.py`, `src/guppy/launcher_application/tool_readiness.py`, `src/guppy/launcher_application/connector_workflow.py`, `ui/launcher/views/settings_hub_view.py`, and `ui/launcher/launcher_window.py`.
+- `N3` Library follow-through is live through `ui/launcher/views/library_view.py`, `src/guppy/launcher_application/library_workflow.py`, and `src/guppy/launcher_application/library_presenter.py`: inline root switching, clearer note-edit guidance, and richer `USE IN CHAT` source reuse all landed without schema churn.
+- `N4` structural voice/runtime evidence was refreshed on the current machine using `python tools/verify_provider_runtime.py` and `python tools/generate_voice_runtime_prefill.py`; the resulting prefill report is `docs/generated/VOICE_RUNTIME_VALIDATION_PREFILL.md`, and manual real-device matrix sign-off remains required for the pending rows.
+- `N5` route/status signaling depth is now explicitly guarded by `tests/unit/test_shell_status.py`, which covers route-preview mirroring into Settings, daily-activity sync, and right-tray workspace/runtime sync for the `src/guppy/launcher_application/shell_status.py` seam.
+- Focused N1-N5 validation is green: unit + smoke coverage across branding, tool routing, library workflow, voice/runtime evidence, provider-runtime scope, shell-status sync, Settings hub, Library hub, and launcher interactions passed (`72 passed` in the focused bundle).
 
 **Source of truth:**
-- Full tranche definition and repo-grounded evaluation live in `docs/PROJECT_BRIEF.md` under “Executable Pre-Launch Tranche (Tranche 52: Pre-Launch Usability, Onboarding, and Trust)”.
+- Full tranche definition and repo-grounded evaluation live in docs/PROJECT_BRIEF.md under Executable Pre-Launch Tranche (Tranche 52).
+
+---
+
+## Planned Mega-Tranche (Tranche 53)
+
+**Execution note (April 20, 2026):**
+- This is the next planned pre-launch mega-tranche after the Tranche 52 follow-through waves.
+- Scope combines massive hardening, usability sweeps, UI review against Guppy goals + Stitch + inspiration sources, a full tool-system audit, packaging/install/local-runtime readiness, and trust/security follow-through.
+- The tranche is intentionally split into 10 high-impact execution packs so several lanes can run in parallel while still closing as one integrated release-quality wave.
+- Keep the current framework and five-hub ownership model intact.
+- Current blocker context: packaging remains an honest release blocker until a real `dist/` artifact exists.
+
+**What ships:**
+- [ ] `PL-C8` Product goals, UI goals, and first-run contract audit
+- [ ] `PL-C9` Stitch and inspiration-source UI review with implementation deltas
+- [ ] `PL-C10` Desktop launcher hardening and startup hardening
+- [x] `PL-C11` Cross-hub usability sweep and responsive layout pass
+- [x] `PL-C12` Home and launcher chrome calmness pass
+- [x] `PL-C13` Full tool-system audit and tool-entry hardening
+- [x] `PL-C14` Provider, account, connector, and plugin lifecycle hardening
+- [x] `PL-C15` Packaging, installer, local-model, and real-time execution readiness
+- [x] `PL-C16` Massive trust and security hardening sweep
+- [x] `PL-C17` Integrated code audit, docs audit, UI audit, tool audit, and release closeout
+
+**April 20, 2026 execution checkpoint:**
+- `PL-C8` started with `docs/generated/TRANCHE_53_GOALS_UI_AUDIT_20260420.md`.
+- `PL-C9` started with `docs/generated/TRANCHE_53_STITCH_DELTA_20260420.md`.
+- `PL-C10` first-wave launcher hardening is live:
+  - topbar runtime/startup chip added
+  - topbar `CHAT` action corrected to chat-context drawer behavior
+  - Home drawer toggle now actually opens/closes on Home
+
+**April 20, 2026 second checkpoint:**
+- Home now surfaces first-run status directly from `src/guppy/launcher_application/first_run_wizard.py` through `ui/launcher/views/assistant_view.py` and `ui/launcher/launcher_window.py`.
+- The first-run banner keeps setup visible without breaking the chat-first shell: install, model runtime, and first-ask state are shown as chips, with direct jumps into Settings and Models plus a fast path back to the composer.
+- Home also applies a tighter width-based density mode so starter/detail controls compress earlier on smaller windows.
+
+**April 20, 2026 third checkpoint:**
+- `PL-C11` now extends beyond Home into Settings, Device & Accounts, Library, and Tools.
+- Settings overview cards now reflow to a single column at tighter widths, and section shortcut buttons shorten to `OPEN` so the card grid stays readable.
+- Device & Accounts now reflows connector cards across 1, 2, or 3 columns based on width and compresses desktop/account action labels without changing the underlying flows.
+- Library now shortens manager/action labels and trims lower-priority hint copy at narrow widths so note/artifact controls stop crowding the content lane.
+- Tools now hides the type-tab strip at narrow widths, shortens the details affordance, and uses a tighter search/control presentation.
+- Focused smoke coverage was expanded so these compact-mode behaviors are now asserted directly.
+
+**April 20, 2026 fourth checkpoint:**
+- `PL-C11` and `PL-C12` now have a closeout pass on launcher chrome calmness and secondary-surface explainability.
+- The topbar demotes workspace/session chrome earlier at smaller widths so the model/session summary remains visible without the header feeling crowded.
+- Settings Operations now adds broader tooltip coverage across recovery, runtime, connector, workflow, automation, and terminal actions, and it compresses long secondary button labels at narrower widths.
+- Tool cards now expose their evidence, policy, and guard copy through tooltips so the deeper explanation remains available without keeping every card expanded.
+- Focused nav/settings/hub smoke now covers the calmer topbar state plus the new compact/tooltip behavior.
+
+**April 20, 2026 fifth checkpoint:**
+- `PL-C13` now routes visible tool-entry wording through the shared action registry end to end: canonical tool action lines now render on tool cards, and the same registry-backed language still powers Home starters and launcher prompt priming.
+- Blocked tool remediation keeps the Settings-owned route, but the tool-card management tooltip now carries both the destination and the current fix note instead of a generic handoff.
+- `PL-C14` now uses provider-registry-backed lifecycle copy for Device & Accounts next-step guidance, connected-state hints, example prompts, and action tooltips.
+- Provider entries now carry both connect-time guidance and post-connect example prompts so future providers are cheaper to add without bespoke panel copy.
+
+**April 20, 2026 sixth checkpoint:**
+- `PL-C15` is now complete with real package/build evidence instead of placeholder packaging assumptions.
+- Track 1 install readiness now includes release handoff and `dist/` artifact evidence, and the readiness helpers now anchor to the actual repo root instead of one directory too high.
+- Track 2 local-model readiness now accepts any honest declared local route (`ollama`, `lmstudio`, or `local_harness`) and reports which routes are actually ready instead of treating Ollama as the only pass condition.
+- `packaging_audit.py` now rejects stale non-packaging receipts and undersized fake `dist` outputs.
+- `bin/build_executable.bat` and `bin/validate_build.bat` were repaired for real `cmd` execution, the package recipe now bundles `config/local_llm` instead of stale repo roots, and a fresh onedir build now exists at `dist/Guppy/Guppy.exe`.
+- The packaging lane is now green for the right reason: `bin/validate_build.bat` passes, Track 1 reads `10/10 passed`, and `python tools/dev_workflow.py release-check` is green again.
+
+**April 20, 2026 seventh checkpoint:**
+- `PL-C16` is now materially advanced with live trust/readiness enforcement tightening.
+- Degraded keyring backends now count as unavailable in `utils/secret_store.py`, so insecure/plaintext keyring fallbacks no longer present as OS-backed secret storage.
+- The launch-grade security gate now verifies both Settings-owned connector action enforcement and auth-state/secret-read gating when evaluating connector scope.
+- Provider secret readiness now carries explicit env-fallback storage warnings through the workspace-governance machine-auth/provider-status seams, so “ready” states that still rely on environment variables stop looking launch-grade.
+- `connector_workflow.py` now only accepts the explicit Settings request sources instead of any `settings*` prefix.
+- `status_poll.py` no longer defaults absent API status to `healthy`, and launcher background copy now reports `ONLINE` instead of overclaiming `READY`.
+- Focused trust/security validation is green: targeted unit tests passed, `tools/run_security_gate.py` reports `Launch ready: YES`, and `dev-check --guard-scope delta` passed.
+
+**April 20, 2026 eighth checkpoint:**
+- `PL-C17` is now complete as the integrated audit/doc closeout lane.
+- Active truth docs were refreshed to the current tranche state and current release-lane contract instead of older April 19 snapshots.
+- `docs/generated/PRE_LAUNCH_READINESS_20260420.md` was replaced with an honest tranche-53 checkpoint that no longer carries the older Tranche 52 `GO` claim.
+- `docs/generated/TRANCHE_53_INTEGRATED_AUDIT_20260420.md` now records the bounded code/docs/UI/tool audit fixes from this pass plus the ranked remaining blockers.
+- Packaging/install wording drift was cleaned up so Track 1 / Track 2 language, default Windows build output, and release-closeout evidence read consistently.
+
+**April 20, 2026 ninth checkpoint:**
+- `PL-C16` is now complete as a release-backed trust/security lane.
+- `python tools/dev_workflow.py release-check` now runs `tools/run_dependency_audit.py`, which captures machine-readable `pip-audit` evidence in `.tmp/dev-workflow/reports/pip-audit-report.json`.
+- The current dependency audit is green with no known vulnerabilities found in `requirements.txt`, so dependency/CVE evidence now exists in the canonical release flow instead of as a manual note.
+- The supported desktop launcher link was refreshed and re-verified on this machine: `Desktop\\Guppy Launcher.lnk` now targets `dist/Guppy/Guppy.exe` directly when the packaged build is present.
+- `docs/generated/TRANCHE_53_SECURITY_AUDIT_20260420.md` now records the trust/security closeout evidence and remaining non-launch blockers.
+- With `PL-C16` and `PL-C17` both closed, Tranche 53 is now complete.
+
+**Acceptance:**
+1. Launcher/startup behavior is materially more stable and easier to understand.
+2. The UI has a written review against Guppy goals, Stitch direction, and inspiration sources.
+3. All five hubs receive a real usability sweep, not isolated polish.
+4. Tool discovery, wording, blocking, and remediation are audited end to end.
+5. Provider/account/plugin lifecycle remains unified in Settings and cheaper to extend.
+6. Packaging/install/local-runtime evidence is honest and current, including a real `dist/` path.
+7. Security/trust language and actual enforcement align.
+8. The tranche closes with one integrated audit and a ranked blocker list.
+
+**Recommended execution order:**
+1. `PL-C8`
+2. `PL-C9`
+3. `PL-C10`, `PL-C11`, and `PL-C12`
+4. `PL-C13` and `PL-C14`
+5. `PL-C15`
+6. `PL-C16`
+7. `PL-C17`
+
+**Recommended lane split:**
+- Lane A: `PL-C8` + `PL-C9`
+- Lane B: `PL-C10`
+- Lane C: `PL-C11` + `PL-C12`
+- Lane D: `PL-C13`
+- Lane E: `PL-C14`
+- Lane F: `PL-C15`
+- Lane G: `PL-C16`
+- Main lane: `PL-C17`
+
+**High-impact success metrics:**
+1. Time to first useful result on a clean machine stays under 5 minutes.
+2. Every primary hub purpose is understandable in under 3 seconds by a first-time user.
+3. No right-edge overflow or obvious spacing break remains at smaller launcher widths.
+4. Tool invocation wording is canonical across button, starter, typed, and spoken paths.
+5. Packaging/install readiness is backed by a real built artifact, not assumptions.
+6. Launch-critical trust/readiness labels remain honest.
 
 ---
 
@@ -885,14 +1168,14 @@ Residual non-blocking notes:
 
 ---
 
-## Tranche 1 Ready to Start TODAY
+## Tranche 1 Kickoff Snapshot (Historical)
 
-**Tomorrow morning (April 20):**
+**Executed on April 20:**
 
 1. **Agent assigned** to Settings Hub Tranche 1
 2. **Sub-agents assigned** (3-4 specialists)
-3. **Deliverable:** SettingsHubConsolidated stub + ownership matrix doc
-4. **Acceptance:** All old tests pass, new hub loads, no logic changes yet
+3. **Deliverable:** `SettingsHubView` foundation routing + ownership matrix doc
+4. **Acceptance:** Existing tests pass, new hub loads, no logic extraction in this phase
 5. **Rollback:** One git revert
 
 **By EOD April 20:** PR ready, all tests passing, ready to merge
@@ -914,11 +1197,11 @@ Each tranche produces:
 
 ---
 
-## Next Action
+## Next Action (Historical Kickoff Record)
 
-1. **Assign Agent to Tranche 1** (Settings Hub consolidation stub + ownership matrix)
+1. **Assign Agent to Tranche 1** (Settings Hub foundation routing + ownership matrix)
 2. **Assign 3-4 sub-agents** to parallel work:
-   - Sub-agent 1: Create SettingsHubConsolidated view (stub)
+  - Sub-agent 1: Create `SettingsHubView` foundation wiring
    - Sub-agent 2: Document ownership matrix
    - Sub-agent 3: Update launcher_window routing (no flags, just load new view)
    - Sub-agent 4: Run all tests, verify pass
