@@ -59,10 +59,10 @@ def test_build_connector_panel_state_guides_provider_selection_before_secret_ent
     )
 
     assert state.current_auth_kind == "provider_secret"
-    assert "pick your crm provider" in state.step_text.lower()
+    assert "pick a crm provider first" in state.step_text.lower()
     assert state.show_connect is False
     assert state.show_save is True
-    assert state.verify_text == "CHECK SETUP"
+    assert state.verify_text == "VERIFY SETUP"
 
 
 def test_build_device_accounts_density_state_shortens_labels_for_tight_widths() -> None:
@@ -71,7 +71,7 @@ def test_build_device_accounts_density_state_shortens_labels_for_tight_widths() 
     assert density.desktop_action_labels == ("VERIFY", "UPDATE", "START", "RESET", "REPAIR")
     assert density.connect_text == "SIGN IN"
     assert density.save_text == "SAVE"
-    assert density.verify_text == "CHECK"
+    assert density.verify_text == "VERIFY"
     assert density.disconnect_text == "CLEAR"
 
 

@@ -29,16 +29,25 @@ from src.guppy.launcher_application.settings_device_accounts_presenter import (
     selector_label,
 )
 from .. import tokens as T
+from .settings_accounts_sections import (
+    connector_card_style as _connector_card_style_fn,
+    connector_grid_columns as _connector_grid_columns_fn,
+    mono as _mono,
+)
+
+try:
+    from utils import secret_store as _secret_store
+except ImportError:
+    _secret_store = None  # type: ignore[assignment]
 
 
-def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = False) -> QLabel:
-    lbl = QLabel(text)
-    lbl.setWordWrap(True)
-    lbl.setStyleSheet(
-        f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {size}pt; letter-spacing: 1px;"
-        + (" font-weight: bold;" if bold else "")
-    )
-    return lbl
+def _storage_posture_text() -> str:
+    """Return a brief, non-alarming description of the current secret storage posture."""
+    if _secret_store is None:
+        return "Secret storage: status unavailable"
+    if _secret_store.backend_is_secure():
+        return f"Secret storage: system keychain ({_secret_store.backend_name()})"
+    return "Secret storage: degraded mode \u2014 secrets are not persisted to the OS keychain"
 
 class SettingsDeviceAccountsPanel(QWidget):
     windows_ops_requested = Signal(str)
@@ -134,6 +143,8 @@ class SettingsDeviceAccountsPanel(QWidget):
                 T.FS_SMALL,
             )
         )
+        self._storage_posture_lbl = _mono(_storage_posture_text(), T.DIM, T.FS_TINY)
+        accounts_layout.addWidget(self._storage_posture_lbl)
 
         self._connector_cards_host = QWidget()
         self._connector_cards_grid = QGridLayout(self._connector_cards_host)
@@ -186,6 +197,9 @@ class SettingsDeviceAccountsPanel(QWidget):
         self._save_btn = QPushButton("SAVE & VERIFY")
         self._verify_btn = QPushButton("VERIFY ONLY")
         self._disconnect_btn = QPushButton("DISCONNECT")
+        self._disable_btn = QPushButton("DISABLE")
+        self._disable_btn.setEnabled(False)
+        self._disable_btn.setToolTip("Temporarily disable this connector \u2014 not yet available.")
         for btn, accent in [
             (self._connect_btn, T.PRIMARY_DIM),
             (self._save_btn, T.PRIMARY),
@@ -203,6 +217,11 @@ class SettingsDeviceAccountsPanel(QWidget):
         self._verify_btn.clicked.connect(lambda: self._emit_basic_connector_action("verify"))
         self._disconnect_btn.clicked.connect(lambda: self._emit_basic_connector_action("disconnect"))
         self._save_btn.clicked.connect(self._emit_guided_save)
+        self._disable_btn.setStyleSheet(
+            f"QPushButton {{ background: {T.BG0}; color: {T.BORDER}; border: 1px solid {T.BORDER};"
+            f" padding: 5px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+        )
+        action_row.addWidget(self._disable_btn)
         accounts_layout.addLayout(action_row)
         layout.addWidget(accounts_frame)
         layout.addStretch(1)
@@ -303,15 +322,7 @@ class SettingsDeviceAccountsPanel(QWidget):
         combo.blockSignals(False)
 
     def _connector_card_style(self, *, selected: bool, ready: bool, accent: str, wash: str) -> str:
-        border = accent if selected else (T.GREEN if ready else T.BORDER)
-        background = wash if selected else T.BG1
-        text = T.TEXT if selected or ready else T.DIM
-        return (
-            f"QPushButton {{ background: {background}; color: {text}; border: 1px solid {border};"
-            f" border-left: 6px solid {accent}; padding: 10px 12px; text-align: left;"
-            f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: {accent}; color: {T.TEXT}; background: {wash}; }}"
-        )
+        return _connector_card_style_fn(selected=selected, ready=ready, accent=accent, wash=wash)
 
     def _rebuild_connector_cards(self) -> None:
         while self._connector_cards_grid.count():
@@ -336,13 +347,10 @@ class SettingsDeviceAccountsPanel(QWidget):
 
     def _connector_grid_columns(self) -> int:
         width = self.width()
+        vp_width = 0
         if self._scroll_area is not None and self._scroll_area.viewport() is not None:
-            width = max(width, self._scroll_area.viewport().width())
-        if width <= 900:
-            return 1
-        if width <= 1280:
-            return 2
-        return 3
+            vp_width = self._scroll_area.viewport().width()
+        return _connector_grid_columns_fn(width, vp_width)
 
     def _apply_density_mode(self, width: int) -> None:
         density = build_device_accounts_density_state(width, self._current_auth_kind)
@@ -419,6 +427,7 @@ class SettingsDeviceAccountsPanel(QWidget):
             self._save_btn.setVisible(False)
             self._verify_btn.setEnabled(False)
             self._disconnect_btn.setEnabled(False)
+            self._disable_btn.setVisible(False)
             self._refresh_connector_card_styles()
             return
         providers = [row for row in item.get("providers", []) if isinstance(row, dict)] if isinstance(item.get("providers"), list) else []
@@ -492,25 +501,25 @@ class SettingsDeviceAccountsPanel(QWidget):
         has_secret_flow = auth_kind in {"api_key", "provider_secret", "oauth_secret"}
         if auth_kind == "api_key":
             self._save_btn.setText("SAVE API KEY")
-            self._verify_btn.setText("TEST KEY")
+            self._verify_btn.setText("VERIFY KEY")
             self._disconnect_btn.setText("REMOVE KEY")
         elif auth_kind == "provider_secret":
             self._save_btn.setText("SAVE DETAILS")
-            self._verify_btn.setText("CHECK SETUP")
+            self._verify_btn.setText("VERIFY SETUP")
             self._disconnect_btn.setText("CLEAR DETAILS")
         elif auth_kind == "oauth_file_token":
-            self._connect_btn.setText("SIGN IN")
-            self._verify_btn.setText("CHECK SIGN-IN")
+            self._connect_btn.setText("RECONNECT" if auth_state == "partial" else "SIGN IN")
+            self._verify_btn.setText("VERIFY SIGN-IN")
             self._disconnect_btn.setText("REMOVE SIGN-IN")
         elif auth_kind == "oauth_secret":
-            self._connect_btn.setText("OPEN SIGN-IN")
+            self._connect_btn.setText("RECONNECT" if auth_state == "partial" else "OPEN SIGN-IN")
             self._save_btn.setText("SAVE APP KEYS")
-            self._verify_btn.setText("CHECK CONNECTION")
+            self._verify_btn.setText("VERIFY CONNECTION")
             self._disconnect_btn.setText("REMOVE CONNECTION")
         else:
             self._connect_btn.setText("SIGN IN")
             self._save_btn.setText("SAVE")
-            self._verify_btn.setText("CHECK")
+            self._verify_btn.setText("VERIFY")
             self._disconnect_btn.setText("REMOVE")
 
         show_connect = (
@@ -526,6 +535,8 @@ class SettingsDeviceAccountsPanel(QWidget):
         self._verify_btn.setEnabled("verify" in supports)
         self._disconnect_btn.setVisible("disconnect" in supports)
         self._disconnect_btn.setEnabled("disconnect" in supports)
+        self._disable_btn.setVisible(True)
+        self._disable_btn.setEnabled(False)
         connect_hint = (registry_entry.connect_hint if registry_entry else "").strip() or f"Connect {connector_label} on this PC."
         self._connect_btn.setToolTip(connect_hint)
         self._save_btn.setToolTip(f"Save the current {connector_label} details on this PC.")

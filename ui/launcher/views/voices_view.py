@@ -45,7 +45,7 @@ from src.guppy.launcher_application.voice_catalog_support import (
     engine_is_available,
 )
 from .. import tokens as T
-from .voices_sections import build_voices_ui
+from .voices_sections import _VoiceRow, build_voices_ui
 
 try:
     from src.guppy.voice.voice import GuppyVoice
@@ -53,8 +53,6 @@ except Exception:
     GuppyVoice = None  # type: ignore[assignment]
 
 _VOICE_BINDINGS_BACKEND = personalization_backend_available()
-
-# ── Voice catalogues ──────────────────────────────────────────────────────────
 
 EDGE_VOICES: list[tuple[str, str, str]] = [
     ("en-GB-RyanNeural",     "British English",     "Male"),
@@ -118,125 +116,6 @@ _MODEL_OPTIONS = [
     "claude-haiku-4-5-20251001",
     "claude-sonnet-4-6",
 ]
-
-
-class _VoiceRow(QFrame):
-    def __init__(
-        self,
-        voice_id: str,
-        display_name: str,
-        language: str,
-        gender: str,
-        engine: str,
-        preview_handler,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self._voice_id = voice_id
-        self._engine = engine
-        self._preview_handler = preview_handler
-        self.setObjectName("voice_row")
-        self.setFixedHeight(52)
-        self.setStyleSheet(
-            f"QFrame#voice_row {{"
-            f"  background-color: {T.BG1}; border: 1px solid {T.BORDER};"
-            f"}}"
-            f"QFrame#voice_row:hover {{ background-color: {T.BG2}; }}"
-        )
-
-        row = QHBoxLayout(self)
-        row.setContentsMargins(16, 0, 16, 0)
-        row.setSpacing(12)
-
-        # Voice name
-        name_lbl = QLabel(display_name)
-        name_lbl.setStyleSheet(
-            f"color: {T.TEXT}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_BODY}pt; letter-spacing: 1px; border: none;"
-        )
-        name_lbl.setFixedWidth(220)
-        row.addWidget(name_lbl)
-
-        if display_name != voice_id:
-            id_lbl = QLabel(voice_id)
-            id_lbl.setStyleSheet(
-                f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-                f"font-size: {T.FS_TINY}pt; letter-spacing: 1px; border: none;"
-            )
-            id_lbl.setFixedWidth(220)
-            row.addWidget(id_lbl)
-
-        # Language
-        lang_lbl = QLabel(language)
-        lang_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px; border: none;"
-        )
-        row.addWidget(lang_lbl)
-
-        row.addStretch()
-
-        # Gender badge
-        gcolor = T.TERTIARY if gender == "Male" else T.SECONDARY
-        g_lbl = QLabel(gender.upper())
-        g_lbl.setStyleSheet(
-            f"color: {gcolor}; background: transparent; border: 1px solid {gcolor};"
-            f"font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
-            f"letter-spacing: 1px; padding: 1px 6px;"
-        )
-        row.addWidget(g_lbl)
-
-        # Preview button
-        prev_btn = QPushButton("PREVIEW")
-        prev_btn.setFixedSize(70, 28)
-        prev_btn.setToolTip("Play a short audio sample of this voice")
-        prev_btn.setStyleSheet(
-            f"QPushButton {{ color: {T.DIM}; border: 1px solid {T.BORDER};"
-            f"  font-family: '{T.FF_MONO}'; font-size: 7pt; }}"
-            f"QPushButton:hover {{ color: {T.TEXT}; border-color: {T.DIM}; }}"
-        )
-        prev_btn.clicked.connect(self._on_preview_clicked)
-        row.addWidget(prev_btn)
-
-        # Select button
-        self._sel_btn = QPushButton("SELECT")
-        self._sel_btn.setFixedSize(70, 28)
-        self._sel_btn.setToolTip("Set this voice as the active TTS voice for this workspace")
-        self._sel_btn.setStyleSheet(
-            f"QPushButton {{ color: {T.PRIMARY}; border: 1px solid {T.PRIMARY};"
-            f"  font-family: '{T.FF_MONO}'; font-size: 7pt; }}"
-            f"QPushButton:hover {{ background: rgba(242,202,80,0.12); }}"
-        )
-        row.addWidget(self._sel_btn)
-
-        self._active_bar = QFrame()
-        self._active_bar.setFixedSize(3, 52)
-        self._active_bar.setStyleSheet("background: transparent;")
-        row.insertWidget(0, self._active_bar)
-
-    def mark_active(self, active: bool) -> None:
-        c = T.PRIMARY if active else "transparent"
-        self._active_bar.setStyleSheet(f"background: {c};")
-        self._sel_btn.setText("ACTIVE" if active else "SELECT")
-        self._sel_btn.setEnabled(not active)
-
-    def _on_preview_clicked(self) -> None:
-        try:
-            self._preview_handler(self._engine, self._voice_id)
-        except Exception as exc:
-            _LOGGER.exception("Voice preview failed for %s/%s", self._engine, self._voice_id)
-            parent = self.parent()
-            emitter = getattr(parent, "preview_status", None)
-            if emitter is not None and hasattr(emitter, "emit"):
-                emitter.emit(f"preview failed: {exc}")
-
-    @property
-    def voice_id(self) -> str:
-        return self._voice_id
-
-    @property
-    def select_btn(self) -> QPushButton:
-        return self._sel_btn
 
 
 class VoicesView(QWidget):

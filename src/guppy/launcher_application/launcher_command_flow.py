@@ -11,12 +11,14 @@ from .launcher_command_policy import (
     required_local_model_for_mode,
 )
 from .launcher_assistant_event_flow import (
-    apply_chat_context as _apply_chat_context,
     drain_assistant_events as _drain_assistant_events,
     finish_request_ui as _finish_request_ui,
     on_cancel_assistant_request as _on_cancel_assistant_request,
-    on_chat_context_changed as _on_chat_context_changed,
-    rotate_chat_session as _rotate_chat_session,
+)
+from .launcher_chat_session import (
+    apply_chat_context,
+    on_chat_context_changed,
+    rotate_chat_session,
 )
 
 
@@ -300,33 +302,6 @@ def validate_mode_ready(owner: Any, mode: str) -> tuple[bool, str]:
         return False, f"{mode.upper()} mode requires local model '{model}'. {err.splitlines()[0]}"
     except Exception:
         return False, f"{mode.upper()} mode requires local model '{model}', but readiness could not be verified."
-
-
-def rotate_chat_session(
-    owner: Any,
-    reason: str,
-    *,
-    mode: str = "",
-    persona: str = "",
-    instance: str = "",
-    clear_live_history: bool = False,
-) -> None:
-    _rotate_chat_session(
-        owner,
-        reason,
-        mode=mode,
-        persona=persona,
-        instance=instance,
-        clear_live_history=clear_live_history,
-    )
-
-
-def apply_chat_context(owner: Any, mode: str, persona: str) -> None:
-    _apply_chat_context(owner, mode, persona)
-
-
-def on_chat_context_changed(owner: Any, mode: str, persona: str) -> None:
-    _on_chat_context_changed(owner, mode, persona)
 
 
 def finish_request_ui(owner: Any) -> None:

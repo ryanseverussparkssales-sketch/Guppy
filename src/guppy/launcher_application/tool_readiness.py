@@ -13,9 +13,9 @@ from utils.connector_manager import workspace_tool_readiness
 _POLICY_FIX_HINTS = {
     "connector_unbound": "Fix in Workspaces: bind this connector to the active workspace.",
     "connector_action_blocked": "Fix in Workspaces: adjust connector action allow/block policy.",
-    "connector_account_unavailable": "Fix in App Mgmt: choose a valid connector account for this machine before you bind it in Workspaces.",
-    "connector_provider_unconfigured": "Fix in App Mgmt: choose a valid provider and verify host config before you bind it in Workspaces.",
-    "connector_host_auth_missing": "Fix in App Mgmt: connect or verify the machine-level connector auth.",
+    "connector_account_unavailable": "Fix in Settings > Device & Accounts: choose a valid account for this machine before you bind it in Workspaces.",
+    "connector_provider_unconfigured": "Fix in Settings > Device & Accounts: configure the provider and verify setup before binding in Workspaces.",
+    "connector_host_auth_missing": "Fix in Settings > Device & Accounts: connect or verify the machine-level connector auth.",
     "endpoint_block": "Fix in Workspaces: loosen the connector endpoint block filter if this is intentional.",
     "endpoint_allow": "Fix in Workspaces: expand the connector endpoint allow filter if this is intentional.",
 }
@@ -113,8 +113,8 @@ def tool_settings_route(
     if not is_settings_fix:
         return {}
     note = next_step or _POLICY_FIX_HINTS.get(normalized_code, "")
-    if note and "settings" not in note.lower() and "app mgmt" not in note.lower():
-        note = f"{note} Open Settings > Device & Accounts to continue."
+    if note and "settings" not in note.lower() and "device & accounts" not in note.lower():
+        note = f"{note} Open Settings > Device & Accounts > {connector_id.title()} to continue."
     return {
         "connector": connector_id,
         "tool": str(tool_name or "").strip().lower(),

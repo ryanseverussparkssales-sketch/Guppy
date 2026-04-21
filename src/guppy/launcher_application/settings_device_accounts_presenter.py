@@ -224,7 +224,7 @@ def build_connector_panel_state(
             detail = connect_hint or f"{label} uses a single API key on this PC."
         step = f"Next step: Paste your {first_field_label.lower()}, then click Save API Key."
         save_text = "SAVE API KEY"
-        verify_text = "TEST KEY"
+        verify_text = "VERIFY KEY"
         disconnect_text = "REMOVE KEY"
         connect_text = "BROWSER SIGN-IN"
     elif auth_kind == "oauth_file_token":
@@ -238,33 +238,35 @@ def build_connector_panel_state(
                 f"{label} still needs the downloaded Google credentials file on this PC before browser sign-in can start."
             )
         if auth_state == "missing":
-            step = f"Next step: Add the {label.lower()} credentials JSON on this PC, then come back here to sign in."
+            step = f"Next step: Add the {label.lower()} credentials file, then click Sign In."
+        elif auth_state == "partial":
+            step = f"Next step: Click Reconnect to finish connecting {label} on this PC."
         elif len(accounts) > 1:
             step = f"Next step: Choose the {label} account you want to use, then click Sign In."
         else:
             step = f"Next step: Click Sign In to connect {label} on this PC."
         save_text = "SAVE & VERIFY"
-        verify_text = "CHECK SIGN-IN"
+        verify_text = "VERIFY SIGN-IN"
         disconnect_text = "REMOVE SIGN-IN"
-        connect_text = "SIGN IN"
+        connect_text = "RECONNECT" if auth_state == "partial" else "SIGN IN"
     elif auth_kind == "oauth_secret":
         status = f"{label} needs app details before it can sign in."
         if providers and not selected_provider_id:
             status = f"{label} needs app details before it can sign in."
             detail = f"Choose which {label} provider you use first."
-            step = f"Next step: pick your {label} provider."
+            step = f"Next step: Pick a {label} provider first."
         else:
             detail = connect_hint or f"{label} uses app credentials plus browser sign-in."
             step = f"Next step: Add your {first_field_label.lower()}, save it, then use Sign In."
         save_text = "SAVE APP KEYS"
-        verify_text = "CHECK CONNECTION"
+        verify_text = "VERIFY CONNECTION"
         disconnect_text = "REMOVE CONNECTION"
-        connect_text = "OPEN SIGN-IN"
+        connect_text = "RECONNECT" if auth_state == "partial" else "OPEN SIGN-IN"
     elif auth_kind == "provider_secret":
         status = f"{label} can connect after you add the provider details for this PC."
         if providers and not selected_provider_id:
             detail = f"Choose which {label} provider you use first."
-            step = f"Next step: pick your {label} provider."
+            step = f"Next step: Pick a {label} provider first."
         else:
             if auth_state in {"ready", "optional"}:
                 detail = f"{label} is ready. You can now allow it in a workspace when you need it."
@@ -272,15 +274,15 @@ def build_connector_panel_state(
                 detail = connect_hint or f"Enter the provider details Guppy needs for {label.lower()}."
             step = f"Next step: Add your {first_field_label.lower()}, then click Save Details."
         save_text = "SAVE DETAILS"
-        verify_text = "CHECK SETUP"
+        verify_text = "VERIFY SETUP"
         disconnect_text = "CLEAR DETAILS"
         connect_text = "BROWSER SIGN-IN"
     else:
         status = f"{label} is available as a connected service."
         detail = "Choose this service to see what sign-in it needs."
-        step = "Next step: pick a service."
+        step = "Next step: Pick a service to get started."
         save_text = "SAVE"
-        verify_text = "CHECK"
+        verify_text = "VERIFY"
         disconnect_text = "REMOVE"
         connect_text = "SIGN IN"
 
@@ -338,34 +340,34 @@ def build_device_accounts_density_state(width: int, auth_kind: str) -> DeviceAcc
     if auth_kind == "api_key":
         connect_text = "BROWSER SIGN-IN"
         save_text = "SAVE API KEY"
-        verify_text = "TEST KEY"
+        verify_text = "VERIFY KEY"
         disconnect_text = "REMOVE KEY"
     elif auth_kind == "provider_secret":
         connect_text = "BROWSER SIGN-IN"
         save_text = "SAVE DETAILS"
-        verify_text = "CHECK SETUP"
+        verify_text = "VERIFY SETUP"
         disconnect_text = "CLEAR DETAILS"
     elif auth_kind == "oauth_file_token":
         connect_text = "SIGN IN"
         save_text = "SAVE & VERIFY"
-        verify_text = "CHECK SIGN-IN"
+        verify_text = "VERIFY SIGN-IN"
         disconnect_text = "REMOVE SIGN-IN"
     elif auth_kind == "oauth_secret":
         connect_text = "OPEN SIGN-IN"
         save_text = "SAVE APP KEYS"
-        verify_text = "CHECK CONNECTION"
+        verify_text = "VERIFY CONNECTION"
         disconnect_text = "REMOVE CONNECTION"
     else:
         connect_text = "SIGN IN"
         save_text = "SAVE"
-        verify_text = "CHECK"
+        verify_text = "VERIFY"
         disconnect_text = "REMOVE"
 
     return DeviceAccountsDensityState(
         desktop_action_labels=desktop_action_labels,
         connect_text="SIGN IN" if compact else connect_text,
         save_text="SAVE" if tight else save_text,
-        verify_text="CHECK" if tight else verify_text,
+        verify_text="VERIFY" if tight else verify_text,
         disconnect_text="CLEAR" if tight else disconnect_text,
     )
 

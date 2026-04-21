@@ -96,7 +96,7 @@ def test_tool_card_surfaces_host_auth_fix_hint_for_restricted_connector_reasonin
 
     assert card.state == "restricted"
     assert "machine gmail auth is not ready" in card._scope_lbl.text().lower()
-    assert "fix in app mgmt: connect or verify the machine-level connector auth." in card._scope_lbl.text().lower()
+    assert "fix in settings > device & accounts: connect or verify the machine-level connector auth." in card._scope_lbl.text().lower()
     assert "sign-in mode: local only." in card._guard_lbl.text().lower()
     assert "CONNECTION STATUS: MISSING" in card._policy_lbl.text()
     assert "Sign-in detail: credential file missing" in card._policy_lbl.text()

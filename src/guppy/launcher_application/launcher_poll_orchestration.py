@@ -40,7 +40,42 @@ def orchestrate_status_poll(
     Pass module-level constants (*runtime_path*, *personalization_available*,
     *start_time*) so the function remains independent of the launcher module's
     global scope.
+
+    Exceptions are caught here so a single bad tick never breaks the poll loop.
+    The topbar and status panel are degraded to a visible error state rather
+    than left showing stale "healthy" data.
     """
+    try:
+        _orchestrate_status_poll_inner(
+            owner,
+            runtime_path=runtime_path,
+            personalization_available=personalization_available,
+            start_time=start_time,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _exc_str = str(exc)
+        try:
+            owner._topbar.set_runtime_status(
+                "poll error",
+                detail=f"Status poll failed: {_exc_str}",
+                severity="error",
+            )
+        except Exception:
+            pass
+        try:
+            owner._status_panel.append_syslog(f"poll error: {_exc_str}")
+        except Exception:
+            pass
+
+
+def _orchestrate_status_poll_inner(
+    owner: Any,
+    *,
+    runtime_path: Path,
+    personalization_available: bool,
+    start_time: float,
+) -> None:
+    """Inner implementation of one status poll tick (called by orchestrate_status_poll)."""
     poll_t0 = time.monotonic()
     startup_budget_ms: int = getattr(owner, "_startup_budget_ms", 800)
 

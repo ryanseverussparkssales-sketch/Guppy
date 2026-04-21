@@ -29,28 +29,20 @@ Security:
 """
 
 import json
-import importlib.util
 import logging
 import os
-import re
-import secrets
 import sys
-import tempfile
 import time
 import asyncio
 import threading
 from datetime import datetime, timezone
-from contextlib import asynccontextmanager
 from functools import partial
 from types import SimpleNamespace
-from typing import Optional, AsyncGenerator, Any, Dict, List
+from typing import Optional, AsyncGenerator, Any
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Depends, Request
-from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from jose import JWTError, jwt
-import urllib.request
 
 from src.guppy.paths import CONFIG_DIR, RUNTIME_DIR
 from src.guppy.api.chat_idempotency import (
@@ -123,23 +115,16 @@ except ImportError as e:
 
 GUPPY_AVAILABLE = GUPPY_CORE_AVAILABLE and GUPPY_MEMORY_AVAILABLE
 
-# Import authentication
-try:
-    from src.guppy.api.auth import (
-        create_access_token, verify_token, require_turnstile,
-        require_rate_limit, require_auth_rate_limit,
-        verify_turnstile_token as verify_turnstile_token_auth, validate_environment
-    )
-except ImportError as e:
-    print(f"Warning: Auth module not available: {e}")
-    # Fallback functions for development
-    def create_access_token(data): return "dev-token"
-    def verify_token(): return "dev-user"
-    def require_turnstile(): return "dev-token"
-    def require_rate_limit(user_id="dev"): return user_id
-    def require_auth_rate_limit(): return "dev-auth"
-    async def verify_turnstile_token_auth(token): return True
-    def validate_environment(): return False
+# Import authentication (stubs live in snapshot_auth_cache_support)
+from src.guppy.api.snapshot_auth_cache_support import (
+    create_access_token,
+    verify_token,
+    require_turnstile,
+    require_rate_limit,
+    require_auth_rate_limit,
+    verify_turnstile_token_auth,
+    validate_environment,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -151,25 +136,12 @@ except ImportError as e:
     print(f"Warning: Inference router not available: {e}")
     INFERENCE_ROUTER_AVAILABLE = False
 
-try:
-    from src.guppy.api.response_cache import (
-        build_response_cache_key,
-        get_cached_response,
-        response_cache_enabled,
-        set_cached_response,
-    )
-except Exception:
-    def build_response_cache_key(*, message: str, system_prompt: str, mode: str = "auto", instance_name: str | None = None, instance_type: str | None = None) -> str:
-        return ""
-
-    def get_cached_response(cache_key: str) -> str | None:
-        return None
-
-    def response_cache_enabled() -> bool:
-        return False
-
-    def set_cached_response(cache_key: str, response_text: str) -> None:
-        return None
+from src.guppy.api.snapshot_auth_cache_support import (
+    build_response_cache_key,
+    get_cached_response,
+    response_cache_enabled,
+    set_cached_response,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -261,21 +233,16 @@ except Exception:
         del workspace_name, config_path
         return []
 
-try:
-    from utils.personalization_config import (
-        build_persona_prompt_overlay,
-        ensure_personalization_scaffold,
-        load_persona_config_with_diagnostics,
-        load_provider_registry_with_diagnostics,
-        load_voice_bindings_with_diagnostics,
-    )
-    _PERSONALIZATION_BOOTSTRAP_AVAILABLE = True
-except Exception:
-    _PERSONALIZATION_BOOTSTRAP_AVAILABLE = False
-
-    def build_persona_prompt_overlay(*, requested_persona: str = "", model_id: str = "", persona_config: dict[str, Any] | None = None):
-        del requested_persona, model_id, persona_config
-        return {}, ""
+from src.guppy.api.snapshot_prompt_support import (
+    PERSONALIZATION_BOOTSTRAP_AVAILABLE as _PERSONALIZATION_BOOTSTRAP_AVAILABLE,
+    build_persona_prompt_overlay,
+    ensure_personalization_scaffold,
+    load_persona_config_with_diagnostics,
+    load_provider_registry_with_diagnostics,
+    load_voice_bindings_with_diagnostics,
+    should_use_rich_chat_prompt_context as _should_use_rich_chat_prompt_context,
+    should_use_rich_prompt_context as _should_use_rich_prompt_context,
+)
 
 from src.guppy.api._server_fragment_models import (
     ChatRequest,
@@ -296,6 +263,7 @@ from src.guppy.api import (
     services_ops,
     services_realtime,
     services_runtime,
+    snapshot_prompt_support,
     snapshot_runtime_support,
     snapshot_status_context_support,
     snapshot_realtime_support,
@@ -399,45 +367,6 @@ _api_metrics = {
     "path_counts": {},
     "status_counts": {},
 }
-
-# â”€â”€ Pydantic Models â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-def _should_use_rich_chat_prompt_context(request: ChatRequest) -> bool:
-    return services_realtime.should_use_rich_chat_prompt_context(request)
-
-
-def _should_use_rich_prompt_context(
-    *,
-    message: str,
-    mode: str | None = None,
-    history: Any = None,
-) -> bool:
-    return services_realtime.should_use_rich_prompt_context(
-        message=message,
-        mode=mode,
-        history=history,
-    )
-
-
-def _build_chat_system_prompt(
-    *,
-    message: str,
-    session_id: str | None = None,
-    mode: str | None = None,
-    persona: str | None = None,
-    model_id: str | None = None,
-    history: Any = None,
-) -> str:
-    return services_realtime.build_chat_system_prompt(
-        _module_owner(),
-        message=message,
-        session_id=session_id,
-        mode=mode,
-        persona=persona,
-        model_id=model_id,
-        history=history,
-    )
-
 
 async def _save_voice_upload_tempfile(file: UploadFile) -> str:
     return await services_realtime.save_voice_upload_tempfile(_module_owner(), file)
@@ -558,6 +487,7 @@ _activate_instance_response = _bind_runtime_service(snapshot_instances_support.a
 _delete_instance_response = _bind_runtime_service(snapshot_instances_support.delete_instance_response)
 _build_instance_logs_response = _bind_runtime_service(snapshot_instances_support.build_instance_logs_response)
 _emit_integration_heartbeat = _bind_runtime_service(snapshot_runtime_support.emit_integration_heartbeat)
+_build_chat_system_prompt = _bind_runtime_service(snapshot_prompt_support.build_chat_system_prompt)
 
 # === END _server_fragment_local_runtime.py ===
 

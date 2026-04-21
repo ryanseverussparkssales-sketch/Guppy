@@ -42,6 +42,7 @@ from utils import secret_store
 from utils.db_utils import open_db
 from ui.launcher import launcher_window
 from src.guppy.launcher_application import is_valid_repair_token as _is_valid_repair_token
+from src.guppy.launcher_application import storage_io
 
 
 _TEST_SECRET = "test-security-hardening-secret-key-32x"
@@ -354,7 +355,7 @@ class MalformedRuntimeFileTests(unittest.TestCase):
             old_runtime = launcher_window._RUNTIME
             launcher_window._RUNTIME = runtime_dir
             try:
-                result = launcher_window.read_json_dict(status_path)
+                result = storage_io.read_json_dict(status_path)
                 self.assertIsInstance(result, dict)
                 self.assertEqual(result, {})
             finally:
@@ -363,7 +364,7 @@ class MalformedRuntimeFileTests(unittest.TestCase):
     def test_missing_status_file_returns_empty_dict(self):
         """A missing status file must return an empty dict, not raise."""
         with tempfile.TemporaryDirectory() as td:
-            result = launcher_window.read_json_dict(Path(td) / "nonexistent.status")
+            result = storage_io.read_json_dict(Path(td) / "nonexistent.status")
             self.assertIsInstance(result, dict)
             self.assertEqual(result, {})
 
@@ -390,7 +391,7 @@ class MalformedRuntimeFileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             empty = Path(td) / "empty.status"
             empty.write_text("", encoding="utf-8")
-            result = launcher_window.read_json_dict(empty)
+            result = storage_io.read_json_dict(empty)
             self.assertIsInstance(result, dict)
             self.assertEqual(result, {})
 
@@ -526,7 +527,7 @@ class AuthAndRepairLifecycleTests(unittest.TestCase):
             cm.__exit__ = MagicMock(return_value=False)
             return cm
 
-        with patch("ui.launcher.launcher_window.urllib.request.urlopen", side_effect=_fake_urlopen):
+        with patch("src.guppy.launcher_application.launcher_api_runtime_control.urllib.request.urlopen", side_effect=_fake_urlopen):
             payload = stub._http_json(
                 "/auth/self-check",
                 method="GET",
@@ -843,7 +844,7 @@ class LauncherRepairTokenResyncTests(unittest.TestCase):
             return cm
 
         with patch.object(launcher_app, "is_valid_repair_token", return_value=True):
-            with patch("ui.launcher.launcher_window.urllib.request.urlopen", side_effect=_fake_urlopen):
+            with patch("src.guppy.launcher_application.launcher_api_runtime_control.urllib.request.urlopen", side_effect=_fake_urlopen):
                 result = stub._http_json(
                     "/repair", method="POST",
                     payload={"action": "warmup", "dry_run": True},
@@ -901,7 +902,7 @@ class LauncherRepairTokenResyncTests(unittest.TestCase):
             return cm
 
         with patch.object(launcher_app, "is_valid_repair_token", return_value=True):
-            with patch("ui.launcher.launcher_window.urllib.request.urlopen", side_effect=_fake_urlopen):
+            with patch("src.guppy.launcher_application.launcher_api_runtime_control.urllib.request.urlopen", side_effect=_fake_urlopen):
                 result = stub._http_json(
                     "/repair", method="POST", payload={"action": "warmup", "dry_run": True}
                 )
@@ -948,7 +949,7 @@ class LauncherRepairTokenResyncTests(unittest.TestCase):
             raise err
 
         with patch.object(launcher_app, "is_valid_repair_token", side_effect=lambda token: token == old_token):
-            with patch("ui.launcher.launcher_window.urllib.request.urlopen", side_effect=_fake_urlopen):
+            with patch("src.guppy.launcher_application.launcher_api_runtime_control.urllib.request.urlopen", side_effect=_fake_urlopen):
                 with self.assertRaises(RuntimeError):
                     stub._http_json(
                         "/repair", method="POST", payload={"action": "warmup", "dry_run": True}

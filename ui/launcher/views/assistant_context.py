@@ -5,6 +5,25 @@ from src.guppy.launcher_application.library_presenter import build_library_surfa
 from .. import tokens as T
 
 
+def _display_source_title(raw: str) -> str:
+    title = str(raw or "").strip()
+    if not title:
+        return "current source"
+    if "/" in title or "\\" in title:
+        title = title.replace("\\", "/").rsplit("/", 1)[-1]
+    lowered = title.lower()
+    binary_suffixes = (".pyd", ".dll", ".so", ".dylib", ".exe", ".bin")
+    for suffix in binary_suffixes:
+        if lowered.endswith(suffix):
+            stem = title[: -len(suffix)] or "binary"
+            if len(stem) > 24:
+                stem = stem[:24].rstrip() + "..."
+            return f"{stem} binary module"
+    if len(title) > 64:
+        return title[:61].rstrip() + "..."
+    return title
+
+
 def _context_origin_label(item: dict[str, str]) -> str:
     origin = str(item.get("origin", "") or "").strip().lower()
     source_label = str(item.get("source_label", "") or "").strip()
@@ -21,10 +40,10 @@ def format_active_context_summary(items: list[dict[str, str]], *, used_for_lates
     if not items:
         return "No Library sources attached yet. Open Library and use USE IN CHAT to ground the next reply."
     primary = items[0]
-    primary_title = str(primary.get("title", "") or "").strip() or "current source"
+    primary_title = _display_source_title(str(primary.get("title", "") or ""))
     primary_label = _context_origin_label(primary)
     attached_titles = [
-        str(item.get("title", "") or "").strip()
+        _display_source_title(str(item.get("title", "") or ""))
         for item in items[1:3]
         if str(item.get("title", "") or "").strip()
     ]
@@ -36,7 +55,7 @@ def format_active_context_summary(items: list[dict[str, str]], *, used_for_lates
 
 
 def build_grounding_cue(item: dict[str, str]) -> tuple[str, str]:
-    title = str(item.get("title", "") or "").strip() or "current source"
+    title = _display_source_title(str(item.get("title", "") or ""))
     origin = str(item.get("origin", "") or "").strip().lower()
     if origin == "assistant_reply":
         return (
@@ -62,9 +81,9 @@ def build_composer_guidance(
     if not items:
         return base_placeholder, base_summary
     primary = items[0]
-    primary_title = str(primary.get("title", "") or "").strip()
+    primary_title = _display_source_title(str(primary.get("title", "") or ""))
     other_titles = [
-        str(item.get("title", "") or "").strip()
+        _display_source_title(str(item.get("title", "") or ""))
         for item in items[1:3]
         if str(item.get("title", "") or "").strip()
     ]

@@ -228,7 +228,7 @@ def repair_token_refresh_response(owner: Any, client_ip: str) -> dict[str, str]:
         client_ip=normalized_client_ip,
         has_token=bool(token),
     )
-    return {"repair_token": token}
+    return {"repair_token": token}  # nosec: localhost-only endpoint; token is intentionally distributed to caller
 
 
 async def repair_runtime_response(owner: Any, request: Any) -> dict[str, Any]:

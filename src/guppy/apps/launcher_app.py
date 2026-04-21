@@ -218,6 +218,11 @@ def main() -> int:
     if lock is None:
         logger.info("Launcher already running - skipping duplicate start")
         _append_launcher_event("startup_phase", phase="launcher_duplicate_instance")
+        print(
+            "Guppy is already running. Please use the existing window.",
+            file=sys.stderr,
+            flush=True,
+        )
         return 0
 
     _append_launcher_event("startup_phase", phase="launcher_enter")

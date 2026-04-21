@@ -224,8 +224,15 @@ class ToolCard(QFrame):
         root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(8)
 
+        # Registry is authoritative for label, category, dry_run; catalog supplies
+        # description, allowed_types, and reason which are card-specific.
+        _reg_entry = get_action_for_tool(str(tool.get("key", "")))
+        _display_name = _reg_entry.label if _reg_entry is not None else str(tool.get("name", "TOOL"))
+        _display_category = _reg_entry.category if _reg_entry is not None else str(tool.get("category", "READ"))
+        _display_dry_run = _reg_entry.dry_run if _reg_entry is not None else bool(tool.get("dry_run", False))
+
         header = QHBoxLayout()
-        self._name_lbl = QLabel(str(tool.get("name", "TOOL")))
+        self._name_lbl = QLabel(_display_name)
         self._name_lbl.setStyleSheet(
             f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_LABEL}pt; font-weight: 800;"
         )
@@ -247,9 +254,9 @@ class ToolCard(QFrame):
 
         meta = QHBoxLayout()
         meta.addWidget(
-            mono_label(f"TYPE: {str(tool.get('category', 'READ')).upper()}", T.PRIMARY_DIM, T.FS_TINY, True)
+            mono_label(f"TYPE: {_display_category.upper()}", T.PRIMARY_DIM, T.FS_TINY, True)
         )
-        if bool(tool.get("dry_run", False)):
+        if _display_dry_run:
             meta.addSpacing(10)
             meta.addWidget(mono_label("SET UP FIRST", T.DIM, T.FS_TINY, True))
         meta.addStretch()
@@ -270,11 +277,9 @@ class ToolCard(QFrame):
 
         actions = QHBoxLayout()
         self._hint_btn = QPushButton("PRIME HOME")
-        _tool_key = str(tool.get("key", ""))
-        _entry = get_action_for_tool(_tool_key)
         _hint_tooltip = (
-            f'Say: "{_entry.command_hint}" — sends a starter prompt to Home'
-            if _entry is not None
+            f'Say: "{_reg_entry.command_hint}" — sends a starter prompt to Home'
+            if _reg_entry is not None
             else "Send a starter hint for this tool to Home"
         )
         self._hint_btn.setToolTip(_hint_tooltip)

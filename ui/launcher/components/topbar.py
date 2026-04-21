@@ -77,24 +77,25 @@ class TopBar(QFrame):
         self.setObjectName("topbar")
         self.setStyleSheet(
             f"QFrame#topbar {{ background: {T.GRADIENT_SAND};"
-            f" border-bottom: 1px solid {T.BORDER_STRONG}; }}"
+            f" border-bottom: 1px solid {T.BORDER_SOFT_60}; }}"
         )
 
         row = QHBoxLayout(self)
         self._row = row
-        row.setContentsMargins(12, 7, 12, 7)
-        row.setSpacing(6)
+        row.setContentsMargins(16, 8, 16, 8)
+        row.setSpacing(8)
 
         brand_col = QVBoxLayout()
         brand_col.setSpacing(1)
-        title = QLabel("Guppy")
+        title = QLabel("Editorial\nIntelligence")
         title.setStyleSheet(
-            f"color: {T.INK}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_TITLE + 2}pt; font-weight: 700;"
+            f"color: {T.PRIMARY}; font-family: '{T.FONT_SERIF}'; font-size: {T.FS_TITLE + 2}pt;"
+            " font-style: italic; font-weight: 600; letter-spacing: 0px;"
         )
         self._brand_title = title
         self._session_lbl = _ElidedLabel("daily path for chat, files, and workspace context")
         self._session_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
+            f"color: {T.TEXT_DIM_72}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
         )
         brand_col.addWidget(title)
         brand_col.addWidget(self._session_lbl)
@@ -102,7 +103,7 @@ class TopBar(QFrame):
         self._brand_col = brand_col
         row.addLayout(brand_col)
 
-        self._sidebar_btn = QPushButton("\u2630")
+        self._sidebar_btn = QPushButton("=")
         self._sidebar_btn.setFixedSize(32, 32)
         self._sidebar_btn.setToolTip("Toggle navigation")
         self._sidebar_btn.setAccessibleName("Toggle navigation")
@@ -130,8 +131,8 @@ class TopBar(QFrame):
         workspace_shell = QFrame()
         self._workspace_shell = workspace_shell
         workspace_shell.setStyleSheet(
-            f"background-color: {T.SURFACE_ELEVATED_92};"
-            f" border: 1px solid {T.BORDER_SOFT_72};"
+            f"background-color: {T.SURFACE_BASE_88};"
+            f" border: 1px solid {T.BORDER_SOFT_58};"
             " border-radius: 18px;"
         )
         workspace_row = QHBoxLayout(workspace_shell)
@@ -164,8 +165,8 @@ class TopBar(QFrame):
         summary_shell = QFrame()
         self._summary_shell = summary_shell
         summary_shell.setStyleSheet(
-            f"background-color: {T.SURFACE_ELEVATED_92};"
-            f" border: 1px solid {T.BORDER_SOFT_72};"
+            f"background-color: {T.SURFACE_BASE_88};"
+            f" border: 1px solid {T.BORDER_SOFT_58};"
             " border-radius: 18px;"
         )
         summary_row = QHBoxLayout(summary_shell)
@@ -204,7 +205,7 @@ class TopBar(QFrame):
         row.addWidget(summary_shell)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Search Home, files, and Library")
+        self._search.setPlaceholderText("Search knowledge library...")
         self._search.setToolTip("Search home context, files, and library items")
         self._search.setAccessibleName("Search launcher content")
         self._search.setAccessibleDescription("Searches home context, files, and library")
@@ -218,8 +219,8 @@ class TopBar(QFrame):
         system_shell = QFrame()
         system_shell.setObjectName("topbar_system_shell")
         system_shell.setStyleSheet(
-            f"QFrame#topbar_system_shell {{ background-color: {T.SURFACE_ELEVATED_88};"
-            f" border: 1px solid {T.BORDER_SOFT_68}; border-radius: 18px; }}"
+            f"QFrame#topbar_system_shell {{ background-color: {T.SURFACE_BASE_88};"
+            f" border: 1px solid {T.BORDER_SOFT_58}; border-radius: 18px; }}"
         )
         system_row = QHBoxLayout(system_shell)
         system_row.setContentsMargins(4, 3, 4, 3)
@@ -236,12 +237,12 @@ class TopBar(QFrame):
         system_row.addWidget(self._runtime_chip)
 
         notif_wrap = QWidget()
-        notif_wrap.setFixedSize(32, 32)
+        notif_wrap.setFixedSize(40, 32)
         notif_layout = QVBoxLayout(notif_wrap)
         notif_layout.setContentsMargins(0, 0, 0, 0)
         notif_layout.setSpacing(0)
-        self._notif_btn = QPushButton("\U0001F514")
-        self._notif_btn.setFixedSize(32, 32)
+        self._notif_btn = QPushButton("NOTIF")
+        self._notif_btn.setFixedSize(40, 32)
         self._notif_btn.setToolTip("Open launcher warnings and recovery events in Settings.")
         self._notif_btn.setAccessibleName("Notifications")
         self._notif_btn.setAccessibleDescription("Opens warnings and recovery events")
@@ -257,15 +258,15 @@ class TopBar(QFrame):
         self._notif_badge.hide()
         self._apply_notif_style()
 
-        self._term_btn = QPushButton("\u2328")
-        self._term_btn.setFixedSize(32, 32)
+        self._term_btn = QPushButton("SET")
+        self._term_btn.setFixedSize(40, 32)
         self._term_btn.setToolTip("Open logs and recent command activity in Settings.")
         self._term_btn.setAccessibleName("Open logs")
         self._term_btn.setAccessibleDescription("Opens logs and recent command activity")
         self._term_btn.setStyleSheet(self._icon_button_style(T.BG0, T.TEXT))
         self._term_btn.clicked.connect(lambda: self.quick_action.emit("terminal"))
 
-        self._drawer_btn = QPushButton("\u25e8")
+        self._drawer_btn = QPushButton(">")
         self._drawer_btn.setFixedSize(32, 32)
         self._drawer_btn.setToolTip("Toggle workspace drawer")
         self._drawer_btn.setAccessibleName("Toggle workspace drawer")
@@ -286,36 +287,38 @@ class TopBar(QFrame):
     def _apply_runtime_chip_style(self, severity: str) -> None:
         palette = {
             "ok": (T.GREEN, "rgba(44,123,89,0.12)"),
-            "warn": (T.PRIMARY, "rgba(201,106,43,0.12)"),
+            "warn": (T.SECONDARY, "rgba(255,109,0,0.12)"),
             "error": (T.ERROR, "rgba(183,73,66,0.12)"),
-            "info": (T.TERTIARY, "rgba(70,98,199,0.10)"),
+            "info": (T.PRIMARY, "rgba(0,106,106,0.10)"),
         }
         text_color, bg_color = palette.get((severity or "info").strip().lower(), palette["info"])
         self._runtime_chip.setStyleSheet(
             f"color: {text_color}; background-color: {bg_color};"
             f" border: 1px solid {T.BORDER_SOFT_68}; border-radius: 13px;"
-            f" padding: 0 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
+            f" padding: 0 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: 700;"
         )
 
     @staticmethod
     def _nav_style(active: bool) -> str:
         if active:
             return (
-                f"QPushButton {{ background-color: {T.INK}; color: white; border: none; border-radius: 16px;"
-                f" padding: 0 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; }}"
+                f"QPushButton {{ background-color: transparent; color: {T.PRIMARY}; border: none;"
+                f" border-bottom: 2px solid {T.PRIMARY}; border-radius: 0px;"
+                f" padding: 0 8px; font-family: '{T.FONT_SERIF}'; font-size: {T.FS_SMALL}pt; font-weight: 700; }}"
             )
         return (
-            f"QPushButton {{ background-color: transparent; color: {T.DIM}; border: none; border-radius: 16px;"
-            f" padding: 0 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; }}"
-            f"QPushButton:hover {{ color: {T.INK}; background-color: {T.HOVER_TERTIARY_SOFT}; }}"
+            f"QPushButton {{ background-color: transparent; color: {T.TEXT_DIM_78}; border: none;"
+            f" border-bottom: 2px solid transparent; border-radius: 0px;"
+            f" padding: 0 8px; font-family: '{T.FONT_SERIF}'; font-size: {T.FS_SMALL}pt; font-weight: 500; }}"
+            f"QPushButton:hover {{ color: {T.TEXT}; border-bottom-color: {T.BORDER_SOFT_60}; }}"
         )
 
     @staticmethod
     def _icon_button_style(bg: str, color: str) -> str:
         return (
             f"QPushButton {{ background-color: {bg}; color: {color}; border: 1px solid {T.BORDER_SOFT_72};"
-            f" border-radius: 16px; font-size: 11pt; }}"
-            f"QPushButton:hover {{ border-color: {T.TERTIARY}; color: {T.TERTIARY}; background-color: {T.WHITE}; }}"
+            f" border-radius: 12px; font-family: '{T.FF_BODY}'; font-size: {T.FS_TINY}pt; font-weight: 700; }}"
+            f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; background-color: {T.WHITE}; }}"
         )
 
     def _on_nav(self, tab_index: int) -> None:
@@ -443,11 +446,11 @@ class TopBar(QFrame):
 
     def set_drawer_open(self, open_state: bool) -> None:
         self._drawer_open = bool(open_state)
-        self._drawer_btn.setText("\u25e7" if self._drawer_open else "\u25e8")
+        self._drawer_btn.setText("<" if self._drawer_open else ">")
 
     def set_sidebar_collapsed(self, collapsed: bool) -> None:
         self._sidebar_collapsed = bool(collapsed)
-        self._sidebar_btn.setText("\u2637" if self._sidebar_collapsed else "\u2630")
+        self._sidebar_btn.setText(">" if self._sidebar_collapsed else "=")
 
     def showEvent(self, event: QShowEvent) -> None:  # type: ignore[override]
         super().showEvent(event)
@@ -460,10 +463,11 @@ class TopBar(QFrame):
 
     def _apply_density_mode(self, width: int) -> None:
         width = max(int(width or 0), 0)
-        compact = width < 1200
-        tight = width < 1024
+        compact = width < 1360
+        tight = width < 1140
         ultra = width < 860
         allow_search = self._active_tab_index in {0, 2}
+        show_brand = width >= 1520 and not self._sidebar_collapsed
 
         for btn, (_label, idx, _active_tabs, visible) in zip(self._nav_btns, self._nav_specs):
             if not visible:
@@ -474,7 +478,8 @@ class TopBar(QFrame):
                 continue
             btn.setVisible(not tight and idx == self._active_tab_index)
 
-        self._session_lbl.setVisible(not compact)
+        self._brand_title.setVisible(show_brand)
+        self._session_lbl.setVisible(show_brand and not compact)
         self._instance_lbl.setVisible(not tight)
         self._instance_cb.setMaximumWidth(150 if not compact else 122)
         self._workspace_shell.setVisible(not tight)
@@ -484,8 +489,8 @@ class TopBar(QFrame):
         self._launcher_summary_btn.setVisible(not tight)
         self._launcher_summary_btn.setText("CONTEXT" if not compact else "CTX")
         self._search.setVisible(not tight and allow_search)
-        self._search.setMaximumWidth(210 if not compact else 158)
-        self._search.setPlaceholderText("Search Home or Library" if not compact else "Search")
+        self._search.setMaximumWidth(260 if not compact else 170)
+        self._search.setPlaceholderText("Search knowledge library..." if not compact else "Search")
         self._runtime_chip.setMinimumWidth(72 if not tight else 58)
         self._runtime_chip.setVisible(not ultra)
         self._drawer_btn.setVisible(False)

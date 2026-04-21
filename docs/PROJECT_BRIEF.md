@@ -45,14 +45,17 @@ Product direction is constrained by `docs/GUPPY_PRODUCT_NORTH_STAR.md` and `docs
 Guppy's launcher is organized into exactly five destination hubs. Each hub owns one domain completely. No domain bleeds between hubs. Home Chat is the daily surface; all hubs are reachable from it but never clutter it.
 
 ### Hub 1 — Home Chat
+
 **File:** `ui/launcher/views/assistant_view.py`
 **Truth for:** The chat window. All active conversation, context, workspace state, and voice input.
 **Does not own:** Settings, tools, models, or library internals. Those hubs are accessible via navigation, not embedded here.
 **Goal:** One clean, excellent chat surface. No operator noise. No diagnostics panels. No model internals. Just the conversation and its live context.
 
 ### Hub 2 — Settings Hub
+
 **File:** `ui/launcher/views/settings_hub_view.py` (composes `settings_view.py`, `settings_device_accounts_panel.py`, `settings_operations_panel.py`, `settings_connector_panel.py`, `settings_terminal_panel.py`)
 **Truth for:** Every configuration, credential, and diagnostic in one place.
+
 - API keys and account credentials (all providers)
 - User preferences and runtime defaults
 - System diagnostics and performance logs
@@ -61,8 +64,10 @@ Guppy's launcher is organized into exactly five destination hubs. Each hub owns 
 **Does not own:** Model selection, tool management, or library content.
 
 ### Hub 3 — Tools Hub
+
 **File:** `ui/launcher/views/tools_view.py`
 **Truth for:** Everything about agent capabilities.
+
 - All available tools and their current status
 - Adding new tools and removing stale ones
 - Tool permissions per workspace
@@ -71,8 +76,10 @@ Guppy's launcher is organized into exactly five destination hubs. Each hub owns 
 **Does not own:** Model routing, credentials, or library files.
 
 ### Hub 4 — Models Hub
+
 **File:** `ui/launcher/views/models_hub_view.py` (composes `models_view.py`, `local_llm_view.py`, `voices_view.py`)
 **Truth for:** Every model and persona decision in one place.
+
 - Model loader, installer, uninstaller, and loadout control (stable main + spawnable sub models)
 - Multi-provider model selector and route mixer (MAIN / SUB A / SUB B)
 - Sub-agent selector
@@ -82,8 +89,10 @@ Guppy's launcher is organized into exactly five destination hubs. Each hub owns 
 **Does not own:** Credentials or API-key storage (Settings Hub owns those), tool permissions, or library files.
 
 ### Hub 5 — Library Hub
+
 **File:** `ui/launcher/views/library_view.py` (consolidates `library_view_components.py`)
 **Truth for:** All files, notes, media, and artifacts.
+
 - Workspace file browser with approved roots
 - Pinned notes and saved artifacts
 - Media management and media player
@@ -95,7 +104,7 @@ Guppy's launcher is organized into exactly five destination hubs. Each hub owns 
 ## Surface Map
 
 | Hub | Primary View | Consolidated Views | Navigation Label |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Home Chat | `assistant_view.py` | — | HOME |
 | Settings Hub | `settings_hub_view.py` | `settings_view.py`, `settings_device_accounts_panel.py`, `settings_operations_panel.py`, `settings_connector_panel.py`, `settings_terminal_panel.py` | SETTINGS |
 | Tools Hub | `tools_view.py` | — | TOOLS |
@@ -144,7 +153,7 @@ Views no longer on the top-level nav rail: `instance_manager_view.py` (Workspace
 ## Execution Board
 
 | Priority | Track | Status | Goal | Acceptance | Target |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | P1 | Home Chat Cleanup | complete | Strip all operator noise from Home Chat; make it a clean chat window only | A first-run user sees only the conversation, context chips, and voice input on Home — no model internals, diagnostics, or settings panels | Completed April 19, 2026 |
 | P2 | Models Hub Consolidation | complete | Merge `local_llm_view.py`, `voices_view.py`, `models_runtime_library.py` into one Models Hub destination while keeping credentials in Settings | Models Hub is the single place to load, select, install, and configure any model or persona | Completed April 19, 2026 |
 | P3 | Settings Hub Consolidation | complete | Merge `my_pc_view.py`, `advanced_view.py`, `connector_panel.py`, `advanced_terminal_panel.py` into `settings_view.py` | Settings Hub owns all credentials, diagnostics, recovery, and daemon controls in one destination | Completed April 19, 2026 |
@@ -159,7 +168,7 @@ Views no longer on the top-level nav rail: `instance_manager_view.py` (Workspace
 Apply `docs/PRODUCT_FEATURE_FILTER.md` to every tranche before expanding scope.
 
 | Track | Keep Now | Demote | Defer |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | P1 Home Chat | Conversation, context chips, voice, workspace switch | Model health panels, runtime telemetry, recovery buttons | Ambient assistant, multi-pane experiments |
 | P2 Models Hub | Model install/uninstall, provider routing, persona, voice, sub-agent selector | Reviewer benchmark packets, deep comparison detail | Broad provider expansion beyond current 7 |
 | P3 Settings Hub | API keys, credentials, diagnostics, recovery, daemon, connectors | Advanced power-user metadata | New top-level operator destinations |
@@ -193,12 +202,14 @@ Apply `docs/PRODUCT_FEATURE_FILTER.md` to every tranche before expanding scope.
 ## Guardrail Stack
 
 Run `python tools/dev_workflow.py dev-check` before every merge. It enforces:
+
 - Architecture boundary isolation (no direct UI imports of `utils.*`)
 - Module line-cap enforcement (700 lines base, named transitional waivers)
 - Release debt marker check (no debt markers in added release-facing lines)
 - Wrapper and surface integrity
 
 All three guardrail blockers from the April 18 audit have been resolved:
+
 - Guppy-pi gitlink removed from tracking (`git rm --cached Guppy-pi`)
 - Release debt guard patched to exclude its own source file from scan
 - Transitional waiver caps updated to reflect actual module sizes with 5-hub rationale
@@ -336,10 +347,12 @@ Execution checkpoint (April 20, 2026 first freeze-reduction wave):
 12. `settings_operations_panel.py` now routes compact-mode label/state shaping through `src/guppy/launcher_application/settings_operations_presenter.py`, and its waiver cap was reduced to the new observed size.
 13. Transitional waiver caps were refreshed for the remaining touched hotspots so the freeze-readiness program cannot silently give back that ground.
 14. Freeze-readiness validation is now green again after the integrated merge state:
-   - `ui/launcher/launcher_window.py` had a small follow-through regression fixed by restoring the local `re` import used by auth/repair error-code extraction
-   - the remaining library seam was revalidated against `src/guppy/launcher_application/library_context_support.py` and `library_workflow.py`, and the focused library workflow/context tests are green on the extracted boundary
-   - `tools/check_new_module_line_cap.py` was refreshed to the actual observed launcher size (`3070`) so the guardrails match the branch honestly instead of carrying stale headroom
-15. Current release evidence for the freeze-reduction wave is `release-check-20260420-163159`, with `8/8` gates passing, `575 passed` in the default suite, and `138 passed` in product smoke.
+
+- `ui/launcher/launcher_window.py` had a small follow-through regression fixed by restoring the local `re` import used by auth/repair error-code extraction
+- the remaining library seam was revalidated against `src/guppy/launcher_application/library_context_support.py` and `library_workflow.py`, and the focused library workflow/context tests are green on the extracted boundary
+- `tools/check_new_module_line_cap.py` was refreshed to the actual observed launcher size (`3070`) so the guardrails match the branch honestly instead of carrying stale headroom
+
+1. Current release evidence for the freeze-reduction wave is `release-check-20260420-163159`, with `8/8` gates passing, `575 passed` in the default suite, and `138 passed` in product smoke.
 
 ---
 
@@ -580,6 +593,7 @@ What ships:
    - Acceptance: the waiver list is smaller or tighter, `release-check` is green, and the branch can be described honestly as freeze-candidate or not.
 
 Lane checkpoint (April 20, 2026, FR3-T4 / FR3-T6):
+
 - `settings_operations_panel.py` now composes the desktop runtime, connected services, and automation sections through `settings_operations_sections.py` instead of building those clusters inline.
 - Merlin is now treated as a bounded retained specialist runtime: dispatch remains in `merlin/core.py`, while extracted helper support lives in `src/guppy/merlin/specialist_support.py`.
 
@@ -773,8 +787,6 @@ TR54-B1 Wave 9 checkpoint (current session, TR54 launcher decomposition):
   - `src/guppy/api/server_runtime_snapshot.py` → `1108`
   - `src/guppy/launcher_application/launcher_command_flow.py` → `728`
 
-
-
 ## Pre-Launch Work Roadmap Additions (April 19, 2026)
 
 1. `PL-1 - Tool entry and starter-command unification` `proposed`
@@ -829,18 +841,21 @@ Overall suggestion:
 5. **First-run path still operationally heavy** - Track 1 vs Track 2 split in PACKAGING.md is the right framing. What is missing is a stateful wizard that guides users through it and a measurable completion rate. Fix: add a three-checkpoint first-run wizard and log first_run_checkpoint_N_completed per checkpoint.
 
 **Design direction adopted from consultant review:**
+
 - Quiet hierarchy: one primary accent color, fewer competing badge stacks, no permanent status blocks in Home Chat.
 - Large hit targets (primary buttons >= 36px, secondary >= 28px) are non-negotiable.
 - PL-C3 (clarity) must land before PL-C2 (branding). Branding over unresolved layout makes it worse.
 - Reference product for first-run: ChatGPT Desktop (immediate comprehension without explanation).
 
 **Competitive positioning notes:**
+
 - Claude Desktop: best-in-class calm interaction model. Guppy Home Chat should feel this quiet.
 - Cursor: contextual actions scoped to immediate relevance. Guppy Tools should surface only what is actionable right now.
 - LM Studio: local runtime status stays demoted from daily chat. Guppy Models Hub should follow this.
 - Open WebUI: excellent operator power, poor first-run experience. Guppy must not inherit that cost.
 
 **Revised success metrics for Tranche 52 exit:**
+
 - Time to first successful request on a clean machine: target under 5 minutes.
 - Hub purpose comprehension: first-time user can name each hub purpose in under 3 seconds.
 - First-run wizard completion rate: target >= 80% from checkpoint 1 to checkpoint 3.
@@ -1001,8 +1016,9 @@ What ships:
    - Expand the launch-grade security gate into a broader trust sweep: secret storage and keychain-first enforcement, network exposure review, connector least privilege, dependency/CVE scanning, packaged-build posture, and honest trust/readiness labels.
    - Acceptance: no misleading `READY`, `GO`, or `healthy` labels remain in launch-critical flows, and trust copy aligns with actual enforcement.
 10. `PL-C17 - Integrated code audit, docs audit, UI audit, tool audit, and release closeout` `complete`
-   - Close the tranche with one top-to-bottom pass across code, docs, UI, tools/connectors, and guarded validation.
-   - Acceptance: docs, code, tests, and release evidence agree, and remaining blockers are specific and ranked.
+
+- Close the tranche with one top-to-bottom pass across code, docs, UI, tools/connectors, and guarded validation.
+- Acceptance: docs, code, tests, and release evidence agree, and remaining blockers are specific and ranked.
 
 April 20, 2026 execution checkpoint:
 
@@ -1146,12 +1162,16 @@ Release-lane closeout uses `python tools/dev_workflow.py release-check`, which w
 
 1. Week objective
    Keep the automatic `P6` slices moving until the remaining runtime and launcher coordinators are smaller, cleaner, and ready for real-machine validation and downstream packaging work.
+
 2. Track status
    `P1`, `P2`, `P3`, `P4`, and `P5` are complete as of April 19, 2026; `P6` remains active as the platform-hardening and packaging-readiness lane, with Tranches 46 through 51 now closed and green.
+
 3. Gate snapshot
    Release lane is green today: `release-check-20260420-154801` passed at `8/8`, with `543 passed` in the default suite and `138 passed` in product smoke.
+
 4. Active risks
    The remaining risk is no longer destination ownership. It is concentrated in the still-waived runtime and launcher coordinators plus broader real-machine validation for voice playback, local runtime behavior, and packaged-environment spot checks.
+
 5. This-week decisions
    Keep `P6` focused on bounded coordinator reductions and validation-contract clarity, not new hub work; treat the new runtime and voice validation matrices as the handoff for real-machine follow-through; and hold packaging expansion behind those hardening seams.
 
@@ -1617,24 +1637,24 @@ Tandem batch A (parallel):
 
 Tandem batch B (parallel):
 
-3. `P6-C35A - Snapshot instance scaffold lifecycle split` `complete`
+1. `P6-C35A - Snapshot instance scaffold lifecycle split` `complete`
     - Extract scaffold/config/state load-save + normalized bundle lifecycle from `src/guppy/api/server_runtime_snapshot.py` into:
        - `src/guppy/api/services_instances.py`
     - Validation target: `tests/unit/test_chat_routing_routes.py`, snapshot-focused smoke, `dev-check --guard-scope delta`.
 
-4. `P6-C35B - Snapshot ops telemetry/repair split` `complete`
+2. `P6-C35B - Snapshot ops telemetry/repair split` `complete`
     - Extract jsonl-tail, diagnostics bundle shaping, and repair action helpers from `src/guppy/api/server_runtime_snapshot.py` into:
        - `src/guppy/api/services_ops.py`
     - Validation target: `tests/unit/test_services_telemetry.py`, `tests/unit/test_security_hardening.py`, `dev-check --guard-scope delta`.
 
 Succession batch C (merge last):
 
-5. `P6-C35C - Snapshot realtime prompt/inference utility split` `complete`
+1. `P6-C35C - Snapshot realtime prompt/inference utility split` `complete`
     - Extract prompt-context, cacheability, voice upload temp-file, and inference utility helpers from `src/guppy/api/server_runtime_snapshot.py` into:
        - `src/guppy/api/services_realtime.py`
     - Validation target: `tests/unit/test_chat_routing_routes.py`, `tests/unit/test_chat_routing_module_contract.py`, voice-upload route coverage, `dev-check --guard-scope delta`.
 
-6. `P6-C37A - Integrated closeout` `complete`
+2. `P6-C37A - Integrated closeout` `complete`
     - Run merge-sequenced validation for the completed cards:
        - `python tools/check_doc_ownership.py`
        - `.venv\Scripts\python.exe tools/dev_workflow.py dev-check --guard-scope delta`
@@ -1712,7 +1732,7 @@ Acceptance:
 - Tools remains the operational view of capabilities, while Settings continues to own credentials and recovery.
 - Focused smoke/unit coverage passes, then `python tools/dev_workflow.py dev-check --guard-scope delta` and `python tools/dev_workflow.py release-check` pass.
 
-### Code And Docs Review
+### Code And Docs Review (P5)
 
 1. `ui/launcher/views/tools_view.py` was the primary P5 monolith hotspot and is now reduced to composition, filters, and workspace wiring.
 2. `ui/launcher/components/builder_task_panel.py` stayed extracted and untouched as the Builder boundary.
@@ -1720,7 +1740,7 @@ Acceptance:
 4. `ui/launcher/launcher_window.py` only took thin trace-plumbing changes plus tool-event logging for the new recent-evidence surface.
 5. The active brief previously had stale `Tranche 44` labels inside the `Tranche 45` block; P5 closeout keeps the tranche metadata coherent and current.
 
-### Framework And Monolith Evaluation
+### Framework And Monolith Evaluation (P5)
 
 1. Keep the current PySide6 widget framework and the existing `launcher_application` / `workspace_governance` seams.
 2. Do not introduce a new UI framework, route architecture, or broad API refactor for P5.
@@ -1760,104 +1780,154 @@ P5 closeout summary (April 19, 2026):
 
 1. April 17, 2026
    The active doc-truth contract was simplified so `docs/PROJECT_BRIEF.md` is now the only active status, roadmap, and handoff source.
+
 2. April 17, 2026
    The previous root roadmap log was archived verbatim to `docs/archive/root-history/ROADMAP_2026-04-17.md`, and root `ROADMAP.md` is now a compatibility pointer only.
+
 3. April 17, 2026
    Supported launcher paths no longer include Merlin or Council surfaces; compatibility material remains quarantined for migration reference rather than product ownership.
+
 4. April 17, 2026
    App Mgmt `RELEASE DRY RUN` now runs the canonical `tools/dev_workflow.py release-check` preflight before emitting the beta reviewer bundle, keeping the launcher recipe, packaging doc, and release guidance on one path.
+
 5. April 17, 2026
    Home workspace framing now flows through `src/guppy/launcher_application/home_presenter.py`, and Workspaces role presets now use shared presenter copy instead of rebuilding role text inside the view layer.
+
 6. April 17, 2026
    App Mgmt embedded-terminal session ownership now lives in `src/guppy/launcher_application/embedded_terminal.py`, and Workspaces save/toggle shaping now lives in typed `launcher_application` helpers instead of view-local payload assembly.
+
 7. April 17, 2026
    App Mgmt no longer imports `utils.runtime_profile` directly; the runtime-profile read moved behind `src/guppy/experience_config/services.py`, which removes one active UI architecture-boundary waiver.
+
 8. April 17, 2026
    `tools/dev_workflow.py release-check` now writes a human-readable summary with a stable `Ref`, gate-state line, and an explicit review/fix-next section so the brief, CLI output, and App Mgmt release guidance describe the same handoff contract.
+
 9. April 17, 2026
    Settings, Models, Voices, and the launcher shell now reach runtime-profile, persona, provider, and voice persistence through `src/guppy/experience_config/services.py` instead of importing `utils.runtime_profile` or `utils.personalization_config` directly.
+
 10. April 17, 2026
    Agent Tools, My PC, and the launcher shell now reach workspace capability policy and connector field metadata through `src/guppy/workspace_governance/` seams instead of importing `utils.instance_capabilities` or `utils.connector_manager` directly.
+
 11. April 17, 2026
    `ui/launcher/launcher_window.py` now gets its launcher-local bearer token from `src/guppy/runtime_application/build_local_bearer_token`, removing the last direct UI import of `src/guppy.api` and closing the corresponding architecture-boundary waiver.
+
 12. April 17, 2026
    `AssistantView` and `InstanceManagerView` now consume shared `launcher_application` presenters for Home calm-start copy, mixed-role starter guidance, workspace create/save shaping, and workspace-ready messaging, while both views remain oversized transitional shells tracked by the line-cap guard.
+
 13. April 17, 2026
    Mixed-role Workspace Framing coverage now includes presenter-level role-copy assertions plus launcher smoke coverage for mixed workspace summaries, empty workspace onboarding guidance, and workspace-ready handoff messaging.
+
 14. April 17, 2026
    Home now updates the visible mode/persona controls when workspaces switch, so Home controls and launcher routing state stay aligned during first-run and mixed-role workspace changes.
+
 15. April 17, 2026
    Workspace create/delete now use launcher-local file fallback during API warmup, so the first-run workspace flow remains usable before the API fully settles.
+
 16. April 17, 2026
    `TOOLS` / `APP MGMT` are now visible in the top navigation, `CONNECTED SERVICES` is visible on first render in App Mgmt, and `bin/Guppy.bat` now routes through `src/guppy/cli/launch.py launcher` to match the supported desktop path.
+
 17. April 17, 2026
    Guppy no longer depends on vendored Lemonade or MemPalace source trees, the deprecated repo-local web UI, or checked-in `tests/runtime` stress reports; runtime challengers, local memory, and any future external integrations now anchor on explicit external integration contracts and `runtime/` evidence paths instead.
+
 18. April 17, 2026
    P1 UI simplification is underway: the sidebar now hides advanced destinations behind an explicit toggle, and the top bar groups notifications plus terminal access inside a lower-emphasis `DETAILS` capsule so the daily Chat / Workspaces / Library / Settings path reads first.
+
 19. April 17, 2026
    The right tray now reads as a quieter workspace-context drawer: primary file and context actions stay visible, while write/code/shell actions and optional spaces live behind a `DETAILS` reveal instead of competing with the daily path by default.
+
 20. April 17, 2026
    Agent Tools copy now follows the same framing, referring to the side panel as the workspace drawer rather than quick actions so the daily-path language stays consistent across navigation and tool discovery.
+
 21. April 17, 2026
    Home now splits primary workspace context from on-demand system details, and the hero subtitle stays role-aware instead of doubling as an activity ticker, which reduces visible status noise on the default chat surface.
+
 22. April 18, 2026
    The top bar and Home defaults now use calmer daily-path wording: `DETAILS` instead of `SYSTEM`, `daily workspace assistant` instead of `local workspace assistant`, and role-aware header copy that stays stable while live activity remains in the workspace context area.
+
 23. April 18, 2026
    `P2` is now active in code: Library shows explicit approved roots plus recent saved or approved-root files, and each recent item can prime Chat directly with a bounded “use in chat” handoff instead of acting like a passive reference page.
+
 24. April 18, 2026
    `P3` has started through the same slice: Home now keeps active Library context chips on the chat surface, so selected files or study/coding items read as live assistant context rather than a separate launcher destination.
+
 25. April 18, 2026
    Library is now a real control surface instead of a read-only summary page: approved roots can be added from the UI, pinned notes and artifact entries can be saved per workspace, and Chat now exposes attached Library context with per-item removal plus clear-all controls.
+
 26. April 18, 2026
    Attached Library sources now support a lightweight focus path on Home: users can promote one attached source to the front of the active context without clearing and rebuilding it, and composer/starter guidance now tracks that focused source as the current emphasis.
+
 27. April 18, 2026
    Repo/doc alignment pass closed the current subtitle contract gap: smoke assertions now validate activity text in the context bar while keeping the hero subtitle role-aware, local Gmail credential JSON files were moved out of repo root to the user-home credential path, root-only local artifacts were quarantined under `C:\Users\Ryan\Guppy_Quarantine\2026-04-18_root_sweep`, and `dev-check --guard-scope baseline` plus the targeted launcher smoke subset were re-run.
+
 28. April 18, 2026
    Home, Library, and shell wording moved through a visible UX tranche: Library now spells out approved-root boundaries, active root state, and why `USE IN CHAT` matters; Home now presents attached Library sources as clearer current-source context with calmer composer guidance; and the shell now emphasizes the daily path with `HOME`, `WORKSPACES`, `LIBRARY`, `SETTINGS`, `MY PC`, and `LOCAL LLM` language while baseline and targeted smoke stayed green after a small helper extraction pulled `library_view.py` back under its transitional cap.
+
 29. April 18, 2026
    `daemon.py` no longer imports `utils.runtime_profile` directly; `get_runtime_envelope_config` is now exposed from `src/guppy/experience_config/services.py` and `daemon.py` uses the seam. The inline 10-line try/except fallback block was removed, shrinking the waived line count from 1483 to 1473.
+
 30. April 18, 2026
    `src/guppy/hub/app.py` no longer imports `utils.runtime_profile` directly; `apply_runtime_profile`, `load_runtime_settings` (aliased as `load_app_settings`), and `recommend_runtime_profile` are all consumed from the `experience_config.services` seam. The `apply_runtime_profile` convenience function was added to the seam as the composition of `load_runtime_settings` + `apply_runtime_settings_to_env`.
+
 31. April 18, 2026
    `src/guppy/launcher_application/builder_workflow.py` was created as a thin seam wrapper around `utils.offhours_builder`. All four inline lazy `from utils.offhours_builder import ...` calls in `launcher_window.py` now go through the seam. The wrapper includes full no-op fallbacks so the launcher remains functional when the offhours backend is absent.
+
 32. April 18, 2026
    Architecture boundary guard and all 309 unit + integration tests stayed green across all three closures above. `settings_view.py` cap risk flagged in the original triage was a false alarm — the file already had a waiver at 743 lines with 48 lines of actual headroom.
+
 33. April 18, 2026
    Builder task templates now route through the `launcher_application` seam too: `ui/launcher/components/builder_task_panel.py` no longer imports `utils.offhours_builder` directly and now consumes `load_builder_templates` from `src/guppy/launcher_application/builder_workflow.py`. In the same tranche, the daemon line-cap waiver in `tools/check_new_module_line_cap.py` was tightened from 1483 to 1473 to match current observed size, and baseline `dev-check` plus full unit/integration tests (`309 passed`) stayed green.
+
 34. April 18, 2026
    Launcher shell safe I/O and instance-log access now route through `src/guppy/launcher_application/storage_io.py` instead of importing `utils.safe_io` or `utils.instance_logger` directly in `ui/launcher/launcher_window.py`. This closes two more direct UI-to-utils imports while preserving explicit fallback behavior, and baseline `dev-check` plus full unit/integration tests (`309 passed`, `EXIT:0`) remained green after the seam extraction.
+
 35. April 18, 2026
    The remaining launcher-shell secret-store dependency now routes through the same storage seam: `ui/launcher/launcher_window.py` no longer imports `utils.secret_store` directly, and `src/guppy/launcher_application/storage_io.py` now owns secret-store availability, lookup, and compatibility-client access with explicit fallback behavior. Launcher compatibility hooks for `_SECRET_STORE_AVAILABLE` and `_secret_store` were preserved so existing security and smoke test patch points remain stable, and baseline `dev-check` plus full unit/integration tests (`309 passed`, `EXIT:0`) stayed green.
+
 36. April 18, 2026
    Pre-preflight UX polish tightened the first-run daily path without changing feature scope: Home no longer implies Library sources are attached when none exist, attached-source empty-state guidance now tells users they can ask directly from those sources, and Library cards plus empty states now explain more explicitly that `USE IN CHAT` sends files, notes, and artifacts back to Home as source context. Baseline `dev-check` and full unit/integration tests (`309 passed`, `EXIT:0`) stayed green after the copy pass.
+
 37. April 18, 2026
    Full preflight smoke debugging closed the remaining launcher blockers: Home now skips expensive Library browse-card discovery when it only needs lightweight context summaries, Library root-file discovery is scan-bounded so repo-sized approved roots do not stall the UI, launcher/workspace mutation/refresh restored several smoke-facing compatibility wrappers, and status/onboarding copy was brought back in line with the current smoke contract. The runtime smoke, launcher smoke, and security smoke bundle reached `[100%]`, and the launcher-window transitional line-cap waiver was updated to reflect the current shell size pending a later composition-cut tranche.
+
 38. April 18, 2026
    The launcher shell now aligns more closely with the chat-first structure from the UX review: Home uses a compact identity row instead of a dashboard hero, optional workspace details and starters stay collapsed by default, the right workspace drawer is hidden by default on Home and exposed through a top-bar toggle, the left rail is now collapsible, and the stack order was corrected so `SETTINGS` opens the dedicated settings view while diagnostics/automation remain in the separate advanced surface. The Settings page also gained subsection navigation so runtime defaults, persona configuration, and advanced-surface handoff live in a dedicated configuration area rather than leaking into the daily path, and full launcher smoke stayed green after the shell pass.
+
 39. April 18, 2026
    Library root saves now have end-to-end validation and user-visible guidance: the workflow rejects missing/unreadable/non-directory paths before persistence, the Library UI shows inline save feedback instead of relying only on syslog cues, and focused unit coverage now verifies valid/invalid root handling contracts.
+
 40. April 18, 2026
    Home/Library source continuity now includes per-workspace default source pinning: users can pin the current primary source as the workspace default, the pinned default is persisted under `runtime/library_workspace_defaults.json`, attached context prioritization respects that default when present, and deletion/removal clears stale defaults to avoid dangling source pointers.
+
 41. April 18, 2026
    `bin/launch_automation_test.bat` now has hardened launch diagnostics and interpreter fallback order (`.venv\pythonw` -> `.venv\python` -> system `pythonw` -> system `python`) with clear error output when launch prerequisites are missing.
+
 42. April 18, 2026
    Repo-wide hardening/bug-hunt pass landed targeted safety fixes with focused regression coverage: `guppy_core/tool_runner.py` now defers connector runtime side effects (for example Gmail account switching) until after instance capability permission approval, `ui/launcher/launcher_window.py` now uses instance dispatch (`self`) for mode-readiness and timeout helper calls to reduce brittle class-bound behavior in command flow, and `src/guppy/api/routes_instances.py` now validates connector binding payloads (known connector/provider, action allow/block conflicts, supported action ids, non-empty endpoint filters) before persistence. New unit coverage in `tests/unit/test_tool_runner_metrics.py` and `tests/unit/test_instance_connector_binding_validation.py` keeps these guardrails pinned.
+
 43. April 18, 2026
    Follow-on hardening closed three additional risk seams: API runtime degraded-permission fallbacks now fail closed (`src/guppy/api/server_runtime.py`, `src/guppy/api/server_runtime_snapshot.py`, and `src/guppy/api/_server_fragment_bootstrap.py` no longer default to allow when capability policy backends are unavailable), connector endpoint allow/block filters now share wildcard-aware matching semantics in `utils/connector_manager.py` with focused regression coverage in `tests/unit/test_connector_manager.py`, and contributor-facing ownership boundaries now explicitly keep Guppy and `Guppy-pi` on separate development tracks in `CONTRIBUTING.md`.
+
 44. April 18, 2026
    A new multi-agent execution tranche was planned and staged for April 19 - May 2 with 12 concrete execution items spanning code hardening, governance validation, runtime resilience, and repo maintenance. The plan includes explicit agent/workstream split, merge checkpoints (`dev-check delta`, `test-default`, `test-smoke`, `release-check`), and a refreshed weekly status plus timeline checkpoint additions for May 2 and May 16.
+
 45. April 18, 2026
    Tranche 44 execution items were landed in tandem through multi-agent workstreams and integrated validation: waiver metadata drift reporting is now emitted by `tools/check_new_module_line_cap.py`; release comment-debt guard (`tools/check_release_comment_debt.py`) is wired into `tools/dev_workflow.py release-check`; connector binding request validation now lives in shared `src/guppy/workspace_governance/connector_binding_validation.py` and is consumed by API routes; runtime/snapshot/bootstrap permission fallback behavior is fail-closed and aligned through workspace-governance policy seams; connector endpoint filters now use wildcard-aware parity semantics in `utils/connector_manager.py`; architecture-boundary and wrapper-integrity guards were strengthened with focused test expansion; API route registration parity and deterministic readiness/rate-limit time-control tests were added; and safe JSON/JSONL loader behavior was consolidated via `src/guppy/runtime_application/json_io.py` and adopted in `src/guppy/api/services_ops.py`. Focused tranche test bundle and baseline `dev-check` passed (with documented temporary `GUPPY_ALLOW_CROSS_PROJECT_DIRTY=1` due local `Guppy-pi` dirty state).
+
 46. April 19, 2026
    Executable Tranche 2 and Tranche 3 of the Settings Hub plan were confirmed complete from live repo state and validation. `ui/launcher/views/settings_hub_view.py` now composes `settings_view.py` with the extracted device/accounts and operations panels, launcher workflows route through `_settings_hub_view`, legacy settings surfaces (`my_pc_view.py`, `advanced_view.py`, `connector_panel.py`, `advanced_terminal_panel.py`) are deleted, and validation passed via targeted Settings smoke/unit coverage plus full `python tools/dev_workflow.py release-check` (`360 passed` default suite, `121 passed` smoke/security suite, release receipt written under `.tmp/dev-workflow/reports/`).
+
 47. April 19, 2026
    Executable Tranche 4, Tranche 5, and Tranche 6 of the Models Hub plan were completed in launcher flow and reconfirmed from live repo state plus focused validation. `ui/launcher/views/models_hub_view.py` is now the single launcher destination for model library, runtime routing, local LLM evidence, and voice flows; `ui/launcher/views/models_view.py` now runs in hub mode so stable MAIN / SUB A / SUB B loadouts stay visible beside runtime state; voice ownership now sits under Models with live Edge, Kokoro, Windows SAPI, ElevenLabs, and local Whisper coverage plus explicit Deepgram planning; and provider account management plus API-key storage remain unified in Settings. Compatibility model/voice classes remain temporarily importable for smoke stability, but the launcher no longer exposes them as separate destinations.
+
 48. April 19, 2026
    Executable Tranche 7 completed through a Home Chat inventory and ownership audit. The inventory confirmed that route/runtime/recovery detail, workspace-detail management, launcher panel controls, and the Home-only operator drawer were the remaining visible blockers to a chat-first Home surface, and it defined the compatibility-safe extraction path used for Tranche 8.
+
 49. April 19, 2026
    Executable Tranche 8 completed in the live Home surface. `ui/launcher/views/assistant_view.py` now keeps the daily Home UI visually chat-first by hiding operator detail surfaces, workspace-management panes, and launcher panel controls while preserving compatibility setters and hidden state accessors for request flow, personalization refresh, and smoke stability. `ui/launcher/launcher_window.py` no longer re-opens the right-side status panel from Home.
+
 50. April 19, 2026
    Executable Tranche 9 completed through the launcher chrome pass. `ui/launcher/components/sidebar.py` and `ui/launcher/components/topbar.py` now present exactly five visible hubs (`HOME`, `MODELS`, `TOOLS`, `LIBRARY`, `SETTINGS`), while `Workspaces` moved to the topbar workspace cluster instead of remaining a first-class hub entry. Hidden compatibility aliases still resolve through the launcher for start-destination and legacy routing stability.
+
 51. April 19, 2026
    Executable Tranche 10 completed with full closeout validation and a 10-tranche audit. Focused nav/Home/Settings/Models smoke coverage passed, `.venv\Scripts\python.exe tools/dev_workflow.py dev-check --guard-scope delta` passed, and `.venv\Scripts\python.exe tools/dev_workflow.py release-check` passed. Audit issues found during closeout were copy-boundary drift between Settings and Models, stale visible nav chrome, Home operator-surface leakage, and one remaining visible MODELS alias-route mismatch; all four were corrected before final validation.
 
@@ -1871,6 +1941,7 @@ P5 closeout summary (April 19, 2026):
 6. Tranche 10: complete for executable repo scope. Integration, docs, and validation passed with no blocking tranche errors left open.
 
 Audit errors found and resolved:
+
 1. Settings copy still implied model ownership; corrected so Settings owns account management and API-key storage while Models owns runtime and voice.
 2. Visible nav chrome still exposed old surfaces and labels; corrected to the five-hub model.
 3. Home still rendered operator details and allowed a Home-only operator drawer path; corrected so those no longer render on the daily chat screen.
@@ -1906,13 +1977,15 @@ Primary acceptance direction:
 4. Account lifecycle and storage posture are explicit, secure, and user-comprehensible.
 
 Residual non-blocking follow-up:
+
 1. Compatibility wrapper classes remain temporarily importable for smoke stability and incremental extraction.
 2. Broader real-device validation for voice engines and deeper runtime parity beyond the current default lanes remain follow-up work, not tranche-completion blockers.
 
-## Current Gaps
+## Current Gaps (Tranche 54)
 
 1. Agent Tools versus App Mgmt framing is clearer in the UI, but deeper execution flow and enforcement still need to catch up with the split.
    Library roots now have inline validation feedback and per-workspace default source pinning is live, but the next Library gap remains deeper file workflows like broader root selection, better note editing ergonomics, and richer source reuse.
+
 2. Voice lifecycle still needs broader real-device validation across engines, especially preview behavior on more machines.
 3. Route visibility now includes readiness context and light latency evidence, but fuller live status signaling is still pending.
 4. Builder and off-hours flow still need output-cleanup polish, broader template coverage, and repeated stress validation.
@@ -1946,12 +2019,75 @@ Execution checkpoint (April 20, 2026, tandem execution tranche):
 12. Snapshot status/auth/metrics route registration was extracted into `src/guppy/api/snapshot_status_routes.py` and wired from `server_runtime_snapshot.py`.
 13. Measured post-wave sizes: `ui/launcher/launcher_window.py` -> `1263`; `src/guppy/api/server_runtime_snapshot.py` -> `859`; `src/guppy/launcher_application/launcher_command_flow.py` -> `426`.
 
+Execution checkpoint (TR54 integrated closeout, tandem subagent execution):
+
+**Lane A — `launcher_window.py` decomposition:**
+1. Connector action handlers extracted → `launcher_connector_handlers.py` (62 lines).
+2. Library context handlers extracted → `launcher_library_handlers.py` (141 lines).
+3. Instance/workspace handlers extracted → `launcher_instance_handlers.py` (98 lines).
+4. Nav/tab/panel/notification handlers + view-index constants extracted → `launcher_nav_handlers.py` (156 lines).
+5. Dead import debt purged across each extraction pass.
+6. Final size: `ui/launcher/launcher_window.py` → `993` lines (target <1,000 ✅). Waiver retained at-cap.
+
+**Lane B — `server_runtime_snapshot.py` reduction:**
+1. Auth try/except stubs + response cache helpers extracted → `snapshot_auth_cache_support.py` (73 lines).
+2. Persona/prompt builder functions (`build_chat_system_prompt`) extracted → `snapshot_prompt_support.py` (87 lines).
+3. Final size: `src/guppy/api/server_runtime_snapshot.py` → `789` lines. Waiver retained at-cap.
+
+**Lane C — `launcher_command_flow.py` follow-through:**
+1. `rotate_chat_session`, `apply_chat_context`, `on_chat_context_changed` re-exported to new `launcher_chat_session.py` (19 lines). Backward-compat re-exports kept.
+2. Final size: `src/guppy/launcher_application/launcher_command_flow.py` → `401` lines (no waiver needed).
+
+**TR54-B UI element decomposition:**
+- `settings_view.py`: 723 → 512 lines (sections → `settings_view_sections.py`, 162 lines). Waiver removed entirely (now below 700 cap).
+- `voices_view.py`: 667 → 495 lines (sections → `voices_sections.py`, 300 lines).
+- `models_sections.py`: 643 → 470 lines (support → `models_panel_support.py`, 154 lines).
+- `settings_device_accounts_panel.py`: 609 → 548 lines (sections → `settings_accounts_sections.py`, 35 lines).
+- `tools_view_cards.py`: 542 → 512 lines (registry consolidation).
+- All 5 view files now below 700-line cap. All 8 guards green.
+
+**TR54-C tool/settings decomposition:**
+- C1: Tool registry consolidated in `tools_view_cards.py`.
+- C2: Policy split — `connector_workflow.py` module docstring added documenting Settings-ownership contract (302 lines).
+- C3: `lmstudio_base_url` + `local_harness_base_url` added to `DEFAULT_SETTINGS` and `apply_settings_to_env` in `runtime_profile.py` to close silent key-drop on save/load.
+- C4: `tool_readiness.py` policy destination text updated to canonical "Fix in Settings > Device & Accounts: ..." (108 lines).
+
+**TR54-D desktop launcher hardening:**
+- D1: `tests/unit/test_launcher_startup.py` created — 31 tests covering startup phase transitions.
+- D2: `launcher_app.py` — plain-English "already running" message added (+4 lines).
+- D3: Packaging paths verified correct (no change needed).
+- D4: `launcher_poll_orchestration.py` — poll failure hardening with try/except + topbar/syslog degradation (+38 lines).
+- D5: `launcher_api_runtime_control.py` — diagnostics message now shows full path + "share this file with support" (+2 lines net).
+
+**TR54-E account/secret-storage lifecycle:**
+- E1: `settings_device_accounts_presenter.py` — "RECONNECT" label for partial auth; standardized "VERIFY" labels (was "CHECK"/"TEST KEY"). 342 lines.
+- E2: `settings_device_accounts_panel.py` — storage posture label, disable placeholder button, updated reconnect UX. 572 lines.
+- E3: `snapshot_route_support.py` — nosec annotation on repair_token endpoint.
+- E4: `tools/check_secret_redaction.py` created — 113 lines scanning snapshot/readiness files for credential patterns.
+- E5: Troubleshooting path updated to canonical Settings > Device & Accounts location string.
+
+**TR54-F integration gates and release closeout:**
+- F1: `dev-check` — all 8 guards (delta + baseline) PASSED.
+- F2: `release-check` — all guards PASSED; full default test suite PASSED (0 failures after fixing 11 tests whose assertions referenced moved symbols or pre-TR54 copy strings).
+   - Fixed 3 `MalformedRuntimeFileTests`: `launcher_window.read_json_dict` → `storage_io.read_json_dict` (function moved to `launcher_application/storage_io.py`).
+   - Fixed 4 urllib patch targets: `ui.launcher.launcher_window.urllib` → `src.guppy.launcher_application.launcher_api_runtime_control.urllib` (import purged from shell during dead-import cleanup).
+   - Fixed 4 copy-text assertions to match canonical TR54-C/E policy strings ("Fix in Settings > Device & Accounts", "VERIFY", "VERIFY SETUP", "Pick a CRM provider first").
+   - Removed stale `settings_view.py` waiver from `check_new_module_line_cap.py` (file now 512 lines, below 700 cap).
+- F3: Done definition satisfied — all TR54-B through TR54-E acceptance evidence confirmed; smoke suite green; release-check clean.
+
+Post-TR54 hotspot inventory:
+- `ui/launcher/launcher_window.py` → `993` (at-cap waiver, continued seam splits tracked)
+- `src/guppy/api/server_runtime_snapshot.py` → `789` (at-cap waiver, route-family splits tracked)
+- `src/guppy/launcher_application/launcher_command_flow.py` → `401` (no waiver)
+- All TR54-B view files below 700 lines.
+
 ## CI Guardrails
 
 1. `tools/dev_workflow.py` is the canonical command entrypoint for local and CI workflows: `dev-check`, `test-fast`, `test-default`, `test-smoke`, and `release-check`.
 2. `tools/check_new_module_line_cap.py` enforces the live-code line cap across `src/guppy/`, `ui/`, and `utils/`.
 3. `tools/check_architecture_boundaries.py` blocks legacy-surface imports and new UI/runtime-governance coupling outside the narrow launcher transition waivers.
    The runtime-auth/UI waiver is now closed; remaining launcher transition pressure is tracked primarily through line-cap hotspot waivers.
+
 4. `.github/workflows/quality-gates.yml` maps CI into `guardrails`, `default-tests`, and `product-smoke`, all through `tools/dev_workflow.py`.
 5. `release-check` writes a machine-readable receipt and short text summary under `.tmp/dev-workflow/reports/`.
 

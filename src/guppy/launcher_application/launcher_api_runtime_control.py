@@ -437,9 +437,9 @@ def direct_audit_runtime(*, runtime_dir: Path, now_factory) -> dict:
     out = runtime_dir / f"diagnostics_bundle_{now_factory().strftime('%Y%m%d_%H%M%S')}.json"
     try:
         out.write_text(json.dumps(bundle, indent=2), encoding="utf-8")
-        summary = f"bundle written: {out.name}"
+        summary = f"Diagnostics saved: {out} — share this file with support if needed."
         if issues:
-            summary = f"{summary}; runtime issues: {', '.join(issues)}"
+            summary = f"{summary} Runtime issues: {', '.join(issues)}."
         return {
             "ok": True,
             "summary": summary,

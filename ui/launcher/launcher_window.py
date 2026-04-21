@@ -5,117 +5,43 @@ the unified launcher stack, and the bottom system strip.
 """
 from __future__ import annotations
 
-import json
 import os
-import subprocess
-import sys
 import threading
 import time
 from queue import Empty, SimpleQueue
 from pathlib import Path
-import urllib.error
-import urllib.request
 
-import src.guppy.launcher_application as launcher_app
 from src.guppy.launcher_application import (
     LauncherStateSnapshot,
-    LibraryWorkflowController,
-    apply_connector_action_feedback,
-    apply_library_payload,
-    apply_workspace_instance_switch,
-    beta_release_dry_run_report_path,
-    bootstrap_workspace_instance_switcher,
     build_launcher_state_snapshot,
     build_library_chat_submission,
-    build_windows_ops_descriptor,
     build_windows_ops_plan,
-    collect_windows_service_snapshot,
-    connector_action_http_payload,
-    connector_action_record,
-    connector_action_status_label,
-    complete_bootstrap_workspace_instance_switcher,
-    drain_connector_action_events,
-    default_windows_ops_event_id,
     connector_backend_available,
-    delete_workspace_instance,
-    enabled_workspace_names,
-    execute_connector_action,
-    execute_guided_connector_setup,
-    fetch_connector_inventory,
-    handle_connector_action_request,
-    handle_connector_guided_link_request,
-    load_workspace_instance_logs,
-    perform_connector_action_request,
     refresh_workspace_instance_views,
-    release_dry_run_gate_details,
-    repo_python_path,
-    resolve_active_instance_payload,
-    save_workspace_connector_binding,
-    save_instance_connector_binding,
-    save_instance_governance,
-    run_repo_python,
-    run_connector_action_request,
-    save_workspace_instance,
-    snapshot_file_signature,
-    select_workspace_instance,
-    start_connector_action_async,
-    start_connector_guided_link_async,
-    summarize_release_dry_run_report,
-    compose_library_aware_message,
     set_daily_activity,
     sync_right_tray,
-    summarize_windows_recipe_result,
-    sync_assistant_library_context,
     update_route_preview,
-    windows_ops_artifact_refs,
-    windows_ops_chain_changes,
-    windows_ops_guidance,
-    windows_service_snapshot_changes,
-    workspace_default_purpose,
-    workspace_first_run_recipe,
-    workspace_onboarding_ready_message,
-    workspace_role_label,
-    write_windows_release_receipt,
-    write_windows_release_summary,
 )
+from src.guppy.launcher_application import launcher_connector_handlers as _conn_handlers
+from src.guppy.launcher_application import launcher_instance_handlers as _inst_handlers
+from src.guppy.launcher_application import launcher_library_handlers as _lib_handlers
+from src.guppy.launcher_application import launcher_nav_handlers as _nav_handlers
 from src.guppy.experience_config import (
-    PersonalizationState,
-    build_persona_options,
-    ensure_personalization_scaffold,
-    list_persona_choices,
-    load_persona_config,
-    load_voice_bindings,
     personalization_backend_available,
-    resolve_voice_binding,
-    voice_binding_summary,
-    voice_option_choices,
 )
 from src.guppy.runtime_application import (
     RuntimeHealthSnapshot,
-    route_evidence_summary,
-    summarize_startup_readiness,
-)
-from src.guppy.workspace_governance import (
-    instance_policy_backend_available,
-    build_connector_action_request,
-    build_connector_action_result,
-    build_connector_inventory,
-    set_instance_tool_permission_policy,
 )
 
-connector_inventory = fetch_connector_inventory
 
 from src.guppy.launcher_application.tool_action_registry import get_home_starter_prompt as _registry_tool_prompt
 from src.guppy.launcher_application.storage_io import (
     append_instance_log,
-    append_jsonl,
     instance_logger_backend_available,
     read_instance_log_tail,
-    read_json_dict,
     read_jsonl_tail,
     secret_store_client,
     secret_store_backend_available,
-    write_json_atomic,
 )
 from src.guppy.launcher_application.recovery_coordination import (
     classify_recovery_summary,
@@ -127,12 +53,10 @@ from src.guppy.launcher_application.recovery_coordination import (
     sync_recovery_outcome,
 )
 from src.guppy.launcher_application.automation_test_support import (
-    build_automation_test_snapshot,
     display_repo_path,
     event_level,
     latest_stress_report_path,
     recent_launcher_event_summaries,
-    write_user_test_evidence_pack,
     write_user_test_evidence_summary,
 )
 from src.guppy.launcher_application.automation_test_coordination import (
@@ -166,18 +90,12 @@ from src.guppy.launcher_application.launcher_first_run import (
     refresh_first_run_banner as _refresh_first_run_banner_fn,
 )
 from src.guppy.launcher_application.first_run_wizard import FirstRunWizard
-from src.guppy.launcher_application.status_poll import (
-    build_launcher_status_poll_snapshot,
-    fetch_api_status,
-)
 from src.guppy.launcher_application.launcher_shell_support import (
     QuickActionPlan,
     apply_quick_action_plan as _apply_quick_action_plan_fn,
-    build_notification_badge_state,
-    build_quick_action_plan,
-    build_runtime_badge_state,
     on_home_starter_requested as _on_home_starter_requested_fn,
 )
+from src.guppy.launcher_application.launcher_command_policy import humanize_chat_error
 from src.guppy.launcher_application.launcher_command_flow import (
     apply_chat_context as _apply_chat_context_fn,
     assistant_model_id as _assistant_model_id_fn,
@@ -186,7 +104,6 @@ from src.guppy.launcher_application.launcher_command_flow import (
     drain_assistant_events,
     finish_request_ui as _finish_request_ui_fn,
     handle_assistant_command,
-    humanize_chat_error,
     initialize_embedded_agent as _initialize_embedded_agent_fn,
     on_agent_init_requested as _on_agent_init_requested_fn,
     on_cancel_assistant_request as _on_cancel_assistant_request_fn,
@@ -218,30 +135,21 @@ from src.guppy.launcher_application.workspace_snapshot_support import (
     load_instance_catalog,
     load_instance_history_from_logs,
 )
-from src.guppy.launcher_application.windows_ops_coordination import (
-    WindowsOpsStateRecord,
-    complete_windows_ops_terminal_recipe,
-    persist_windows_ops_state,
-)
 from src.guppy.launcher_application.windows_ops_request_flow import (
     dispatch_windows_ops_request,
-    start_windows_ops_chain_request,
-    update_windows_ops_chain_request,
 )
 from src.guppy.launcher_application.tools_trace_adapter import LauncherToolsTraceAdapter
 
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
-    QLabel,
     QMainWindow,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from src.guppy.inference.router import resolve_ui_route
 from . import tokens as T
 from .stylesheet import SHEET
 from .launcher_runtime_control_mixin import LauncherRuntimeControlMixin
@@ -267,8 +175,6 @@ _PERSONALIZATION_BOOTSTRAP_AVAILABLE = personalization_backend_available()
 _INSTANCE_LOGGER_AVAILABLE = instance_logger_backend_available()
 _SECRET_STORE_AVAILABLE = secret_store_backend_available()
 _secret_store = secret_store_client()
-_INSTANCE_GOVERNANCE_BACKEND = instance_policy_backend_available()
-
 _CONNECTOR_MANAGER_BACKEND = connector_backend_available()
 
 try:
@@ -286,37 +192,8 @@ _AUTOMATION_TEST_VALIDATION_COMMAND = (
     ".venv\\Scripts\\python.exe -m pytest tests/unit/test_offhours_builder.py tests/unit/test_instance_controls.py -q"
 )
 _AUTOMATION_REPORT_PATH = _RUNTIME / "offhours_builder_report.json"
-_HOME_VIEW_INDEX = 0
-_WORKSPACES_VIEW_INDEX = 1
-_LIBRARY_VIEW_INDEX = 2
-_TOOLS_VIEW_INDEX = 3
-_SETTINGS_VIEW_INDEX = 4
-_SETTINGS_OPS_INDEX = 4
-_SETTINGS_ALIAS_INDEX = 10
-_MODELS_VIEW_INDEX = 5
-_MODELS_LOCAL_ALIAS_INDEX = 6
-_MODELS_LIBRARY_ALIAS_INDEX = 7
-_MODELS_RUNTIME_ALIAS_INDEX = 8
-_MODELS_VOICE_ALIAS_INDEX = 9
-_START_DESTINATION_TO_TAB = {
-    "home": _HOME_VIEW_INDEX,
-    "workspaces": _WORKSPACES_VIEW_INDEX,
-    "spaces": _WORKSPACES_VIEW_INDEX,
-    "library": _LIBRARY_VIEW_INDEX,
-    "tools": _TOOLS_VIEW_INDEX,
-    "appmgmt": _SETTINGS_OPS_INDEX,
-    "automation-test": _SETTINGS_OPS_INDEX,
-    "local-llm": _MODELS_LOCAL_ALIAS_INDEX,
-    "models": _MODELS_LIBRARY_ALIAS_INDEX,
-    "runtime": _MODELS_RUNTIME_ALIAS_INDEX,
-    "voice": _MODELS_VOICE_ALIAS_INDEX,
-}
-
-
-def _write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not write_json_atomic(path, payload):
-        raise OSError(f"Atomic write failed for {path}")
+_SETTINGS_VIEW_INDEX = _nav_handlers.SETTINGS_VIEW_INDEX
+_MODELS_VIEW_INDEX = _nav_handlers.MODELS_VIEW_INDEX
 
 
 class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMainWindow):
@@ -477,18 +354,7 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
 
         self._status_panel = StatusPanel(self)
         body.addWidget(self._status_panel)
-        self._library_workflow = LibraryWorkflowController(
-            assistant_view=self._assistant_view,
-            status_panel=self._status_panel,
-            get_active_items=lambda: list(self._active_library_context_items),
-            set_active_items=lambda items: setattr(self, "_active_library_context_items", list(items)),
-            get_active_instance_name=lambda: self._active_instance_name,
-            get_library_view=lambda: getattr(self, "_library_view", None),
-            refresh_library_surface=self._refresh_library_surface,
-            on_tab_change=self._on_tab_change,
-            set_daily_activity=self._set_daily_activity,
-            log_launcher_event=self._log_launcher_event,
-        )
+        _lib_handlers.ensure_library_workflow(self)
         self._wire_tools_trace_adapter()
 
         root.addLayout(body, stretch=1)
@@ -622,34 +488,11 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
     # ── Tab coordination ──────────────────────────────────────────────────────
     @staticmethod
     def _resolve_stack_index(index: int) -> int:
-        if index <= _SETTINGS_VIEW_INDEX:
-            return index
-        if index == _SETTINGS_ALIAS_INDEX:
-            return _SETTINGS_VIEW_INDEX
-        if index in {
-            _MODELS_LOCAL_ALIAS_INDEX,
-            _MODELS_LIBRARY_ALIAS_INDEX,
-            _MODELS_RUNTIME_ALIAS_INDEX,
-            _MODELS_VOICE_ALIAS_INDEX,
-        }:
-            return _MODELS_VIEW_INDEX
-        return index
+        return _nav_handlers.resolve_stack_index(index)
 
     @staticmethod
     def _visible_nav_index(index: int) -> int:
-        if index == _WORKSPACES_VIEW_INDEX:
-            return _HOME_VIEW_INDEX
-        if index in {_SETTINGS_VIEW_INDEX, _SETTINGS_ALIAS_INDEX}:
-            return _SETTINGS_VIEW_INDEX
-        if index in {
-            _MODELS_VIEW_INDEX,
-            _MODELS_LOCAL_ALIAS_INDEX,
-            _MODELS_LIBRARY_ALIAS_INDEX,
-            _MODELS_RUNTIME_ALIAS_INDEX,
-            _MODELS_VOICE_ALIAS_INDEX,
-        }:
-            return _MODELS_LIBRARY_ALIAS_INDEX
-        return index
+        return _nav_handlers.visible_nav_index(index)
 
     @staticmethod
     def _shell_model_loadout_summary(
@@ -666,80 +509,28 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
             environment=environment,
         )
 
-    def _sync_shell_model_summary(
-        self,
-        *,
-        active_model: str = "",
-        runtime_backend: str = "",
-    ) -> None:
-        app_settings = read_json_dict(_RUNTIME / "app_settings.json")
-        summary = self._shell_model_loadout_summary(
-            active_model=active_model,
-            runtime_backend=runtime_backend,
-            settings_payload=app_settings if isinstance(app_settings, dict) else {},
-            environment=dict(os.environ),
+    def _sync_shell_model_summary(self, *, active_model: str = "", runtime_backend: str = "") -> None:
+        _nav_handlers.sync_shell_model_summary(
+            self, runtime_path=_RUNTIME, active_model=active_model, runtime_backend=runtime_backend
         )
-        self._topbar.set_launcher_summary(summary)
-        self._sync_topbar_model_context(main_model=active_model)
 
     def _on_tab_change(self, index: int) -> None:
-        stack_index = self._resolve_stack_index(index)
-        visible_nav_index = self._visible_nav_index(index)
-        self._stack.setCurrentIndex(stack_index)
-        self._topbar.set_active_tab(visible_nav_index)
-        self._sidebar.set_active(visible_nav_index)
-        if visible_nav_index == _MODELS_LIBRARY_ALIAS_INDEX:
-            self._sync_shell_model_summary()
-        if index in {_SETTINGS_OPS_INDEX, _SETTINGS_ALIAS_INDEX}:
-            self._sync_automation_test_state()
-        if visible_nav_index == _HOME_VIEW_INDEX and not self._sidebar.is_collapsed():
-            self._sidebar.set_collapsed(True)
-            self._topbar.set_sidebar_collapsed(True)
-        self._set_status_panel_visible(stack_index != _HOME_VIEW_INDEX or self._home_drawer_open)
+        _nav_handlers.on_tab_change(self, index, runtime_path=_RUNTIME)
 
     def _apply_start_destination(self) -> None:
-        target = self._start_destination
-        if target not in _START_DESTINATION_TO_TAB:
-            return
-        target_index = _START_DESTINATION_TO_TAB[target]
-        if target == "automation-test" and not hasattr(self, "_stack"):
-            target_index = 3
-        self._on_tab_change(target_index)
-        if target == "automation-test":
-            note = (
-                "Test flow ready: use Settings & System to verify readiness, queue one safe check, review it, approve it, and run validation."
-            )
-            self._settings_hub_view.focus_automation_test(note=note)
-            self._assistant_view.set_background_event(note)
-            self._set_daily_activity("Test flow opened Setup & Health / Settings & System")
-            self._status_panel.append_syslog("automation test start intent opened Settings & System")
-        self._log_launcher_event("start_destination_applied", destination=target)
+        _nav_handlers.apply_start_destination(self)
 
     def _set_status_panel_visible(self, visible: bool) -> None:
-        self._status_divider.setVisible(visible)
-        self._status_panel.setVisible(visible)
-        self._topbar.set_drawer_open(visible)
+        _nav_handlers.set_status_panel_visible(self, visible)
 
     def _toggle_status_panel(self) -> None:
-        if self._stack.currentIndex() == _HOME_VIEW_INDEX:
-            self._home_drawer_open = not self._home_drawer_open
-            self._set_status_panel_visible(self._home_drawer_open)
-            return
-        self._set_status_panel_visible(not self._status_panel.isVisible())
+        _nav_handlers.toggle_status_panel(self)
 
     def _toggle_sidebar(self) -> None:
-        collapsed = not self._sidebar.is_collapsed()
-        self._sidebar.set_collapsed(collapsed)
-        self._topbar.set_sidebar_collapsed(collapsed)
+        _nav_handlers.toggle_sidebar(self)
 
     def _build_quick_action_plan(self, action: str) -> QuickActionPlan:
-        return build_quick_action_plan(
-            action=action,
-            workspaces_view_index=_WORKSPACES_VIEW_INDEX,
-            settings_ops_index=_SETTINGS_OPS_INDEX,
-            runtime_parent=_RUNTIME.parent,
-            last_command=self._last_command,
-        )
+        return _nav_handlers.build_quick_action_plan_for_owner(self, action, runtime_parent=_RUNTIME.parent)
 
     def _apply_quick_action_plan(self, plan: QuickActionPlan) -> bool:
         return _apply_quick_action_plan_fn(self, plan)
@@ -807,172 +598,122 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         )
 
     def _sync_assistant_library_context(self, library_view) -> None:
-        sync_assistant_library_context(self._assistant_view, library_view, self._active_library_context_items)
+        _lib_handlers.sync_assistant_library_context(self, library_view)
 
     def _ensure_library_workflow(self):
-        workflow = getattr(self, "_library_workflow", None)
-        if workflow is not None:
-            return workflow
-        workflow = LibraryWorkflowController(
-            assistant_view=getattr(self, "_assistant_view", None),
-            status_panel=getattr(self, "_status_panel", None),
-            get_active_items=lambda: list(getattr(self, "_active_library_context_items", [])),
-            set_active_items=lambda items: setattr(self, "_active_library_context_items", list(items)),
-            get_active_instance_name=lambda: getattr(self, "_active_instance_name", "guppy-primary"),
-            get_library_view=lambda: getattr(self, "_library_view", None),
-            refresh_library_surface=lambda: self._refresh_library_surface(),
-            on_tab_change=lambda index: self._on_tab_change(index),
-            set_daily_activity=lambda text: self._set_daily_activity(text),
-            log_launcher_event=lambda event, **fields: self._log_launcher_event(event, **fields),
-        )
-        setattr(self, "_library_workflow", workflow)
-        return workflow
+        return _lib_handlers.ensure_library_workflow(self)
 
     @staticmethod
     def _compose_library_aware_message(cmd: str, active_items: list[dict[str, str]] | None) -> str:
-        return compose_library_aware_message(cmd, active_items)
+        return _lib_handlers.compose_library_aware_message(cmd, active_items)
 
     def _on_library_context_requested(self, title: str, item_path: str, item_kind: str, prompt: str) -> None:
-        self._ensure_library_workflow().handle_context_requested(title, item_path, item_kind, prompt)
+        _lib_handlers.on_library_context_requested(self, title, item_path, item_kind, prompt)
 
     def _on_library_context_cleared(self) -> None:
-        self._ensure_library_workflow().handle_context_cleared()
+        _lib_handlers.on_library_context_cleared(self)
 
     def _on_library_context_focused(self, title: str) -> None:
-        self._ensure_library_workflow().handle_context_focused(title)
+        _lib_handlers.on_library_context_focused(self, title)
 
     def _on_library_context_default_requested(self, title: str) -> None:
-        self._ensure_library_workflow().handle_default_source_requested(title)
+        _lib_handlers.on_library_context_default_requested(self, title)
 
     def _on_library_context_opened(self, title: str) -> None:
-        title_text = str(title or "").strip()
-        self._on_tab_change(2)
-        library_view = getattr(self, "_library_view", None)
-        if library_view is not None and hasattr(library_view, "focus_search_query"):
-            library_view.focus_search_query(title_text)
-        self._set_daily_activity(f"Library opened for source: {title_text}")
-        self._status_panel.append_syslog(f"library source opened: {title_text}")
-        self._log_launcher_event("library_context_opened", title=title_text)
+        _lib_handlers.on_library_context_opened(self, title)
 
     def _on_library_context_removed(self, title: str) -> None:
-        self._ensure_library_workflow().handle_context_removed(title)
+        _lib_handlers.on_library_context_removed(self, title)
 
     def _refresh_library_surface(self) -> None:
-        snapshot = self._last_instance_snapshot if isinstance(self._last_instance_snapshot, dict) else {}
-        active_payload = resolve_active_instance_payload(snapshot, self._active_instance_name)
-        library_view = getattr(self, "_library_view", None)
-        if library_view is not None and isinstance(active_payload, dict):
-            apply_library_payload(self._assistant_view, library_view, self._active_library_context_items, active_payload, snapshot)
+        _lib_handlers.refresh_library_surface(self)
 
     def _on_library_root_requested(self, root_path: str, label: str) -> None:
-        self._ensure_library_workflow().handle_root_requested(root_path, label)
+        _lib_handlers.on_library_root_requested(self, root_path, label)
 
     def _on_library_note_requested(self, title: str, summary: str) -> None:
-        self._ensure_library_workflow().handle_note_requested(title, summary)
+        _lib_handlers.on_library_note_requested(self, title, summary)
 
     def _on_library_note_updated(self, item_id: int, title: str, summary: str) -> None:
-        self._ensure_library_workflow().handle_note_updated(item_id, title, summary)
+        _lib_handlers.on_library_note_updated(self, item_id, title, summary)
 
     def _on_library_artifact_requested(self, title: str, item_path: str, summary: str) -> None:
-        self._ensure_library_workflow().handle_artifact_requested(title, item_path, summary)
+        _lib_handlers.on_library_artifact_requested(self, title, item_path, summary)
 
     def _on_library_artifact_updated(self, item_id: int, title: str, item_path: str, summary: str) -> None:
-        self._ensure_library_workflow().handle_artifact_updated(item_id, title, item_path, summary)
+        _lib_handlers.on_library_artifact_updated(self, item_id, title, item_path, summary)
 
     def _on_library_item_deleted(self, item_id: int, title: str) -> None:
-        self._ensure_library_workflow().handle_item_deleted(item_id, title)
+        _lib_handlers.on_library_item_deleted(self, item_id, title)
 
     def _on_assistant_reply_library_requested(self, content: str, attach_next: bool) -> None:
-        self._ensure_library_workflow().handle_reply_saved(content, attach_next=attach_next)
+        _lib_handlers.on_assistant_reply_library_requested(self, content, attach_next)
+
     def _on_assistant_reply_artifact_requested(self, content: str) -> None:
-        self._ensure_library_workflow().handle_reply_artifact_saved(content)
+        _lib_handlers.on_assistant_reply_artifact_requested(self, content)
+
     def _on_latest_saved_output_attached(self, title: str, summary: str) -> None:
-        self._ensure_library_workflow().handle_latest_output_attached(title, summary)
+        _lib_handlers.on_latest_saved_output_attached(self, title, summary)
+
     def _on_active_context_refresh_requested(self, content: str, as_artifact: bool) -> None:
-        workflow = self._ensure_library_workflow()
-        if as_artifact:
-            workflow.handle_reply_artifact_saved(content, attach_now=True)
-        else:
-            workflow.handle_reply_saved(content, attach_next=True)
+        _lib_handlers.on_active_context_refresh_requested(self, content, as_artifact)
 
     def _apply_instance_switch(self, target: str, *, announce: bool = True) -> None:
-        apply_workspace_instance_switch(self, target, announce=announce)
+        _inst_handlers.apply_instance_switch(self, target, announce=announce)
 
     def _bootstrap_instance_switcher(self) -> None:
-        bootstrap_workspace_instance_switcher(self, schedule_single_shot=QTimer.singleShot)
+        _inst_handlers.bootstrap_instance_switcher(self)
 
     def _complete_bootstrap_instance_switcher(self) -> None:
-        complete_bootstrap_workspace_instance_switcher(
-            self,
-            schedule_single_shot=QTimer.singleShot,
-            monotonic=time.monotonic,
-            fetch_connector_inventory=connector_inventory,
-        )
+        _inst_handlers.complete_bootstrap_instance_switcher(self)
 
     def _snapshot_active_instance_history(self) -> None:
-        if not self._active_instance_name:
-            return
-        self._instance_histories[self._active_instance_name] = self._assistant_view.recent_history(limit=200)
+        _inst_handlers.snapshot_active_instance_history(self)
 
     def _on_instance_selected(self, name: str) -> None:
-        select_workspace_instance(self, name, read_json_dict=read_json_dict, write_json=_write_json)
+        _inst_handlers.on_instance_selected(self, name)
 
     def _on_instance_manager_refresh(self) -> None:
-        launcher_app.refresh_workspace_instance_manager(self)
+        _inst_handlers.on_instance_manager_refresh(self)
 
     def _on_instance_create_requested(self, payload: dict) -> None:
-        save_workspace_instance(self, payload)
+        _inst_handlers.on_instance_create_requested(self, payload)
 
     def _on_instance_governance_save_requested(self, payload: dict) -> None:
-        save_instance_governance(self, payload, backend_available=_INSTANCE_GOVERNANCE_BACKEND)
+        _inst_handlers.on_instance_governance_save_requested(self, payload)
 
     def _on_instance_connector_binding_save_requested(self, payload: dict) -> None:
-        save_instance_connector_binding(self, payload, backend_available=_CONNECTOR_MANAGER_BACKEND)
+        _conn_handlers.on_instance_connector_binding_save_requested(self, payload)
 
     def _perform_connector_action_request(self, payload: dict) -> dict:
-        return perform_connector_action_request(self, payload, backend_available=_CONNECTOR_MANAGER_BACKEND)
+        return _conn_handlers.perform_request(self, payload)
 
     def _apply_connector_action_feedback(self, record: dict, *, refresh_after: bool = True) -> dict:
-        return apply_connector_action_feedback(self, record, refresh_after=refresh_after)
+        return _conn_handlers.apply_feedback(self, record, refresh_after=refresh_after)
 
     def _run_connector_action_request(self, payload: dict, *, refresh_after: bool = True) -> dict:
-        return run_connector_action_request(
-            self,
-            payload,
-            refresh_after=refresh_after,
-            backend_available=_CONNECTOR_MANAGER_BACKEND,
-        )
+        return _conn_handlers.run_request(self, payload, refresh_after=refresh_after)
 
     def _start_connector_action_async(self, payload: dict, *, refresh_after: bool = True) -> None:
-        start_connector_action_async(
-            self,
-            payload,
-            refresh_after=refresh_after,
-            backend_available=_CONNECTOR_MANAGER_BACKEND,
-        )
+        _conn_handlers.start_async(self, payload, refresh_after=refresh_after)
 
     def _start_connector_guided_link_async(self, payload: dict) -> None:
-        start_connector_guided_link_async(self, payload, backend_available=_CONNECTOR_MANAGER_BACKEND)
+        _conn_handlers.start_guided_link_async(self, payload)
 
     def _drain_connector_action_events(self) -> None:
-        drain_connector_action_events(self)
+        _conn_handlers.drain_events(self)
 
     def _on_connector_action_requested(self, payload: dict) -> None:
-        handle_connector_action_request(self, payload, backend_available=_CONNECTOR_MANAGER_BACKEND)
+        _conn_handlers.on_action_requested(self, payload)
 
     def _on_connector_guided_link_requested(self, payload: dict) -> None:
-        handle_connector_guided_link_request(self, payload, backend_available=_CONNECTOR_MANAGER_BACKEND)
+        _conn_handlers.on_guided_link_requested(self, payload)
 
     def _on_instance_delete_requested(self, name: str) -> None:
-        delete_workspace_instance(self, name)
+        _inst_handlers.on_instance_delete_requested(self, name)
 
     def _on_instance_logs_requested(self, name: str, quiet: bool = False) -> None:
-        load_workspace_instance_logs(
-            self,
-            name,
-            quiet=quiet,
-            local_log_reader=read_instance_log_tail if _INSTANCE_LOGGER_AVAILABLE else None,
-        )
+        _inst_handlers.on_instance_logs_requested(self, name, quiet=quiet)
 
     # ── Event handlers ────────────────────────────────────────────────────────
     def _on_settings_saved(self, settings: dict) -> None:
@@ -1208,10 +949,7 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         _on_runtime_settings_saved_fn(self, settings, models_view_index=_MODELS_VIEW_INDEX)
 
     def _on_search(self, query: str) -> None:
-        if not query.strip():
-            return
-        self._on_tab_change(0)
-        self._assistant_view.set_input_text(query)
+        _nav_handlers.on_search(self, query)
 
     @staticmethod
     def _windows_ops_plan(action: str) -> dict[str, object]:
@@ -1239,18 +977,10 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         )
 
     def _on_quick_action(self, action: str) -> None:
-        plan = self._build_quick_action_plan(action)
-        self._apply_quick_action_plan(plan)
+        _nav_handlers.on_quick_action(self, action)
 
     def _refresh_notification_badge(self) -> None:
-        state = build_notification_badge_state(
-            events_path=_RUNTIME / "launcher_events.jsonl",
-            previous_mtime=self._notification_badge_mtime,
-        )
-        if not state.changed:
-            return
-        self._notification_badge_mtime = state.mtime
-        self._topbar.set_notification_badge(state.count, severity=state.severity)
+        _nav_handlers.refresh_notification_badge(self, events_path=_RUNTIME / "launcher_events.jsonl")
 
     def _ensure_voice_capture(self) -> tuple[bool, str]:
         return _ensure_voice_capture_fn(

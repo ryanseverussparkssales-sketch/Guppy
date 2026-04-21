@@ -11,16 +11,12 @@ from typing import Any
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
-    QPlainTextEdit,
     QPushButton,
     QScrollArea,
-    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -46,21 +42,16 @@ from src.guppy.launcher_application.settings_persona_presenter import (
     build_persona_preview_text,
 )
 from .. import tokens as T
-_PROFILE_BACKEND = runtime_settings_backend_available()
+from .settings_view_sections import (
+    _MODEL_BINDING_OPTIONS,
+    build_settings_persona_frame,
+    build_settings_runtime_frame,
+)
 
+_PROFILE_BACKEND = runtime_settings_backend_available()
 _PERSONALIZATION_BACKEND = personalization_backend_available()
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
-_TONE_OPTIONS = ["butler", "coach", "mentor", "analyst", "friendly"]
-_VERBOSITY_OPTIONS = ["low", "medium", "high"]
-_STYLE_OPTIONS = ["direct", "structured", "teaching", "concise"]
-_MODEL_BINDING_OPTIONS = [
-    "guppy",
-    "guppy-fast",
-    "vault-scraper",
-    "claude-haiku-4-5-20251001",
-    "claude-sonnet-4-6",
-]
 
 
 def _deepcopy_json(data: dict[str, Any]) -> dict[str, Any]:
@@ -70,12 +61,6 @@ def _deepcopy_json(data: dict[str, Any]) -> dict[str, Any]:
 def _slugify(raw: str) -> str:
     normalized = _SLUG_RE.sub("_", (raw or "").strip().lower()).strip("_")
     return normalized[:40] or "persona"
-
-
-class _Toggle(QCheckBox):
-    @property
-    def is_checked(self) -> bool:
-        return self.isChecked()
 
 
 class SettingsView(QWidget):
@@ -131,131 +116,12 @@ class SettingsView(QWidget):
         self._section_row_host.setLayout(section_row)
         layout.addWidget(self._section_row_host)
 
-        self._runtime_frame = QFrame()
-        runtime_layout = QVBoxLayout(self._runtime_frame)
-        runtime_layout.setContentsMargins(14, 12, 14, 12)
-        runtime_layout.setSpacing(10)
-        runtime_layout.addWidget(QLabel("Runtime Defaults"))
-
-        self._cb_profile = QComboBox()
-        self._cb_profile.addItems(["LIGHT", "STANDARD", "POWER"])
-        self._cb_mode = QComboBox()
-        self._cb_mode.addItems(list(LAUNCHER_MODES_DISPLAY))
-
-        row = QHBoxLayout()
-        row.addWidget(self._cb_profile)
-        row.addWidget(self._cb_mode)
-        runtime_layout.addLayout(row)
-
-        self._t_daemon = _Toggle("Daemon Background Execution")
-        self._t_voice = _Toggle("Voice Synthesis Feedback")
-        self._t_wake = _Toggle("Active Wake-Word Detection")
-        self._t_daemon.setChecked(True)
-        self._t_voice.setChecked(True)
-        for toggle in [self._t_daemon, self._t_voice, self._t_wake]:
-            runtime_layout.addWidget(toggle)
-
-        self._hw_lbl = QLabel("Hardware: detecting...")
-        self._recovery_status = QLabel("Recovery idle")
-        self._last_mod_lbl = QLabel("Last saved: -")
-        self._save_confirm = QLabel("")
-        for label in [self._hw_lbl, self._recovery_status, self._last_mod_lbl, self._save_confirm]:
-            label.setWordWrap(True)
-            runtime_layout.addWidget(label)
+        self._runtime_frame = build_settings_runtime_frame(
+            self, launcher_modes=list(LAUNCHER_MODES_DISPLAY)
+        )
         layout.addWidget(self._runtime_frame)
 
-        self._persona_frame = QFrame()
-        persona_layout = QVBoxLayout(self._persona_frame)
-        persona_layout.setContentsMargins(14, 12, 14, 12)
-        persona_layout.setSpacing(10)
-        persona_layout.addWidget(QLabel("Assistant & Persona Builder"))
-
-        picker_row = QHBoxLayout()
-        self._persona_picker = QComboBox()
-        self._persona_picker.currentIndexChanged.connect(self._on_persona_selected)
-        self._new_persona_btn = QPushButton("NEW PERSONA")
-        self._new_persona_btn.clicked.connect(self._create_persona)
-        self._delete_persona_btn = QPushButton("DELETE")
-        self._delete_persona_btn.clicked.connect(self._delete_persona)
-        picker_row.addWidget(self._persona_picker, stretch=1)
-        picker_row.addWidget(self._new_persona_btn)
-        picker_row.addWidget(self._delete_persona_btn)
-        persona_layout.addLayout(picker_row)
-
-        identity_row = QHBoxLayout()
-        self._persona_name = QLineEdit()
-        self._persona_name.setPlaceholderText("Assistant name")
-        self._persona_name.textChanged.connect(self._refresh_preview)
-        self._scope_cb = QComboBox()
-        self._scope_cb.addItems(["GLOBAL", "MODEL"])
-        self._scope_cb.currentTextChanged.connect(self._on_scope_changed)
-        self._model_binding_cb = QComboBox()
-        self._model_binding_cb.addItems(_MODEL_BINDING_OPTIONS)
-        self._model_binding_cb.currentTextChanged.connect(self._refresh_preview)
-        identity_row.addWidget(self._persona_name, stretch=2)
-        identity_row.addWidget(self._scope_cb)
-        identity_row.addWidget(self._model_binding_cb, stretch=1)
-        self._assistant_name_note = QLabel(
-            "Platform name stays Guppy. Change the default assistant name here; model identity stays in Models."
-        )
-        self._assistant_name_note.setWordWrap(True)
-        persona_layout.addLayout(identity_row)
-        persona_layout.addWidget(self._assistant_name_note)
-
-        traits_row = QHBoxLayout()
-        self._tone_cb = QComboBox()
-        self._tone_cb.addItems([item.upper() for item in _TONE_OPTIONS])
-        self._tone_cb.currentTextChanged.connect(self._refresh_preview)
-        self._verbosity_cb = QComboBox()
-        self._verbosity_cb.addItems([item.upper() for item in _VERBOSITY_OPTIONS])
-        self._verbosity_cb.currentTextChanged.connect(self._refresh_preview)
-        self._style_cb = QComboBox()
-        self._style_cb.addItems([item.upper() for item in _STYLE_OPTIONS])
-        self._style_cb.currentTextChanged.connect(self._refresh_preview)
-        traits_row.addWidget(self._tone_cb)
-        traits_row.addWidget(self._verbosity_cb)
-        traits_row.addWidget(self._style_cb)
-        persona_layout.addLayout(traits_row)
-
-        self._teaching_toggle = _Toggle("Teaching mode enabled")
-        self._teaching_toggle.stateChanged.connect(self._refresh_preview)
-        persona_layout.addWidget(self._teaching_toggle)
-
-        self._socratic_slider, self._socratic_value = self._build_slider_row(
-            persona_layout,
-            "Socratic bias",
-            self._refresh_preview,
-        )
-        self._example_slider, self._example_value = self._build_slider_row(
-            persona_layout,
-            "Example bias",
-            self._refresh_preview,
-        )
-
-        assignment_row = QHBoxLayout()
-        self._global_persona_cb = QComboBox()
-        self._global_persona_cb.currentTextChanged.connect(self._refresh_preview)
-        assignment_row.addWidget(QLabel("Global default"))
-        assignment_row.addWidget(self._global_persona_cb, stretch=1)
-        persona_layout.addLayout(assignment_row)
-
-        self._assignment_summary_lbl = QLabel("Model bindings: -")
-        self._assignment_summary_lbl.setWordWrap(True)
-        persona_layout.addWidget(self._assignment_summary_lbl)
-
-        self._system_prompt = QPlainTextEdit()
-        self._system_prompt.setPlaceholderText("System prompt for this persona")
-        self._system_prompt.setMinimumHeight(140)
-        self._system_prompt.textChanged.connect(self._refresh_preview)
-        persona_layout.addWidget(self._system_prompt)
-
-        self._preview_lbl = QLabel("Preview unavailable")
-        self._preview_lbl.setWordWrap(True)
-        persona_layout.addWidget(self._preview_lbl)
-
-        self._persona_diag_lbl = QLabel("")
-        self._persona_diag_lbl.setWordWrap(True)
-        persona_layout.addWidget(self._persona_diag_lbl)
+        self._persona_frame = build_settings_persona_frame(self)
         layout.addWidget(self._persona_frame)
 
         self._advanced_frame = QFrame()
@@ -323,20 +189,6 @@ class SettingsView(QWidget):
                     f"QPushButton:hover {{ color: {T.TERTIARY}; border-color: {T.TERTIARY}; background-color: #ffffff; }}"
                 )
             )
-
-    def _build_slider_row(self, layout: QVBoxLayout, label_text: str, on_change) -> tuple[QSlider, QLabel]:
-        row = QHBoxLayout()
-        label = QLabel(label_text)
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(0, 100)
-        value = QLabel("0")
-        slider.valueChanged.connect(lambda amount: value.setText(str(amount)))
-        slider.valueChanged.connect(lambda _amount: on_change())
-        row.addWidget(label)
-        row.addWidget(slider, stretch=1)
-        row.addWidget(value)
-        layout.addLayout(row)
-        return slider, value
 
     def _load(self) -> None:
         self._load_runtime_settings()

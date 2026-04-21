@@ -86,18 +86,18 @@ HOVER_PRIMARY_SOFT = "rgba(201,106,43,0.08)"
 HOVER_PRIMARY_MED = "rgba(201,106,43,0.14)"
 
 # Accent system (turquoise + sunset orange — aligns with existing primary/secondary)
-ACCENT_TEAL   = "#2f6f7a"   # existing secondary, now named explicitly
-ACCENT_ORANGE = "#c96a2b"   # existing primary, now named explicitly
-ACCENT_GLOW   = "#e8935a"   # warm sunset highlight (lighter orange glow)
-ACCENT_TEAL_TEXT = "#295963"   # darker teal for active labels on light sand
-ACCENT_ORANGE_TEXT = "#8f4c20"   # darker orange for small text on warm sand
+ACCENT_TEAL = "#2f6f7a"
+ACCENT_ORANGE = "#c96a2b"
+ACCENT_GLOW = "#e8935a"
+ACCENT_TEAL_TEXT = "#295963"
+ACCENT_ORANGE_TEXT = "#8f4c20"
 
 # Gradient definitions for QSS use
 GRADIENT_SUNSET = "qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2f6f7a,stop:1 #c96a2b)"
-GRADIENT_SAND   = "qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #FBF9F4,stop:1 #EDE9E1)"
+GRADIENT_SAND = "qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #FBF9F4,stop:1 #EDE9E1)"
 
 # Typography — add serif headline pairing
-FONT_SERIF = "Georgia"   # editorial headline serif (Noto Serif fallback)
+FONT_SERIF = "Georgia"
 
 # Typography
 FF_HEAD = "Cambria"

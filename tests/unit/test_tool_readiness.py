@@ -69,7 +69,7 @@ def test_tool_settings_route_only_surfaces_settings_owned_connector_fixes() -> N
         "destination": "settings_device_accounts",
         "button_label": "OPEN APP MGMT",
         "destination_label": "Settings > Device & Accounts",
-        "note": "App Mgmt: connect Gmail on this machine, then run Verify.",
+        "note": "App Mgmt: connect Gmail on this machine, then run Verify. Open Settings > Device & Accounts > Gmail to continue.",
         "fix_target": "App Mgmt > Connector Inventory",
     }
     assert workspace_only == {}

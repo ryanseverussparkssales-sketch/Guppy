@@ -1,3 +1,17 @@
+"""
+src/guppy/launcher_application/connector_workflow.py
+
+Connector lifecycle orchestration for the launcher.
+
+SETTINGS OWNERSHIP CONTRACT
+---------------------------
+All connector setup and account actions (connect, verify, guided-link, etc.)
+MUST originate from Settings > Device & Accounts or Settings > Operations.
+The ``_reject_non_settings_owned_request`` guard enforces this at the
+entry points of every externally-callable handler.  No connector action
+bypasses Settings ownership.  Workspaces bind already-configured connectors;
+they do NOT own connector setup or machine-level auth.
+"""
 from __future__ import annotations
 
 import threading

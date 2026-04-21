@@ -34,6 +34,8 @@ DEFAULT_SETTINGS = {
     "default_mode": "auto",
     "local_runtime_backend": "ollama",
     "lemonade_base_url": "http://localhost:13305/api/v1",
+    "lmstudio_base_url": "http://127.0.0.1:1234/v1",
+    "local_harness_base_url": "http://127.0.0.1:8001",
     "lemonade_fast_model": "",
     "lemonade_complex_model": "",
     "lemonade_teach_model": "",
@@ -218,6 +220,12 @@ def apply_settings_to_env(settings: dict[str, Any]) -> dict[str, Any]:
     os.environ["GUPPY_LOCAL_RUNTIME_BACKEND"] = str(merged.get("local_runtime_backend", "ollama") or "ollama").strip().lower()
     os.environ["GUPPY_LEMONADE_BASE_URL"] = str(
         merged.get("lemonade_base_url", "http://localhost:13305/api/v1") or "http://localhost:13305/api/v1"
+    ).strip()
+    os.environ["GUPPY_LMSTUDIO_BASE_URL"] = str(
+        merged.get("lmstudio_base_url", "http://127.0.0.1:1234/v1") or "http://127.0.0.1:1234/v1"
+    ).strip()
+    os.environ["GUPPY_LOCAL_HARNESS_BASE_URL"] = str(
+        merged.get("local_harness_base_url", "http://127.0.0.1:8001") or "http://127.0.0.1:8001"
     ).strip()
     os.environ["GUPPY_LEMONADE_FAST_MODEL"] = str(merged.get("lemonade_fast_model", "") or "").strip()
     os.environ["GUPPY_LEMONADE_COMPLEX_MODEL"] = str(merged.get("lemonade_complex_model", "") or "").strip()
