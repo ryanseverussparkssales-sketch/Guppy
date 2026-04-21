@@ -1,10 +1,20 @@
-# Project Bob Integration Contract
+# Archived External Integration Contract Note
 
-Last updated: 2026-04-17
+Last updated: 2026-04-19
 
-## Purpose
+## Status
 
-This note defines the stable seams Guppy should preserve while local sidecars evolve and while a future merge or linking pass with Project Bob is planned.
+Project Bob is no longer an active downstream planning target for Guppy.
+
+This note is kept only as historical context for one idea that still matters:
+
+1. external runtimes and sidecars should integrate through explicit contracts
+2. Guppy should avoid vendored repo dependencies for optional integrations
+3. launcher/runtime/library seams should stay adapter-friendly
+
+## Historical Purpose
+
+This note originally defined the stable seams Guppy should preserve while local sidecars evolved and while a future merge or linking pass with Project Bob was being considered.
 
 The goal is simple:
 
@@ -30,7 +40,7 @@ Guppy should store only:
 2. base URL
 3. role-to-model mapping
 
-That keeps future Bob linking simple because the merge point is the runtime API surface, not a copied repo.
+That keeps future external runtime linking simple because the merge point is the runtime API surface, not a copied repo.
 
 ### llama.cpp-style runtimes
 
@@ -54,7 +64,7 @@ Current rule:
 2. memory adapters own storage layout details
 3. upstream memory projects are optional external references, not required build contents
 
-This keeps future Bob merge work focused on adapter compatibility instead of file-tree reconciliation.
+This keeps future external integration work focused on adapter compatibility instead of file-tree reconciliation.
 
 ## File And Library Contract
 
@@ -86,11 +96,11 @@ Deprecated repo-local surfaces that should not return as hard dependencies:
 2. vendored upstream memory repos
 3. the old repo-local web chat surface
 
-If Bob needs web access later, that should land as a deliberate supported surface with its own build path, not by reviving orphaned files.
+If a future external integration needs web access later, that should land as a deliberate supported surface with its own build path, not by reviving orphaned files.
 
 ## Merge Guidance
 
-If Project Bob is introduced later, prefer merge points in this order:
+If a future external integration is introduced later, prefer merge points in this order:
 
 1. local runtime provider contract
 2. library and file metadata contract

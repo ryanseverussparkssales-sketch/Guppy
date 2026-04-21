@@ -33,6 +33,7 @@ from .connector_metadata import (
     secret_field_meta,
     validate_secret_value,
 )
+from .connector_binding_validation import validate_connector_binding_request
 from .machine_auth import (
     clear_machine_secret,
     keyring_key,
@@ -40,6 +41,8 @@ from .machine_auth import (
     read_machine_secret,
     secret_source,
     secret_status,
+    storage_posture,
+    storage_warning,
     write_machine_secret,
 )
 from .provider_status import (
@@ -89,12 +92,15 @@ __all__ = [
     "set_instance_tool_permission_policy",
     "summarize_connector_readiness",
     "validate_secret_value",
+    "validate_connector_binding_request",
     "keyring_key",
     "read_machine_secret",
     "write_machine_secret",
     "clear_machine_secret",
     "secret_source",
     "merge_secret_sources",
+    "storage_posture",
+    "storage_warning",
     "secret_status",
     "token_path_for_gmail_account",
     "build_crm_status",

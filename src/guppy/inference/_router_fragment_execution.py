@@ -483,8 +483,8 @@ def query(
         user_text: User message
         tools: Optional tool definitions
         messages: Optional message history (for local model)
-        prefer_local: If True, try local first (legacy only)
-        prefer_fallback: Which cloud model to prefer ("haiku" or "sonnet") - legacy only
+        prefer_local: If True, try local first (classic-chain mode only).
+        prefer_fallback: Cloud fallback preference ("haiku" or "sonnet") for classic-chain mode.
         mode: "legacy" (local-first) or "smart" (haiku-first, task-aware)
 
     Returns:
@@ -494,9 +494,9 @@ def query(
     if mode == "smart":
         return self.query_smart(system_prompt, user_text, tools, messages)
 
-    # LEGACY MODE: local -> haiku -> sonnet
+    # Classic chain (mode=legacy): local -> haiku -> sonnet
     logger.info("=" * 70)
-    logger.info(f"INFERENCE ROUTER (LEGACY) | Primary: {self.current_primary}")
+    logger.info(f"INFERENCE ROUTER (CLASSIC CHAIN: legacy) | Primary: {self.current_primary}")
     logger.info("=" * 70)
 
     # Step 1: Try local if preferred

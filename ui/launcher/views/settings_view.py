@@ -1,6 +1,6 @@
 """
 ui/launcher/views/settings_view.py
-Runtime settings plus Persona Builder v1 for the unified launcher.
+Runtime settings plus assistant/persona configuration for the unified launcher.
 """
 from __future__ import annotations
 
@@ -11,16 +11,12 @@ from typing import Any
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
-    QPlainTextEdit,
     QPushButton,
     QScrollArea,
-    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -39,60 +35,23 @@ from src.guppy.experience_config import (
     save_runtime_settings as save_app_settings,
     validate_persona_config,
 )
+from src.guppy.experience_config.personalization_defaults import DEFAULT_ASSISTANT_NAME, DEFAULT_PERSONA_CONFIG
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
+from src.guppy.launcher_application.settings_persona_presenter import (
+    build_assignment_summary_text,
+    build_persona_preview_text,
+)
+from .. import tokens as T
+from .settings_view_sections import (
+    _MODEL_BINDING_OPTIONS,
+    build_settings_persona_frame,
+    build_settings_runtime_frame,
+)
+
 _PROFILE_BACKEND = runtime_settings_backend_available()
-
-_DEFAULT_PERSONA_CONFIG: dict[str, Any] = {
-    "version": 1,
-    "default_persona_id": "main_guppy",
-    "personas": [
-        {
-            "id": "main_guppy",
-            "name": "Main Guppy",
-            "scope": "global",
-            "system_prompt": (
-                "You are Main Guppy, Ryan's primary day-to-day assistant. "
-                "Be calm, dependable, practical, and quietly confident. "
-                "Keep the Jarvis-like feel understated and never theatrical."
-            ),
-            "traits": {
-                "tone": "butler",
-                "verbosity": "medium",
-                "response_style": "direct",
-            },
-            "teaching": {
-                "enabled": True,
-                "socratic_bias": 35,
-                "example_bias": 60,
-            },
-            "profile_summary": (
-                "- Ryan prefers concise, high-signal answers with low filler.\n"
-                "- Keep the tone calm, exact, proactive, and quietly confident. Aim for a Jarvis-like feel without theatrical phrasing.\n"
-                "- Preserve continuity across coding, launcher UX, automation, and workspace work so progress feels cumulative.\n"
-                "- Keep Home calm and chat-first. Move heavier runtime, routing, recovery, and logs detail into App Mgmt or dedicated surfaces.\n"
-                "- Never pretend an action, tool result, or state change happened unless it was actually executed."
-            ),
-        }
-    ],
-    "assignments": {
-        "global": "main_guppy",
-        "by_model": {},
-    },
-}
-
 _PERSONALIZATION_BACKEND = personalization_backend_available()
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
-_TONE_OPTIONS = ["butler", "coach", "mentor", "analyst", "friendly"]
-_VERBOSITY_OPTIONS = ["low", "medium", "high"]
-_STYLE_OPTIONS = ["direct", "structured", "teaching", "concise"]
-_MODEL_BINDING_OPTIONS = [
-    "guppy",
-    "guppy-fast",
-    "vault-scraper",
-    "claude-haiku-4-5-20251001",
-    "claude-sonnet-4-6",
-]
 
 
 def _deepcopy_json(data: dict[str, Any]) -> dict[str, Any]:
@@ -104,21 +63,18 @@ def _slugify(raw: str) -> str:
     return normalized[:40] or "persona"
 
 
-class _Toggle(QCheckBox):
-    @property
-    def is_checked(self) -> bool:
-        return self.isChecked()
-
-
 class SettingsView(QWidget):
     settings_saved = Signal(dict)
     recovery_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._persona_config = _deepcopy_json(_DEFAULT_PERSONA_CONFIG)
+        self._persona_config = _deepcopy_json(DEFAULT_PERSONA_CONFIG)
         self._current_persona_id = "main_guppy"
         self._loading_persona = False
+        self._settings_section = "runtime"
+        self._section_buttons: dict[str, QPushButton] = {}
+        self._embedded_mode = False
         self._build_ui()
         self._load()
 
@@ -139,132 +95,46 @@ class SettingsView(QWidget):
 
         title = QLabel("Settings")
         title.setStyleSheet("font-size: 26pt; font-weight: 900;")
+        self._title_lbl = title
         layout.addWidget(title)
-        subtitle = QLabel("Runtime defaults and Persona Builder v1 for launcher-local behavior.")
+        subtitle = QLabel("Runtime defaults plus assistant naming and persona behavior for launcher-local use.")
         subtitle.setWordWrap(True)
+        self._subtitle_lbl = subtitle
         layout.addWidget(subtitle)
 
-        runtime_frame = QFrame()
-        runtime_layout = QVBoxLayout(runtime_frame)
-        runtime_layout.setContentsMargins(14, 12, 14, 12)
-        runtime_layout.setSpacing(10)
-        runtime_layout.addWidget(QLabel("Runtime Defaults"))
+        section_row = QHBoxLayout()
+        section_row.setSpacing(8)
+        for key, label in (("runtime", "RUNTIME"), ("personas", "PERSONAS"), ("advanced", "ADVANCED")):
+            btn = QPushButton(label)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _=False, section=key: self._set_settings_section(section))
+            self._section_buttons[key] = btn
+            section_row.addWidget(btn)
+        section_row.addStretch()
+        self._section_row = section_row
+        self._section_row_host = QWidget()
+        self._section_row_host.setLayout(section_row)
+        layout.addWidget(self._section_row_host)
 
-        self._cb_profile = QComboBox()
-        self._cb_profile.addItems(["LIGHT", "STANDARD", "POWER"])
-        self._cb_mode = QComboBox()
-        self._cb_mode.addItems(list(LAUNCHER_MODES_DISPLAY))
-
-        row = QHBoxLayout()
-        row.addWidget(self._cb_profile)
-        row.addWidget(self._cb_mode)
-        runtime_layout.addLayout(row)
-
-        self._t_daemon = _Toggle("Daemon Background Execution")
-        self._t_voice = _Toggle("Voice Synthesis Feedback")
-        self._t_wake = _Toggle("Active Wake-Word Detection")
-        self._t_daemon.setChecked(True)
-        self._t_voice.setChecked(True)
-        for toggle in [self._t_daemon, self._t_voice, self._t_wake]:
-            runtime_layout.addWidget(toggle)
-
-        self._hw_lbl = QLabel("Hardware: detecting...")
-        self._recovery_status = QLabel("Recovery idle")
-        self._last_mod_lbl = QLabel("Last saved: -")
-        self._save_confirm = QLabel("")
-        for label in [self._hw_lbl, self._recovery_status, self._last_mod_lbl, self._save_confirm]:
-            label.setWordWrap(True)
-            runtime_layout.addWidget(label)
-        layout.addWidget(runtime_frame)
-
-        persona_frame = QFrame()
-        persona_layout = QVBoxLayout(persona_frame)
-        persona_layout.setContentsMargins(14, 12, 14, 12)
-        persona_layout.setSpacing(10)
-        persona_layout.addWidget(QLabel("Persona Builder v1"))
-
-        picker_row = QHBoxLayout()
-        self._persona_picker = QComboBox()
-        self._persona_picker.currentIndexChanged.connect(self._on_persona_selected)
-        self._new_persona_btn = QPushButton("NEW PERSONA")
-        self._new_persona_btn.clicked.connect(self._create_persona)
-        self._delete_persona_btn = QPushButton("DELETE")
-        self._delete_persona_btn.clicked.connect(self._delete_persona)
-        picker_row.addWidget(self._persona_picker, stretch=1)
-        picker_row.addWidget(self._new_persona_btn)
-        picker_row.addWidget(self._delete_persona_btn)
-        persona_layout.addLayout(picker_row)
-
-        identity_row = QHBoxLayout()
-        self._persona_name = QLineEdit()
-        self._persona_name.setPlaceholderText("Persona name")
-        self._persona_name.textChanged.connect(self._refresh_preview)
-        self._scope_cb = QComboBox()
-        self._scope_cb.addItems(["GLOBAL", "MODEL"])
-        self._scope_cb.currentTextChanged.connect(self._on_scope_changed)
-        self._model_binding_cb = QComboBox()
-        self._model_binding_cb.addItems(_MODEL_BINDING_OPTIONS)
-        self._model_binding_cb.currentTextChanged.connect(self._refresh_preview)
-        identity_row.addWidget(self._persona_name, stretch=2)
-        identity_row.addWidget(self._scope_cb)
-        identity_row.addWidget(self._model_binding_cb, stretch=1)
-        persona_layout.addLayout(identity_row)
-
-        traits_row = QHBoxLayout()
-        self._tone_cb = QComboBox()
-        self._tone_cb.addItems([item.upper() for item in _TONE_OPTIONS])
-        self._tone_cb.currentTextChanged.connect(self._refresh_preview)
-        self._verbosity_cb = QComboBox()
-        self._verbosity_cb.addItems([item.upper() for item in _VERBOSITY_OPTIONS])
-        self._verbosity_cb.currentTextChanged.connect(self._refresh_preview)
-        self._style_cb = QComboBox()
-        self._style_cb.addItems([item.upper() for item in _STYLE_OPTIONS])
-        self._style_cb.currentTextChanged.connect(self._refresh_preview)
-        traits_row.addWidget(self._tone_cb)
-        traits_row.addWidget(self._verbosity_cb)
-        traits_row.addWidget(self._style_cb)
-        persona_layout.addLayout(traits_row)
-
-        self._teaching_toggle = _Toggle("Teaching mode enabled")
-        self._teaching_toggle.stateChanged.connect(self._refresh_preview)
-        persona_layout.addWidget(self._teaching_toggle)
-
-        self._socratic_slider, self._socratic_value = self._build_slider_row(
-            persona_layout,
-            "Socratic bias",
-            self._refresh_preview,
+        self._runtime_frame = build_settings_runtime_frame(
+            self, launcher_modes=list(LAUNCHER_MODES_DISPLAY)
         )
-        self._example_slider, self._example_value = self._build_slider_row(
-            persona_layout,
-            "Example bias",
-            self._refresh_preview,
+        layout.addWidget(self._runtime_frame)
+
+        self._persona_frame = build_settings_persona_frame(self)
+        layout.addWidget(self._persona_frame)
+
+        self._advanced_frame = QFrame()
+        advanced_layout = QVBoxLayout(self._advanced_frame)
+        advanced_layout.setContentsMargins(14, 12, 14, 12)
+        advanced_layout.setSpacing(10)
+        advanced_layout.addWidget(QLabel("Advanced Surfaces"))
+        advanced_note = QLabel(
+            "Diagnostics, runtime controls, operator logs, and recovery flows live in the dedicated advanced surface. Settings stays focused on durable defaults, assistant naming, and persona configuration."
         )
-
-        assignment_row = QHBoxLayout()
-        self._global_persona_cb = QComboBox()
-        self._global_persona_cb.currentTextChanged.connect(self._refresh_preview)
-        assignment_row.addWidget(QLabel("Global default"))
-        assignment_row.addWidget(self._global_persona_cb, stretch=1)
-        persona_layout.addLayout(assignment_row)
-
-        self._assignment_summary_lbl = QLabel("Model bindings: -")
-        self._assignment_summary_lbl.setWordWrap(True)
-        persona_layout.addWidget(self._assignment_summary_lbl)
-
-        self._system_prompt = QPlainTextEdit()
-        self._system_prompt.setPlaceholderText("System prompt for this persona")
-        self._system_prompt.setMinimumHeight(140)
-        self._system_prompt.textChanged.connect(self._refresh_preview)
-        persona_layout.addWidget(self._system_prompt)
-
-        self._preview_lbl = QLabel("Preview unavailable")
-        self._preview_lbl.setWordWrap(True)
-        persona_layout.addWidget(self._preview_lbl)
-
-        self._persona_diag_lbl = QLabel("")
-        self._persona_diag_lbl.setWordWrap(True)
-        persona_layout.addWidget(self._persona_diag_lbl)
-        layout.addWidget(persona_frame)
+        advanced_note.setWordWrap(True)
+        advanced_layout.addWidget(advanced_note)
+        layout.addWidget(self._advanced_frame)
 
         self._persona_status_lbl = QLabel("")
         self._persona_status_lbl.setWordWrap(True)
@@ -280,20 +150,45 @@ class SettingsView(QWidget):
 
         scroll.setWidget(content)
         outer.addWidget(scroll)
+        self._set_settings_section("runtime")
 
-    def _build_slider_row(self, layout: QVBoxLayout, label_text: str, on_change) -> tuple[QSlider, QLabel]:
-        row = QHBoxLayout()
-        label = QLabel(label_text)
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(0, 100)
-        value = QLabel("0")
-        slider.valueChanged.connect(lambda amount: value.setText(str(amount)))
-        slider.valueChanged.connect(lambda _amount: on_change())
-        row.addWidget(label)
-        row.addWidget(slider, stretch=1)
-        row.addWidget(value)
-        layout.addLayout(row)
-        return slider, value
+    def set_embed_mode(self, embedded: bool) -> None:
+        self._embedded_mode = bool(embedded)
+        self._title_lbl.setVisible(not self._embedded_mode)
+        self._subtitle_lbl.setVisible(not self._embedded_mode)
+        self._section_row_host.setVisible(not self._embedded_mode)
+
+    def show_settings_section(self, section: str) -> None:
+        aliases = {
+            "general": "runtime",
+            "performance": "runtime",
+            "customization": "personas",
+            "persona": "personas",
+            "help": "advanced",
+        }
+        target = aliases.get(str(section or "").strip().lower(), str(section or "").strip().lower())
+        self._set_settings_section(target or "runtime")
+
+    def _set_settings_section(self, section: str) -> None:
+        target = str(section or "runtime").strip().lower() or "runtime"
+        self._settings_section = target
+        self._runtime_frame.setVisible(target == "runtime")
+        self._persona_frame.setVisible(target == "personas")
+        self._advanced_frame.setVisible(target == "advanced")
+        for key, button in self._section_buttons.items():
+            active = key == target
+            button.setStyleSheet(
+                (
+                    f"QPushButton {{ background-color: {T.INK}; color: white; border: none; border-radius: 14px;"
+                    f" padding: 6px 12px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; }}"
+                )
+                if active
+                else (
+                    f"QPushButton {{ background-color: rgba(244,239,231,0.90); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.64); border-radius: 14px;"
+                    f" padding: 6px 12px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; }}"
+                    f"QPushButton:hover {{ color: {T.TERTIARY}; border-color: {T.TERTIARY}; background-color: #ffffff; }}"
+                )
+            )
 
     def _load(self) -> None:
         self._load_runtime_settings()
@@ -323,7 +218,7 @@ class SettingsView(QWidget):
     def _load_persona_settings(self) -> None:
         if not _PERSONALIZATION_BACKEND:
             self._set_persona_controls_enabled(False)
-            self._persona_status_lbl.setText("Persona Builder unavailable: personalization backend not loaded.")
+            self._persona_status_lbl.setText("Assistant & Persona Builder unavailable: personalization backend not loaded.")
             self._refresh_preview()
             return
 
@@ -333,7 +228,7 @@ class SettingsView(QWidget):
             config, diagnostics = load_persona_config_with_diagnostics()
         except Exception as exc:
             self._set_persona_controls_enabled(False)
-            self._persona_status_lbl.setText(f"Persona Builder failed to load: {exc}")
+            self._persona_status_lbl.setText(f"Assistant & Persona Builder failed to load: {exc}")
             self._refresh_preview()
             return
 
@@ -347,7 +242,7 @@ class SettingsView(QWidget):
             or self._persona_config.get("assignments", {}).get("global", "main_guppy")
         )
         self._refresh_persona_lists(select_id)
-        self._persona_status_lbl.setText("Persona Builder ready")
+        self._persona_status_lbl.setText("Assistant & Persona Builder ready")
 
     def _load_model_binding_options(self) -> None:
         options = list_model_ids(load_provider_registry())
@@ -387,7 +282,7 @@ class SettingsView(QWidget):
     def _refresh_persona_lists(self, select_id: str = "") -> None:
         personas = self._persona_items()
         if not personas:
-            self._persona_config = _deepcopy_json(_DEFAULT_PERSONA_CONFIG)
+            self._persona_config = _deepcopy_json(DEFAULT_PERSONA_CONFIG)
             personas = self._persona_items()
 
         target = select_id or str(personas[0].get("id", "main_guppy"))
@@ -447,15 +342,7 @@ class SettingsView(QWidget):
 
     def _refresh_assignment_summary(self) -> None:
         mapping = self._persona_config.get("assignments", {}).get("by_model", {})
-        if not isinstance(mapping, dict) or not mapping:
-            self._assignment_summary_lbl.setText("Model bindings: none")
-            return
-        persona_names = {
-            str(item.get("id", "")).strip(): str(item.get("name", item.get("id", ""))).strip()
-            for item in self._persona_items()
-        }
-        parts = [f"{model} -> {persona_names.get(str(persona_id), str(persona_id))}" for model, persona_id in sorted(mapping.items())]
-        self._assignment_summary_lbl.setText("Model bindings: " + " | ".join(parts))
+        self._assignment_summary_lbl.setText(build_assignment_summary_text(self._persona_items(), mapping))
 
     def _on_persona_selected(self, _index: int) -> None:
         self._current_persona_id = str(self._persona_picker.currentData() or self._current_persona_id)
@@ -479,7 +366,7 @@ class SettingsView(QWidget):
     def _create_persona(self) -> None:
         if not _PERSONALIZATION_BACKEND:
             return
-        name = f"Custom Persona {len(self._persona_items()) + 1}"
+        name = f"Custom Assistant {len(self._persona_items()) + 1}"
         persona_id = self._next_persona_id(name)
         self._persona_config.setdefault("personas", []).append(
             {
@@ -500,7 +387,7 @@ class SettingsView(QWidget):
             }
         )
         self._refresh_persona_lists(persona_id)
-        self._persona_status_lbl.setText(f"Draft persona created: {name}")
+        self._persona_status_lbl.setText(f"Draft assistant persona created: {name}")
 
     def _delete_persona(self) -> None:
         personas = self._persona_items()
@@ -516,7 +403,7 @@ class SettingsView(QWidget):
             assignments["global"] = str(keep[0].get("id", "main_guppy"))
         self._persona_config["default_persona_id"] = assignments["global"]
         self._refresh_persona_lists(str(keep[0].get("id", "main_guppy")))
-        self._persona_status_lbl.setText("Persona removed from draft config")
+        self._persona_status_lbl.setText("Assistant persona removed from draft config")
 
     def _build_persona_config(self) -> tuple[dict[str, Any], dict[str, Any]]:
         cfg = _deepcopy_json(self._persona_config)
@@ -524,7 +411,7 @@ class SettingsView(QWidget):
         persona_id = self._current_persona_id or self._next_persona_id(self._persona_name.text().strip())
         name = self._persona_name.text().strip()
         if not name:
-            raise ValueError("Persona name is required")
+            raise ValueError("Assistant name is required")
         scope = self._scope_cb.currentText().strip().lower()
         model_name = self._model_binding_cb.currentText().strip()
         if scope == "model" and not model_name:
@@ -595,27 +482,20 @@ class SettingsView(QWidget):
     def _refresh_preview(self) -> None:
         if self._loading_persona:
             return
-        scope = self._scope_cb.currentText().strip().upper() or "GLOBAL"
-        model_text = self._model_binding_cb.currentText().strip()
-        tone = self._tone_cb.currentText().strip().upper() or "BUTLER"
-        verbosity = self._verbosity_cb.currentText().strip().upper() or "MEDIUM"
-        style = self._style_cb.currentText().strip().upper() or "DIRECT"
-        teaching = "ON" if self._teaching_toggle.isChecked() else "OFF"
         prompt = self._system_prompt.toPlainText().strip() or "You are Guppy. Be concise, dependable, and practical."
-        scope_line = f"Scope: {scope}" + (f" -> {model_text}" if scope == "MODEL" and model_text else "")
-        prompt_preview = prompt[:220] + ("..." if len(prompt) > 220 else "")
         self._preview_lbl.setText(
-            " | ".join(
-                [
-                    f"Persona: {(self._persona_name.text().strip() or 'Untitled').upper()}",
-                    scope_line,
-                    f"Tone: {tone}",
-                    f"Verbosity: {verbosity}",
-                    f"Style: {style}",
-                    f"Teaching: {teaching} ({self._socratic_slider.value()} / {self._example_slider.value()})",
-                ]
+            build_persona_preview_text(
+                persona_name=self._persona_name.text(),
+                scope=self._scope_cb.currentText(),
+                model_text=self._model_binding_cb.currentText(),
+                tone=self._tone_cb.currentText(),
+                verbosity=self._verbosity_cb.currentText(),
+                style=self._style_cb.currentText(),
+                teaching_enabled=self._teaching_toggle.isChecked(),
+                socratic_bias=self._socratic_slider.value(),
+                example_bias=self._example_slider.value(),
+                prompt=prompt,
             )
-            + f"\nPrompt preview: {prompt_preview}"
         )
 
     def _save(self) -> None:
@@ -641,7 +521,7 @@ class SettingsView(QWidget):
                     raise ValueError("; ".join(errors[:3]))
             except Exception as exc:
                 self._save_confirm.setText("")
-                self._persona_status_lbl.setText(f"Persona save blocked: {exc}")
+                self._persona_status_lbl.setText(f"Assistant save blocked: {exc}")
                 return
 
         previous_persona_config = _deepcopy_json(self._persona_config)
@@ -681,7 +561,7 @@ class SettingsView(QWidget):
                 }
             )
             self._persona_status_lbl.setText(
-                f"Persona saved: {active_persona.get('name', 'persona')}"
+                f"Assistant saved: {active_persona.get('name', DEFAULT_ASSISTANT_NAME)}"
             )
 
         self._last_mod_lbl.setText(f"Last saved: {ts}")

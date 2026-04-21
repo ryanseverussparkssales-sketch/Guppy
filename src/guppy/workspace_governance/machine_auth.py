@@ -85,6 +85,29 @@ def merge_secret_sources(values: Iterable[str]) -> str:
     return "mixed"
 
 
+def storage_posture(values: Iterable[str]) -> str:
+    normalized = [str(value or "").strip().lower() for value in values if str(value or "").strip()]
+    unique = sorted(set(normalized))
+    if not unique:
+        return "none"
+    if unique == ["keyring"]:
+        return "keyring"
+    if unique == ["env"]:
+        return "env_only"
+    if "env" in unique:
+        return "mixed_env"
+    return unique[0]
+
+
+def storage_warning(posture: str) -> str:
+    normalized = str(posture or "").strip().lower()
+    if normalized == "env_only":
+        return "Secrets are loading from environment variables; move them into the OS credential store for launch-grade posture."
+    if normalized == "mixed_env":
+        return "Some secrets still resolve from environment variables; move them into the OS credential store to remove mixed storage."
+    return ""
+
+
 def secret_status(required_fields: list[str], *, prefix: str = _KEYRING_PREFIX) -> dict[str, object]:
     present_fields: list[str] = []
     missing_fields: list[str] = []
@@ -109,11 +132,15 @@ def secret_status(required_fields: list[str], *, prefix: str = _KEYRING_PREFIX) 
         if not required_fields
         else "missing"
     )
+    resolved_sources = [field_sources.get(field, "") for field in present_fields]
+    posture = storage_posture(resolved_sources)
     return {
         "required_fields": list(required_fields),
         "present_fields": present_fields,
         "missing_fields": missing_fields,
         "field_sources": field_sources,
-        "source": merge_secret_sources([field_sources.get(field, "") for field in present_fields]),
+        "source": merge_secret_sources(resolved_sources),
+        "storage_posture": posture,
+        "storage_warning": storage_warning(posture),
         "auth_state": auth_state,
     }

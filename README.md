@@ -31,6 +31,14 @@ bin\\launch_api_supervised.bat
 bin\\launch_automation_test.bat
 ```
 
+Supported desktop shortcut path:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\ensure_desktop_launcher.ps1
+```
+
+That refreshes `Desktop\Guppy Launcher.lnk` and `Desktop\Applications\Guppy Launcher.bat`. When a packaged build exists, the shortcut points to `dist\Guppy\Guppy.exe`; otherwise it falls back to the repo launcher helper in `bin\Guppy.bat`.
+
 Historical specialist surface code is quarantined for migration reference and is not a supported launcher path.
 
 VS Code tasks in this workspace also cover the main launch flows.
@@ -166,6 +174,10 @@ The remote/API layer already exists and should be treated as alpha, not planned 
 - Connector management: `GET /connectors`, `POST /connectors/{id}/verify|connect|reconnect|disconnect`, `GET /instances/{name}/connectors`, `POST /instances/{name}/connectors/{connector}`
 - Chat: `POST /chat`, `POST /chat/voice`, `WebSocket /ws`
 - Business reporting: `GET /revenue/dashboard`
+
+For Vercel Python deployment discovery, the supported ASGI entrypoint is:
+
+- `api/index.py` → `src.guppy.api.server_runtime:app`
 
 Recommended validation paths:
 

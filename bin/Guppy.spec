@@ -9,8 +9,7 @@ LEAN_BUILD = os.environ.get("GUPPY_LEAN_BUILD", "0").strip().lower() in {"1", "t
 
 datas = [
     (str(ROOT / 'src' / 'guppy' / 'ui' / 'theme.json'), 'src/guppy/ui'),
-    (str(ROOT / 'models'), 'models'),
-    (str(ROOT / 'web'), 'web'),
+    (str(ROOT / 'config' / 'local_llm'), 'config/local_llm'),
     (str(ROOT / 'utils'), 'utils'),
     (str(ROOT / 'ui'), 'ui'),
 ]
@@ -125,4 +124,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(ROOT / 'assets' / 'desktop' / 'guppy_launcher_icon.ico'),
 )

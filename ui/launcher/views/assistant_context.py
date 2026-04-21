@@ -5,27 +5,49 @@ from src.guppy.launcher_application.library_presenter import build_library_surfa
 from .. import tokens as T
 
 
+def _display_source_title(raw: str) -> str:
+    title = str(raw or "").strip()
+    if not title:
+        return "current source"
+    if "/" in title or "\\" in title:
+        title = title.replace("\\", "/").rsplit("/", 1)[-1]
+    lowered = title.lower()
+    binary_suffixes = (".pyd", ".dll", ".so", ".dylib", ".exe", ".bin")
+    for suffix in binary_suffixes:
+        if lowered.endswith(suffix):
+            stem = title[: -len(suffix)] or "binary"
+            if len(stem) > 24:
+                stem = stem[:24].rstrip() + "..."
+            return f"{stem} binary module"
+    if len(title) > 64:
+        return title[:61].rstrip() + "..."
+    return title
+
+
 def _context_origin_label(item: dict[str, str]) -> str:
     origin = str(item.get("origin", "") or "").strip().lower()
+    source_label = str(item.get("source_label", "") or "").strip()
     if origin == "assistant_reply":
         return "saved reply note"
     if origin == "assistant_reply_artifact":
         return "saved output"
+    if source_label:
+        return source_label.lower()
     return "Library source"
 
 
 def format_active_context_summary(items: list[dict[str, str]], *, used_for_latest_reply: bool = False) -> str:
     if not items:
-        return "Current sources from Library will be used for the next reply."
+        return "No Library sources attached yet. Open Library and use USE IN CHAT to ground the next reply."
     primary = items[0]
-    primary_title = str(primary.get("title", "") or "").strip() or "current source"
+    primary_title = _display_source_title(str(primary.get("title", "") or ""))
     primary_label = _context_origin_label(primary)
     attached_titles = [
-        str(item.get("title", "") or "").strip()
+        _display_source_title(str(item.get("title", "") or ""))
         for item in items[1:3]
         if str(item.get("title", "") or "").strip()
     ]
-    prefix = "Current sources were used for the latest reply." if used_for_latest_reply else f"Current sources: {len(items)} attached."
+    prefix = "Current sources were used for the latest reply." if used_for_latest_reply else f"Current sources: {len(items)} attached and ready."
     summary = f"{prefix} Primary source: {primary_title} ({primary_label})."
     if attached_titles:
         summary += f" Also attached: {', '.join(attached_titles)}."
@@ -33,7 +55,7 @@ def format_active_context_summary(items: list[dict[str, str]], *, used_for_lates
 
 
 def build_grounding_cue(item: dict[str, str]) -> tuple[str, str]:
-    title = str(item.get("title", "") or "").strip() or "current source"
+    title = _display_source_title(str(item.get("title", "") or ""))
     origin = str(item.get("origin", "") or "").strip().lower()
     if origin == "assistant_reply":
         return (
@@ -59,9 +81,9 @@ def build_composer_guidance(
     if not items:
         return base_placeholder, base_summary
     primary = items[0]
-    primary_title = str(primary.get("title", "") or "").strip()
+    primary_title = _display_source_title(str(primary.get("title", "") or ""))
     other_titles = [
-        str(item.get("title", "") or "").strip()
+        _display_source_title(str(item.get("title", "") or ""))
         for item in items[1:3]
         if str(item.get("title", "") or "").strip()
     ]
@@ -72,6 +94,13 @@ def build_composer_guidance(
     elif origin == "assistant_reply_artifact" and primary_title:
         placeholder = f"Use saved output {primary_title} for the next step."
         summary = f"{base_summary} Current source: saved output {primary_title}."
+    elif origin == "library_note" and primary_title:
+        placeholder = f"Continue from pinned note {primary_title}."
+        summary = f"{base_summary} Current source: pinned note {primary_title}."
+    elif origin == "library_media" and primary_title:
+        media_label = str(primary.get("source_label", "") or "local media").lower()
+        placeholder = f"Use {primary_title} as {media_label} context for the next step."
+        summary = f"{base_summary} Current source: {media_label} {primary_title}."
     elif primary_title:
         placeholder = f"Ask the next thing using {primary_title} as source context."
         summary = f"{base_summary} Current source: {primary_title}."
@@ -84,6 +113,12 @@ def build_composer_guidance(
 
 
 def sync_context_bar_visibility(owner) -> None:
+    if not getattr(owner, "_home_operator_details_enabled", True):
+        owner._context_details_visible = False
+        owner._context_details_btn.setVisible(False)
+        owner._context_details_host.setVisible(False)
+        owner._context_bar.setVisible(False)
+        return
     primary_visible = any(
         not widget.isHidden()
         for widget in (
@@ -117,6 +152,7 @@ def refresh_resource_context(owner) -> None:
         description=owner._workspace_purpose,
         mode=owner.selected_mode(),
         last_message=owner._conversation_history[-1]["content"] if owner._conversation_history else "",
+        include_root_file_cards=False,
     )
     owner.set_resource_context(
         files=state.files_summary,
@@ -153,7 +189,8 @@ def set_route_preview(
     if evidence_text:
         details.append(f"Evidence: {evidence_text}")
     owner._route_facts.setText(f"Next reply: {summary}." + (f" {' '.join(details)}" if details else ""))
-    owner._route_facts.setVisible(True)
+    owner._route_facts.setVisible(getattr(owner, "_home_operator_details_enabled", True))
+    sync_context_bar_visibility(owner)
 
 
 def set_background_status(owner, text: str, healthy: bool = True) -> None:
@@ -171,7 +208,7 @@ def set_background_status(owner, text: str, healthy: bool = True) -> None:
 def set_background_event(owner, text: str) -> None:
     msg = (text or "workspace ready").strip() or "workspace ready"
     owner._background_event.setText(f"Latest activity: {msg}")
-    owner._background_event.setVisible(True)
+    owner._background_event.setVisible(getattr(owner, "_home_operator_details_enabled", True))
     sync_context_bar_visibility(owner)
 
 
@@ -196,7 +233,7 @@ def set_runtime_facts(
     if query not in {"-", "—"}:
         details.append(f"last request: {query}")
     owner._runtime_facts.setText("Ready now: " + ", ".join(details) + ".")
-    owner._runtime_facts.setVisible(True)
+    owner._runtime_facts.setVisible(getattr(owner, "_home_operator_details_enabled", True))
     sync_context_bar_visibility(owner)
 
 
@@ -205,8 +242,9 @@ def set_recovery_summary(owner, text: str, healthy: bool = True) -> None:
     color = T.GREEN if healthy else T.ERROR
     prefix = "System health" if healthy else "Needs attention"
     owner._recovery_summary.setText(f"{prefix}: {summary}")
-    owner._recovery_summary.setVisible(True)
-    if not healthy:
+    show_operator_details = getattr(owner, "_home_operator_details_enabled", True)
+    owner._recovery_summary.setVisible(show_operator_details)
+    if not healthy and show_operator_details:
         owner._context_details_visible = True
     owner._entry_hint.setStyleSheet(
         f"color: {T.PRIMARY if healthy else T.ERROR}; font-family: '{T.FF_MONO}';"
@@ -217,3 +255,39 @@ def set_recovery_summary(owner, text: str, healthy: bool = True) -> None:
         f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
     )
     sync_context_bar_visibility(owner)
+
+
+
+def active_context_titles(items: list[dict[str, str]], limit: int = 2) -> list[str]:
+    return [
+        str(item.get("title", "") or "").strip()
+        for item in items[:max(0, limit)]
+        if str(item.get("title", "") or "").strip()
+    ]
+
+
+def context_aware_starter_title(items: list[dict[str, str]], starter_id: str, title: str) -> str:
+    if not items or starter_id == "morning_brief":
+        return title
+    return f"{title} +" if not title.endswith(" +") else title
+
+
+def context_aware_starter_prompt(items: list[dict[str, str]], prompt: str) -> str:
+    titles = active_context_titles(items)
+    if not titles:
+        return prompt
+    return f"{prompt.rstrip()} Use attached Library context first when relevant: {', '.join(titles)}."
+
+
+def normalize_context_items(items: list[dict]) -> list[dict[str, str]]:
+    return [
+        {
+            "title": str(item.get("title", "") or "").strip(),
+            "kind": str(item.get("kind", "file") or "file").strip().upper(),
+            "detail": str(item.get("detail", "") or "").strip(),
+            "origin": str(item.get("origin", "") or "").strip().lower(),
+            "source_label": str(item.get("source_label", "") or "").strip(),
+        }
+        for item in items[:3]
+        if isinstance(item, dict) and str(item.get("title", "") or "").strip()
+    ]

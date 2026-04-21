@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import asyncio
-import time
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.guppy.api._server_fragment_models import TokenResponse, TurnstileToken
 from src.guppy.api.server_context import ServerContext
+from src.guppy.api.status_support import build_startup_check_response, build_status_response
 
 
 def build_core_router(ctx: ServerContext) -> APIRouter:
@@ -66,51 +63,8 @@ def build_core_router(ctx: ServerContext) -> APIRouter:
     async def get_status(user_id: str = Depends(ctx.require_rate_limit)):
         del user_id
 
-        if not ctx.guppy_core_available:
-            return {"status": "error", "message": "Guppy core not available"}
-
         try:
-            now = time.time()
-            if ctx.status_cache["payload"] is not None and ctx.status_cache["expires_at"] > now:
-                return ctx.status_cache["payload"]
-
-            context = {}
-            if ctx.status_include_window_context and ctx.guppy_daemon_available:
-                try:
-                    context = await asyncio.wait_for(
-                        asyncio.to_thread(ctx.read_window_context),
-                        timeout=0.2,
-                    )
-                except Exception:
-                    context = {}
-
-            voice_tts = ctx.voice_tts_backend if ctx.guppy_voice_available else "none"
-            voice_stt = ctx.voice_stt_backend if ctx.guppy_voice_available else "none"
-            voice_status = {
-                "available": ctx.guppy_voice_available,
-                "tts_backend": voice_tts,
-                "stt_backend": voice_stt,
-                "details": ctx.voice_backend_details if ctx.guppy_voice_available else [],
-            }
-
-            payload = {
-                "status": "healthy",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "context": context,
-                "memory_available": ctx.guppy_memory_available,
-                "voice_available": ctx.guppy_voice_available,
-                "voice_tts_backend": voice_tts,
-                "voice_stt_backend": voice_stt,
-                "voice_status": voice_status,
-                "daemon_available": ctx.guppy_daemon_available,
-                "daemon_runtime": ctx.read_daemon_runtime_status(),
-                "startup_readiness": ctx.startup_readiness_cached_or_unknown(),
-                "local_runtime": ctx.build_local_runtime_status(),
-                "resource_envelope": ctx.read_resource_envelope_status(),
-            }
-            ctx.status_cache["payload"] = payload
-            ctx.status_cache["expires_at"] = now + ctx.status_cache_ttl_seconds
-            return payload
+            return await build_status_response(ctx)
         except Exception as e:
             ctx.logger.error(f"Status check failed: {e}")
             ctx.log_session_event("api", "status_failed", level="error", error=str(e))
@@ -119,12 +73,7 @@ def build_core_router(ctx: ServerContext) -> APIRouter:
     @router.get("/startup/check")
     async def startup_check(deep: bool = False, user_id: str = Depends(ctx.require_rate_limit)):
         del user_id
-        if deep:
-            snapshot = await asyncio.to_thread(ctx.startup_readiness_snapshot)
-        else:
-            snapshot = ctx.startup_readiness_cached_or_unknown()
-            if snapshot.get("overall") == "UNKNOWN" or ctx.startup_readiness_cache_expired():
-                ctx.trigger_startup_readiness_refresh()
+        snapshot = await build_startup_check_response(ctx, deep=deep)
         ctx.log_session_event("api", "startup_check", level="info", overall=snapshot.get("overall", "unknown"))
         return snapshot
 

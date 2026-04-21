@@ -34,11 +34,16 @@ DEFAULT_SETTINGS = {
     "default_mode": "auto",
     "local_runtime_backend": "ollama",
     "lemonade_base_url": "http://localhost:13305/api/v1",
+    "lmstudio_base_url": "http://127.0.0.1:1234/v1",
+    "local_harness_base_url": "http://127.0.0.1:8001",
     "lemonade_fast_model": "",
     "lemonade_complex_model": "",
     "lemonade_teach_model": "",
     "lemonade_code_model": "",
     "lemonade_vault_model": "",
+    "local_main_model": "",
+    "local_sub_model_a": "",
+    "local_sub_model_b": "",
 }
 
 
@@ -171,6 +176,9 @@ def load_app_settings() -> dict[str, Any]:
         ("lemonade_teach_model", "GUPPY_LEMONADE_TEACH_MODEL"),
         ("lemonade_code_model", "GUPPY_LEMONADE_CODE_MODEL"),
         ("lemonade_vault_model", "GUPPY_LEMONADE_VAULT_MODEL"),
+        ("local_main_model", "GUPPY_MAIN_MODEL"),
+        ("local_sub_model_a", "GUPPY_SUB_MODEL_A"),
+        ("local_sub_model_b", "GUPPY_SUB_MODEL_B"),
     ):
         env_value = os.environ.get(env_name)
         if env_value is not None:
@@ -213,11 +221,32 @@ def apply_settings_to_env(settings: dict[str, Any]) -> dict[str, Any]:
     os.environ["GUPPY_LEMONADE_BASE_URL"] = str(
         merged.get("lemonade_base_url", "http://localhost:13305/api/v1") or "http://localhost:13305/api/v1"
     ).strip()
+    os.environ["GUPPY_LMSTUDIO_BASE_URL"] = str(
+        merged.get("lmstudio_base_url", "http://127.0.0.1:1234/v1") or "http://127.0.0.1:1234/v1"
+    ).strip()
+    os.environ["GUPPY_LOCAL_HARNESS_BASE_URL"] = str(
+        merged.get("local_harness_base_url", "http://127.0.0.1:8001") or "http://127.0.0.1:8001"
+    ).strip()
     os.environ["GUPPY_LEMONADE_FAST_MODEL"] = str(merged.get("lemonade_fast_model", "") or "").strip()
     os.environ["GUPPY_LEMONADE_COMPLEX_MODEL"] = str(merged.get("lemonade_complex_model", "") or "").strip()
     os.environ["GUPPY_LEMONADE_TEACH_MODEL"] = str(merged.get("lemonade_teach_model", "") or "").strip()
     os.environ["GUPPY_LEMONADE_CODE_MODEL"] = str(merged.get("lemonade_code_model", "") or "").strip()
     os.environ["GUPPY_LEMONADE_VAULT_MODEL"] = str(merged.get("lemonade_vault_model", "") or "").strip()
+    main_model = str(merged.get("local_main_model", "") or "").strip()
+    sub_model_a = str(merged.get("local_sub_model_a", "") or "").strip()
+    sub_model_b = str(merged.get("local_sub_model_b", "") or "").strip()
+    os.environ["GUPPY_MAIN_MODEL"] = main_model
+    os.environ["GUPPY_SUB_MODEL_A"] = sub_model_a
+    os.environ["GUPPY_SUB_MODEL_B"] = sub_model_b
+    if main_model:
+        os.environ["OLLAMA_MODEL"] = main_model
+        os.environ["GUPPY_LOCAL_COMPLEX_MODEL"] = main_model
+    if sub_model_a:
+        os.environ["OLLAMA_FAST_MODEL"] = sub_model_a
+        os.environ["GUPPY_LOCAL_FAST_MODEL"] = sub_model_a
+    if sub_model_b:
+        os.environ["OLLAMA_CODE_MODEL"] = sub_model_b
+        os.environ["GUPPY_LOCAL_CODE_MODEL"] = sub_model_b
     return merged
 
 

@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LINE_CAP = int(os.environ.get("GUPPY_MODULE_LINE_CAP", "700"))
 GUARD_SCOPE = (os.environ.get("GUPPY_GUARD_SCOPE", "delta") or "delta").strip().lower()
+WAIVER_DRIFT_WARN_LINES = int(os.environ.get("GUPPY_WAIVER_DRIFT_WARN_LINES", "50"))
 
 ENFORCED_PREFIXES = (
     "src/guppy/",
@@ -34,76 +35,12 @@ class Waiver:
 # current strangler work still needs to land.
 WAIVED_PATHS: dict[str, Waiver] = {
     "src/guppy/api/server_runtime_snapshot.py": Waiver(
-        max_lines=3881,
-        rationale="Runtime snapshot hotspot still awaits runtime-application extraction.",
-    ),
-    "src/guppy/daemon/daemon.py": Waiver(
-        max_lines=1483,
-        rationale="Daemon orchestration remains monolithic pending bounded service splits.",
-    ),
-    "src/guppy/merlin/core.py": Waiver(
-        max_lines=1115,
-        rationale="Legacy specialist runtime remains in transition and is not part of this tranche.",
-    ),
-    "src/guppy/memory/memory.py": Waiver(
-        max_lines=944,
-        rationale="Memory service still exceeds the cap until dedicated persistence/service seams land.",
-    ),
-    "src/guppy/api/services_realtime.py": Waiver(
-        max_lines=902,
-        rationale="Realtime API service still bundles too many behaviors pending runtime decomposition.",
-    ),
-    "src/guppy/api/server_runtime.py": Waiver(
-        max_lines=771,
-        rationale="Runtime startup orchestration is still being strangled out of the API shell.",
-    ),
-    "src/guppy/debug/console.py": Waiver(
-        max_lines=717,
-        rationale="Debug console remains oversized but out of scope for the current build tranche.",
-    ),
-    "src/guppy/voice/voice.py": Waiver(
-        max_lines=704,
-        rationale="Voice orchestration still needs a later service split and broader device validation.",
+        max_lines=789,
+        rationale="Runtime snapshot compatibility shell reduced to 789 after auth/cache stubs and prompt-builder block extracted to snapshot_auth_cache_support.py and snapshot_prompt_support.py; further route-family splits remain required.",
     ),
     "ui/launcher/launcher_window.py": Waiver(
-        max_lines=3685,
-        rationale="Launcher shell hotspot; Library, workspace activation/mutation/refresh, connector workflow, shell-status, and current reply-to-library continuity seams are extracted, but broader composition still needs follow-on cuts before the cap can drop further.",
-    ),
-    "ui/launcher/views/advanced_view.py": Waiver(
-        max_lines=1175,
-        rationale="App Mgmt is smaller after terminal/workflow and connector panel extractions, but it still carries broader operator-surface composition pending more presenter seams.",
-    ),
-    "ui/launcher/views/models_view.py": Waiver(
-        max_lines=1080,
-        rationale="Models remains transitional after runtime-library extraction; route/runtime configuration and view composition still need another seam pass.",
-    ),
-    "ui/launcher/views/instance_manager_view.py": Waiver(
-        max_lines=1077,
-        rationale="Workspace manager still bundles governance and render logic pending shared snapshots.",
-    ),
-    "ui/launcher/views/assistant_view.py": Waiver(
-        max_lines=1390,
-        rationale="Home/chat carries active context, starter, and transcript orchestration while assistant-context seams are still being extracted.",
-    ),
-    "ui/launcher/views/library_view.py": Waiver(
-        max_lines=750,
-        rationale="Library is newly promoted to an active workspace surface and still bundles browse/edit/render behavior pending deeper presenter extraction.",
-    ),
-    "ui/launcher/views/voices_view.py": Waiver(
-        max_lines=902,
-        rationale="Voice management remains oversized until experience-config services feed the UI.",
-    ),
-    "ui/launcher/views/settings_view.py": Waiver(
-        max_lines=743,
-        rationale="Settings remains transitional while configuration ownership moves out of the UI layer.",
-    ),
-    "utils/connector_manager.py": Waiver(
-        max_lines=900,
-        rationale="Connector manager now delegates to workspace_governance seams; cap tightened to observed size plus 20-line margin.",
-    ),
-    "utils/personalization_config.py": Waiver(
-        max_lines=845,
-        rationale="Experience-config persistence remains oversized until dedicated config services exist.",
+        max_lines=993,
+        rationale="Launcher shell reduced to 993 after nav/tab/panel/notification family extraction into launcher_nav_handlers.py; remaining orchestration seams are tracked for continued splits.",
     ),
 }
 
@@ -171,6 +108,22 @@ def _is_enforced(rel_posix: str) -> bool:
     return any(rel_posix.startswith(prefix) for prefix in ENFORCED_PREFIXES)
 
 
+def _waiver_drift_note(rel_posix: str, line_count: int, waiver: Waiver) -> str:
+    headroom = waiver.max_lines - line_count
+    if headroom < 0:
+        state = "over-cap"
+    elif headroom == 0:
+        state = "at-cap"
+    elif headroom > WAIVER_DRIFT_WARN_LINES:
+        state = f"metadata drift: {headroom} lines of stale waiver headroom"
+    else:
+        state = f"headroom {headroom}"
+    return (
+        f"{rel_posix}: waived at {line_count}/{waiver.max_lines} lines "
+        f"({state}; {waiver.rationale})"
+    )
+
+
 def main() -> int:
     if GUARD_SCOPE not in {"delta", "baseline"}:
         print(f"line-cap check failed: invalid GUPPY_GUARD_SCOPE={GUARD_SCOPE!r}")
@@ -194,10 +147,7 @@ def main() -> int:
                     f"{waiver.max_lines} ({waiver.rationale})"
                 )
             elif GUARD_SCOPE == "baseline":
-                waived_notes.append(
-                    f"{rel_posix}: waived at {line_count}/{waiver.max_lines} lines "
-                    f"({waiver.rationale})"
-                )
+                waived_notes.append(_waiver_drift_note(rel_posix, line_count, waiver))
             continue
 
         if line_count > LINE_CAP:

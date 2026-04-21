@@ -54,7 +54,11 @@
       "Bash(xargs wc *)",
       "Bash(python -m py_compile /c/Users/Ryan/Guppy/src/guppy/launcher_application/__init__.py)",
       "Bash(python tools/dev_workflow.py dev-check --guard-scope baseline)",
-      "Bash(python tools/dev_workflow.py test-fast)"
+      "Bash(python tools/dev_workflow.py test-fast)",
+      "Bash(python tools/dev_workflow.py dev-check --guard-scope delta)",
+      "Bash(python tools/dev_workflow.py release-check)",
+      "Bash(python tools/dev_workflow.py --help)",
+      "Bash(pip show *)"
     ]
   }
 }

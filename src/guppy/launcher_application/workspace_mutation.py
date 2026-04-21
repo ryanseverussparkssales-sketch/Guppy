@@ -52,8 +52,14 @@ def save_workspace(owner, payload: dict) -> None:
     if action == "created":
         owner._apply_instance_switch(name, announce=True)
         owner._refresh_instance_views(load_logs=True, force=True)
-        recipe = workspace_first_run_recipe(workspace_type)
-        onboarding_message = workspace_onboarding_ready_message(name, workspace_type)
+        recipe_builder = getattr(owner, "_workspace_first_run_recipe", None)
+        onboarding_builder = getattr(owner, "_workspace_onboarding_ready_message", None)
+        recipe = recipe_builder(workspace_type) if callable(recipe_builder) else workspace_first_run_recipe(workspace_type)
+        onboarding_message = (
+            onboarding_builder(name, workspace_type)
+            if callable(onboarding_builder)
+            else workspace_onboarding_ready_message(name, workspace_type)
+        )
         add_system = getattr(getattr(owner, "_assistant_view", None), "add_system_message", None)
         if callable(add_system):
             add_system(onboarding_message)

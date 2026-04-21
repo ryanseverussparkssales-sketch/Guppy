@@ -2,19 +2,18 @@
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "ROOT=%%~fI"
 pushd "%ROOT%"
-REM build_executable.bat — Build standalone Guppy.exe with PyInstaller
+REM build_executable.bat - Build standalone Guppy.exe with PyInstaller
 REM ====================================================================
-REM NOTE: Requires an icon before shipping:
-REM   Place a 256x256 .ico file at assets\guppy.ico and uncomment the
-REM   --icon line below. The assets\ folder does not exist yet.
+REM Uses the shared desktop launcher icon when present:
+REM   assets\desktop\guppy_launcher_icon.ico
 REM
 REM Usage:
-REM   build_executable.bat             — full clean build (standard profile)
-REM   build_executable.bat --no-clean  — skip dist/build wipe (faster rebuilds)
-REM   build_executable.bat --lean      — build lean profile via Guppy.spec
-REM   build_executable.bat --light     — light profile build (no daemon/heavy deps)
-REM   build_executable.bat --power     — power profile build (all features)
-REM   build_executable.bat --ci        — no pause on completion (CI mode)
+REM   build_executable.bat             - full clean build (standard profile)
+REM   build_executable.bat --no-clean  - skip dist/build wipe (faster rebuilds)
+REM   build_executable.bat --lean      - build lean profile via Guppy.spec
+REM   build_executable.bat --light     - light profile build (no daemon/heavy deps)
+REM   build_executable.bat --power     - power profile build (all features)
+REM   build_executable.bat --ci        - no pause on completion (CI mode)
 
 setlocal
 
@@ -71,13 +70,13 @@ if "%SKIP_CLEAN%"=="0" (
 
 REM Build executable
 if "%LEAN_BUILD%"=="1" (
-    echo Building Guppy executable (LEAN profile)...
+    echo Building Guppy executable ^(LEAN profile^)...
     echo This mode reduces optional dependency collection for faster iteration.
     echo.
     set GUPPY_LEAN_BUILD=1
     %PYTHON% -m PyInstaller --noconfirm bin\Guppy.spec
 ) else (
-    echo Building Guppy executable (profile: %BUILD_PROFILE%)...
+    echo Building Guppy executable ^(profile: %BUILD_PROFILE%^)...
     echo This may take 5-10 minutes...
     echo.
     if "%ONEFILE_BUILD%"=="1" (
@@ -89,9 +88,9 @@ if "%LEAN_BUILD%"=="1" (
     %PYTHON% -m PyInstaller %BUILD_MODE_FLAG% ^
         --windowed ^
         --name "Guppy" ^
+        --icon "assets\desktop\guppy_launcher_icon.ico" ^
         --add-data "src\guppy\ui\theme.json;src\guppy\ui" ^
-        --add-data "models;models" ^
-        --add-data "web;web" ^
+        --add-data "config\local_llm;config\local_llm" ^
         --add-data "utils;utils" ^
         --add-data "ui;ui" ^
         --add-data "runtime;runtime" ^
@@ -152,9 +151,6 @@ if "%LEAN_BUILD%"=="1" (
         --hidden-import=ui.launcher.views.voices_view ^
         guppy_launcher.py
 )
-
-REM Uncomment once assets\guppy.ico exists:
-REM     --icon=assets\guppy.ico ^
 
 if errorlevel 1 (
     echo.

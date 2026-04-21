@@ -26,13 +26,30 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 _SERVICE_NAME = "guppy"
+_DEGRADED_BACKEND_MARKERS = ("fail", "null", "plain", "plaintext", "chainer")
 
 try:
     import keyring as _keyring  # type: ignore[import-untyped]
-    _KEYRING_AVAILABLE = True
 except ImportError:
     _keyring = None  # type: ignore[assignment]
     _KEYRING_AVAILABLE = False
+    _KEYRING_BACKEND_NAME = "unavailable"
+else:
+    try:
+        _KEYRING_BACKEND_NAME = type(_keyring.get_keyring()).__name__
+    except Exception:
+        _KEYRING_BACKEND_NAME = "unknown"
+    _KEYRING_AVAILABLE = not any(
+        marker in _KEYRING_BACKEND_NAME.lower() for marker in _DEGRADED_BACKEND_MARKERS
+    )
+
+
+def backend_name() -> str:
+    return _KEYRING_BACKEND_NAME
+
+
+def backend_is_secure() -> bool:
+    return bool(_KEYRING_AVAILABLE)
 
 
 def get_secret(key: str, *, fallback: Optional[str] = None) -> Optional[str]:

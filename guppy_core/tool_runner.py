@@ -81,13 +81,13 @@ def _apply_workspace_connector_runtime_context(
     inp: dict,
     *,
     instance_name: str | None = None,
-) -> dict:
+) -> tuple[dict, str, str]:
     if not instance_name:
-        return inp
+        return inp, "", ""
     try:
         context = get_workspace_connector_context(tool_name, instance_name, metadata=inp)
     except Exception:
-        return inp
+        return inp, "", ""
     connector_id = str(context.get("connector_id", "") or "")
     provider = str(context.get("provider", "") or "").strip()
     account_id = str(context.get("account_id", "") or "").strip()
@@ -95,13 +95,24 @@ def _apply_workspace_connector_runtime_context(
         inp["provider"] = provider
     if account_id and not str(inp.get("account", "") or "").strip():
         inp["account"] = account_id
-    if connector_id == "gmail" and account_id and str(tool_name or "").strip().lower() != "gmail_switch_account":
-        try:
-            from src.guppy.tools.media import gmail_switch_account
-            gmail_switch_account(account_id)
-        except Exception:
-            return inp
-    return inp
+    return inp, connector_id, account_id
+
+
+def _apply_workspace_connector_runtime_side_effects(
+    tool_name: str,
+    connector_id: str,
+    account_id: str,
+) -> None:
+    if connector_id != "gmail" or not account_id:
+        return
+    if str(tool_name or "").strip().lower() == "gmail_switch_account":
+        return
+    try:
+        from src.guppy.tools.media import gmail_switch_account
+
+        gmail_switch_account(account_id)
+    except Exception:
+        return
 
 
 def _safe_tool_metric_call(label: str, fn, *args, **kwargs):
@@ -132,7 +143,7 @@ def run_tool(
     """
     if not isinstance(inp, dict):
         inp = {}
-    inp = _apply_workspace_connector_runtime_context(
+    inp, connector_id, connector_account_id = _apply_workspace_connector_runtime_context(
         name,
         dict(inp),
         instance_name=instance_name,
@@ -218,6 +229,8 @@ def run_tool(
             "result": permission_reason[:150],
         })
         return f"Error: {permission_reason}"
+
+    _apply_workspace_connector_runtime_side_effects(name, connector_id, connector_account_id)
 
     input_error = _validate_tool_input(name, inp)
     if input_error:

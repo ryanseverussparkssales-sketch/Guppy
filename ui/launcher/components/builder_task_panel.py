@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
-from utils.offhours_builder import load_builder_templates
+from src.guppy.launcher_application.builder_workflow import load_builder_templates
 
 from .. import tokens as T
 

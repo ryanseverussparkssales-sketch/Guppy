@@ -36,7 +36,8 @@
             "tier": "premium"
           }
         }
-      ]
+      ],
+      "provider_tier": "supported_optional"
     }
   ],
   "routes": {

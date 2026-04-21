@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
+from src.guppy.launcher_application.library_media import describe_library_media_path
 from src.guppy.launcher_application.library_storage import (
     build_workspace_library_snapshot,
     list_root_files,
@@ -53,10 +55,54 @@ def _item_detail(item: dict[str, object]) -> str:
     return _truncate(joined, limit=160)
 
 
+def _metadata_source_label(item: dict[str, object]) -> str:
+    metadata = item.get("metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    explicit = str(metadata.get("source_label", "") or "").strip()
+    if explicit:
+        return explicit
+    source = str(metadata.get("source", "") or "").strip().lower()
+    if source == "assistant_reply":
+        return "Saved reply note"
+    if source == "assistant_reply_artifact":
+        return "Saved reply artifact"
+    return ""
+
+
+def _note_preview(text: str, *, limit: int = 160) -> str:
+    cleaned = " ".join(str(text or "").split())
+    if not cleaned:
+        return "Pinned note with no body text yet."
+    return _truncate(cleaned, limit=limit)
+
+
+def _card_detail(item: dict[str, object]) -> str:
+    kind = str(item.get("item_kind", "file") or "file").strip().lower()
+    item_path = str(item.get("item_path", "") or "").strip()
+    media = describe_library_media_path(item_path)
+    if kind == "note":
+        source_label = _metadata_source_label(item) or "Pinned note"
+        return _truncate(f"{_note_preview(str(item.get('summary', '') or ''))} | {source_label}", limit=160)
+    parts: list[str] = []
+    if media.is_media and media.source_label:
+        parts.append(media.source_label)
+    source_label = str(item.get("source_label", "") or "").strip() or _metadata_source_label(item)
+    summary = str(item.get("summary", "") or "").strip()
+    parts.extend(part for part in (summary, source_label, item_path) if part)
+    return _truncate(" | ".join(parts), limit=160)
+
+
 def _item_prompt(item: dict[str, object], workspace_name: str) -> str:
     title = str(item.get("title", "") or "").strip() or "this item"
     item_path = str(item.get("item_path", "") or "").strip()
     kind = str(item.get("item_kind", "file") or "file").strip().lower()
+    media = describe_library_media_path(item_path)
+    if media.is_media:
+        return (
+            f"Use local {media.media_kind} {title} from Library as the current source for {workspace_name} "
+            "and help me continue the work around it."
+        )
     if kind == "coding":
         return f"Use {title} as coding context for {workspace_name} and help me work through it."
     if kind == "study":
@@ -64,8 +110,21 @@ def _item_prompt(item: dict[str, object], workspace_name: str) -> str:
     if kind == "artifact":
         return f"Use {title} as artifact context for {workspace_name} and help me work with the latest outputs."
     if kind == "note":
+        source_label = _metadata_source_label(item).strip().lower()
+        if source_label == "saved reply note":
+            return f"Use the saved reply note {title} as context for {workspace_name} and help me continue from it."
         return f"Use the pinned note {title} as context for {workspace_name} and help me continue from it."
     return f"Use {title} as file context for {workspace_name} and help me work with it."
+
+
+def _context_ref(item: dict[str, object]) -> str:
+    item_id = str(item.get("id", "") or "").strip()
+    if item_id:
+        return f"library-item://{item_id}"
+    item_path = str(item.get("item_path", "") or "").strip()
+    if item_path:
+        return item_path
+    return str(item.get("title", "") or "").strip()
 
 
 def build_library_surface_state(
@@ -76,6 +135,7 @@ def build_library_surface_state(
     mode: str = "auto",
     last_message: str = "",
     selected_root_path: str = "",
+    include_root_file_cards: bool = True,
 ) -> LibrarySurfaceState:
     name = str(workspace_name or "guppy-primary").strip() or "guppy-primary"
     kind = str(workspace_type or "user_instance").strip().lower() or "user_instance"
@@ -133,20 +193,25 @@ def build_library_surface_state(
         "",
     )
     root_file_cards: list[dict[str, str]] = []
-    if selected_root:
+    if selected_root and include_root_file_cards:
         for item in list_root_files(selected_root, limit=8):
             if not isinstance(item, dict):
                 continue
             title = str(item.get("title", "") or "").strip()
             if not title:
                 continue
+            media = describe_library_media_path(str(item.get("item_path", "") or "").strip())
             root_file_cards.append(
                 {
                     "title": _truncate(title, limit=52),
-                    "detail": _item_detail(item),
+                    "detail": _card_detail(item),
                     "kind": str(item.get("item_kind", "file") or "file").strip().lower(),
                     "item_path": str(item.get("item_path", "") or "").strip(),
                     "action_label": "USE IN CHAT",
+                    "is_media": media.is_media,
+                    "media_kind": media.media_kind,
+                    "media_path": media.path if media.is_media else "",
+                    "source_label": media.source_label,
                     "prompt": _item_prompt(item, name),
                 }
             )
@@ -166,10 +231,17 @@ def build_library_surface_state(
                 "id": str(item.get("id", "") or "").strip(),
                 "title": _truncate(title, limit=48),
                 "full_title": title,
-                "detail": _item_detail(item),
+                "detail": _card_detail(item),
                 "kind": kind,
                 "item_path": str(item.get("item_path", "") or "").strip(),
+                "context_ref": _context_ref(item),
                 "summary": str(item.get("summary", "") or "").strip(),
+                "is_media": describe_library_media_path(str(item.get("item_path", "") or "").strip()).is_media,
+                "media_kind": describe_library_media_path(str(item.get("item_path", "") or "").strip()).media_kind,
+                "media_path": describe_library_media_path(str(item.get("item_path", "") or "").strip()).path
+                if describe_library_media_path(str(item.get("item_path", "") or "").strip()).is_media
+                else "",
+                "source_label": _metadata_source_label(item),
                 "action_label": "USE IN CHAT",
                 "prompt": _item_prompt(item, name),
             }
@@ -182,12 +254,19 @@ def build_library_surface_state(
         title = str(item.get("title", "") or "").strip()
         if not title:
             continue
+        media = describe_library_media_path(str(item.get("item_path", "") or "").strip())
         recent_cards.append(
             {
                 "title": _truncate(title, limit=48),
-                "detail": _item_detail(item),
+                "detail": _card_detail(item),
                 "kind": str(item.get("item_kind", "file") or "file").strip().lower(),
                 "item_path": str(item.get("item_path", "") or "").strip(),
+                "id": str(item.get("id", "") or "").strip(),
+                "context_ref": _context_ref(item),
+                "is_media": media.is_media,
+                "media_kind": media.media_kind,
+                "media_path": media.path if media.is_media else "",
+                "source_label": media.source_label or _metadata_source_label(item),
                 "action_label": "USE IN CHAT",
                 "prompt": _item_prompt(item, name),
             }
@@ -288,7 +367,7 @@ def build_library_surface_state(
         approved_roots=approved_roots,
         selected_root_label=selected_root_label or "Approved root",
         selected_root_hint=(
-            f"Active root: {selected_root_label or 'Approved root'}. Browse files here, then use USE IN CHAT to attach one as source context."
+            f"Active root: {selected_root_label or 'Approved root'}. Switch roots from the picker or cards below, then use USE IN CHAT to attach one as source context."
             if selected_root
             else "Pick an approved root to browse files before using USE IN CHAT. Guppy only browses approved folders."
         ),
@@ -296,3 +375,23 @@ def build_library_surface_state(
         saved_item_cards=saved_item_cards,
         recent_cards=recent_cards,
     )
+
+
+def validate_library_root(path_str: str) -> tuple[bool, str | None]:
+    """Validate that *path_str* is a non-empty string that points to an existing directory.
+
+    Returns ``(True, None)`` on success, or ``(False, error_message)`` on failure.
+    This is pure logic — no Qt imports required.
+    """
+    cleaned = str(path_str or "").strip()
+    if not cleaned:
+        return (False, "Path is required.")
+    try:
+        resolved = Path(cleaned).expanduser().resolve()
+    except OSError:
+        return (False, f"'{cleaned}' does not exist.")
+    if not resolved.exists():
+        return (False, f"'{cleaned}' does not exist.")
+    if not resolved.is_dir():
+        return (False, f"'{cleaned}' is not a directory.")
+    return (True, None)

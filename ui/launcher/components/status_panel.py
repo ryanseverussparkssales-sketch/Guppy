@@ -39,10 +39,10 @@ def _workspace_kind_label(workspace_type: str) -> str:
 
 
 _PRIMARY_TRAY_TOOLS: list[tuple[str, str, str]] = [
-    ("read_file", "RF", "Read files in the active workspace"),
-    ("screenshot", "SS", "Inspect a screenshot or visual surface"),
-    ("query_instance", "QI", "Ask another workspace a bounded question"),
-    ("debug_console", "DBG", "Inspect safe runtime details"),
+    ("read_file", "READ", "Read files in the active workspace"),
+    ("screenshot", "SHOT", "Inspect a screenshot or visual surface"),
+    ("query_instance", "ASK", "Ask another workspace a bounded question"),
+    ("debug_console", "DEBUG", "Inspect safe runtime details"),
 ]
 
 _SECONDARY_TRAY_TOOLS: list[tuple[str, str, str]] = [
@@ -74,40 +74,43 @@ class StatusPanel(QFrame):
         self.setObjectName("status_panel")
         self.setStyleSheet(
             "QFrame#status_panel {"
-            " background-color: rgba(255,253,248,0.84);"
-            " border-left: 1px solid rgba(214,197,174,0.60);"
+            f" background-color: {T.SURFACE_ELEVATED_88};"
+            f" border-left: 1px solid {T.BORDER_SOFT_68};"
             "}"
         )
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(14, 18, 14, 12)
-        outer.setSpacing(12)
+        outer.setContentsMargins(10, 14, 10, 10)
+        outer.setSpacing(10)
 
         title_row = QHBoxLayout()
         title = QLabel("WORKSPACE")
         title.setStyleSheet(
             f"color: {T.INK}; font-family: '{T.FF_HEAD}';"
-            f"font-size: {T.FS_TITLE + 1}pt; font-weight: bold;"
+            f"font-size: {T.FS_TITLE}pt; font-weight: bold;"
         )
         title_row.addWidget(title)
         title_row.addStretch()
-        self._extras_btn = QPushButton("DETAILS")
+        self._extras_btn = QPushButton("MORE OPTIONS")
         self._extras_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._extras_btn.setToolTip("Show additional workspace actions and optional spaces")
+        self._extras_btn.setAccessibleName("More workspace options")
+        self._extras_btn.setAccessibleDescription("Shows additional actions and optional spaces")
         self._extras_btn.setStyleSheet(
-            f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
+            f"QPushButton {{ background: {T.SURFACE_ELEVATED_92}; color: {T.DIM}; border: 1px solid {T.BORDER_SOFT_60};"
             f" border-radius: 14px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: rgba(70,98,199,0.46); color: {T.TERTIARY}; background: #ffffff; }}"
+            f"QPushButton:hover {{ border-color: {T.HOVER_TERTIARY_MED}; color: {T.TERTIARY}; background: {T.WHITE}; }}"
         )
         self._extras_btn.clicked.connect(self._toggle_extras)
         title_row.addWidget(self._extras_btn)
         outer.addLayout(title_row)
 
-        self._workspace_lbl = _mono("WORKSPACE / GUPPY-PRIMARY", T.TEXT, T.FS_TINY, True)
+        self._workspace_lbl = _mono("GUPPY-PRIMARY / DAILY", T.TEXT, T.FS_TINY, True)
         self._tray_status_lbl = _mono("READY", T.GREEN, T.FS_TINY, True)
         self._activity_lbl = _mono("Latest: Workspace ready", T.DIM, T.FS_TINY)
         self._activity_lbl.setWordWrap(True)
         self._activity_lbl.setStyleSheet(
-            f"color: rgba(115,96,79,0.72); font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+            f"color: {T.TEXT_DIM_72}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
         outer.addWidget(self._workspace_lbl)
         outer.addWidget(self._tray_status_lbl)
@@ -117,15 +120,15 @@ class StatusPanel(QFrame):
         tools_frame.setObjectName("drawer_actions")
         tools_frame.setStyleSheet(
             "QFrame#drawer_actions {"
-            " background-color: rgba(255,255,255,0.68);"
-            " border: 1px solid rgba(214,197,174,0.48);"
+            f" background-color: {T.SURFACE_ELEVATED_88};"
+            f" border: 1px solid {T.BORDER_SOFT_60};"
             " border-radius: 24px;"
             "}"
         )
         tools_layout = QVBoxLayout(tools_frame)
-        tools_layout.setContentsMargins(12, 12, 12, 10)
-        tools_layout.setSpacing(8)
-        tools_layout.addWidget(_mono("READY NOW", T.PRIMARY, T.FS_TINY, True))
+        tools_layout.setContentsMargins(10, 10, 10, 8)
+        tools_layout.setSpacing(6)
+        tools_layout.addWidget(_mono("UTILITIES", T.PRIMARY_DIM, T.FS_TINY, True))
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -133,7 +136,7 @@ class StatusPanel(QFrame):
         grid.setVerticalSpacing(8)
         for index, (tool_key, short_label, tooltip) in enumerate(_PRIMARY_TRAY_TOOLS):
             btn = QPushButton(short_label)
-            btn.setFixedSize(52, 44)
+            btn.setFixedSize(72, 36)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(tooltip)
             btn.setStyleSheet(self._tool_button_style(True))
@@ -143,7 +146,7 @@ class StatusPanel(QFrame):
         tools_layout.addLayout(grid)
 
         self._tool_hint_lbl = _mono(
-            "Start with files, screenshots, quick questions, or safe debug details.",
+            "Files, screenshots, quick questions, and debug stay here.",
             T.DIM,
             T.FS_TINY,
         )
@@ -160,23 +163,23 @@ class StatusPanel(QFrame):
         spaces_frame.setObjectName("drawer_secondary_actions")
         spaces_frame.setStyleSheet(
             "QFrame#drawer_secondary_actions {"
-            " background-color: rgba(255,255,255,0.68);"
-            " border: 1px solid rgba(214,197,174,0.48);"
+            f" background-color: {T.SURFACE_ELEVATED_88};"
+            f" border: 1px solid {T.BORDER_SOFT_60};"
             " border-radius: 24px;"
             "}"
         )
         spaces_layout = QVBoxLayout(spaces_frame)
-        spaces_layout.setContentsMargins(12, 12, 12, 10)
-        spaces_layout.setSpacing(8)
+        spaces_layout.setContentsMargins(10, 10, 10, 8)
+        spaces_layout.setSpacing(6)
 
         spaces_head = QHBoxLayout()
-        spaces_head.addWidget(_mono("MORE ACTIONS", T.PRIMARY, T.FS_TINY, True))
+        spaces_head.addWidget(_mono("MORE ACTIONS", T.PRIMARY_DIM, T.FS_TINY, True))
         spaces_head.addStretch()
         spaces_head.addWidget(_mono("WRITE / CODE / SHELL", T.DIM, T.FS_TINY))
         spaces_layout.addLayout(spaces_head)
 
         self._spaces_summary_lbl = _mono(
-            "Open the heavier workspace actions only when you need to build or mutate something.",
+            "Open these only when you need to write or run code.",
             T.DIM,
             T.FS_TINY,
         )
@@ -213,8 +216,8 @@ class StatusPanel(QFrame):
         media_frame.setObjectName("media_dock")
         media_frame.setStyleSheet(
             "QFrame#media_dock {"
-            " background-color: rgba(255,255,255,0.72);"
-            " border: 1px solid rgba(214,197,174,0.48);"
+            f" background-color: {T.SURFACE_ELEVATED_88};"
+            f" border: 1px solid {T.BORDER_SOFT_60};"
             " border-radius: 24px;"
             "}"
         )
@@ -223,7 +226,7 @@ class StatusPanel(QFrame):
         media_layout.setSpacing(8)
 
         media_top = QHBoxLayout()
-        media_top.addWidget(_mono("OPTIONAL SPACES", T.PRIMARY, T.FS_TINY, True))
+        media_top.addWidget(_mono("OPTIONAL SPACES", T.PRIMARY_DIM, T.FS_TINY, True))
         media_top.addStretch()
         media_top.addWidget(_mono("MEDIA / FOLLOW-UP", T.DIM, T.FS_TINY))
         media_layout.addLayout(media_top)
@@ -237,22 +240,36 @@ class StatusPanel(QFrame):
         art_layout = QVBoxLayout(artwork)
         art_layout.setContentsMargins(14, 10, 14, 10)
         art_layout.setSpacing(5)
-        art_layout.addWidget(_mono("OPTIONAL", "#fff7f2", T.FS_TINY, True))
+        optional_lbl = _mono("OPTIONAL", T.INK, T.FS_TINY, True)
+        optional_lbl.setStyleSheet(
+            f"color: {T.INK}; background-color: {T.SURFACE_ELEVATED_92};"
+            f" border-radius: 9px; padding: 2px 8px; font-family: '{T.FF_MONO}';"
+            f" font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
+        )
+        art_layout.addWidget(optional_lbl)
         self._media_title_lbl = QLabel("Keep the daily path light")
         self._media_title_lbl.setStyleSheet(
-            f"color: white; font-family: '{T.FF_HEAD}'; font-size: 15pt; font-weight: bold;"
+            f"color: {T.INK}; background-color: {T.SURFACE_ELEVATED_92};"
+            f" border-radius: 12px; padding: 3px 8px; font-family: '{T.FF_HEAD}';"
+            " font-size: 15pt; font-weight: bold;"
         )
         art_layout.addWidget(self._media_title_lbl)
         self._media_subtitle_lbl = _mono(
             "Use this drawer for media, calendar, mail, or extra workflow spaces only when they help.",
-            "#fff7f2",
+            T.TEXT,
             T.FS_SMALL,
         )
         self._media_subtitle_lbl.setWordWrap(True)
+        self._media_subtitle_lbl.setStyleSheet(
+            f"color: {T.TEXT}; background-color: {T.SURFACE_ELEVATED_88};"
+            f" border-radius: 12px; padding: 4px 8px; font-family: '{T.FF_MONO}';"
+            f" font-size: {T.FS_SMALL}pt; letter-spacing: 1px;"
+        )
         art_layout.addWidget(self._media_subtitle_lbl)
         art_gesture = QLabel("// calm / focus / context")
         art_gesture.setStyleSheet(
-            f"color: rgba(255,255,255,0.92); background: transparent; font-family: '{T.FF_MONO}'; font-size: 9pt; letter-spacing: 2px;"
+            f"color: {T.INK}; background-color: {T.SURFACE_ELEVATED_88};"
+            f" border-radius: 9px; padding: 2px 8px; font-family: '{T.FF_MONO}'; font-size: 9pt; letter-spacing: 2px;"
         )
         art_layout.addWidget(art_gesture)
         media_layout.addWidget(artwork)
@@ -264,9 +281,9 @@ class StatusPanel(QFrame):
             btn.setEnabled(False)
             btn.setStyleSheet(
                 "QPushButton {"
-                " background: rgba(255,250,243,0.92);"
-                " color: rgba(115,96,79,0.78);"
-                " border: 1px solid rgba(205,181,154,0.30);"
+                f" background: {T.SURFACE_ELEVATED_92};"
+                f" color: {T.TEXT_DIM_78};"
+                f" border: 1px solid {T.BORDER_MID_30};"
                 " border-radius: 14px;"
                 f" padding: 7px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
                 "}"
@@ -282,15 +299,15 @@ class StatusPanel(QFrame):
     def _tool_button_style(enabled: bool) -> str:
         if enabled:
             return (
-                f"QPushButton {{ background: rgba(255,250,243,0.92); color: {T.TEXT}; border: 1px solid rgba(205,181,154,0.30);"
+                f"QPushButton {{ background: {T.SURFACE_ELEVATED_92}; color: {T.TEXT}; border: 1px solid {T.BORDER_MID_30};"
                 f" border-radius: 15px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; font-weight: bold; }}"
-                f"QPushButton:hover {{ border-color: rgba(255,107,61,0.46); color: {T.PRIMARY}; background: #ffffff; }}"
+                f"QPushButton:hover {{ border-color: {T.HOVER_TERTIARY_MED}; color: {T.PRIMARY}; background: {T.WHITE}; }}"
             )
         return (
             "QPushButton {"
-            " background: rgba(255,250,243,0.78);"
-            " color: rgba(205,181,154,0.92);"
-            " border: 1px solid rgba(205,181,154,0.22);"
+            f" background: {T.SURFACE_ELEVATED_78};"
+            f" color: {T.BORDER_STRONG};"
+            f" border: 1px solid {T.BORDER_MID_22};"
             f" border-radius: 15px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; font-weight: bold;"
             "}"
         )
@@ -298,9 +315,9 @@ class StatusPanel(QFrame):
     @staticmethod
     def _space_button_style() -> str:
         return (
-            f"QPushButton {{ background: rgba(255,250,243,0.92); color: {T.TEXT}; border: 1px solid rgba(205,181,154,0.30);"
+            f"QPushButton {{ background: {T.SURFACE_ELEVATED_92}; color: {T.TEXT}; border: 1px solid {T.BORDER_MID_30};"
             f" border-radius: 14px; padding: 0 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: rgba(255,107,61,0.46); color: {T.PRIMARY}; background: #ffffff; }}"
+            f"QPushButton:hover {{ border-color: {T.HOVER_TERTIARY_MED}; color: {T.PRIMARY}; background: {T.WHITE}; }}"
         )
 
     def set_workspace(self, name: str, workspace_type: str = "") -> None:
@@ -311,7 +328,12 @@ class StatusPanel(QFrame):
     def _toggle_extras(self) -> None:
         self._extras_visible = not self._extras_visible
         self._extras_host.setVisible(self._extras_visible)
-        self._extras_btn.setText("HIDE DETAILS" if self._extras_visible else "DETAILS")
+        self._extras_btn.setText("LESS OPTIONS" if self._extras_visible else "MORE OPTIONS")
+        self._extras_btn.setToolTip(
+            "Hide additional workspace actions and optional spaces"
+            if self._extras_visible
+            else "Show additional workspace actions and optional spaces"
+        )
 
     def set_tool_states(self, states: dict[str, str]) -> None:
         for tool_key, button in self._tool_buttons.items():

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import heapq
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -53,6 +55,7 @@ _IGNORED_DISCOVERY_DIRS = {
     "runtime",
     ".tmp",
 }
+_ROOT_FILE_SCAN_LIMIT = max(64, int(os.environ.get("GUPPY_LIBRARY_ROOT_SCAN_LIMIT", "1500") or 1500))
 _STUDY_EXTENSIONS = {
     ".md",
     ".txt",
@@ -380,23 +383,26 @@ def list_root_files(root_path: str | Path, *, limit: int = 10) -> list[dict[str,
         or root.name
         or normalized_root
     )
-    candidates: list[dict[str, object]] = []
+    target_limit = max(1, min(int(limit or 10), 40))
+    scan_limit = max(target_limit, _ROOT_FILE_SCAN_LIMIT)
+    candidate_heap: list[tuple[float, int, dict[str, object]]] = []
+    scanned_files = 0
     try:
-        for child in root.rglob("*"):
-            if not child.is_file():
-                continue
-            try:
-                relative_path = child.relative_to(root)
-            except ValueError:
-                relative_path = Path(child.name)
-            if any(part in _IGNORED_DISCOVERY_DIRS for part in relative_path.parts):
-                continue
-            try:
-                stat = child.stat()
-            except OSError:
-                continue
-            candidates.append(
-                {
+        for current_root, dirnames, filenames in os.walk(root):
+            dirnames[:] = [name for name in dirnames if name not in _IGNORED_DISCOVERY_DIRS]
+            for filename in filenames:
+                child = Path(current_root) / filename
+                try:
+                    relative_path = child.relative_to(root)
+                except ValueError:
+                    relative_path = Path(child.name)
+                if any(part in _IGNORED_DISCOVERY_DIRS for part in relative_path.parts):
+                    continue
+                try:
+                    stat = child.stat()
+                except OSError:
+                    continue
+                item = {
                     "title": child.name,
                     "item_path": str(child),
                     "item_kind": _kind_for_path(child),
@@ -409,11 +415,21 @@ def list_root_files(root_path: str | Path, *, limit: int = 10) -> list[dict[str,
                     .replace("+00:00", "Z"),
                     "_sort_mtime": float(stat.st_mtime),
                 }
-            )
+                sort_key = float(stat.st_mtime)
+                if len(candidate_heap) < target_limit:
+                    heapq.heappush(candidate_heap, (sort_key, scanned_files, item))
+                else:
+                    heapq.heappushpop(candidate_heap, (sort_key, scanned_files, item))
+                scanned_files += 1
+                if scanned_files >= scan_limit:
+                    break
+            if scanned_files >= scan_limit:
+                break
     except OSError:
         return []
+    candidates = [item for _, _, item in candidate_heap]
     candidates.sort(key=lambda item: float(item.get("_sort_mtime", 0.0) or 0.0), reverse=True)
-    trimmed = candidates[: max(1, min(int(limit or 10), 40))]
+    trimmed = candidates[:target_limit]
     for item in trimmed:
         item.pop("_sort_mtime", None)
     return trimmed

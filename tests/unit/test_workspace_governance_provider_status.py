@@ -73,6 +73,8 @@ def test_build_provider_row_merges_secret_state_and_verify_payload() -> None:
                 "SALESFORCE_INSTANCE_URL": "none",
             },
             "source": "mixed",
+            "storage_posture": "mixed_env",
+            "storage_warning": "Some secrets still resolve from environment variables; move them into the OS credential store to remove mixed storage.",
         },
     ), patch(
         "src.guppy.integrations.crm_voip.verify_connector_provider",
@@ -106,6 +108,8 @@ def test_build_provider_row_merges_secret_state_and_verify_payload() -> None:
     assert row["verify_check_summary"] == "Host=OK"
     assert row["result_code"] == "ready"
     assert "Workspaces" in row["next_step"]
+    assert row["storage_posture"] == "mixed_env"
+    assert "environment variables" in row["auth_detail"]
 
 
 def test_provider_family_status_uses_selected_provider_and_voip_env_default() -> None:
@@ -117,6 +121,7 @@ def test_provider_family_status_uses_selected_provider_and_voip_env_default() ->
             "auth_state": "partial",
             "auth_detail": "HubSpot still needs token.",
             "source": "env",
+            "storage_warning": "Secrets are loading from environment variables; move them into the OS credential store for launch-grade posture.",
             "endpoint_prefixes": ["connector://crm/hubspot"],
         },
         {
@@ -126,10 +131,11 @@ def test_provider_family_status_uses_selected_provider_and_voip_env_default() ->
             "auth_state": "ready",
             "auth_detail": "Salesforce is ready for contacts + opportunities.",
             "source": "keyring",
+            "storage_warning": "",
             "endpoint_prefixes": ["connector://crm/salesforce"],
         },
-        {"id": "gohighlevel", "label": "GoHighLevel", "ready": False, "auth_state": "missing", "source": "none", "endpoint_prefixes": []},
-        {"id": "zoho", "label": "Zoho", "ready": False, "auth_state": "missing", "source": "none", "endpoint_prefixes": []},
+        {"id": "gohighlevel", "label": "GoHighLevel", "ready": False, "auth_state": "missing", "source": "none", "storage_warning": "", "endpoint_prefixes": []},
+        {"id": "zoho", "label": "Zoho", "ready": False, "auth_state": "missing", "source": "none", "storage_warning": "", "endpoint_prefixes": []},
     ]
     voip_rows = [
         {
@@ -139,6 +145,7 @@ def test_provider_family_status_uses_selected_provider_and_voip_env_default() ->
             "auth_state": "ready",
             "auth_detail": "Twilio is ready for outbound calling.",
             "source": "keyring",
+            "storage_warning": "",
             "endpoint_prefixes": ["connector://voip/twilio"],
         },
         {
@@ -148,6 +155,7 @@ def test_provider_family_status_uses_selected_provider_and_voip_env_default() ->
             "auth_state": "optional",
             "auth_detail": "Generic SIP remains operator-managed.",
             "source": "none",
+            "storage_warning": "",
             "endpoint_prefixes": ["connector://voip/generic"],
         },
     ]

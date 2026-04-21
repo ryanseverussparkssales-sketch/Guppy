@@ -1,14 +1,59 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+import json
+from pathlib import Path
 
+from src.guppy.launcher_application.library_context_support import (
+    LibraryChatSubmission,
+    build_library_chat_submission,
+    build_library_context_item_with_details,
+    build_saved_output_context_item,
+    compose_library_aware_message,
+    primary_context_label,
+    resolve_saved_context_payload,
+)
 from src.guppy.launcher_application.library_storage import (
     delete_workspace_library_item,
     save_workspace_library_item,
     update_workspace_library_item,
     upsert_approved_root,
 )
+
+
+_LIBRARY_DEFAULTS_PATH = Path(__file__).resolve().parents[3] / "runtime" / "library_workspace_defaults.json"
+
+
+def _load_workspace_defaults() -> dict[str, str]:
+    try:
+        payload = json.loads(_LIBRARY_DEFAULTS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    result: dict[str, str] = {}
+    for key, value in payload.items():
+        name = str(key or "").strip()
+        title = str(value or "").strip()
+        if name and title:
+            result[name] = title
+    return result
+
+
+def _save_workspace_defaults(defaults: dict[str, str]) -> None:
+    clean = {
+        str(key or "").strip(): str(value or "").strip()
+        for key, value in defaults.items()
+        if str(key or "").strip() and str(value or "").strip()
+    }
+    try:
+        _LIBRARY_DEFAULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _LIBRARY_DEFAULTS_PATH.write_text(
+            json.dumps(clean, ensure_ascii=True, sort_keys=True, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        return
 
 
 def sync_assistant_library_context(assistant_view, library_view, active_items: list[dict[str, str]]) -> None:
@@ -23,36 +68,6 @@ def apply_library_payload(assistant_view, library_view, active_items: list[dict[
         return
     library_view.set_instance_context(active_payload, snapshot)
     sync_assistant_library_context(assistant_view, library_view, active_items)
-
-
-def compose_library_aware_message(cmd: str, active_items: list[dict[str, str]] | None) -> str:
-    command_text = str(cmd or "").strip()
-    items = [item for item in list(active_items or []) if isinstance(item, dict)]
-    if not items:
-        return command_text
-    context_lines = []
-    for item in items[:3]:
-        title = str(item.get("title", "") or "").strip() or "Untitled context"
-        kind = str(item.get("kind", "file") or "file").strip().lower() or "file"
-        detail = str(item.get("detail", "") or "").strip()
-        line = f"- {kind}: {title}"
-        if detail:
-            line = f"{line} | {detail}"
-        context_lines.append(line)
-    prefix = "Use the attached Library context below when answering.\n" + "\n".join(context_lines)
-    return f"{prefix}\n\nUser request:\n{command_text}"
-
-
-def primary_context_label(active_items: list[dict[str, str]] | None) -> str:
-    items = [item for item in list(active_items or []) if isinstance(item, dict)]
-    if not items:
-        return ""
-    primary = items[0]
-    title = str(primary.get("title", "") or "").strip()
-    origin = str(primary.get("origin", "") or "").strip().lower()
-    if origin == "assistant_reply" and title:
-        return f"saved reply note {title}"
-    return title
 
 
 def summarize_reply_for_library(content: str) -> tuple[str, str]:
@@ -72,71 +87,6 @@ def summarize_reply_artifact(content: str) -> tuple[str, str]:
     title, summary = summarize_reply_for_library(content)
     artifact_title = title if title.lower().endswith("artifact") else f"{title} artifact"
     return (artifact_title[:84].rstrip(), summary)
-
-
-def build_saved_output_context_item(title: str, summary: str) -> dict[str, str]:
-    title_text = str(title or "").strip() or "Saved output"
-    summary_text = str(summary or "").strip()
-    detail = summary_text[:180].rstrip()
-    return {
-        "title": title_text,
-        "kind": "artifact",
-        "detail": detail or "Saved reply artifact from the latest assistant output",
-        "origin": "assistant_reply_artifact",
-        "source_label": "Saved reply artifact",
-    }
-
-
-@dataclass(frozen=True)
-class LibraryChatSubmission:
-    request_message: str
-    history: list[dict[str, str]]
-    status_text: str
-    background_event: str
-    context_notice: str
-
-
-def build_library_chat_submission(
-    cmd: str,
-    history: list[dict[str, str]] | None,
-    active_items: list[dict[str, str]] | None,
-) -> LibraryChatSubmission:
-    items = [item for item in list(active_items or []) if isinstance(item, dict)]
-    normalized_history = [dict(item) for item in list(history or []) if isinstance(item, dict)]
-    request_message = compose_library_aware_message(cmd, items)
-    if not items:
-        return LibraryChatSubmission(
-            request_message=request_message,
-            history=normalized_history,
-            status_text="Processing...",
-            background_event="",
-            context_notice="",
-        )
-    titles = [str(item.get("title", "") or "").strip() for item in items[:2]]
-    titles = [title for title in titles if title]
-    primary_label = primary_context_label(items)
-    notice = "Using attached Library context for this reply."
-    if primary_label and str(items[0].get("origin", "") or "").strip().lower() == "assistant_reply":
-        notice = f"Using the saved reply note as the current source for this reply: {str(items[0].get('title', '') or '').strip()}."
-    elif titles:
-        notice = f"Using attached Library context for this reply: {', '.join(titles)}."
-    return LibraryChatSubmission(
-        request_message=request_message,
-        history=[
-            *normalized_history,
-            {
-                "role": "system",
-                "content": "Attached Library context is active for the next reply. Prefer those files, notes, and artifacts when relevant.",
-            },
-        ],
-        status_text=f"Processing with {len(items)} context item(s)...",
-        background_event=(
-            f"Reply will use the saved reply note first: {str(items[0].get('title', '') or '').strip()}"
-            if primary_label and str(items[0].get("origin", "") or "").strip().lower() == "assistant_reply"
-            else (f"Reply will use attached Library context: {', '.join(titles)}" if titles else "Reply will use attached Library context.")
-        ),
-        context_notice=notice,
-    )
 
 
 class LibraryWorkflowController:
@@ -164,6 +114,38 @@ class LibraryWorkflowController:
         self._on_tab_change = on_tab_change
         self._set_daily_activity = set_daily_activity
         self._log_launcher_event = log_launcher_event
+        self._workspace_default_sources: dict[str, str] = _load_workspace_defaults()
+
+    def _active_workspace_name(self) -> str:
+        return str(self._get_active_instance_name() or "guppy-primary").strip() or "guppy-primary"
+
+    def _workspace_default_title(self) -> str:
+        return str(self._workspace_default_sources.get(self._active_workspace_name(), "") or "").strip()
+
+    def _set_workspace_default_title(self, title: str) -> None:
+        workspace = self._active_workspace_name()
+        normalized = str(title or "").strip()
+        if normalized:
+            self._workspace_default_sources[workspace] = normalized
+        elif workspace in self._workspace_default_sources:
+            self._workspace_default_sources.pop(workspace, None)
+        _save_workspace_defaults(self._workspace_default_sources)
+
+    def _prioritize_workspace_default(self, items: list[dict[str, str]]) -> list[dict[str, str]]:
+        default_title = self._workspace_default_title()
+        if not default_title:
+            return items[:3]
+        match = None
+        remainder: list[dict[str, str]] = []
+        for item in items:
+            title = str(item.get("title", "") or "").strip()
+            if match is None and title == default_title:
+                match = item
+                continue
+            remainder.append(item)
+        if match is None:
+            return items[:3]
+        return [match, *remainder][:3]
 
     def sync(self, library_view=None) -> None:
         sync_assistant_library_context(
@@ -171,22 +153,45 @@ class LibraryWorkflowController:
             library_view if library_view is not None else self._get_library_view(),
             self._get_active_items(),
         )
+        if hasattr(self._assistant_view, "set_default_context_source"):
+            self._assistant_view.set_default_context_source(self._workspace_default_title())
 
     def handle_context_requested(self, title: str, item_path: str, item_kind: str, prompt: str) -> None:
         title_text = str(title or "").strip() or "Selected library item"
         item_path_text = str(item_path or "").strip()
         kind_text = str(item_kind or "file").strip().lower() or "file"
         prompt_text = str(prompt or "").strip() or f"Use {title_text} as context and help me work with it."
-        detail = item_path_text or f"{kind_text} context from the active workspace library"
+        detail, source_label, origin = resolve_saved_context_payload(
+            self._active_workspace_name(),
+            title=title_text,
+            item_path=item_path_text,
+            item_kind=kind_text,
+        )
+        next_primary = build_library_context_item_with_details(
+            title_text,
+            item_path_text,
+            kind_text,
+            detail=detail,
+            source_label=source_label,
+            origin=origin,
+            context_ref=item_path_text or f"{kind_text}:{title_text}",
+        )
+        next_primary_ref = str(next_primary.get("context_ref", "") or "").strip()
         active_items = self._get_active_items()
         next_items = [
-            {"title": title_text, "kind": kind_text, "detail": detail},
+            next_primary,
             *[
                 item
                 for item in active_items
-                if str(item.get("title", "")).strip() != title_text
+                if str(item.get("context_ref", "") or "").strip() != next_primary_ref
+                and (
+                    str(item.get("context_ref", "") or "").strip()
+                    or str(item.get("title", "")).strip()
+                )
+                != (next_primary_ref or title_text)
             ],
         ][:3]
+        next_items = self._prioritize_workspace_default(next_items)
         self._set_active_items(next_items)
         if hasattr(self._assistant_view, "set_active_context_items"):
             self._assistant_view.set_active_context_items(next_items)
@@ -220,6 +225,8 @@ class LibraryWorkflowController:
             for item in self._get_active_items()
             if str(item.get("title", "")).strip() != title_text
         ]
+        if self._workspace_default_title() == title_text:
+            self._set_workspace_default_title("")
         self._set_active_items(next_items)
         self.sync()
         self._status_panel.append_syslog(f"library context removed: {title_text}")
@@ -249,12 +256,76 @@ class LibraryWorkflowController:
         self._set_daily_activity(f"Library focus set to: {title_text}")
         self._log_launcher_event("library_context_focused", title=title_text)
 
+    def handle_default_source_requested(self, title: str) -> None:
+        title_text = str(title or "").strip()
+        if not title_text:
+            self._status_panel.append_syslog("default source rejected: missing title")
+            self._log_launcher_event("library_default_source_rejected", reason="missing_title")
+            return
+        active_titles = {
+            str(item.get("title", "") or "").strip()
+            for item in self._get_active_items()
+            if isinstance(item, dict)
+        }
+        if title_text not in active_titles:
+            self._status_panel.append_syslog(f"default source rejected: not attached ({title_text})")
+            self._log_launcher_event(
+                "library_default_source_rejected",
+                reason="title_not_attached",
+                title=title_text,
+            )
+            return
+        self._set_workspace_default_title(title_text)
+        next_items = self._prioritize_workspace_default(self._get_active_items())
+        self._set_active_items(next_items)
+        self.sync()
+        self._assistant_view.set_status("Default source pinned")
+        if hasattr(self._assistant_view, "set_background_event"):
+            self._assistant_view.set_background_event(f"Default source pinned for this workspace: {title_text}")
+        if hasattr(self._assistant_view, "set_default_context_source"):
+            self._assistant_view.set_default_context_source(title_text)
+        self._status_panel.append_syslog(f"default source pinned: {title_text}")
+        self._set_daily_activity(f"Default source pinned: {title_text}")
+        self._log_launcher_event("library_default_source_pinned", title=title_text)
+
     def handle_root_requested(self, root_path: str, label: str) -> None:
-        saved = upsert_approved_root(root_path, label=label, source="library_ui", enabled=True)
+        library_view = self._get_library_view()
+        raw_path = str(root_path or "").strip()
+        if not raw_path:
+            self._status_panel.append_syslog("approved root rejected: missing path")
+            self._set_daily_activity("Library root rejected: missing path")
+            self._log_launcher_event("library_root_rejected", reason="missing_path")
+            if library_view is not None and hasattr(library_view, "set_root_feedback"):
+                library_view.set_root_feedback("Root rejected: missing path.", is_error=True)
+            return
+        candidate = Path(raw_path).expanduser()
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            self._status_panel.append_syslog("approved root rejected: unreadable path")
+            self._set_daily_activity("Library root rejected: unreadable path")
+            self._log_launcher_event("library_root_rejected", reason="unreadable_path", root_path=raw_path)
+            if library_view is not None and hasattr(library_view, "set_root_feedback"):
+                library_view.set_root_feedback("Root rejected: unreadable path.", is_error=True)
+            return
+        if not resolved.exists() or not resolved.is_dir():
+            self._status_panel.append_syslog("approved root rejected: folder not found")
+            self._set_daily_activity("Library root rejected: folder not found")
+            self._log_launcher_event("library_root_rejected", reason="missing_folder", root_path=str(resolved))
+            if library_view is not None and hasattr(library_view, "set_root_feedback"):
+                library_view.set_root_feedback("Root rejected: folder not found.", is_error=True)
+            return
+        normalized_path = str(resolved)
+        root_label = str(label or "").strip() or (resolved.name.strip() if resolved.name else "Approved root")
+        saved = upsert_approved_root(normalized_path, label=root_label, source="library_ui", enabled=True)
         self._refresh_library_surface()
+        if library_view is not None and hasattr(library_view, "set_selected_root"):
+            library_view.set_selected_root(saved["root_path"])
         self._status_panel.append_syslog(f"approved root saved: {saved['label']}")
         self._set_daily_activity(f"Library root saved: {saved['label']}")
         self._log_launcher_event("library_root_saved", label=saved["label"], root_path=saved["root_path"])
+        if library_view is not None and hasattr(library_view, "set_root_feedback"):
+            library_view.set_root_feedback(f"Approved root saved: {saved['label']}", is_error=False)
 
     def handle_note_requested(self, title: str, summary: str) -> None:
         saved = save_workspace_library_item(
@@ -274,7 +345,7 @@ class LibraryWorkflowController:
             item_id,
             title=title,
             summary=summary,
-            metadata={"source": "library_ui"},
+            metadata={"edited_in_library": True},
         )
         if not saved:
             self._status_panel.append_syslog("library note update failed")
@@ -304,7 +375,7 @@ class LibraryWorkflowController:
             title=title,
             summary=summary,
             item_path=item_path or "",
-            metadata={"source": "library_ui"},
+            metadata={"edited_in_library": True},
         )
         if not saved:
             self._status_panel.append_syslog("library artifact update failed")
@@ -324,6 +395,8 @@ class LibraryWorkflowController:
         if not delete_workspace_library_item(item_id):
             self._status_panel.append_syslog(f"library delete failed: {title_text}")
             return
+        if self._workspace_default_title() == title_text:
+            self._set_workspace_default_title("")
         next_items = [
             item
             for item in self._get_active_items()
@@ -418,6 +491,7 @@ class LibraryWorkflowController:
                 if str(existing.get("title", "")).strip() != item["title"]
             ],
         ][:3]
+        next_items = self._prioritize_workspace_default(next_items)
         self._set_active_items(next_items)
         self.sync()
         self._assistant_view.set_status("Output attached")

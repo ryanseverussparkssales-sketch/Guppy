@@ -133,6 +133,7 @@ SURFACES: dict[str, tuple[str, bool, str]] = {
     "api":         ("guppy_api.py",      False, "standard"),
 }
 START_DESTINATIONS = ["home", "tools", "appmgmt", "automation-test"]
+GUI_SCRIPTS = {"guppy_launcher.py", "guppy_hub.py"}
 
 
 def _setup_api_env() -> None:
@@ -145,6 +146,22 @@ def _setup_api_env() -> None:
         print("[launch] WARNING: GUPPY_JWT_SECRET is not set — using dev default")
     if not os.environ.get("TURNSTILE_SECRET") or os.environ["TURNSTILE_SECRET"] == "dev-turnstile-secret":
         print("[launch] WARNING: TURNSTILE_SECRET is not set — Turnstile verification disabled")
+
+
+def _launch_gui_surface(python: str, script: str) -> int:
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = (
+            getattr(subprocess, "DETACHED_PROCESS", 0)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+    subprocess.Popen(
+        [python, script],
+        cwd=str(ROOT),
+        creationflags=creationflags,
+    )
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +214,11 @@ def main(argv: list[str] | None = None) -> int:
             )
         os.environ.pop("GUPPY_START_DESTINATION", None)
 
-    if hub_by_default and not args.no_hub:
+    should_start_hub = hub_by_default and not args.no_hub and script != "guppy_launcher.py"
+    if hub_by_default and not args.no_hub and script == "guppy_launcher.py":
+        print("[launch] Launcher surface manages hub bootstrap internally; skipping pre-launch hub spawn")
+
+    if should_start_hub:
         print("[launch] Starting hub in background...")
         start_hub_background(ROOT)
         time.sleep(2)
@@ -210,6 +231,8 @@ def main(argv: list[str] | None = None) -> int:
         prefer_windowed=script in {"guppy_launcher.py", "guppy_hub.py"},
     )
     print(f"[launch] Starting {script} (profile={profile})...")
+    if script in GUI_SCRIPTS:
+        return _launch_gui_surface(python, script)
     result = subprocess.run([python, script], cwd=str(ROOT))
     return result.returncode
 

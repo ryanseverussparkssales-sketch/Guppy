@@ -23,7 +23,7 @@ def route_inference(
     prefer_local: bool = True
 ) -> Tuple[str, str]:
     """
-    Convenience function for routing inference (LEGACY mode).
+    Convenience function for routing inference using the classic chain (mode="legacy").
 
     Returns:
         (response_text, source)

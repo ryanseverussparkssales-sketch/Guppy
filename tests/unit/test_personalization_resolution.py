@@ -69,7 +69,7 @@ def test_build_persona_prompt_overlay_includes_curated_profile_summary() -> None
         "personas": [
             {
                 "id": "main_guppy",
-                "name": "Main Guppy",
+                "name": "Guppy",
                 "scope": "global",
                 "system_prompt": "Stay calm and exact.",
                 "profile_summary": "- Ryan prefers concise answers.\n- Keep Home calm and chat-first.",
@@ -86,6 +86,7 @@ def test_build_persona_prompt_overlay_includes_curated_profile_summary() -> None
     assert "Curated long-term profile summary" in overlay
     assert "concise answers" in overlay
     assert "Home calm and chat-first" in overlay
+    assert "Persona name: Guppy" in overlay
 
 
 def test_resolve_voice_binding_prefers_model_then_persona_then_default() -> None:

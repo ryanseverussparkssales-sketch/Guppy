@@ -90,6 +90,7 @@ def _pytest_command(*targets: str, label: str) -> list[str]:
 def _dev_check_steps(scope: str) -> list[tuple[str, list[str]]]:
     report_path = _workflow_paths()["reports"] / f"tool-schema-audit-{scope}.json"
     return [
+        ("project isolation guard", _python_command("tools/check_project_isolation.py")),
         ("module line-cap guard", _python_command("tools/check_new_module_line_cap.py")),
         ("architecture boundary guard", _python_command("tools/check_architecture_boundaries.py")),
         ("runtime artifact hygiene guard", _python_command("tools/check_runtime_artifact_hygiene.py")),
@@ -129,9 +130,12 @@ def _release_check_steps() -> list[tuple[str, list[str], dict[str, str]]]:
     return [
         ("guardrails (delta)", _python_command("tools/dev_workflow.py", "dev-check", "--guard-scope", "delta"), delta_env),
         ("guardrails (baseline)", _python_command("tools/dev_workflow.py", "dev-check", "--guard-scope", "baseline"), baseline_env),
+        ("release comment-debt guard", _python_command("tools/check_release_comment_debt.py"), {}),
         ("default tests", _python_command("tools/dev_workflow.py", "test-default"), {}),
         ("product smoke", _python_command("tools/dev_workflow.py", "test-smoke"), {}),
+        ("dependency audit", _python_command("tools/run_dependency_audit.py"), {}),
         ("build validation", _python_command("tools/validate_build_checks.py"), {}),
+        ("security gate", _python_command("tools/run_security_gate.py"), {}),
     ]
 
 

@@ -21,6 +21,61 @@ For the common Windows packaging flow, start in App Mgmt before you drop to a te
 
 Use this document for deeper packaging details, alternate build variants, and release checklist work that still belongs outside the launcher.
 
+---
+
+## Readiness Tracks (PL-C5)
+
+"Install works" and "local model works" are **separate milestones** with separate acceptance evidence. Do not combine them into a single sign-off.
+
+### Track 1 — Desktop Install
+
+**What it means:** The Guppy desktop application can be launched and operated on a clean Windows machine, with no local AI provider required.
+
+**Module:** `src/guppy/launcher_application/install_readiness.py`  
+**Run:** `from guppy.launcher_application.install_readiness import run_install_readiness; run_install_readiness()`
+
+| Check name | Acceptance evidence |
+| --- | --- |
+| `launcher_entrypoint` | `guppy_launcher.py` exists at repo root |
+| `build_script` | `bin/build_executable.bat` exists |
+| `validate_script` | `bin/validate_build.bat` exists |
+| `pyinstaller_spec` | `bin/Guppy.spec` exists |
+| `packaging_doc` | `docs/PACKAGING.md` exists |
+| `runtime_dir_writable` | `runtime/` directory can be created and written to |
+| `tmp_dir_writable` | `.tmp/dev-workflow/reports/` can be created and written to |
+| `core_import_static` | `guppy_launcher.py` contains expected entry references (static text check) |
+| `release_handoff_current` | `runtime/windows_release_receipt.json` and `runtime/windows_release_summary.md` reflect a packaging or release-dry-run handoff |
+| `dist_artifact_layout` | `dist/Guppy/Guppy.exe` or `dist/Guppy.exe` exists as a real packaged build |
+
+**Pass condition:** All 10 checks pass. No local model is required, but Track 1 now expects real packaging evidence instead of source-only assumptions.
+
+---
+
+### Track 2 — Local Base Model
+
+**What it means:** At least one declared local runtime path is honestly ready for first use. Ollama with a pulled model, LM Studio, or the local harness can satisfy the lane.
+
+**Module:** `src/guppy/launcher_application/local_model_readiness.py`  
+**Run:** `from guppy.launcher_application.local_model_readiness import run_local_model_readiness; run_local_model_readiness()`
+
+| Check name | Required | Acceptance evidence |
+| --- | --- | --- |
+| `ollama_cli` | Yes for the Ollama route | `ollama` found on PATH via `shutil.which` |
+| `ollama_daemon` | Yes for the Ollama route | `ollama list` exits 0 within 3 seconds |
+| `ollama_model_pulled` | Yes for the Ollama route | `ollama list` output contains at least one model row |
+| `lmstudio_runtime` | No (route-satisfying) | LM Studio responds on `http://127.0.0.1:1234/v1/models` |
+| `local_harness_runtime` | No (route-satisfying) | Local harness responds on `http://127.0.0.1:8001/health`, `/status`, or `/v1/models` |
+| `lemonade_cli` | No (optional) | `lemonade` found on PATH — reported but does not block Track 2 pass |
+| `runtime_hub_alive` | No (optional) | `runtime/hub.lock` updated within the last 60 seconds |
+
+**Pass condition:** Any honest local route is ready: either all three Ollama checks pass, or LM Studio responds, or the local harness responds. Optional checks such as `lemonade_cli` and `runtime_hub_alive` are still reported but do not gate the milestone.
+
+---
+
+**Track independence:** Track 1 can be signed off before any local model is installed. Track 2 requires Track 1 to be green first, then adds the model layer. They are never merged into a single milestone.
+
+---
+
 ## Quick Build (PyInstaller)
 
 ### Prerequisites
@@ -34,11 +89,21 @@ Use this document for deeper packaging details, alternate build variants, and re
 bin/build_executable.bat
 ```
 
+Refresh the supported desktop launcher link after a new package build:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\ensure_desktop_launcher.ps1
+```
+
+That keeps the user-facing shortcut stable at `Desktop\Guppy Launcher.lnk` while targeting `dist\Guppy\Guppy.exe` when the packaged desktop build exists. If no packaged build exists yet, the generated desktop batch wrapper falls back to `bin\Guppy.bat`.
+
 Launcher equivalent:
 
 - Open App Mgmt `WINDOWS INSTALL / UPDATE / DIAGNOSTICS`
 - Run `PACKAGE`
 - Review the embedded terminal and the final servicing summary/ref before sharing the build
+
+`tools/validate_build_checks.py` now validates not just imports and writable report paths, but also the canonical packaging entrypoints, validator/build-script contract, release handoff receipts when present, and the expected `dist/` output layout assumptions.
 
 Fast/automation variants:
 
@@ -426,7 +491,7 @@ dist\Guppy.exe  # Run in terminal to see errors
 Choose your packaging strategy:
 
 **Quick & Dirty (Today):**
-Run `bin/build_executable.bat` -> Share dist/Guppy.exe
+Run `bin/build_executable.bat` -> Share `dist/Guppy/Guppy.exe` (default onedir output)
 
 **Professional (This Week):**
 Create Inno Setup installer → Distribute GuppySetup.exe

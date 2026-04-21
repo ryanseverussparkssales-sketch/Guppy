@@ -6,13 +6,18 @@ import os
 from pathlib import Path
 from typing import Any
 
+from src.guppy.experience_config.personalization_defaults import (
+    DEFAULT_ASSISTANT_NAME,
+    DEFAULT_PERSONA_CONFIG,
+)
+
 _FALLBACK_PERSONA_CONFIG: dict[str, Any] = {
     "version": 1,
     "default_persona_id": "main_guppy",
     "personas": [
         {
             "id": "main_guppy",
-            "name": "Main Guppy",
+            "name": DEFAULT_ASSISTANT_NAME,
             "scope": "global",
             "system_prompt": "",
             "traits": {"tone": "butler", "verbosity": "medium", "response_style": "direct"},
@@ -35,11 +40,16 @@ _FALLBACK_RUNTIME_SETTINGS: dict[str, Any] = {
     "default_mode": "auto",
     "local_runtime_backend": "ollama",
     "lemonade_base_url": "http://localhost:13305/api/v1",
+    "lmstudio_base_url": "http://127.0.0.1:1234/v1",
+    "local_harness_base_url": "http://127.0.0.1:8001",
     "lemonade_fast_model": "",
     "lemonade_complex_model": "",
     "lemonade_teach_model": "",
     "lemonade_code_model": "",
     "lemonade_vault_model": "",
+    "local_main_model": "",
+    "local_sub_model_a": "",
+    "local_sub_model_b": "",
 }
 
 try:
@@ -100,7 +110,9 @@ except Exception:
         return []
 
     def _list_persona_choices(_persona_config=None) -> list[dict[str, str]]:
-        return [{"id": "main_guppy", "name": "Main Guppy", "scope": "global", "model": "", "label": "Main Guppy [GLOBAL]"}]
+        default_persona = DEFAULT_PERSONA_CONFIG["personas"][0]
+        name = str(default_persona.get("name", DEFAULT_ASSISTANT_NAME) or DEFAULT_ASSISTANT_NAME)
+        return [{"id": "main_guppy", "name": name, "scope": "global", "model": "", "label": f"{name} [GLOBAL]"}]
 
     def _load_persona_config() -> dict[str, Any]:
         return dict(_FALLBACK_PERSONA_CONFIG)
@@ -247,3 +259,32 @@ def validate_voice_bindings(payload: dict[str, Any]) -> list[str]:
 def resolve_voice_binding(*, persona_id: str = "", model_id: str = "", voice_bindings: dict | None = None) -> dict[str, str]:
     resolved = _resolve_voice_binding(persona_id=persona_id, model_id=model_id, voice_bindings=voice_bindings)
     return resolved if isinstance(resolved, dict) else {"engine": "EDGE TTS", "voice_id": "en-GB-RyanNeural", "source": "default"}
+
+
+try:
+    from utils.runtime_profile import get_runtime_envelope_config as _get_runtime_envelope_config
+
+    _RUNTIME_ENVELOPE_BACKEND = True
+except Exception:
+    _RUNTIME_ENVELOPE_BACKEND = False
+
+    def _get_runtime_envelope_config(profile: str | None = None) -> dict[str, Any]:  # type: ignore[misc]
+        active = (profile or os.environ.get("GUPPY_RUNTIME_PROFILE", "standard") or "standard").strip().lower()
+        return {
+            "profile": active,
+            "cpu_max_pct": float(os.environ.get("GUPPY_ENVELOPE_CPU_MAX_PCT", "80")),
+            "ram_max_pct": float(os.environ.get("GUPPY_ENVELOPE_RAM_MAX_PCT", "88")),
+            "check_interval_s": int(os.environ.get("GUPPY_ENVELOPE_CHECK_S", "60")),
+        }
+
+
+def get_runtime_envelope_config(profile: str | None = None) -> dict[str, Any]:
+    """Return runtime envelope limits for the given profile."""
+    config = _get_runtime_envelope_config(profile)
+    return config if isinstance(config, dict) else {"profile": "standard"}
+
+
+def apply_runtime_profile() -> dict[str, Any]:
+    """Load runtime settings and apply them to env. Returns the merged settings dict."""
+    settings = load_runtime_settings()
+    return apply_runtime_settings_to_env(settings)

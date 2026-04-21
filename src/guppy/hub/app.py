@@ -9,6 +9,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
+from src.guppy.apps.process_guard import acquire_process_guard
 from src.guppy.hub.manager import HubManager
 from src.guppy.hub.runtime_checks import (
     check_api_server,
@@ -89,9 +90,13 @@ except Exception as exc:
     logger.warning(f"env_bootstrap failed (env vars may be missing): {exc}")
 
 
-try:
-    from utils.runtime_profile import apply_runtime_profile, load_app_settings, recommend_runtime_profile
+from src.guppy.experience_config.services import (
+    apply_runtime_profile,
+    load_runtime_settings as load_app_settings,
+    recommend_runtime_profile,
+)
 
+try:
     APP_SETTINGS = apply_runtime_profile()
 except Exception as exc:
     logger.error(f"runtime_profile load failed - using hard-coded defaults: {exc}")
@@ -100,12 +105,6 @@ except Exception as exc:
         "enable_daemon": os.environ.get("GUPPY_ENABLE_DAEMON", "1").strip().lower()
         in {"1", "true", "yes", "on"},
     }
-
-    def load_app_settings():
-        return dict(APP_SETTINGS)
-
-    def recommend_runtime_profile():
-        return {"profile": APP_SETTINGS.get("runtime_profile", "standard"), "reasons": []}
 
 
 logger.setLevel(logging.INFO)
@@ -140,6 +139,14 @@ def _tail_session_events(limit: int = 200) -> list[dict]:
 
 def main() -> int:
     logger.info("Omnissiah starting...")
+
+    lock = acquire_process_guard(
+        _RUNTIME / "hub.lock",
+        process_markers=("guppy_hub.py", "src.guppy.hub.app", "src\\guppy\\hub\\app"),
+    )
+    if lock is None:
+        logger.info("Omnissiah already running - exiting duplicate hub start")
+        return 0
 
     pid_path = _RUNTIME / "hub.pid"
     try:
@@ -205,3 +212,4 @@ def main() -> int:
             pid_path.unlink(missing_ok=True)
         except Exception:
             pass
+        lock.release()

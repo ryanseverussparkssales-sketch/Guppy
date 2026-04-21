@@ -24,60 +24,86 @@ class BoundaryRule:
     rule_id: str
     description: str
     pattern: re.Pattern[str]
+    path_prefixes: tuple[str, ...] = ENFORCED_PREFIXES
+    excluded_paths: tuple[str, ...] = ()
 
     def applies_to(self, rel_path: str) -> bool:
-        if self.rule_id == "hub-to-launcher-ui":
-            return rel_path.startswith("src/guppy/hub/")
-        if self.rule_id == "non-launcher-app-to-ui":
-            return rel_path.startswith("src/guppy/") and rel_path != "src/guppy/apps/launcher_app.py"
-        if self.rule_id.startswith("ui-"):
-            return rel_path.startswith("ui/")
-        if self.rule_id == "utils-to-ui":
-            return rel_path.startswith("utils/")
-        return any(rel_path.startswith(prefix) for prefix in ENFORCED_PREFIXES)
+        return (
+            any(rel_path.startswith(prefix) for prefix in self.path_prefixes)
+            and rel_path not in self.excluded_paths
+        )
+
+
+FORBIDDEN_IMPORT_MAP: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "ui/": (
+        (
+            "ui-runtime-api-import",
+            "imports runtime API modules directly from the UI layer",
+            r"^(from|import)\s+src\.guppy\.api\b",
+        ),
+        (
+            "ui-governance-import",
+            "imports workspace/connector governance modules directly from the UI layer",
+            r"^(from|import)\s+utils\.(connector_manager|instance_capabilities)\b",
+        ),
+        (
+            "ui-experience-config-import",
+            "imports user-editable experience config modules directly from the UI layer",
+            r"^(from|import)\s+utils\.(personalization_config|runtime_profile)\b",
+        ),
+    ),
+    "utils/": (
+        (
+            "utils-to-ui",
+            "imports ui.launcher directly from the utils layer",
+            r"^(from|import)\s+ui\.launcher\b",
+        ),
+    ),
+}
+
+
+def _rules_from_forbidden_import_map() -> tuple[BoundaryRule, ...]:
+    rules: list[BoundaryRule] = []
+    for prefix, entries in FORBIDDEN_IMPORT_MAP.items():
+        for rule_id, description, raw_pattern in entries:
+            rules.append(
+                BoundaryRule(
+                    rule_id=rule_id,
+                    description=description,
+                    pattern=re.compile(raw_pattern),
+                    path_prefixes=(prefix,),
+                )
+            )
+    return tuple(rules)
 
 
 RULES = (
     BoundaryRule(
         rule_id="legacy-root-import",
         description="imports legacy root launcher/hub/surface module",
-        pattern=re.compile(r"^(from|import)\s+(guppy_ui|merlin_ui|council_ui|guppy_hub|guppy_launcher)\b"),
+        pattern=re.compile(r"^(from|import)\s+(guppy_ui|merlin_ui|council_ui|guppy_hub|guppy_launcher|guppy_api)\b"),
+        path_prefixes=ENFORCED_PREFIXES,
     ),
     BoundaryRule(
         rule_id="legacy-compat-surface-import",
         description="imports compatibility-only legacy surface package",
         pattern=re.compile(r"^(from|import)\s+compat_shims\.legacy_surfaces\b"),
+        path_prefixes=ENFORCED_PREFIXES,
     ),
     BoundaryRule(
         rule_id="hub-to-launcher-ui",
         description="imports ui.launcher from the hub domain",
         pattern=re.compile(r"^(from|import)\s+ui\.launcher\b"),
+        path_prefixes=("src/guppy/hub/",),
     ),
     BoundaryRule(
         rule_id="non-launcher-app-to-ui",
         description="imports ui.launcher outside the launcher composition root",
         pattern=re.compile(r"^(from|import)\s+ui\.launcher\b"),
+        path_prefixes=("src/guppy/",),
+        excluded_paths=("src/guppy/apps/launcher_app.py",),
     ),
-    BoundaryRule(
-        rule_id="ui-runtime-api-import",
-        description="imports runtime API modules directly from the UI layer",
-        pattern=re.compile(r"^(from|import)\s+src\.guppy\.api\b"),
-    ),
-    BoundaryRule(
-        rule_id="ui-governance-import",
-        description="imports workspace/connector governance modules directly from the UI layer",
-        pattern=re.compile(r"^(from|import)\s+utils\.(connector_manager|instance_capabilities)\b"),
-    ),
-    BoundaryRule(
-        rule_id="ui-experience-config-import",
-        description="imports user-editable experience config modules directly from the UI layer",
-        pattern=re.compile(r"^(from|import)\s+utils\.(personalization_config|runtime_profile)\b"),
-    ),
-    BoundaryRule(
-        rule_id="utils-to-ui",
-        description="imports ui.launcher directly from the utils layer",
-        pattern=re.compile(r"^(from|import)\s+ui\.launcher\b"),
-    ),
+    *_rules_from_forbidden_import_map(),
 )
 
 
@@ -146,6 +172,30 @@ def _is_enforced(rel_path: str) -> bool:
     return any(rel_path.startswith(prefix) for prefix in ENFORCED_PREFIXES)
 
 
+def find_boundary_hits(rel_path: str, lines: list[str], scope: str = GUARD_SCOPE) -> tuple[list[str], list[str]]:
+    violations: list[str] = []
+    waived_hits: list[str] = []
+    for idx, line in enumerate(lines, start=1):
+        text = line.strip()
+        if not text or text.startswith("#"):
+            continue
+
+        for rule in RULES:
+            if not rule.applies_to(rel_path):
+                continue
+            if not rule.pattern.match(text):
+                continue
+
+            waiver_reason = TRANSITIONAL_WAIVERS.get(rel_path, {}).get(rule.rule_id)
+            if waiver_reason:
+                if scope == "baseline":
+                    waived_hits.append(f"{rel_path}:{idx} {rule.rule_id} waived ({waiver_reason})")
+                continue
+
+            violations.append(f"{rel_path}:{idx} {rule.description}")
+    return violations, waived_hits
+
+
 def main() -> int:
     if GUARD_SCOPE not in {"delta", "baseline"}:
         print(f"architecture boundary check failed: invalid GUPPY_GUARD_SCOPE={GUARD_SCOPE!r}")
@@ -160,24 +210,9 @@ def main() -> int:
             continue
 
         lines = rel_path.read_text(encoding="utf-8", errors="replace").splitlines()
-        for idx, line in enumerate(lines, start=1):
-            text = line.strip()
-            if not text or text.startswith("#"):
-                continue
-
-            for rule in RULES:
-                if not rule.applies_to(rel):
-                    continue
-                if not rule.pattern.match(text):
-                    continue
-
-                waiver_reason = TRANSITIONAL_WAIVERS.get(rel, {}).get(rule.rule_id)
-                if waiver_reason:
-                    if GUARD_SCOPE == "baseline":
-                        waived_hits.append(f"{rel}:{idx} {rule.rule_id} waived ({waiver_reason})")
-                    continue
-
-                violations.append(f"{rel}:{idx} {rule.description}")
+        file_violations, file_waived_hits = find_boundary_hits(rel, lines, scope=GUARD_SCOPE)
+        violations.extend(file_violations)
+        waived_hits.extend(file_waived_hits)
 
     if violations:
         print(f"architecture boundary check failed (scope={GUARD_SCOPE}):")

@@ -1,3 +1,17 @@
+"""
+src/guppy/launcher_application/connector_workflow.py
+
+Connector lifecycle orchestration for the launcher.
+
+SETTINGS OWNERSHIP CONTRACT
+---------------------------
+All connector setup and account actions (connect, verify, guided-link, etc.)
+MUST originate from Settings > Device & Accounts or Settings > Operations.
+The ``_reject_non_settings_owned_request`` guard enforces this at the
+entry points of every externally-callable handler.  No connector action
+bypasses Settings ownership.  Workspaces bind already-configured connectors;
+they do NOT own connector setup or machine-level auth.
+"""
 from __future__ import annotations
 
 import threading
@@ -18,6 +32,37 @@ from src.guppy.workspace_governance import (
     resolve_instance_permissions,
     set_instance_tool_permission_policy,
 )
+
+_SETTINGS_REQUEST_SOURCES = {
+    "settings_device_accounts",
+    "settings_operations_panel",
+}
+
+
+def _settings_owned_request_source(payload: dict) -> tuple[bool, str]:
+    source = str(payload.get("request_source", "") or "").strip().lower()
+    if not source:
+        return False, "missing_request_source"
+    return source in _SETTINGS_REQUEST_SOURCES, source
+
+
+def _reject_non_settings_owned_request(owner, payload: dict, *, action: str) -> bool:
+    allowed, source = _settings_owned_request_source(payload)
+    if allowed:
+        return False
+    connector_id = str(payload.get("connector", "") or "").strip().lower()
+    message = "Connector setup and account actions only run from Settings > Device & Accounts."
+    owner._settings_hub_view.set_account_result(message, ok=False)
+    owner._settings_hub_view.append_log(f"connector action rejected: {connector_id or 'unknown'} {action} from {source}")
+    owner._status_panel.append_syslog(f"connector action rejected: {connector_id or 'unknown'} {action} from {source}")
+    owner._log_launcher_event(
+        "connector_action_rejected",
+        connector=connector_id,
+        action=action,
+        request_source=source,
+        reason="settings_owned_only",
+    )
+    return True
 
 
 def save_instance_governance(owner, payload: dict, *, backend_available: bool) -> None:
@@ -144,7 +189,7 @@ def perform_connector_action_request(owner, payload: dict, *, backend_available:
         )
     except Exception as error:
         if not backend_available:
-            owner._advanced_view.append_log(f"connector action failed: {error}")
+            owner._settings_hub_view.append_log(f"connector action failed: {error}")
             return {}
         typed_result = execute_connector_action(request)
     return connector_action_record(request, typed_result)
@@ -162,10 +207,10 @@ def apply_connector_action_feedback(owner, record: dict, *, refresh_after: bool 
     fix_target = str(record.get("fix_target", "") or "").strip()
     event_id = str(record.get("event_id", "") or "").strip()
     status = record.get("status", {}) if isinstance(record.get("status"), dict) else {}
-    owner._advanced_view.append_log(summary)
+    owner._settings_hub_view.append_log(summary)
     if next_step:
-        owner._advanced_view.append_log("next step: " + next_step + (f" | fix in: {fix_target}" if fix_target else ""))
-    owner._my_pc_view.set_account_result(
+        owner._settings_hub_view.append_log("next step: " + next_step + (f" | fix in: {fix_target}" if fix_target else ""))
+    owner._settings_hub_view.set_account_result(
         summary + (f" | Next: {next_step}" if next_step else ""),
         ok=ok,
     )
@@ -202,8 +247,8 @@ def start_connector_action_async(owner, payload: dict, *, refresh_after: bool = 
     if not connector_id or not action:
         return
     action_label = connector_action_status_label(action)
-    owner._my_pc_view.set_account_result(action_label, ok=True)
-    owner._advanced_view.append_log(f"{connector_id} {action} requested")
+    owner._settings_hub_view.set_account_result(action_label, ok=True)
+    owner._settings_hub_view.append_log(f"{connector_id} {action} requested")
     owner._status_panel.append_syslog(f"{connector_id} {action} requested")
 
     def _worker() -> None:
@@ -222,8 +267,8 @@ def start_connector_guided_link_async(owner, payload: dict, *, backend_available
     account_id = str(payload.get("account_id", "") or "").strip().lower()
     secrets = [item for item in payload.get("secrets", []) if isinstance(item, dict)]
     verify_after = bool(payload.get("verify_after", True))
-    owner._my_pc_view.set_account_result("Saving details and checking the connection...", ok=True)
-    owner._advanced_view.append_log(f"{connector_id} guided setup requested")
+    owner._settings_hub_view.set_account_result("Saving details and checking the connection...", ok=True)
+    owner._settings_hub_view.append_log(f"{connector_id} guided setup requested")
     owner._status_panel.append_syslog(f"{connector_id} guided setup requested")
 
     def _worker() -> None:
@@ -270,16 +315,21 @@ def drain_connector_action_events(owner) -> None:
 
 
 def handle_connector_action_request(owner, payload: dict, *, backend_available: bool) -> None:
+    action = str(payload.get("action", "") or "").strip().lower()
+    if _reject_non_settings_owned_request(owner, payload, action=action):
+        return
     start_connector_action_async(owner, payload, refresh_after=True, backend_available=backend_available)
 
 
 def handle_connector_guided_link_request(owner, payload: dict, *, backend_available: bool) -> None:
+    if _reject_non_settings_owned_request(owner, payload, action="guided_link"):
+        return
     connector_id = str(payload.get("connector", "")).strip().lower()
     if not connector_id:
-        owner._my_pc_view.set_account_result("Choose a connector before saving details.", ok=False)
+        owner._settings_hub_view.set_account_result("Choose a connector before saving details.", ok=False)
         return
     secrets = [item for item in payload.get("secrets", []) if isinstance(item, dict)]
     if not secrets:
-        owner._my_pc_view.set_account_result("Add an API key or account details before saving.", ok=False)
+        owner._settings_hub_view.set_account_result("Add an API key or account details before saving.", ok=False)
         return
     start_connector_guided_link_async(owner, payload, backend_available=backend_available)

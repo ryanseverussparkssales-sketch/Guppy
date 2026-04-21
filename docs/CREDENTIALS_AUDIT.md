@@ -637,6 +637,29 @@ $env:TURNSTILE_SECRET = "your-secret"
 
 ---
 
+---
+
+## Provider Registry (PL-C4)
+
+Introduced in PL-C4. The registry lives at `src/guppy/launcher_application/provider_registry.py` and is consumed by the onboarding presenter (`onboarding_presenter.py`) and the Settings connector panel.
+
+| Provider ID | Label | Secret Fields Required | Verify Supported | Next Step Hint |
+| --- | --- | --- | --- | --- |
+| `gmail` | Gmail | _(none — OAuth file token)_ | Yes | Try asking Guppy to check your inbox or draft a reply. |
+| `calendar` | Google Calendar | _(none — OAuth file token)_ | Yes | Ask Guppy what's on your calendar this week. |
+| `spotify` | Spotify | `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REDIRECT_URI` | Yes | Say "Play something relaxing" to try Spotify now. |
+| `youtube` | YouTube | `YOUTUBE_API_KEY` (optional) | Yes | Ask Guppy to find a YouTube video on any topic. |
+| `crm` | CRM | `HUBSPOT_API_KEY` / `SALESFORCE_ACCESS_TOKEN` / `SALESFORCE_INSTANCE_URL` / `GOHIGHLEVEL_API_KEY` / `ZOHO_ACCESS_TOKEN` | Yes | Try asking Guppy to look up a contact or log a note. |
+| `voip` | VoIP / Calling | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Yes | Ask Guppy to place a test call to confirm the setup. |
+
+**Connection status** is resolved at runtime via `connector_manager.connector_status()` — no static "connected/not-configured" label is stored here because state changes as users add credentials.
+
+**Onboarding summary** is surfaced via `get_onboarding_summary(connector_inventory)` in `onboarding_presenter.py`.
+
+**Next step label** appears in the Settings > Device & Accounts panel immediately after a connector reaches `ready` or `optional` auth state.
+
+---
+
 ## Findings Summary
 
 âœ… **All Phase 1-3 Smart Dispatcher claims verified**:

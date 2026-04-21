@@ -28,7 +28,6 @@ Security:
 import json
 import hashlib
 import importlib.util
-import inspect
 import logging
 import os
 import re
@@ -40,14 +39,12 @@ import time
 import asyncio
 import threading
 from datetime import datetime, timezone
-from contextlib import asynccontextmanager
-from functools import partial, wraps
+from functools import partial
 from typing import Optional, AsyncGenerator, Any, Dict, List
 from pathlib import Path
 from collections import Counter
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Depends, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Depends
 import uvicorn
 from jose import JWTError, jwt
 import urllib.request
@@ -193,43 +190,15 @@ except Exception:
     def read_instance_log_summary(*_args, **_kwargs):
         return {"entry_count": 0, "roles": {}, "statuses": {}, "window_days": 30}
 
-try:
-    from utils.instance_capabilities import (
-        auth_mode_label,
-        check_instance_tool_permission,
-        resolve_instance_permissions,
-        set_instance_tool_permission_policy,
-    )
-    _INSTANCE_CAPABILITIES_AVAILABLE = True
-except Exception:
-    _INSTANCE_CAPABILITIES_AVAILABLE = False
+from src.guppy.workspace_governance import (
+    auth_mode_label,
+    check_instance_tool_permission,
+    instance_policy_backend_available,
+    resolve_instance_permissions,
+    set_instance_tool_permission_policy,
+)
 
-    def auth_mode_label(mode: str) -> str:
-        return str(mode or "runtime default").strip() or "runtime default"
-
-    def resolve_instance_permissions(
-        instance_name: str | None = None,
-        instance_type: str | None = None,
-        config_path=None,
-    ):
-        del instance_name, instance_type, config_path
-        return {}
-
-    def set_instance_tool_permission_policy(instance_name: str, policy_entry: dict[str, Any], *, config_path=None):
-        del instance_name, policy_entry, config_path
-        return None
-
-    def check_instance_tool_permission(
-        tool_name: str,
-        *,
-        instance_name: str | None = None,
-        instance_type: str | None = None,
-        config_path=None,
-        endpoint: str | None = None,
-        metadata: dict[str, Any] | None = None,
-    ):
-        del tool_name, instance_name, instance_type, config_path, endpoint, metadata
-        return True, "", {}
+_INSTANCE_CAPABILITIES_AVAILABLE = instance_policy_backend_available()
 
 try:
     from utils.connector_manager import (
@@ -304,9 +273,32 @@ from src.guppy.api.routes_instances import build_instances_router
 from src.guppy.api.routes_ops import build_ops_router
 from src.guppy.api.routes_realtime import build_realtime_router
 from src.guppy.api.runtime_state import ServerRuntimeState
-from src.guppy.api.server_context import ServerContext
 from src.guppy.api.server_paths import ServerPathConfig
-from src.guppy.api import services_host, services_instances, services_ops, services_realtime, services_runtime
+from src.guppy.api.server_runtime_startup_support import (
+    bind_startup_support,
+    build_lifespan,
+)
+from src.guppy.api.server_runtime_auth_request_support import bind_auth_request_support
+from src.guppy.api.server_runtime_shell_support import (
+    build_server_shell,
+    detect_voice_backends,
+)
+from src.guppy.api.server_runtime_bindings import (
+    bind_owner,
+    bind_owner_async,
+    build_owner_binding_alias_map,
+    call_module_attr,
+    module_owner,
+)
+from src.guppy.api import server_runtime_path_support
+from src.guppy.api import (
+    services_briefing,
+    services_host,
+    services_instances,
+    services_ops,
+    services_realtime,
+    services_runtime,
+)
 
 # Configuration
 
@@ -356,265 +348,80 @@ _status_cache = _runtime_state.status_cache
 _startup_check_cache = _runtime_state.startup_check_cache
 _startup_check_cache_lock = _runtime_state.startup_check_cache_lock
 
-# Detect voice backends once at module load so /status never pays import probe cost
-def _detect_voice_backends() -> tuple[str, str, list[str]]:
-    tts, stt, details = "sapi", "none", []
-    try:
-        if importlib.util.find_spec("kokoro") is not None:
-            tts = "kokoro"
-            details.append("kokoro module found")
-        else:
-            details.append("kokoro unavailable -> sapi fallback")
-    except Exception:
-        details.append("kokoro unavailable -> sapi fallback")
-
-    probe_whisper = os.environ.get("GUPPY_API_PROBE_WHISPER", "0").strip().lower() in {"1", "true", "yes", "on"}
-    try:
-        # Avoid importing native torch/ctranslate stacks at module import-time by default.
-        if importlib.util.find_spec("faster_whisper") is not None:
-            if probe_whisper:
-                from faster_whisper import WhisperModel as _WM  # noqa: F401
-                stt = "whisper"
-                details.append("faster-whisper import ok")
-            else:
-                stt = "whisper"
-                details.append("faster-whisper module found (lazy import)")
-        else:
-            raise ImportError("faster_whisper module not found")
-    except Exception:
-        try:
-            if importlib.util.find_spec("speech_recognition") is not None:
-                stt = "google"
-                details.append("speech_recognition module found")
-            else:
-                details.append("no transcription backend available")
-        except Exception:
-            details.append("no transcription backend available")
-    return tts, stt, details
-
-_VOICE_TTS_BACKEND, _VOICE_STT_BACKEND, _VOICE_BACKEND_DETAILS = _detect_voice_backends()
+_voice_backends = detect_voice_backends(
+    environ=os.environ,
+    find_spec=importlib.util.find_spec,
+)
+_VOICE_TTS_BACKEND = _voice_backends.tts_backend
+_VOICE_STT_BACKEND = _voice_backends.stt_backend
+_VOICE_BACKEND_DETAILS = _voice_backends.details
 
 _api_metrics_lock = _runtime_state.api_metrics_lock
 _api_metrics = _runtime_state.api_metrics
 
-_CHAT_IDEMPOTENCY_TTL_SECONDS = max(
-    60.0,
-    float(os.environ.get("GUPPY_CHAT_IDEMPOTENCY_TTL_SECONDS", "300") or "300"),
+_module_owner = partial(module_owner, __name__)
+_call_module_attr = partial(call_module_attr, __name__)
+_bind_owner = partial(bind_owner, __name__)
+_bind_owner_async = partial(bind_owner_async, __name__)
+_apply_path_config = _bind_owner(server_runtime_path_support.apply_path_config)
+_set_path_config_for_tests = _bind_owner(server_runtime_path_support.set_path_config_for_tests)
+globals().update(
+    build_owner_binding_alias_map(
+        bind_owner=_bind_owner,
+        bind_owner_async=_bind_owner_async,
+        services_realtime_module=services_realtime,
+        services_ops_module=services_ops,
+        services_instances_module=services_instances,
+        services_host_module=services_host,
+        services_briefing_module=services_briefing,
+        services_runtime_module=services_runtime,
+    )
 )
-_chat_idempotency_lock = threading.Lock()
-_chat_idempotency_records: Dict[str, Dict[str, Any]] = {}
 
+_startup_support = bind_startup_support(
+    bind_owner=_bind_owner,
+    services_host_module=services_host,
+    services_runtime_module=services_runtime,
+)
+_auth_request_support = bind_auth_request_support(
+    bind_owner=_bind_owner,
+    module_owner=_module_owner,
+    services_host_module=services_host,
+    services_ops_module=services_ops,
+    require_rate_limit=require_rate_limit,
+    require_auth_rate_limit=require_auth_rate_limit,
+    verify_turnstile_token_auth=verify_turnstile_token_auth,
+    create_access_token=create_access_token,
+    access_token_expire_minutes=ACCESS_TOKEN_EXPIRE_MINUTES,
+)
+_read_repair_token = _startup_support.read_repair_token
+_restart_managed_daemon = _startup_support.restart_managed_daemon
+_set_repair_token = _startup_support.set_repair_token
+_secret_ready = _startup_support.secret_ready
+_build_startup_readiness_payload = _startup_support.build_startup_readiness_payload
+_startup_readiness_snapshot = _startup_support.startup_readiness_snapshot
+_startup_readiness_cached_or_unknown = _startup_support.startup_readiness_cached_or_unknown
+_startup_readiness_cached_or_snapshot = _startup_support.startup_readiness_cached_or_snapshot
+_startup_readiness_cache_expired = _startup_support.startup_readiness_cache_expired
+_trigger_startup_readiness_refresh = _startup_support.trigger_startup_readiness_refresh
+_require_repair_token = _auth_request_support.require_repair_token
 
-def _apply_path_config(path_config: ServerPathConfig) -> ServerPathConfig:
-    global _path_config
-    global _runtime_dir, _config_dir, _instances_path, _connector_bindings_path
-    global _instance_state_path, _REPAIR_TOKEN_FILE, _ops_telemetry_db, _stream_jsonl_map
-    _path_config = path_config
-    _runtime_dir = path_config.runtime_dir
-    _config_dir = path_config.config_dir
-    _instances_path = path_config.instances_path
-    _connector_bindings_path = path_config.connector_bindings_path
-    _instance_state_path = path_config.instance_state_path
-    _REPAIR_TOKEN_FILE = path_config.repair_token_file
-    _ops_telemetry_db = path_config.ops_telemetry_db
-    _stream_jsonl_map = dict(path_config.stream_jsonl_map)
-    if "_server_context" in globals():
-        _server_context.paths = path_config
-    return path_config
+lifespan = build_lifespan(
+    module_owner=_module_owner,
+    validate_environment=validate_environment,
+    ensure_instance_scaffold=_ensure_m2_instance_scaffold,
+    startup_host=services_host.startup_host,
+    shutdown_host=services_host.shutdown_host,
+)
 
-
-def _set_path_config_for_tests(
-    *,
-    config_dir: Path | None = None,
-    runtime_dir: Path | None = None,
-    instances_path: Path | None = None,
-    connector_bindings_path: Path | None = None,
-    instance_state_path: Path | None = None,
-    repair_token_file: Path | None = None,
-    ops_telemetry_db: Path | None = None,
-) -> ServerPathConfig:
-    current = _path_config
-    next_root_config = ServerPathConfig.from_roots(
-        Path(config_dir) if config_dir is not None else current.config_dir,
-        Path(runtime_dir) if runtime_dir is not None else current.runtime_dir,
-    )
-    next_config = next_root_config.clone_with(
-        instances_path=instances_path if instances_path is not None else next_root_config.instances_path,
-        connector_bindings_path=connector_bindings_path
-        if connector_bindings_path is not None
-        else next_root_config.connector_bindings_path,
-        instance_state_path=instance_state_path
-        if instance_state_path is not None
-        else next_root_config.instance_state_path,
-        repair_token_file=repair_token_file
-        if repair_token_file is not None
-        else next_root_config.repair_token_file,
-        ops_telemetry_db=ops_telemetry_db
-        if ops_telemetry_db is not None
-        else next_root_config.ops_telemetry_db,
-    )
-    return _apply_path_config(next_config)
-
-
-def _module_owner() -> Any:
-    return sys.modules[__name__]
-
-
-def _call_module_attr(name: str, *args, **kwargs):
-    return getattr(_module_owner(), name)(*args, **kwargs)
-
-
-def _bind_owner(func):
-    signature = None
-    try:
-        original = inspect.signature(func)
-        signature = original.replace(parameters=list(original.parameters.values())[1:])
-    except Exception:
-        signature = None
-
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        return func(_module_owner(), *args, **kwargs)
-
-    if signature is not None:
-        wrapper.__signature__ = signature
-    return wrapper
-
-
-def _bind_owner_async(func):
-    signature = None
-    try:
-        original = inspect.signature(func)
-        signature = original.replace(parameters=list(original.parameters.values())[1:])
-    except Exception:
-        signature = None
-
-    @wraps(func)
-    async def wrapper(*args, **kwargs):
-        return await func(_module_owner(), *args, **kwargs)
-
-    if signature is not None:
-        wrapper.__signature__ = signature
-    return wrapper
-
-
-_prune_chat_idempotency_records = services_realtime.prune_chat_idempotency_records
-_build_chat_request_fingerprint = services_realtime.build_chat_request_fingerprint
-_register_chat_idempotency_key = services_realtime.register_chat_idempotency_key
-_resolve_chat_idempotency_key = services_realtime.resolve_chat_idempotency_key
-_takeover_chat_idempotency_key = services_realtime.takeover_chat_idempotency_key
-_complete_chat_idempotency_key = services_realtime.complete_chat_idempotency_key
-_clear_chat_idempotency_key = services_realtime.clear_chat_idempotency_key
-_should_use_rich_chat_prompt_context = services_realtime.should_use_rich_chat_prompt_context
-_should_use_rich_prompt_context = services_realtime.should_use_rich_prompt_context
-_build_chat_system_prompt = _bind_owner(services_realtime.build_chat_system_prompt)
-_save_voice_upload_tempfile = _bind_owner_async(services_realtime.save_voice_upload_tempfile)
-_read_jsonl_tail = services_ops.read_jsonl_tail
-_ensure_m2_instance_scaffold = _bind_owner(services_instances.ensure_m2_instance_scaffold)
-_load_instances_config = _bind_owner(services_instances.load_instances_config)
-_load_instance_state = _bind_owner(services_instances.load_instance_state)
-_save_instance_state = _bind_owner(services_instances.save_instance_state)
-_save_instances_config = _bind_owner(services_instances.save_instances_config)
-_load_normalized_instance_bundle = _bind_owner(services_instances.load_normalized_instance_bundle)
-_instance_config_entry = services_instances.instance_config_entry
-_default_instance_state = services_instances.default_instance_state
-_instance_names = services_instances.instance_names
-_get_instance_entry = services_instances.get_instance_entry
-_get_active_instance_context = _bind_owner(services_instances.get_active_instance_context)
-_coerce_int = services_instances.coerce_int
-_normalize_instances_config = services_instances.normalize_instances_config
-_normalize_instance_state = services_instances.normalize_instance_state
-_upsert_instance_config = services_instances.upsert_instance_config
-_activate_instance_state = services_instances.activate_instance_state
-_instance_limits_payload = services_instances.instance_limits_payload
-_emit_integration_heartbeat = _bind_owner(services_host.emit_integration_heartbeat)
-_read_daemon_runtime_status = _bind_owner(services_host.read_daemon_runtime_status)
-_read_window_context = _bind_owner(services_host.read_window_context)
-_read_repair_token = _bind_owner(services_host.read_repair_token)
-_restart_managed_daemon = _bind_owner(services_host.restart_managed_daemon)
-_set_repair_token = _bind_owner(services_host.set_repair_token)
-_read_resource_envelope_status = _bind_owner(services_ops.read_resource_envelope_status)
-_parse_iso_ts = services_ops.parse_iso_ts
-_p95 = services_ops.p95
-_query_sqlite_telemetry = _bind_owner(services_ops.query_sqlite_telemetry)
-_query_jsonl_telemetry = _bind_owner(services_ops.query_jsonl_telemetry)
-_build_telemetry_report = services_ops.build_telemetry_report
-_latest_stress_report_path = _bind_owner(services_ops.latest_stress_report_path)
-_normalize_brief_text = services_realtime.normalize_brief_text
-_looks_like_brief_affirmation = services_realtime.looks_like_brief_affirmation
-_history_offered_morning_brief = services_realtime.history_offered_morning_brief
-_request_is_morning_brief = services_realtime.request_is_morning_brief
-_latest_daily_report_path = _bind_owner(services_realtime.latest_daily_report_path)
-_strip_markdown_prefix = services_realtime.strip_markdown_prefix
-_parse_markdown_sections = services_realtime.parse_markdown_sections
-_preview_markdown_section = services_realtime.preview_markdown_section
-_preview_plain_block = services_realtime.preview_plain_block
-_build_morning_brief_response = _bind_owner(services_realtime.build_morning_brief_response)
-_collect_runtime_bundle = _bind_owner(services_ops.collect_runtime_bundle)
-_do_repair_action = _bind_owner(services_ops.do_repair_action)
-_secret_ready = services_runtime.secret_ready
-_build_startup_readiness_payload = _bind_owner(services_runtime.build_startup_readiness_payload)
-_startup_readiness_snapshot = _bind_owner(services_runtime.startup_readiness_snapshot)
-_startup_readiness_cached_or_unknown = _bind_owner(services_runtime.startup_readiness_cached_or_unknown)
-_startup_readiness_cached_or_snapshot = _bind_owner(services_runtime.startup_readiness_cached_or_snapshot)
-_startup_readiness_cache_expired = _bind_owner(services_runtime.startup_readiness_cache_expired)
-_trigger_startup_readiness_refresh = _bind_owner(services_runtime.trigger_startup_readiness_refresh)
-
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
-    """Validate env and optionally manage daemon lifecycle when explicitly enabled."""
-    validate_environment()
-    _ensure_m2_instance_scaffold()
-    await services_host.startup_host(sys.modules[__name__])
-
-    try:
-        yield
-    finally:
-        await services_host.shutdown_host(sys.modules[__name__])
-
-
-app = FastAPI(
-    title="Guppy API",
-    description="Remote access API for Guppy AI assistant",
-    version="1.0.0",
+_server_shell = build_server_shell(
+    owner=sys.modules[__name__],
+    allowed_origins=ALLOWED_ORIGINS,
     lifespan=lifespan,
+    auth_request_support=_auth_request_support,
+    voice_probe=_voice_backends,
 )
-
-# CORS middleware for web access
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Repair-Token", "X-Turnstile-Token"],
-)
-
-
-@app.middleware("http")
-async def request_timing_middleware(request: Request, call_next):
-    started = time.perf_counter()
-    status_code = 500
-    try:
-        response = await call_next(request)
-        status_code = response.status_code
-    except Exception:
-        elapsed_ms = (time.perf_counter() - started) * 1000.0
-        services_host.record_request_failure(
-            sys.modules[__name__],
-            request,
-            status_code,
-            elapsed_ms,
-        )
-        raise
-
-    elapsed_ms = (time.perf_counter() - started) * 1000.0
-    services_host.record_request_completion(
-        sys.modules[__name__],
-        request,
-        response,
-        elapsed_ms,
-    )
-    return response
+app = _server_shell.app
 
 # === END _server_fragment_ops.py ===
 
@@ -632,121 +439,7 @@ _LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS = float(os.environ.get("GUPPY_LOCAL_RUNTIME_
 _local_runtime_warm_cache = _runtime_state.local_runtime_warm_cache
 _local_runtime_warm_lock = _runtime_state.local_runtime_warm_lock
 
-
-_selected_local_runtime_backend = _bind_owner(services_runtime.selected_local_runtime_backend)
-_local_runtime_base_url = _bind_owner(services_runtime.local_runtime_base_url)
-_resolve_local_runtime_model = _bind_owner(services_runtime.resolve_local_runtime_model)
-_local_runtime_role_models = _bind_owner(services_runtime.local_runtime_role_models)
-_warm_ollama_chat_lane = _bind_owner(services_runtime.warm_ollama_chat_lane)
-_current_local_runtime_chat_model = _bind_owner(services_runtime.current_local_runtime_chat_model)
-_refresh_local_runtime_warm_status = _bind_owner(services_runtime.refresh_local_runtime_warm_status)
-_local_runtime_warm_cached_or_unknown = _bind_owner(services_runtime.local_runtime_warm_cached_or_unknown)
-_trigger_local_runtime_warm_refresh = _bind_owner(services_runtime.trigger_local_runtime_warm_refresh)
-_fetch_lemonade_model_ids = _bind_owner(services_runtime.fetch_lemonade_model_ids)
-_build_local_runtime_status = _bind_owner(services_runtime.build_local_runtime_status)
-_call_lemonade_chat = _bind_owner(services_runtime.call_lemonade_chat)
-_call_selected_local_runtime = _bind_owner(services_runtime.call_selected_local_runtime)
-_run_blocking = services_realtime.run_blocking
-_extract_text_from_anthropic_blocks = services_realtime.extract_text_from_anthropic_blocks
-_sanitize_chat_history = services_realtime.sanitize_chat_history
-_build_router_messages = services_realtime.build_router_messages
-_request_is_cacheable = _bind_owner(services_realtime.request_is_cacheable)
-_augment_system_with_history = services_realtime.augment_system_with_history
-_is_rate_limited_error = services_realtime.is_rate_limited_error
-_call_unified_inference = _bind_owner(services_realtime.call_unified_inference)
-_call_claude_with_tools = _bind_owner(services_realtime.call_claude_with_tools)
-_call_ollama_with_tools = _bind_owner(services_realtime.call_ollama_with_tools)
-_stream_chunks = services_realtime.stream_chunks
-_governance_summary_payload = _bind_owner(services_instances.governance_summary_payload)
-_workspace_connector_payload = _bind_owner(services_instances.workspace_connector_payload)
-_connector_inventory_payload = _bind_owner(services_instances.connector_inventory_payload)
-_require_repair_token = _bind_owner(services_ops.require_repair_token)
-
-_server_context = ServerContext(
-    app=app,
-    owner=sys.modules[__name__],
-    require_rate_limit=require_rate_limit,
-    require_auth_rate_limit=require_auth_rate_limit,
-    require_repair_token=None,
-    verify_turnstile_token_auth=verify_turnstile_token_auth,
-    create_access_token=create_access_token,
-    access_token_expire_minutes=ACCESS_TOKEN_EXPIRE_MINUTES,
-    dev_mode=bool(DEV_MODE),
-    guppy_core_available=GUPPY_CORE_AVAILABLE,
-    core=core,
-    guppy_daemon_available=GUPPY_DAEMON_AVAILABLE,
-    get_daemon_manager=get_daemon_manager,
-    status_include_window_context=STATUS_INCLUDE_WINDOW_CONTEXT,
-    guppy_voice_available=GUPPY_VOICE_AVAILABLE,
-    voice_tts_backend=_VOICE_TTS_BACKEND,
-    voice_stt_backend=_VOICE_STT_BACKEND,
-    voice_backend_details=_VOICE_BACKEND_DETAILS,
-    guppy_memory_available=GUPPY_MEMORY_AVAILABLE,
-    status_cache=_status_cache,
-    status_cache_ttl_seconds=STATUS_CACHE_TTL_SECONDS,
-    startup_readiness_cached_or_unknown=_startup_readiness_cached_or_unknown,
-    startup_readiness_snapshot=_startup_readiness_snapshot,
-    startup_readiness_cache_expired=_startup_readiness_cache_expired,
-    trigger_startup_readiness_refresh=_trigger_startup_readiness_refresh,
-    build_local_runtime_status=_build_local_runtime_status,
-    read_resource_envelope_status=_read_resource_envelope_status,
-    api_metrics_lock=_api_metrics_lock,
-    api_metrics=_api_metrics,
-    log_session_event=log_session_event,
-    logger=logger,
-    paths=_path_config,
-    read_window_context=_read_window_context,
-    read_daemon_runtime_status=_read_daemon_runtime_status,
-    tail_session_events=tail_session_events,
-    read_jsonl_tail=_read_jsonl_tail,
-    query_sqlite_telemetry=_query_sqlite_telemetry,
-    query_jsonl_telemetry=_query_jsonl_telemetry,
-    build_telemetry_report=_build_telemetry_report,
-    read_repair_token=_read_repair_token,
-    do_repair_action=_do_repair_action,
-    load_normalized_instance_bundle=_load_normalized_instance_bundle,
-    load_instances_config=_load_instances_config,
-    normalize_instances_config=_normalize_instances_config,
-    upsert_instance_config=_upsert_instance_config,
-    save_instances_config=_save_instances_config,
-    instance_names=_instance_names,
-    load_instance_state=_load_instance_state,
-    normalize_instance_state=_normalize_instance_state,
-    default_instance_state=_default_instance_state,
-    activate_instance_state=_activate_instance_state,
-    save_instance_state=_save_instance_state,
-    get_instance_entry=_get_instance_entry,
-    governance_summary_payload=_governance_summary_payload,
-    workspace_connector_payload=_workspace_connector_payload,
-    connector_inventory_payload=_connector_inventory_payload,
-    instance_limits_payload=_instance_limits_payload,
-    run_connector_action=run_connector_action,
-    save_workspace_connector_binding=save_workspace_connector_binding,
-    resolve_instance_permissions=resolve_instance_permissions,
-    set_instance_tool_permission_policy=set_instance_tool_permission_policy,
-    check_instance_tool_permission=partial(_call_module_attr, "check_instance_tool_permission"),
-    instance_logger_available=_INSTANCE_LOGGER_AVAILABLE,
-    append_instance_log=append_instance_log,
-    delete_instance_log=delete_instance_log,
-    read_instance_log_tail=read_instance_log_tail,
-    read_instance_log_summary=read_instance_log_summary,
-    instance_query_lock=_instance_query_lock,
-    build_chat_request_fingerprint=_build_chat_request_fingerprint,
-    register_chat_idempotency_key=_register_chat_idempotency_key,
-    resolve_chat_idempotency_key=_resolve_chat_idempotency_key,
-    takeover_chat_idempotency_key=_takeover_chat_idempotency_key,
-    complete_chat_idempotency_key=_complete_chat_idempotency_key,
-    get_active_instance_context=_get_active_instance_context,
-    request_is_morning_brief=_request_is_morning_brief,
-    build_morning_brief_response=_build_morning_brief_response,
-    latest_daily_report_path=_latest_daily_report_path,
-    build_chat_system_prompt=_build_chat_system_prompt,
-    request_is_cacheable=_request_is_cacheable,
-    run_blocking=_run_blocking,
-    call_unified_inference=partial(_call_module_attr, "_call_unified_inference"),
-    save_voice_upload_tempfile=_save_voice_upload_tempfile,
-    stream_chunks=_stream_chunks,
-)
+_server_context = _server_shell.server_context
 
 app.include_router(build_core_router(_server_context))
 

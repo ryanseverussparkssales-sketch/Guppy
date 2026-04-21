@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 _FALLBACK_INSTANCE_DEFAULTS: dict[str, dict[str, bool]] = {
-    "user_instance": {"read": True, "write": True, "execute": True, "network": True},
-    "admin_instance": {"read": True, "write": True, "execute": True, "network": True},
-    "builder_instance": {"read": True, "write": True, "execute": False, "network": True},
-    "read_only_instance": {"read": True, "write": False, "execute": False, "network": True},
+    "user_instance": {"read": False, "write": False, "execute": False, "network": False},
+    "admin_instance": {"read": False, "write": False, "execute": False, "network": False},
+    "builder_instance": {"read": False, "write": False, "execute": False, "network": False},
+    "read_only_instance": {"read": False, "write": False, "execute": False, "network": False},
 }
 _BACKEND_READY = False
 _BACKEND_AVAILABLE = False
@@ -52,13 +52,15 @@ def _fallback_check_instance_tool_permission(
     endpoint: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> tuple[bool, str, dict[str, Any]]:
-    del instance_name, config_path, endpoint, metadata
+    del config_path, endpoint, metadata
     capability = _fallback_required_capability_for_tool(tool_name)
-    permissions = _fallback_resolve_instance_permissions(instance_type=instance_type)
-    allowed = bool(permissions.get(capability, False))
-    reason = "" if allowed else f"Tool {tool_name} requires {capability} capability."
+    permissions = _fallback_resolve_instance_permissions(instance_name=instance_name, instance_type=instance_type)
+    allowed = False
+    subject = str(instance_name or instance_type or "instance").strip() or "instance"
+    reason = f"Tool {tool_name} denied for {subject}: instance capability policy backend unavailable"
     permissions["_required_capability"] = capability
     permissions["_policy_reason"] = reason
+    permissions["_policy_reason_code"] = "instance_policy_backend_unavailable"
     return allowed, reason, permissions
 
 
