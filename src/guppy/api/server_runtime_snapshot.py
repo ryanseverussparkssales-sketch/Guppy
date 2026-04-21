@@ -380,40 +380,12 @@ _path_config = SimpleNamespace(
 )
 
 # Detect voice backends once at module load so /status never pays import probe cost
-def _detect_voice_backends() -> tuple[str, str, list[str]]:
-    tts, stt, details = "sapi", "none", []
-    try:
-        if importlib.util.find_spec("kokoro") is not None:
-            tts = "kokoro"
-            details.append("kokoro module found")
-        else:
-            details.append("kokoro unavailable -> sapi fallback")
-    except Exception:
-        details.append("kokoro unavailable -> sapi fallback")
-
-    probe_whisper = os.environ.get("GUPPY_API_PROBE_WHISPER", "0").strip().lower() in {"1", "true", "yes", "on"}
-    try:
-        # Avoid importing native torch/ctranslate stacks at module import-time by default.
-        if importlib.util.find_spec("faster_whisper") is not None:
-            if probe_whisper:
-                from faster_whisper import WhisperModel as _WM  # noqa: F401
-                stt = "whisper"
-                details.append("faster-whisper import ok")
-            else:
-                stt = "whisper"
-                details.append("faster-whisper module found (lazy import)")
-        else:
-            raise ImportError("faster_whisper module not found")
-    except Exception:
-        try:
-            if importlib.util.find_spec("speech_recognition") is not None:
-                stt = "google"
-                details.append("speech_recognition module found")
-            else:
-                details.append("no transcription backend available")
-        except Exception:
-            details.append("no transcription backend available")
-    return tts, stt, details
+from src.guppy.api.snapshot_voice_support import detect_voice_backends as _detect_voice_backends
+from src.guppy.api.snapshot_app_bootstrap import (
+    configure_app as _configure_snapshot_app,
+    create_lifespan as _create_snapshot_lifespan,
+)
+from src.guppy.api.snapshot_status_routes import register_status_routes as _register_snapshot_status_routes
 
 _VOICE_TTS_BACKEND, _VOICE_STT_BACKEND, _VOICE_BACKEND_DETAILS = _detect_voice_backends()
 
@@ -489,182 +461,12 @@ _request_is_morning_brief = services_briefing.request_is_morning_brief
 
 # â”€â”€ FastAPI App â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
-    """Validate env and optionally manage daemon lifecycle when explicitly enabled."""
-    validate_environment()
-    _ensure_m2_instance_scaffold()
 
-    # Generate a per-process repair token so only trusted local callers can POST /repair
-    global _REPAIR_TOKEN
-    _runtime_dir.mkdir(parents=True, exist_ok=True)
-    _REPAIR_TOKEN = secrets.token_hex(32)
-    # Prefer OS credential store; file write is the fallback for systems
-    # where keyring is unavailable (e.g. headless containers).
-    if _SECRET_STORE_AVAILABLE and _secret_store.set_secret("repair_token", _REPAIR_TOKEN):
-        logger.info("Repair token stored in OS credential store")
-        # Ensure stale fallback files cannot carry an old token across restarts.
-        try:
-            if _REPAIR_TOKEN_FILE.exists():
-                _REPAIR_TOKEN_FILE.unlink()
-        except Exception as e:
-            logger.warning("Could not remove stale repair token fallback file: %s", e)
-    else:
-        try:
-            _REPAIR_TOKEN_FILE.write_text(_REPAIR_TOKEN, encoding="utf-8")
-            try:
-                os.chmod(_REPAIR_TOKEN_FILE, 0o600)
-            except Exception:
-                pass
-            logger.info("Repair token written to %s", _REPAIR_TOKEN_FILE)
-        except Exception as e:
-            logger.warning("Could not write repair token: %s", e)
+def _module_owner() -> Any:
+    return sys.modules[__name__]
 
-    if _PERSONALIZATION_BOOTSTRAP_AVAILABLE:
-        try:
-            created = await asyncio.to_thread(ensure_personalization_scaffold)
-            personalization_diagnostics = {
-                "persona_config.json": (await asyncio.to_thread(load_persona_config_with_diagnostics))[1],
-                "provider_registry.json": (await asyncio.to_thread(load_provider_registry_with_diagnostics))[1],
-                "voice_bindings.json": (await asyncio.to_thread(load_voice_bindings_with_diagnostics))[1],
-            }
-            if created:
-                logger.info("Personalization scaffold initialized: %s", ",".join(sorted(created.keys())))
-            problems = [
-                f"{name}: {messages[0]}"
-                for name, messages in personalization_diagnostics.items()
-                if messages
-            ]
-            if problems:
-                logger.warning("Personalization scaffold normalized malformed config: %s", " | ".join(problems))
-        except Exception as e:
-            logger.warning("Personalization scaffold initialization failed: %s", e)
-
-    # Pre-warm readiness cache so first user-facing status calls are not blocked by Ollama probe latency.
-    try:
-        await asyncio.to_thread(_startup_readiness_snapshot)
-    except Exception as e:
-        logger.warning("Startup readiness warmup failed: %s", e)
-
-    try:
-        _trigger_local_runtime_warm_refresh(force=True)
-    except Exception as e:
-        logger.warning("Local runtime warmup trigger failed: %s", e)
-
-    _emit_integration_heartbeat("api_startup")
-
-    if API_OWNS_DAEMON and GUPPY_DAEMON_AVAILABLE:
-        try:
-            daemon = get_daemon_manager()
-            if hasattr(daemon, "is_running") and daemon.is_running:
-                logger.info("Guppy daemon already running - using existing instance")
-            else:
-                daemon.start()
-                logger.info("Guppy daemon started")
-        except Exception as e:
-            logger.error("Failed to initialize daemon: %s", e)
-            logger.warning("API will run in limited mode without daemon context")
-    elif GUPPY_DAEMON_AVAILABLE:
-        logger.info("API running in supervised mode (daemon ownership disabled)")
-    else:
-        logger.warning("Guppy daemon not available - running in API-only mode")
-
-    try:
-        yield
-    finally:
-        try:
-            if _SECRET_STORE_AVAILABLE:
-                _secret_store.delete_secret("repair_token")
-            if _REPAIR_TOKEN_FILE.exists():
-                _REPAIR_TOKEN_FILE.unlink()
-        except Exception as e:
-            logger.warning("Failed to remove repair token: %s", e)
-        if API_OWNS_DAEMON and GUPPY_AVAILABLE:
-            try:
-                daemon = get_daemon_manager()
-                daemon.stop()
-                logger.info("Guppy daemon stopped")
-            except Exception as e:
-                logger.error("Failed to stop daemon: %s", e)
-
-
-app = FastAPI(
-    title="Guppy API",
-    description="Remote access API for Guppy AI assistant",
-    version="1.0.0",
-    lifespan=lifespan,
-)
-
-# CORS middleware for web access
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Repair-Token", "X-Turnstile-Token"],
-)
-
-
-@app.middleware("http")
-async def request_timing_middleware(request: Request, call_next):
-    started = time.perf_counter()
-    status_code = 500
-    try:
-        response = await call_next(request)
-        status_code = response.status_code
-    except Exception:
-        elapsed_ms = (time.perf_counter() - started) * 1000.0
-        log_session_event(
-            "api",
-            "request_failed",
-            level="error",
-            method=request.method,
-            path=request.url.path,
-            status_code=status_code,
-            elapsed_ms=round(elapsed_ms, 2),
-        )
-        with _api_metrics_lock:
-            _api_metrics["requests_total"] += 1
-            _api_metrics["errors_total"] += 1
-            _api_metrics["latency_total_ms"] += elapsed_ms
-            _api_metrics["path_counts"][request.url.path] = _api_metrics["path_counts"].get(request.url.path, 0) + 1
-            _api_metrics["status_counts"][str(status_code)] = _api_metrics["status_counts"].get(str(status_code), 0) + 1
-            if elapsed_ms >= SLOW_REQUEST_MS:
-                _api_metrics["slow_requests"] += 1
-        raise
-
-    elapsed_ms = (time.perf_counter() - started) * 1000.0
-    response.headers["X-Process-Time-Ms"] = f"{elapsed_ms:.2f}"
-
-    with _api_metrics_lock:
-        _api_metrics["requests_total"] += 1
-        _api_metrics["latency_total_ms"] += elapsed_ms
-        _api_metrics["path_counts"][request.url.path] = _api_metrics["path_counts"].get(request.url.path, 0) + 1
-        _api_metrics["status_counts"][str(status_code)] = _api_metrics["status_counts"].get(str(status_code), 0) + 1
-        if status_code >= 500:
-            _api_metrics["errors_total"] += 1
-        if elapsed_ms >= SLOW_REQUEST_MS:
-            _api_metrics["slow_requests"] += 1
-
-    if elapsed_ms >= SLOW_REQUEST_MS:
-        logger.warning(
-            "Slow request: %s %s -> %s in %.2fms",
-            request.method,
-            request.url.path,
-            response.status_code,
-            elapsed_ms,
-        )
-    _emit_integration_heartbeat("api_request")
-    log_session_event(
-        "api",
-        "request_complete",
-        level="warning" if elapsed_ms >= SLOW_REQUEST_MS else "info",
-        method=request.method,
-        path=request.url.path,
-        status_code=response.status_code,
-        elapsed_ms=round(elapsed_ms, 2),
-    )
-    return response
+lifespan = _create_snapshot_lifespan(_module_owner())
+app = _configure_snapshot_app(_module_owner(), lifespan=lifespan)
 
 # === END _server_fragment_ops.py ===
 
@@ -697,10 +499,6 @@ _runtime_state = SimpleNamespace(
 )
 _local_runtime_warm_cache = _runtime_state.local_runtime_warm_cache
 _local_runtime_warm_lock = _runtime_state.local_runtime_warm_lock
-
-
-def _module_owner() -> Any:
-    return sys.modules[__name__]
 
 
 def _bind_runtime_service(func):
@@ -800,87 +598,7 @@ async def root():
     return {"message": "Guppy API is running", "status": "healthy"}
 
 
-@app.get("/metrics")
-async def get_metrics(user_id: str = Depends(require_rate_limit)):
-    """Runtime metrics for API and tool execution health."""
-    del user_id
-    return snapshot_status_context_support.build_metrics_payload(
-        api_metrics=_api_metrics,
-        api_metrics_lock=_api_metrics_lock,
-        guppy_core_available=GUPPY_CORE_AVAILABLE,
-        core_module=core,
-    )
-
-@app.post("/auth/verify", response_model=TokenResponse)
-async def auth_verify_turnstile_token(
-    request: TurnstileToken,
-    _auth_limiter: str = Depends(require_auth_rate_limit)
-):
-    """Verify Turnstile token and issue JWT."""
-    if not await verify_turnstile_token_auth(request.token):
-        raise HTTPException(status_code=400, detail="Invalid Turnstile token")
-
-    # Issue JWT token
-    access_token = create_access_token(data={"sub": "guppy_user"})
-    return TokenResponse(
-        access_token=access_token,
-        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60
-    )
-
-
-@app.get("/auth/self-check")
-async def auth_self_check(user_id: str = Depends(require_rate_limit)):
-    """Local auth handshake probe for launcher diagnostics."""
-    return {
-        "ok": True,
-        "user_id": user_id,
-        "mode": "dev" if DEV_MODE else "strict",
-    }
-
-
-def _build_status_support_context() -> SimpleNamespace:
-    return snapshot_status_context_support.build_status_support_context(
-        memory_available=GUPPY_MEMORY_AVAILABLE,
-        voice_available=GUPPY_VOICE_AVAILABLE,
-        daemon_available=GUPPY_DAEMON_AVAILABLE,
-        voice_tts_backend=_VOICE_TTS_BACKEND,
-        voice_stt_backend=_VOICE_STT_BACKEND,
-        voice_backend_details=_VOICE_BACKEND_DETAILS,
-        read_daemon_runtime_status=_read_daemon_runtime_status,
-        startup_readiness_cached_or_unknown=_startup_readiness_cached_or_unknown,
-        build_local_runtime_status=_build_local_runtime_status,
-        read_resource_envelope_status=_read_resource_envelope_status,
-        startup_readiness_snapshot=_startup_readiness_snapshot,
-        startup_readiness_cache_expired=_startup_readiness_cache_expired,
-        trigger_startup_readiness_refresh=_trigger_startup_readiness_refresh,
-        guppy_core_available=GUPPY_CORE_AVAILABLE,
-        status_cache=_status_cache,
-        status_cache_ttl_seconds=STATUS_CACHE_TTL_SECONDS,
-        status_include_window_context=STATUS_INCLUDE_WINDOW_CONTEXT,
-        read_window_context=_read_window_context,
-    )
-
-
-@app.get("/status")
-async def get_status(user_id: str = Depends(require_rate_limit)):
-    """Get system status and current context."""
-    del user_id
-
-    try:
-        return await build_status_response(_build_status_support_context())
-    except Exception as e:
-        logger.error(f"Status check failed: {e}")
-        log_session_event("api", "status_failed", level="error", error=str(e))
-        return {"status": "error", "message": str(e)}
-
-
-@app.get("/startup/check")
-async def startup_check(deep: bool = False, user_id: str = Depends(require_rate_limit)):
-    """Startup readiness checks (cached by default, deep probe when requested)."""
-    del user_id
-    snapshot = await build_startup_check_response(_build_status_support_context(), deep=deep)
-    log_session_event("api", "startup_check", level="info", overall=snapshot.get("overall", "unknown"))
-    return snapshot
+_register_snapshot_status_routes(app, _module_owner())
 
 
 @app.get("/instances")

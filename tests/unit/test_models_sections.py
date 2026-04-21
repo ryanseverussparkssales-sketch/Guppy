@@ -60,7 +60,7 @@ def test_build_models_runtime_section_creates_backend_and_role_controls() -> Non
         on_refresh_runtime_library=lambda: actions.append("refresh_library"),
     )
 
-    assert section.backend_combo.count() == 2
+    assert section.backend_combo.count() >= 2  # OLLAMA, LEMONADE + any additional backends
     assert set(section.lemonade_role_inputs) == {"lemonade_fast_model", "lemonade_complex_model"}
 
     section.backend_combo.setCurrentText("LEMONADE")

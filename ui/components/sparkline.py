@@ -6,10 +6,10 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 
 class Sparkline(QWidget):
-    """Shared sparkline widget used by both legacy and launcher UI surfaces.
+    """Shared sparkline widget used by compatibility and launcher UI surfaces.
 
     Supports both APIs:
-    - legacy: set_values([...])
+    - compatibility API: set_values([...])
     - launcher: push(v), set_data([...])
     """
 

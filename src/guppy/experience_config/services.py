@@ -40,6 +40,8 @@ _FALLBACK_RUNTIME_SETTINGS: dict[str, Any] = {
     "default_mode": "auto",
     "local_runtime_backend": "ollama",
     "lemonade_base_url": "http://localhost:13305/api/v1",
+    "lmstudio_base_url": "http://127.0.0.1:1234/v1",
+    "local_harness_base_url": "http://127.0.0.1:8001",
     "lemonade_fast_model": "",
     "lemonade_complex_model": "",
     "lemonade_teach_model": "",

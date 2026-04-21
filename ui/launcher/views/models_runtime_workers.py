@@ -41,6 +41,45 @@ class LocalRuntimeFetchThread(QThread):
                     for item in data.get("data", [])
                     if isinstance(item, dict) and str(item.get("id", "")).strip()
                 ]
+            elif self._backend == "lmstudio":
+                url = f"{(self._base_url or _DEFAULT_LMSTUDIO_BASE_URL).rstrip('/')}/models"
+                req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+                with urllib.request.urlopen(req, timeout=4) as resp:
+                    data = json.loads(resp.read())
+                models = [
+                    {
+                        "name": str(item.get("id", "")).strip(),
+                        "display": str(item.get("id", "")).strip().replace("-", " ").replace("_", " ").title(),
+                        "size": 0,
+                        "context": "LM Studio local server",
+                        "note": "Detected from LM Studio",
+                    }
+                    for item in data.get("data", [])
+                    if isinstance(item, dict) and str(item.get("id", "")).strip()
+                ]
+            elif self._backend == "local_harness":
+                base = (self._base_url or _DEFAULT_LOCAL_HARNESS_BASE_URL).rstrip("/")
+                data = None
+                for candidate in (f"{base}/models", f"{base}/v1/models"):
+                    try:
+                        req = urllib.request.Request(candidate, headers={"Accept": "application/json"}, method="GET")
+                        with urllib.request.urlopen(req, timeout=4) as resp:
+                            data = json.loads(resp.read())
+                        break
+                    except Exception:
+                        continue
+                records = data.get("data", data.get("models", [])) if isinstance(data, dict) else []
+                models = [
+                    {
+                        "name": str(item.get("id", item.get("name", ""))).strip(),
+                        "display": str(item.get("id", item.get("name", ""))).strip().replace("-", " ").replace("_", " ").title(),
+                        "size": 0,
+                        "context": "OpenAI-compatible local harness",
+                        "note": "Detected from local harness",
+                    }
+                    for item in records
+                    if isinstance(item, dict) and str(item.get("id", item.get("name", ""))).strip()
+                ]
             else:
                 req = urllib.request.Request("http://127.0.0.1:11434/api/tags", headers={"Accept": "application/json"})
                 with urllib.request.urlopen(req, timeout=4) as resp:

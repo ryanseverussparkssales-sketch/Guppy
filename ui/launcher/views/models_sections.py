@@ -162,6 +162,7 @@ class ModelsLoadoutSection:
 class ModelsRuntimeSection:
     frame: QFrame
     backend_combo: QComboBox
+    endpoint_label: QLabel
     lemonade_base_url_input: QLineEdit
     save_button: QPushButton
     lemonade_role_inputs: dict[str, QComboBox]
@@ -307,11 +308,12 @@ def build_models_runtime_section(
     row.setSpacing(10)
     row.addWidget(QLabel("LOCAL RUNTIME"))
     backend_combo = QComboBox()
-    backend_combo.addItems(["OLLAMA", "LEMONADE"])
+    backend_combo.addItems(["OLLAMA", "LM STUDIO", "LOCAL HARNESS", "LEMONADE"])
     backend_combo.setFixedWidth(160)
     backend_combo.currentTextChanged.connect(on_runtime_backend_changed)
     row.addWidget(backend_combo)
-    row.addWidget(QLabel("LEMONADE ENDPOINT"))
+    endpoint_label = QLabel("RUNTIME ENDPOINT")
+    row.addWidget(endpoint_label)
     lemonade_base_url_input = QLineEdit()
     lemonade_base_url_input.setPlaceholderText(default_lemonade_base_url)
     lemonade_base_url_input.setMinimumWidth(280)
@@ -349,7 +351,7 @@ def build_models_runtime_section(
     library_layout.setContentsMargins(10, 10, 10, 10)
     library_layout.setSpacing(8)
     library_hdr = QHBoxLayout()
-    runtime_library_title = QLabel("LEMONADE MODEL PICKER")
+    runtime_library_title = QLabel("LOCAL RUNTIME MODEL PICKER")
     runtime_library_title.setStyleSheet(f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
     runtime_library_target_label = QLabel("Assigning to DAILY SLOT")
     runtime_library_target_label.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;")
@@ -394,6 +396,7 @@ def build_models_runtime_section(
     return ModelsRuntimeSection(
         frame=frame,
         backend_combo=backend_combo,
+        endpoint_label=endpoint_label,
         lemonade_base_url_input=lemonade_base_url_input,
         save_button=save_button,
         lemonade_role_inputs=lemonade_role_inputs,

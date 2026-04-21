@@ -755,7 +755,25 @@ Follow-on checkpoint (April 20, 2026, FR5 continuation):
   - `ui/launcher/launcher_window.py` -> `2141`
 - Result: the repo is down to two materially smaller bounded shells, both with honest pinned waivers and a much narrower freeze-readiness debt surface than the original FR5 starting state.
 
----
+TR54-B1 Wave 9 checkpoint (current session, TR54 launcher decomposition):
+
+- `launcher_window.py` reduced further via Wave 9 extraction of six more method families:
+  - `_refresh_first_run_banner` + `_on_first_run_action_requested` → new `src/guppy/launcher_application/launcher_first_run.py`
+  - `_sync_topbar_model_context` → `src/guppy/launcher_application/launcher_poll_orchestration.py`
+  - `_on_settings_saved` + `_on_voice_bindings_changed` → `src/guppy/launcher_application/launcher_tools_coordination.py`
+  - `_on_home_starter_requested` → `src/guppy/launcher_application/launcher_shell_support.py`
+- `server_runtime_snapshot.py` reduced via voice-backend probe extraction → new `src/guppy/api/snapshot_voice_support.py`
+- Waivers tightened:
+  - `launcher_window.py`: 2141 → 1492
+  - `server_runtime_snapshot.py`: 1141 → 1108
+  - `launcher_command_flow.py`: new waiver added at 728 (above base cap, pending `launcher_chat_session.py` split)
+- All 8 dev-check guards green after wave.
+- Measured post-wave sizes:
+  - `ui/launcher/launcher_window.py` → `1492`
+  - `src/guppy/api/server_runtime_snapshot.py` → `1108`
+  - `src/guppy/launcher_application/launcher_command_flow.py` → `728`
+
+
 
 ## Pre-Launch Work Roadmap Additions (April 19, 2026)
 
@@ -940,27 +958,27 @@ Recommended lane split:
 
 ---
 
-## Planned Mega-Tranche (Tranche 53: Massive Hardening, Usability, UI Quality, And Tool-System Sweep)
+## Mega-Tranche 53 Closeout (Massive Hardening, Usability, UI Quality, And Tool-System Sweep)
 
-Execution note (April 20, 2026):
+Execution note (April 20, 2026 closeout):
 
-- This is the next planned pre-launch tranche after the Tranche 52 follow-through waves.
-- It is intentionally split into 10 high-impact execution packs so the work can be parallelized without dissolving into unbounded polish.
-- The tranche explicitly combines desktop launcher/startup hardening, large usability sweeps, a UI review against Guppy goals plus Stitch and inspiration sources, a full tool-system audit, packaging/install/local-runtime readiness, and trust/security hardening.
-- Framework rule: keep the existing PySide6 + `launcher_application` + `runtime_application` shape; do not introduce new top-level destinations or a framework rewrite.
-- Current planning context: release truth is now intentionally strict. Packaging remains blocked until a real `dist/` artifact exists, so this tranche must treat build/install evidence as active execution work.
+- Tranche 53 is complete.
+- It was intentionally split into 10 high-impact execution packs so the work could be parallelized without dissolving into unbounded polish.
+- The tranche explicitly combined desktop launcher/startup hardening, large usability sweeps, a UI review against Guppy goals plus Stitch and inspiration sources, a full tool-system audit, packaging/install/local-runtime readiness, and trust/security hardening.
+- Framework rule held throughout: keep the existing PySide6 + `launcher_application` + `runtime_application` shape; do not introduce new top-level destinations or a framework rewrite.
+- Packaging/install evidence is now part of the live release truth instead of a planned future lane.
 
 What ships:
 
-1. `PL-C8 - Product goals, UI goals, and first-run contract audit` `planned`
+1. `PL-C8 - Product goals, UI goals, and first-run contract audit` `complete`
    - Lock a written pass/fail audit against Guppy’s actual goals: calm chat-first, 5-minute useful success, grandma-readable screens, and progressive disclosure for operator features.
    - Produce one matrix per hub: Home, Models, Tools, Library, Settings.
    - Acceptance: every major hub has a written pass/fail assessment and every failing item maps to one of the cards below.
-2. `PL-C9 - Stitch and inspiration-source UI review with implementation deltas` `planned`
+2. `PL-C9 - Stitch and inspiration-source UI review with implementation deltas` `complete`
    - Review the shipped UI against Google Stitch guidance, Guppy’s blue/orange island-flavor constraints, and reference products such as Claude Desktop, ChatGPT Desktop, Cursor, and LM Studio.
    - Convert that review into a keep/change/remove delta table for chrome, hierarchy, spacing, typography, and token use.
    - Acceptance: one explicit implementation delta table exists and later UI work references it directly.
-3. `PL-C10 - Desktop launcher hardening and startup hardening` `planned`
+3. `PL-C10 - Desktop launcher hardening and startup hardening` `complete`
    - Audit and tighten launcher startup, hidden/direct API start, supervised launch, duplicate-window risk, browser-open behavior, startup timing, retries, and failure messaging.
    - Acceptance: no known normal-use duplicate window path remains, startup/recovery messaging is plain-language, and startup-state transitions are test-covered.
 4. `PL-C11 - Cross-hub usability sweep and responsive layout pass` `complete`
@@ -988,9 +1006,9 @@ What ships:
 
 April 20, 2026 execution checkpoint:
 
-- `PL-C8` is now started with a repo-grounded baseline in `docs/generated/TRANCHE_53_GOALS_UI_AUDIT_20260420.md`.
-- `PL-C9` is now started with a keep/change/remove implementation delta in `docs/generated/TRANCHE_53_STITCH_DELTA_20260420.md`.
-- `PL-C10` has its first live shell fixes in code:
+- `PL-C8` is complete with a repo-grounded baseline in `docs/generated/TRANCHE_53_GOALS_UI_AUDIT_20260420.md`.
+- `PL-C9` is complete with a keep/change/remove implementation delta in `docs/generated/TRANCHE_53_STITCH_DELTA_20260420.md`.
+- `PL-C10` is now complete and its first live shell fixes remain in code:
   - the topbar now shows a visible runtime/startup status chip
   - the topbar `CHAT` control now routes to chat-context drawer behavior instead of Workspaces
   - Home drawer toggling now actually opens and closes on Home
@@ -1858,6 +1876,35 @@ Audit errors found and resolved:
 3. Home still rendered operator details and allowed a Home-only operator drawer path; corrected so those no longer render on the daily chat screen.
 4. The visible MODELS nav button initially emitted a legacy alias route instead of the actual hub page; corrected during integration.
 
+---
+
+## Planned Tranche 54 (Complete Module Breakup And Stitch-Driven Streamlining)
+
+Execution note (April 20, 2026):
+
+- This is the full execution planning tranche for complete breakup of remaining large modules while keeping the current product architecture intact.
+- The tranche includes explicit execution cards for every major UI element and every tool/settings lane.
+- Desktop launcher hardening and account connection/storage best practices are first-class card groups.
+- Stitch UI choices are treated as locked implementation constraints for hierarchy, spacing rhythm, copy clarity, and progressive disclosure.
+
+Program artifacts:
+
+1. Detailed tranche card deck: `docs/generated/TRANCHE_54_MODULE_BREAKUP_AND_STITCH_EXECUTION_CARDS_20260420.md`
+2. Tranche group map:
+   - `TR54-A` foundation contracts and merge choreography
+   - `TR54-B` UI element decomposition cards
+   - `TR54-C` tool/settings decomposition cards
+   - `TR54-D` desktop launcher hardening cards
+   - `TR54-E` account connection and secret-storage best-practice cards
+   - `TR54-F` integration gates and release closeout
+
+Primary acceptance direction:
+
+1. Remaining large UI/runtime modules are split into bounded seams with no behavior regressions.
+2. Launcher startup and runtime status signaling remain deterministic and release-green.
+3. Tool-setting language and policy routing are canonical across typed/spoken/card surfaces.
+4. Account lifecycle and storage posture are explicit, secure, and user-comprehensible.
+
 Residual non-blocking follow-up:
 1. Compatibility wrapper classes remain temporarily importable for smoke stability and incremental extraction.
 2. Broader real-device validation for voice engines and deeper runtime parity beyond the current default lanes remain follow-up work, not tranche-completion blockers.
@@ -1882,6 +1929,22 @@ Residual non-blocking follow-up:
 4. Prefer `src/guppy/launcher_application/`, `src/guppy/runtime_application/`, `src/guppy/workspace_governance/`, and `src/guppy/experience_config/` for launcher-facing contracts and normalization behavior.
 5. Record short active tranche notes in this brief instead of creating parallel status markdown files.
 6. Keep Guppy and `Guppy-pi` fully isolated: no Guppy/Guppy Prime agent workflow should modify files under `Guppy-pi/` while working this repo.
+
+Execution checkpoint (April 20, 2026, tandem execution tranche):
+
+1. `launcher_command_flow.py` policy/topbar helper family was decomposed into `src/guppy/launcher_application/launcher_command_policy.py`.
+2. `launcher_command_flow.py` dropped to `590` lines and no longer needs a line-cap waiver.
+3. A doc-retention execution artifact was added at `docs/generated/DOC_RETENTION_CLASSIFICATION_20260420.md` to drive quarantine/purge sequencing.
+4. Low-risk legacy wording cleanup executed in inference/router and UI/tool docstrings/messages without behavior changes.
+5. Launcher shell voice/system-strip family was extracted into `src/guppy/launcher_application/launcher_voice_strip.py`, and `launcher_window.py` now delegates those methods.
+6. Regression compatibility fix retained `FirstRunWizard` monkeypatch behavior for launcher smoke tests after first-run extraction.
+7. Validation evidence after this wave: focused launcher smoke suite green and `python tools/dev_workflow.py dev-check --guard-scope delta` green.
+8. Assistant queue draining and request-state transitions were split into `src/guppy/launcher_application/launcher_assistant_event_flow.py`, with `launcher_command_flow.py` delegating to that seam.
+9. `server_runtime_snapshot.py` APIRouter/lifespan wave started by extracting app bootstrap logic into `src/guppy/api/snapshot_app_bootstrap.py`.
+10. Measured post-wave sizes: `src/guppy/api/server_runtime_snapshot.py` -> `938`; `src/guppy/launcher_application/launcher_command_flow.py` -> `426`.
+11. Launcher signal wiring and personalization refresh/worker flows were extracted into `src/guppy/launcher_application/launcher_signal_personalization.py`, with `launcher_window.py` delegating those seams.
+12. Snapshot status/auth/metrics route registration was extracted into `src/guppy/api/snapshot_status_routes.py` and wired from `server_runtime_snapshot.py`.
+13. Measured post-wave sizes: `ui/launcher/launcher_window.py` -> `1263`; `src/guppy/api/server_runtime_snapshot.py` -> `859`; `src/guppy/launcher_application/launcher_command_flow.py` -> `426`.
 
 ## CI Guardrails
 

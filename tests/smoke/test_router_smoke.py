@@ -64,5 +64,5 @@ def test_docs_smoke_contracts() -> None:
     readme = (repo_root / "README.md").read_text(encoding="utf-8")
 
     assert "discoverability pointer" in roadmap
-    assert "Do not add new active priorities" in roadmap
+    assert "Do not add active priorities" in roadmap
     assert "Guppy" in readme

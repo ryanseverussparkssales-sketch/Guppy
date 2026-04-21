@@ -323,6 +323,9 @@ def refresh_composer_guidance(view) -> None:
     )
     view._input.setPlaceholderText(placeholder)
     view._starter_summary.setText(starter_summary)
+    update_visibility = getattr(view, "_update_starter_visibility", None)
+    if callable(update_visibility):
+        update_visibility()
 
 
 def set_first_run_status(
@@ -352,11 +355,13 @@ def apply_density_mode(view, width: int) -> None:
     compact = width < 1120
     tight = width < 920
     ultra = width < 780
+    view._identity_frame.setVisible(False)
     view._identity_mode_chip.setVisible(not ultra)
     view._instance_chip.setVisible(not tight)
-    view._starter_summary.setVisible(not tight)
-    view._starter_buttons_host.setVisible(view._starters_expanded and not tight)
     view._first_run_frame.apply_density_mode(width)
+    update_visibility = getattr(view, "_update_starter_visibility", None)
+    if callable(update_visibility):
+        update_visibility()
     view._workspace_details_btn.setText(
         "OPEN"
         if compact and not view._workspace_details_expanded

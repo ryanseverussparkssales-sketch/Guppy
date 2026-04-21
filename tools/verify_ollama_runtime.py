@@ -237,7 +237,7 @@ def main() -> int:
     for tag in wanted_tags:
         resolved = resolved_tags[tag]
         if resolved in installed and resolved != tag:
-            print(f"- OK {tag} (using legacy alias {resolved})")
+            print(f"- OK {tag} (using compatibility alias {resolved})")
         else:
             print(f"- {'OK' if resolved in installed else 'MISSING'} {tag}")
 

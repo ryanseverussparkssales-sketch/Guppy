@@ -40,8 +40,8 @@ class LauncherNavChromeSmokeTests(unittest.TestCase):
 
         self.assertEqual(visible_nav, ["HOME", "MODELS", "TOOLS", "LIBRARY", "SETTINGS"])
         self.assertIn("WORKSPACES", [btn.text() for btn in topbar._nav_btns])
-        self.assertEqual(topbar._workspace_nav_btn.text(), "SPACES")
-        self.assertIn("MAIN MODEL:", topbar._summary_primary_lbl.full_text())
+        self.assertEqual(topbar._workspace_nav_btn.text(), "WORKSPACES")
+        self.assertIn("ACTIVE MODEL:", topbar._summary_primary_lbl.full_text())
 
         topbar._workspace_nav_btn.click()
 
@@ -58,4 +58,4 @@ class LauncherNavChromeSmokeTests(unittest.TestCase):
         self.assertFalse(topbar._workspace_shell.isVisible())
         self.assertFalse(topbar._summary_shell.isHidden())
         self.assertEqual(topbar._launcher_summary_btn.text(), "CTX")
-        self.assertIn("MAIN MODEL:", topbar._summary_primary_lbl.full_text())
+        self.assertIn("ACTIVE MODEL:", topbar._summary_primary_lbl.full_text())

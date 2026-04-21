@@ -961,19 +961,19 @@ Residual non-blocking notes:
 
 ---
 
-## Planned Mega-Tranche (Tranche 53)
+## Mega-Tranche 53 Closeout
 
-**Execution note (April 20, 2026):**
-- This is the next planned pre-launch mega-tranche after the Tranche 52 follow-through waves.
-- Scope combines massive hardening, usability sweeps, UI review against Guppy goals + Stitch + inspiration sources, a full tool-system audit, packaging/install/local-runtime readiness, and trust/security follow-through.
-- The tranche is intentionally split into 10 high-impact execution packs so several lanes can run in parallel while still closing as one integrated release-quality wave.
-- Keep the current framework and five-hub ownership model intact.
-- Current blocker context: packaging remains an honest release blocker until a real `dist/` artifact exists.
+**Execution note (April 20, 2026 closeout):**
+- Tranche 53 is complete.
+- Scope combined massive hardening, usability sweeps, UI review against Guppy goals + Stitch + inspiration sources, a full tool-system audit, packaging/install/local-runtime readiness, and trust/security follow-through.
+- The tranche was intentionally split into 10 high-impact execution packs so several lanes could run in parallel while still closing as one integrated release-quality wave.
+- The current framework and five-hub ownership model remained intact.
+- Packaging/install evidence is now part of the live release truth instead of a planned blocker note.
 
 **What ships:**
-- [ ] `PL-C8` Product goals, UI goals, and first-run contract audit
-- [ ] `PL-C9` Stitch and inspiration-source UI review with implementation deltas
-- [ ] `PL-C10` Desktop launcher hardening and startup hardening
+- [x] `PL-C8` Product goals, UI goals, and first-run contract audit
+- [x] `PL-C9` Stitch and inspiration-source UI review with implementation deltas
+- [x] `PL-C10` Desktop launcher hardening and startup hardening
 - [x] `PL-C11` Cross-hub usability sweep and responsive layout pass
 - [x] `PL-C12` Home and launcher chrome calmness pass
 - [x] `PL-C13` Full tool-system audit and tool-entry hardening
@@ -983,9 +983,9 @@ Residual non-blocking notes:
 - [x] `PL-C17` Integrated code audit, docs audit, UI audit, tool audit, and release closeout
 
 **April 20, 2026 execution checkpoint:**
-- `PL-C8` started with `docs/generated/TRANCHE_53_GOALS_UI_AUDIT_20260420.md`.
-- `PL-C9` started with `docs/generated/TRANCHE_53_STITCH_DELTA_20260420.md`.
-- `PL-C10` first-wave launcher hardening is live:
+- `PL-C8` is complete with `docs/generated/TRANCHE_53_GOALS_UI_AUDIT_20260420.md`.
+- `PL-C9` is complete with `docs/generated/TRANCHE_53_STITCH_DELTA_20260420.md`.
+- `PL-C10` is complete, and its first-wave launcher hardening remains live:
   - topbar runtime/startup chip added
   - topbar `CHAT` action corrected to chat-context drawer behavior
   - Home drawer toggle now actually opens/closes on Home
@@ -1470,4 +1470,37 @@ Each tranche produces:
 ✅ Agent-friendly (clear, bounded tasks)  
 
 **You're building the cleanest Guppy ever. Let's do it.** 🚀
+
+---
+
+## Planned Tranche 54 (Complete Module Breakup And Stitch Execution Cards)
+
+Execution note (April 20, 2026):
+
+- Tranche 54 is the full planned execution wave for complete module breakup and streamlining.
+- The tranche defines explicit card IDs for every major UI element and every tool/settings lane.
+- Stitch direction is locked as execution rules: calm hierarchy, responsive truth, token-first styling, and progressive disclosure.
+- Desktop launcher hardening and account-connection/storage best practices are dedicated card groups.
+
+Canonical card artifact:
+
+1. `docs/generated/TRANCHE_54_MODULE_BREAKUP_AND_STITCH_EXECUTION_CARDS_20260420.md`
+
+Tranche groups:
+
+1. `TR54-A` foundation contracts and merge choreography
+2. `TR54-B` UI element decomposition cards
+3. `TR54-C` tool/settings decomposition cards
+4. `TR54-D` desktop launcher hardening cards
+5. `TR54-E` account connection and secret-storage best-practice cards
+6. `TR54-F` integration gates and release closeout
+
+Recommended order:
+
+1. Lock `TR54-A` first.
+2. Execute `TR54-B1`, `TR54-B5`, `TR54-B9`, and `TR54-B10` as wave one.
+3. Run `TR54-C` in parallel once seam contracts are stable.
+4. Run `TR54-D` after core launcher/runtime splits merge.
+5. Run `TR54-E` with Settings ownership as the source of truth.
+6. Close with `TR54-F` and release-lane evidence.
 

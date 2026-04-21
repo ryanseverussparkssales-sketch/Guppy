@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 
 from src.guppy.launcher_application.automation_test_support import event_level
 from src.guppy.launcher_application.storage_io import read_jsonl_tail
@@ -185,3 +185,66 @@ def build_runtime_badge_state(
         severity="error",
         detail=summary or "The launcher cannot read current runtime status yet.",
     )
+
+
+def apply_quick_action_plan(owner: Any, plan: Any) -> bool:
+    """Execute a resolved quick action plan against the launcher window.
+
+    Extracted from LauncherWindow._apply_quick_action_plan as part of TR54-B1 Wave 7.
+    """
+    toggle_sidebar = getattr(owner, "_toggle_sidebar", None)
+    toggle_status = getattr(owner, "_toggle_status_panel", None)
+    on_tab = getattr(owner, "_on_tab_change", None)
+    settings_hub = getattr(owner, "_settings_hub_view", None)
+    set_act = getattr(owner, "_set_daily_activity", None)
+    status_panel = getattr(owner, "_status_panel", None)
+
+    if getattr(plan, "toggle_sidebar", False):
+        if callable(toggle_sidebar):
+            toggle_sidebar()
+        return True
+    if getattr(plan, "toggle_drawer", False):
+        if callable(toggle_status):
+            toggle_status()
+        return True
+    if getattr(plan, "tab_index", None) is not None:
+        if callable(on_tab):
+            on_tab(plan.tab_index)
+    if getattr(plan, "operator_logs_focus", None) is not None and settings_hub is not None:
+        focus = getattr(settings_hub, "focus_operator_logs", None)
+        if callable(focus):
+            focus(plan.operator_logs_focus.level, note=plan.operator_logs_focus.note)
+    if getattr(plan, "terminal_focus", None) is not None and settings_hub is not None:
+        focus_term = getattr(settings_hub, "focus_terminal", None)
+        if callable(focus_term):
+            focus_term(note=plan.terminal_focus.note)
+    if getattr(plan, "daily_activity", "") and callable(set_act):
+        set_act(plan.daily_activity)
+    if getattr(plan, "syslog", "") and status_panel is not None:
+        status_panel.append_syslog(plan.syslog)
+    if isinstance(getattr(plan, "launcher_event", None), dict):
+        owner._log_launcher_event("quick_action", **plan.launcher_event)
+    if getattr(plan, "unsupported_message", "") and status_panel is not None:
+        status_panel.append_syslog(plan.unsupported_message)
+        return False
+    return True
+
+
+def on_home_starter_requested(owner: Any, starter_id: str, prompt: str) -> None:
+    """Handle a home starter card activation: switch to Home tab, seed the route preview, log.
+
+    Extracted from LauncherWindow._on_home_starter_requested as part of TR54-B1 Wave 9.
+    """
+    tab_change = getattr(owner, "_on_tab_change", None)
+    if callable(tab_change):
+        tab_change(0)
+    update_preview = getattr(owner, "_update_route_preview", None)
+    if callable(update_preview):
+        update_preview(prompt)
+    set_activity = getattr(owner, "_set_daily_activity", None)
+    if callable(set_activity):
+        set_activity(f"Starter loaded: {starter_id}")
+    status_panel = getattr(owner, "_status_panel", None)
+    if status_panel is not None:
+        status_panel.append_syslog(f"home starter loaded: {starter_id}")
+    owner._log_launcher_event("home_starter_loaded", starter_id=starter_id)

@@ -245,8 +245,8 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
 
         visible_nav = [btn.text() for btn in topbar._nav_btns if not btn.isHidden()]
         self.assertEqual(visible_nav, ["HOME", "MODELS", "TOOLS", "LIBRARY", "SETTINGS"])
-        self.assertEqual(topbar._workspace_nav_btn.text(), "SPACES")
-        self.assertIn("MAIN MODEL:", topbar._summary_primary_lbl.full_text())
+        self.assertEqual(topbar._workspace_nav_btn.text(), "WORKSPACES")
+        self.assertIn("ACTIVE MODEL:", topbar._summary_primary_lbl.full_text())
 
         topbar.set_instances(["guppy-primary", "builder-collab"], active_instance="guppy-primary")
         topbar.set_active_instance("builder-collab")
@@ -312,6 +312,8 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Pick the model for this assistant session", view._library_hint_lbl.text())
         self.assertIn("Recommended default:", view._library_summary_lbl.text())
         self.assertIn("Heavier local option:", view._library_summary_lbl.text())
+        runtime_options = [view._runtime_backend_cb.itemText(i) for i in range(view._runtime_backend_cb.count())]
+        self.assertEqual(runtime_options, ["OLLAMA", "LM STUDIO", "LOCAL HARNESS", "LEMONADE"])
 
     def test_settings_device_accounts_panel_surfaces_human_friendly_api_key_field(self):
         view = SettingsDeviceAccountsPanel()
@@ -399,13 +401,14 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Using qwen3:8b", hub._local_llm_panel._summary_lbl.text())
         self.assertIn("Ready now:", hub._voice_panel._voice_evidence_lbl.text())
         labels = [label.text() for label in hub.findChildren(QLabel)]
+        buttons = [button.text() for button in hub.findChildren(QPushButton)]
         self.assertTrue(
-            any("API-key storage remain unified in Settings" in text for text in labels),
+            any("Keys and accounts stay in Settings" in text for text in labels),
             "Models hub should keep credential storage ownership in Settings",
         )
         self.assertTrue(
-            any("Deepgram remains explicitly planned" in text for text in labels),
-            "Models hub should surface the planned Deepgram voice lane",
+            {"LOCAL LLMS STATUS", "MODEL SWAPPING", "MODEL INSTALLATION", "MODEL UNINSTALLATION", "MODEL SOURCING"}.issubset(set(buttons)),
+            "Models hub should expose the requested focused tabs",
         )
 
     def test_topbar_quick_actions_emit_for_live_buttons(self):
@@ -605,6 +608,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertTrue(assistant._workspace_details_host.isHidden())
         self.assertTrue(assistant._launcher_panel.isHidden())
         self.assertTrue(assistant._identity_details_btn.isHidden())
+        self.assertTrue(assistant._starter_summary.isHidden())
         self.assertIn("GUPPY model", assistant._runtime_facts.text())
         self.assertIn("EDGE TTS from persona voice", assistant._runtime_facts.text())
         self.assertTrue(assistant._runtime_facts.isHidden())
@@ -616,7 +620,6 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Start here in builder-collab", assistant._entry_hint.text())
         self.assertIn("PLAN NEXT PASS", assistant._entry_hint.text())
         self.assertIn("next pass", assistant._input.placeholderText().lower())
-        self.assertIn("optional starter", assistant._starter_summary.text().lower())
         self.assertEqual(assistant._cb_persona.currentText(), "GUPPY")
 
     def test_assistant_home_surface_updates_copy_when_workspace_role_changes(self):

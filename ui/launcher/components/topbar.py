@@ -147,7 +147,7 @@ class TopBar(QFrame):
         self._instance_cb.setMaximumWidth(150)
         self._instance_cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContentsOnFirstShow)
         self._instance_cb.currentTextChanged.connect(self._on_instance_selected)
-        self._workspace_nav_btn = QPushButton("SPACES")
+        self._workspace_nav_btn = QPushButton("WORKSPACES")
         self._workspace_nav_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._workspace_nav_btn.setFixedHeight(28)
         self._workspace_nav_btn.setToolTip("Open workspace setup, governance, and saved workspace management.")
@@ -174,22 +174,22 @@ class TopBar(QFrame):
         summary_copy = QVBoxLayout()
         summary_copy.setContentsMargins(0, 0, 0, 0)
         summary_copy.setSpacing(0)
-        self._summary_primary_lbl = _ElidedLabel("MAIN MODEL: GUPPY")
+        self._summary_primary_lbl = _ElidedLabel("ACTIVE MODEL: GUPPY")
         self._summary_primary_lbl.setStyleSheet(
             f"color: {T.INK}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
         )
-        self._summary_secondary_lbl = _ElidedLabel("LANE: AUTO / LIGHT")
+        self._summary_secondary_lbl = _ElidedLabel("CHAT LANE: AUTO / LIGHT")
         self._summary_secondary_lbl.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
         )
         summary_copy.addWidget(self._summary_primary_lbl)
         summary_copy.addWidget(self._summary_secondary_lbl)
         summary_row.addLayout(summary_copy, 1)
-        self._launcher_summary_btn = QPushButton("CHAT")
+        self._launcher_summary_btn = QPushButton("CONTEXT")
         self._launcher_summary_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._launcher_summary_btn.setToolTip("Open Home context controls for this workspace.")
+        self._launcher_summary_btn.setToolTip("Open Home context and chat controls for this workspace.")
         self._launcher_summary_btn.setAccessibleName("Open chat context controls")
-        self._launcher_summary_btn.setAccessibleDescription("Opens chat context controls for the active workspace")
+        self._launcher_summary_btn.setAccessibleDescription("Opens Home context and chat controls for the active workspace")
         self._launcher_summary_btn.setMinimumWidth(56)
         self._launcher_summary_btn.setFixedHeight(28)
         self._launcher_summary_btn.setStyleSheet(
@@ -200,7 +200,7 @@ class TopBar(QFrame):
         )
         self._launcher_summary_btn.clicked.connect(self.launcher_context_requested.emit)
         summary_row.addWidget(self._launcher_summary_btn)
-        self._summary_shell.setToolTip("Main and support model summary for this session.")
+        self._summary_shell.setToolTip("Active model and chat lane summary for this session.")
         row.addWidget(summary_shell)
 
         self._search = QLineEdit()
@@ -276,6 +276,7 @@ class TopBar(QFrame):
         system_row.addWidget(notif_wrap)
         system_row.addWidget(self._term_btn)
         system_row.addWidget(self._drawer_btn)
+        self._drawer_btn.hide()
         row.addWidget(system_shell)
 
         self.set_active_tab(0)
@@ -339,17 +340,17 @@ class TopBar(QFrame):
         summary = summary.replace("HOME /", "").strip(" /")
         parts = [part.strip() for part in summary.split("/") if part.strip()]
         if len(parts) >= 3:
-            primary = f"MAIN MODEL: {parts[1]}"
-            secondary = f"LANE: {parts[0]} / {' / '.join(parts[2:])}"
+            primary = f"ACTIVE MODEL: {parts[1]}"
+            secondary = f"CHAT LANE: {parts[0]} / {' / '.join(parts[2:])}"
         elif len(parts) == 2:
-            primary = f"MAIN MODEL: {parts[0]}"
+            primary = f"ACTIVE MODEL: {parts[0]}"
             secondary = f"SECONDARY: {parts[1]}"
         else:
-            primary = f"MAIN MODEL: {summary or 'GUPPY'}"
+            primary = f"ACTIVE MODEL: {summary or 'GUPPY'}"
             secondary = "SECONDARY: READY"
         self._summary_primary_lbl.setText(primary.upper())
         self._summary_secondary_lbl.setText(secondary.upper())
-        self._launcher_summary_btn.setToolTip(f"Chat context: {summary}" if summary else "Chat context")
+        self._launcher_summary_btn.setToolTip(f"Home context: {summary}" if summary else "Home context")
 
     def set_model_context(
         self,
@@ -359,7 +360,7 @@ class TopBar(QFrame):
         backend: str = "",
         route: str = "",
     ) -> None:
-        primary = f"MAIN MODEL: {(main_model or 'guppy').strip() or 'guppy'}".upper()
+        primary = f"ACTIVE MODEL: {(main_model or 'guppy').strip() or 'guppy'}".upper()
         secondary_parts: list[str] = []
         if support_model:
             secondary_parts.append(f"SUB: {str(support_model).strip().upper()}")
@@ -462,6 +463,7 @@ class TopBar(QFrame):
         compact = width < 1200
         tight = width < 1024
         ultra = width < 860
+        allow_search = self._active_tab_index in {0, 2}
 
         for btn, (_label, idx, _active_tabs, visible) in zip(self._nav_btns, self._nav_specs):
             if not visible:
@@ -477,12 +479,13 @@ class TopBar(QFrame):
         self._instance_cb.setMaximumWidth(150 if not compact else 122)
         self._workspace_shell.setVisible(not tight)
         self._workspace_nav_btn.setVisible(not ultra)
-        self._workspace_nav_btn.setText("SPACES" if not tight else "OPEN")
+        self._workspace_nav_btn.setText("WORKSPACES" if not tight else "OPEN")
         self._summary_secondary_lbl.setVisible(not ultra)
         self._launcher_summary_btn.setVisible(not tight)
-        self._launcher_summary_btn.setText("CHAT" if not compact else "CTX")
-        self._search.setVisible(not tight)
+        self._launcher_summary_btn.setText("CONTEXT" if not compact else "CTX")
+        self._search.setVisible(not tight and allow_search)
         self._search.setMaximumWidth(210 if not compact else 158)
-        self._search.setPlaceholderText("Search Home, files, and Library" if not compact else "Search")
+        self._search.setPlaceholderText("Search Home or Library" if not compact else "Search")
         self._runtime_chip.setMinimumWidth(72 if not tight else 58)
         self._runtime_chip.setVisible(not ultra)
+        self._drawer_btn.setVisible(False)

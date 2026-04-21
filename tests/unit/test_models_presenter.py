@@ -2,6 +2,7 @@ from src.guppy.launcher_application.models_presenter import (
     build_models_active_identity_text,
     build_models_library_hint_text,
     build_models_loadout_help_text,
+    build_models_runtime_summary_text,
     build_models_route_decision_text,
     build_models_route_evidence_text,
     build_models_route_preview_hint_text,
@@ -139,6 +140,18 @@ def test_route_preview_hint_text_matches_chat_first_guidance() -> None:
 def test_active_and_runtime_identity_text_use_exact_runtime_values() -> None:
     assert build_models_active_identity_text("qwen2.5:7b") == "CURRENT MODEL: qwen2.5:7b"
     assert build_models_runtime_identity_text("lemonade") == "LOCAL RUNTIME: LEMONADE"
+    assert build_models_runtime_identity_text("lmstudio") == "LOCAL RUNTIME: LMSTUDIO"
+
+
+def test_runtime_summary_text_supports_lmstudio_setup_copy() -> None:
+    text = build_models_runtime_summary_text(
+        editor_backend="lmstudio",
+        saved_backend="ollama",
+        available_model_names=[],
+    )
+
+    assert "LM Studio is a supported local lane." in text
+    assert "http://127.0.0.1:1234/v1" in text
 
 
 def test_library_hint_text_keeps_model_and_persona_distinct() -> None:

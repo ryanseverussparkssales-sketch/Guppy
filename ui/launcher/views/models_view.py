@@ -48,6 +48,24 @@ from .models_management_support import (
 )
 from .models_runtime_workers import LocalRuntimeFetchThread, ModelHealthCheckThread, ModelWarmSpawnThread, OllamaModelOpThread
 from .models_sections import _ModelCard, build_models_route_section, build_models_runtime_section
+from .models_runtime_support import (
+    _DEFAULT_LEMONADE_BASE_URL,
+    _DEFAULT_LMSTUDIO_BASE_URL,
+    _DEFAULT_LOCAL_HARNESS_BASE_URL,
+    apply_library_filter,
+    load_local_llm_policy,
+    load_runtime_endpoint_settings,
+    normalize_policy_snapshot,
+    normalize_runtime_backend,
+    rebuild_local_sections,
+    refresh_library_summary,
+    refresh_runtime_endpoint_input,
+    refresh_runtime_summary,
+    render_runtime_evidence,
+    render_runtime_policy,
+    runtime_endpoint_for_backend,
+    store_runtime_endpoint_for_backend,
+)
 from .models_runtime_library import (
     assign_runtime_model as runtime_library_assign_runtime_model,
     refresh_runtime_library as runtime_library_refresh_runtime_library,
@@ -75,7 +93,6 @@ CLOUD_MODELS = [
 ]
 _RUNTIME = Path(__file__).resolve().parent.parent.parent.parent / "runtime"
 _HEARTBEAT_FRESH_SECONDS = float(os.environ.get("GUPPY_HEARTBEAT_FRESH_SECONDS", "20") or "20")
-_DEFAULT_LEMONADE_BASE_URL = "http://localhost:13305/api/v1"
 _LEMONADE_ROLE_FIELDS = [
     ("lemonade_fast_model", "DAILY SLOT"),
     ("lemonade_complex_model", "HEAVY SLOT"),
@@ -116,6 +133,12 @@ class ModelsView(QWidget):
         self._route_options: list[str] = []
         self._local_runtime_backend = "ollama"
         self._saved_runtime_backend = "ollama"
+        self._lemonade_base_url = _DEFAULT_LEMONADE_BASE_URL
+        self._lmstudio_base_url = _DEFAULT_LMSTUDIO_BASE_URL
+        self._local_harness_base_url = _DEFAULT_LOCAL_HARNESS_BASE_URL
+        self._local_llm_manifest_backend = _LOCAL_LLM_MANIFEST_BACKEND
+        self._load_local_llm_manifest = load_local_llm_manifest
+        self._get_local_llm_policy_summary = get_local_llm_policy_summary
         self._status_snapshot: dict[str, Any] = {}
         self._policy_snapshot: dict[str, Any] = self._load_local_llm_policy()
         self._lemonade_role_inputs: dict[str, QComboBox] = {}
@@ -165,16 +188,28 @@ class ModelsView(QWidget):
         tb = QHBoxLayout(topbar)
         tb.setContentsMargins(28, 0, 28, 0)
         self._title_lbl = QLabel("MODELS")
-        self._title_lbl.setStyleSheet(f"color: {T.PRIMARY}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_TITLE}pt; font-weight: bold; letter-spacing: 2px;")
+        self._title_lbl.setStyleSheet(
+            f"color: {T.PRIMARY}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_TITLE}pt; font-weight: bold; letter-spacing: 2px;"
+        )
         self._active_lbl = QLabel(build_models_active_identity_text(self._active_model))
-        self._active_lbl.setStyleSheet(f"color: {T.PRIMARY_DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
+        self._active_lbl.setStyleSheet(
+            f"color: {T.PRIMARY_DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;"
+        )
         self._active_runtime_lbl = QLabel(build_models_runtime_identity_text(self._local_runtime_backend))
-        self._active_runtime_lbl.setStyleSheet(f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;")
+        self._active_runtime_lbl.setStyleSheet(
+            f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;"
+        )
         self._refresh_btn = QPushButton("REFRESH")
         self._refresh_btn.setFixedHeight(28)
-        self._refresh_btn.setToolTip("Reload the local model list and runtime readiness from Ollama")
+        self._refresh_btn.setToolTip("Reload the local model list and runtime readiness from the selected backend")
         self._refresh_btn.clicked.connect(self._refresh)
-        tb.addWidget(self._title_lbl); tb.addStretch(); tb.addWidget(self._active_lbl); tb.addSpacing(16); tb.addWidget(self._active_runtime_lbl); tb.addSpacing(16); tb.addWidget(self._refresh_btn)
+        tb.addWidget(self._title_lbl)
+        tb.addStretch()
+        tb.addWidget(self._active_lbl)
+        tb.addSpacing(16)
+        tb.addWidget(self._active_runtime_lbl)
+        tb.addSpacing(16)
+        tb.addWidget(self._refresh_btn)
         root.addWidget(topbar)
 
         library_panel = build_models_library_panel(
@@ -226,6 +261,7 @@ class ModelsView(QWidget):
         )
         self._runtime_bar = runtime_section.frame
         self._runtime_backend_cb = runtime_section.backend_combo
+        self._runtime_endpoint_lbl = runtime_section.endpoint_label
         self._lemonade_base_url_input = runtime_section.lemonade_base_url_input
         self._save_runtime_btn = runtime_section.save_button
         self._lemonade_role_inputs = runtime_section.lemonade_role_inputs
@@ -284,7 +320,16 @@ class ModelsView(QWidget):
 
     @staticmethod
     def _normalize_runtime_backend(value: str) -> str:
-        return "lemonade" if str(value or "").strip().lower() == "lemonade" else "ollama"
+        return normalize_runtime_backend(value)
+
+    def _runtime_endpoint_for_backend(self, backend: str) -> str:
+        return runtime_endpoint_for_backend(self, backend)
+
+    def _store_runtime_endpoint_for_backend(self, backend: str, value: str) -> None:
+        store_runtime_endpoint_for_backend(self, backend, value)
+
+    def _refresh_runtime_endpoint_input(self) -> None:
+        refresh_runtime_endpoint_input(self)
 
     @staticmethod
     def _tone_color(tone: str, *, default: str = T.TEXT) -> str:
@@ -304,16 +349,18 @@ class ModelsView(QWidget):
     def _runtime_settings_payload(self) -> dict[str, Any]:
         return {
             "local_runtime_backend": self._local_runtime_backend,
-            "lemonade_base_url": self._lemonade_base_url_input.text().strip() or _DEFAULT_LEMONADE_BASE_URL,
+            "lemonade_base_url": self._lemonade_base_url,
+            "lmstudio_base_url": self._lmstudio_base_url,
+            "local_harness_base_url": self._local_harness_base_url,
             **{k: combo.currentText().strip() for k, combo in self._lemonade_role_inputs.items()},
         }
 
     def _load_runtime_settings(self) -> None:
         settings = load_app_settings() if _RUNTIME_SETTINGS_BACKEND else {}
-        self._local_runtime_backend = self._normalize_runtime_backend(str(settings.get("local_runtime_backend", os.environ.get("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama"))))
+        self._local_runtime_backend = normalize_runtime_backend(str(settings.get("local_runtime_backend", os.environ.get("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama"))))
         self._saved_runtime_backend = self._local_runtime_backend
         self._runtime_backend_cb.blockSignals(True); self._runtime_backend_cb.setCurrentText(self._local_runtime_backend.upper()); self._runtime_backend_cb.blockSignals(False)
-        self._lemonade_base_url_input.setText(str(settings.get("lemonade_base_url", os.environ.get("GUPPY_LEMONADE_BASE_URL", _DEFAULT_LEMONADE_BASE_URL)) or _DEFAULT_LEMONADE_BASE_URL).strip())
+        load_runtime_endpoint_settings(self, settings)
         for field_name, _label in _LEMONADE_ROLE_FIELDS:
             combo = self._lemonade_role_inputs[field_name]
             value = str(settings.get(field_name, os.environ.get(f"GUPPY_{field_name.upper()}", "")) or "").strip()
@@ -330,12 +377,12 @@ class ModelsView(QWidget):
         self._refresh_loadout_help()
 
     def _update_runtime_controls(self) -> None:
-        is_lemonade = self._local_runtime_backend == "lemonade"
         self._active_runtime_lbl.setText(build_models_runtime_identity_text(self._local_runtime_backend))
-        self._lemonade_base_url_input.setEnabled(is_lemonade)
+        self._refresh_runtime_endpoint_input()
+        self._lemonade_base_url_input.setEnabled(True)
         for combo in self._lemonade_role_inputs.values():
-            combo.setEnabled(is_lemonade)
-        self._runtime_library_frame.setVisible(is_lemonade)
+            combo.setEnabled(self._local_runtime_backend == "lemonade")
+        self._runtime_library_frame.setVisible(self._local_runtime_backend in {"lemonade", "lmstudio", "local_harness"})
         self._refresh_runtime_summary()
         self._refresh_runtime_library()
 
@@ -354,119 +401,28 @@ class ModelsView(QWidget):
 
     @staticmethod
     def _normalize_policy_snapshot(payload: dict[str, Any] | None) -> dict[str, Any]:
-        return normalize_models_policy(payload)
+        return normalize_policy_snapshot(payload)
 
     def _load_local_llm_policy(self) -> dict[str, Any]:
-        if not _LOCAL_LLM_MANIFEST_BACKEND:
-            return {}
-        try:
-            return self._normalize_policy_snapshot(get_local_llm_policy_summary(load_local_llm_manifest()))
-        except Exception:
-            return {}
+        return load_local_llm_policy(self)
 
     def _render_runtime_policy(self) -> None:
-        state = build_models_runtime_policy_state(
-            self._policy_snapshot,
-            selected_backend=self._local_runtime_backend,
-        )
-        self._runtime_policy_lbl.setText(state.text)
-        self._runtime_policy_lbl.setStyleSheet(
-            f"color: {self._tone_color(state.tone, default=T.TEXT)}; font-family: '{T.FF_MONO}'; "
-            f"font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;"
-        )
+        render_runtime_policy(self)
 
     def _refresh_runtime_summary(self) -> None:
-        mapped = [
-            f"{label.lower()} -> {self._lemonade_role_inputs[field_name].currentText().strip()}"
-            for field_name, label in _LEMONADE_ROLE_FIELDS
-            if self._lemonade_role_inputs[field_name].currentText().strip()
-        ]
-        self._runtime_summary_lbl.setText(
-            build_models_runtime_summary_text(
-                editor_backend=self._local_runtime_backend,
-                saved_backend=self._saved_runtime_backend,
-                available_model_names=self._available_local_model_names(),
-                lemonade_mapping=mapped,
-            )
-        )
-        self._render_runtime_policy()
-        self._render_runtime_evidence()
-        self._refresh_library_summary()
+        refresh_runtime_summary(self, _LEMONADE_ROLE_FIELDS)
 
     def _refresh_library_summary(self) -> None:
-        if not hasattr(self, "_library_summary_lbl"):
-            return
-        self._library_summary_lbl.setText(
-            build_models_library_summary_text(
-                self._policy_snapshot,
-                active_model=self._active_model,
-                local_count=len(self._local_cards),
-                advanced_count=len(self._local_section_cards.get("advanced", [])),
-                runtime_backend=self._saved_runtime_backend,
-            )
-        )
+        refresh_library_summary(self)
 
     def _apply_library_filter(self) -> None:
-        if not hasattr(self, "_library_search"):
-            return
-        query = self._library_search.text().strip().lower()
-        local_matches = 0
-        cloud_matches = 0
-        section_matches = {key: 0 for key in self._local_sections}
-        for card in self._local_cards:
-            match = card.matches_query(query)
-            card.setVisible(match)
-            local_matches += int(match)
-            section_matches[getattr(card, "_library_section", "installed")] += int(match)
-        for card in self._cloud_cards:
-            match = card.matches_query(query)
-            card.setVisible(match)
-            cloud_matches += int(match)
-        for key, section in self._local_sections.items():
-            section.setVisible(section_matches.get(key, 0) > 0)
-        if self._local_placeholder is not None:
-            self._local_placeholder.setVisible(not self._local_cards)
-        self._library_hint_lbl.setText(
-            build_models_library_hint_text(
-                query=query,
-                local_matches=local_matches,
-                cloud_matches=cloud_matches,
-            )
-        )
-
-    def _local_model_section(self, model_name: str) -> str:
-        return model_library_section(
-            model_name,
-            policy_payload=self._policy_snapshot,
-            active_model=self._active_model,
-        )
+        apply_library_filter(self)
 
     def _rebuild_local_sections(self) -> None:
-        for key, cards in self._local_section_cards.items():
-            layout = self._local_section_layouts.get(key)
-            if layout is None:
-                continue
-            for card in cards:
-                layout.removeWidget(card)
-            self._local_section_cards[key] = []
-        for card in self._local_cards:
-            section = self._local_model_section(card._model_name)
-            card._library_section = section
-            card.set_recommended(section == "recommended")
-            self._local_section_layouts[section].addWidget(card)
-            self._local_section_cards[section].append(card)
+        rebuild_local_sections(self)
 
     def _render_runtime_evidence(self) -> None:
-        state = build_models_runtime_evidence_state(
-            self._status_snapshot,
-            editor_backend=self._local_runtime_backend,
-            saved_backend=self._saved_runtime_backend,
-        )
-        self._runtime_live_lbl.setText(state.text)
-        self._runtime_live_lbl.setStyleSheet(
-            f"color: {self._tone_color(state.tone, default=T.TEXT)}; font-family: '{T.FF_MONO}'; "
-            f"font-size: {T.FS_TINY}pt; background-color: {T.BG1}; border: 1px solid {T.BORDER}; padding: 8px;"
-        )
+        render_runtime_evidence(self)
 
     @staticmethod
     def _set_combo_items_preserve_text(combo: QComboBox, options: list[str], current: str) -> None:
@@ -509,7 +465,8 @@ class ModelsView(QWidget):
             self._set_ops_status("Health check already running", ok=False)
             return
         self._set_ops_status("Checking provider and model health...", ok=True)
-        self._health_thread = ModelHealthCheckThread(self._lemonade_base_url_input.text().strip(), self)
+        self._store_runtime_endpoint_for_backend(self._local_runtime_backend, self._lemonade_base_url_input.text().strip())
+        self._health_thread = ModelHealthCheckThread(self._runtime_endpoint_for_backend(self._local_runtime_backend), self)
         self._health_thread.finished.connect(self._on_health_checked)
         self._health_thread.start()
 
@@ -578,7 +535,8 @@ class ModelsView(QWidget):
         runtime_library_refresh_runtime_library(self)
 
     def _on_runtime_backend_changed(self, text: str) -> None:
-        self._local_runtime_backend = self._normalize_runtime_backend(text)
+        self._store_runtime_endpoint_for_backend(self._local_runtime_backend, self._lemonade_base_url_input.text().strip())
+        self._local_runtime_backend = normalize_runtime_backend(text)
         self._update_runtime_controls()
         self._refresh()
 
@@ -588,9 +546,11 @@ class ModelsView(QWidget):
             return
         payload = self._runtime_settings_payload()
         try:
+            self._store_runtime_endpoint_for_backend(self._local_runtime_backend, self._lemonade_base_url_input.text().strip())
+            payload = self._runtime_settings_payload()
             save_app_settings(payload)
             merged = apply_settings_to_env(payload)
-            self._local_runtime_backend = self._normalize_runtime_backend(str(merged.get("local_runtime_backend", self._local_runtime_backend)))
+            self._local_runtime_backend = normalize_runtime_backend(str(merged.get("local_runtime_backend", self._local_runtime_backend)))
             self._saved_runtime_backend = self._local_runtime_backend
             self._update_runtime_controls()
             self._set_runtime_status(f"Saved local runtime: {self._local_runtime_backend.upper()}", ok=True)
@@ -601,14 +561,15 @@ class ModelsView(QWidget):
     def _refresh(self) -> None:
         self._refresh_btn.setEnabled(False)
         self._refresh_btn.setText("FETCHING...")
-        self._fetch_thread = LocalRuntimeFetchThread(self._local_runtime_backend, self._lemonade_base_url_input.text().strip(), self)
+        self._store_runtime_endpoint_for_backend(self._local_runtime_backend, self._lemonade_base_url_input.text().strip())
+        self._fetch_thread = LocalRuntimeFetchThread(self._local_runtime_backend, self._runtime_endpoint_for_backend(self._local_runtime_backend), self)
         self._fetch_thread.finished.connect(self._on_local_result)
         self._fetch_thread.start()
 
     def _on_local_result(self, payload: dict[str, Any]) -> None:
         self._refresh_btn.setEnabled(True)
         self._refresh_btn.setText("REFRESH")
-        backend = self._normalize_runtime_backend(str(payload.get("backend", self._local_runtime_backend)))
+        backend = normalize_runtime_backend(str(payload.get("backend", self._local_runtime_backend)))
         models = payload.get("models", [])
         error = str(payload.get("error", "") or "").strip()
         for card in self._local_cards:
@@ -623,7 +584,15 @@ class ModelsView(QWidget):
         if self._local_placeholder:
             self._local_placeholder.setVisible(False)
         if not isinstance(models, list) or not models:
-            text = "No local models found.\n" + ("Pull a Lemonade GGUF model and click REFRESH." if backend == "lemonade" else "Start Ollama and click REFRESH.")
+            if backend == "lemonade":
+                hint = "Pull a Lemonade GGUF model and click REFRESH."
+            elif backend == "lmstudio":
+                hint = "Turn on the LM Studio local server and click REFRESH."
+            elif backend == "local_harness":
+                hint = "Start the local harness and click REFRESH."
+            else:
+                hint = "Start Ollama and click REFRESH."
+            text = "No local models found.\n" + hint
             self._local_placeholder.setText(text)
             self._local_placeholder.setVisible(True)
             for section in self._local_sections.values():

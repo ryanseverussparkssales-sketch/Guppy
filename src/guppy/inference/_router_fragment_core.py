@@ -41,8 +41,8 @@ class InferenceRouter:
     Smart inference routing with automatic fallback.
     Two modes:
 
-    1. LEGACY: local -> haiku -> sonnet (for backward compat)
-    2. SMART (NEW): haiku-first -> sonnet -> ollama (for butler UX, <3s latency)
+    1. Classic chain (legacy mode): local -> haiku -> sonnet (backward compatibility)
+    2. Smart chain: haiku-first -> sonnet -> ollama (for butler UX, <3s latency)
        - Task-aware routing: simple -> Haiku, complex -> Sonnet, teaching -> guppy-teach/Ollama
        - 3s timeout on Haiku (not 30s on Ollama)
        - No retry loops: once fallback starts, don't retry failed backend

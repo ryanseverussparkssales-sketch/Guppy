@@ -175,37 +175,38 @@ class HubPurposeLabelSmokeTests(unittest.TestCase):
             "SettingsHubView (SETTINGS hub) is missing a QLabel with objectName='hub-purpose'",
         )
 
-    def test_settings_hub_focus_buttons_have_tooltips(self) -> None:
+    def test_settings_hub_tabs_have_tooltips(self) -> None:
         hub = SettingsHubView(SettingsView(), SettingsDeviceAccountsPanel(), SettingsOperationsPanel())
-        focus_buttons = [
+        tab_buttons = [
             btn
             for btn in hub.findChildren(QPushButton)
-            if btn.text() in {"FOCUS SECTION", "OPEN"} and btn.toolTip().strip()
+            if btn.text() in {"GENERAL", "CUSTOMIZATION", "PERFORMANCE", "ACCOUNTS", "PLUGINS", "BACKEND STATS", "HELP"}
         ]
-        self.assertGreater(len(focus_buttons), 0, "No section-focus buttons found in SettingsHubView")
-        for btn in focus_buttons:
+        self.assertGreater(len(tab_buttons), 0, "No settings tab buttons found in SettingsHubView")
+        for btn in tab_buttons:
             self.assertTrue(
                 btn.toolTip().strip(),
-                f"FOCUS SECTION button missing tooltip (signal: {btn.objectName()!r})",
+                f"Settings tab button missing tooltip (signal: {btn.objectName()!r})",
             )
 
-    def test_settings_hub_focus_buttons_have_min_height(self) -> None:
+    def test_settings_hub_tab_buttons_have_min_height(self) -> None:
         hub = SettingsHubView(SettingsView(), SettingsDeviceAccountsPanel(), SettingsOperationsPanel())
-        focus_buttons = [
-            btn for btn in hub.findChildren(QPushButton) if btn.text() in {"FOCUS SECTION", "OPEN"}
+        tab_buttons = [
+            btn
+            for btn in hub.findChildren(QPushButton)
+            if btn.text() in {"GENERAL", "CUSTOMIZATION", "PERFORMANCE", "ACCOUNTS", "PLUGINS", "BACKEND STATS", "HELP"}
         ]
-        for btn in focus_buttons:
+        for btn in tab_buttons:
             self.assertGreaterEqual(
                 btn.minimumHeight(),
                 36,
-                f"FOCUS SECTION button minimumHeight={btn.minimumHeight()}, expected >=36",
+                f"Settings tab button minimumHeight={btn.minimumHeight()}, expected >=36",
             )
 
-    def test_settings_hub_compact_mode_shortens_focus_buttons(self) -> None:
+    def test_settings_hub_renders_requested_tab_labels(self) -> None:
         hub = SettingsHubView(SettingsView(), SettingsDeviceAccountsPanel(), SettingsOperationsPanel())
-        hub._apply_density_mode(980)
-        focus_buttons = [btn for btn in hub.findChildren(QPushButton) if btn.toolTip().strip()]
-        self.assertTrue(any(btn.text() == "OPEN" for btn in focus_buttons))
+        labels = {btn.text() for btn in hub.findChildren(QPushButton)}
+        self.assertTrue({"GENERAL", "CUSTOMIZATION", "PERFORMANCE", "ACCOUNTS", "PLUGINS", "BACKEND STATS", "HELP"}.issubset(labels))
 
     def test_settings_device_accounts_panel_compact_mode_reflows_and_shortens_actions(self) -> None:
         panel = SettingsDeviceAccountsPanel()

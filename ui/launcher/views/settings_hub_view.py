@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QResizeEvent, QShowEvent
-from PySide6.QtWidgets import (
-    QFrame,
-    QGridLayout,
-    QLabel,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from .. import tokens as T
+
+
+_OUTER_MARGIN_X = 28
+_OUTER_MARGIN_TOP = 22
+_OUTER_MARGIN_BOTTOM = 26
+_OUTER_SPACING = 14
+_TAB_MIN_HEIGHT = 36
+_CARD_RADIUS = 16
 
 
 def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = False) -> QLabel:
@@ -23,6 +22,49 @@ def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = Fa
         + (" font-weight: bold;" if bold else "")
     )
     return label
+
+
+def _tab_button_style(active: bool) -> str:
+    if active:
+        return (
+            f"QPushButton {{ background: {T.INK}; color: {T.BG}; border: 1px solid {T.INK}; "
+            f"border-radius: 12px; padding: 8px 12px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+        )
+    return (
+        f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER}; "
+        f"border-radius: 12px; padding: 8px 12px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+        f"QPushButton:hover {{ color: {T.PRIMARY}; border-color: {T.PRIMARY}; }}"
+    )
+
+
+class _SettingsInfoPage(QWidget):
+    def __init__(self, heading: str, detail: str, chips: list[str], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(_OUTER_SPACING)
+
+        frame = QFrame()
+        frame.setStyleSheet(f"QFrame {{ background: {T.BG0}; border: 1px solid {T.BORDER}; border-radius: {_CARD_RADIUS}px; }}")
+        frame.setMinimumHeight(180)
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(18, 14, 18, 14)
+        frame_layout.setSpacing(10)
+        frame_layout.addWidget(_mono(heading, T.PRIMARY, T.FS_TINY, True))
+        frame_layout.addWidget(_mono(detail, T.TEXT, T.FS_SMALL))
+        chips_row = QHBoxLayout()
+        chips_row.setSpacing(8)
+        for chip in chips:
+            badge = QLabel(chip.upper())
+            badge.setStyleSheet(
+                f"color: {T.DIM}; background: {T.SURFACE_ELEVATED_92}; border: 1px solid {T.BORDER};"
+                f" border-radius: 10px; padding: 4px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+            )
+            chips_row.addWidget(badge)
+        chips_row.addStretch(1)
+        frame_layout.addLayout(chips_row)
+        layout.addWidget(frame)
+        layout.addStretch(1)
 
 
 class SettingsHubView(QWidget):
@@ -50,13 +92,34 @@ class SettingsHubView(QWidget):
         self._settings_view = settings_view
         self._device_accounts_panel = device_accounts_panel
         self._operations_panel = operations_panel
-        self._scroll_area: QScrollArea | None = None
-        self._configuration_frame: QFrame | None = None
-        self._device_frame: QFrame | None = None
-        self._operations_frame: QFrame | None = None
-        self._overview_grid: QGridLayout | None = None
-        self._overview_cards: list[QWidget] = []
-        self._focus_buttons: list[QPushButton] = []
+        self._content_layout: QVBoxLayout | None = None
+        self._content_title: QLabel | None = None
+        self._content_note: QLabel | None = None
+        self._tab_buttons: dict[str, QPushButton] = {}
+        self._active_tab = "general"
+        self._general_page = _SettingsInfoPage(
+            "GENERAL",
+            "Use this hub to tune behavior, connect vendors, and recover runtime health.",
+            [
+                "customization",
+                "performance",
+                "accounts",
+                "backend stats",
+            ],
+        )
+        self._help_page = _SettingsInfoPage(
+            "HELP",
+            "Model names stay in Models. Keys, vendors, and runtime operations stay in Settings.",
+            [
+                "accounts first",
+                "backend stats for health",
+                "customization for tone",
+                "performance for speed",
+            ],
+        )
+        embed_mode = getattr(self._settings_view, "set_embed_mode", None)
+        if callable(embed_mode):
+            embed_mode(True)
         self._wire_child_signals()
         self._build_ui()
 
@@ -87,213 +150,143 @@ class SettingsHubView(QWidget):
 
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        outer.setContentsMargins(_OUTER_MARGIN_X, _OUTER_MARGIN_TOP, _OUTER_MARGIN_X, _OUTER_MARGIN_BOTTOM)
+        outer.setSpacing(_OUTER_SPACING)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
-        self._scroll_area = scroll
-
-        content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(24, 20, 24, 24)
-        layout.setSpacing(16)
-
-        title = QLabel("Settings Hub")
+        title = QLabel("Settings")
         title.setStyleSheet(
             f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: 28pt; font-weight: 900; letter-spacing: -1px;"
         )
-        layout.addWidget(title)
-        purpose = QLabel("SETTINGS — Configure your assistant, API keys, connectors, and recovery options.")
+        outer.addWidget(title)
+
+        purpose = QLabel("SETTINGS - Keep the assistant understandable, the vendors connected, and the runtime recoverable.")
         purpose.setObjectName("hub-purpose")
         purpose.setWordWrap(True)
         purpose.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
-        layout.addWidget(purpose)
-        layout.addWidget(
+        purpose.setToolTip("Settings owns assistant naming, defaults, accounts, plugins, backend diagnostics, and help.")
+        outer.addWidget(purpose)
+        outer.addWidget(
             _mono(
-                "Unified settings ownership: configuration, device accounts, diagnostics, recovery, connector workflows, system controls, and terminal operations now live here.",
+                "Use tabs to focus one settings lane at a time.",
                 T.DIM,
                 T.FS_SMALL,
             )
         )
 
-        overview = QFrame()
-        overview.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
-        overview_layout = QVBoxLayout(overview)
-        overview_layout.setContentsMargins(16, 14, 16, 14)
-        overview_layout.setSpacing(10)
-        overview_layout.addWidget(_mono("SECTION OWNERSHIP", T.PRIMARY, T.FS_TINY, True))
-        overview_layout.addWidget(
-            _mono(
-                "This hub now owns the full launcher settings surface. The cards below are section shortcuts, not handoffs to legacy pages.",
-                T.DIM,
-                T.FS_SMALL,
-            )
-        )
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(10)
-        self._overview_grid = grid
-        cards = [
-            (
-                "Configuration",
-                "Runtime defaults and Persona Builder stay embedded here as the canonical settings editor.",
-                "Owned by Settings Hub",
-                None,
-            ),
-            (
-                "Diagnostics",
-                "System status, operator logs, and automation evidence live in the operations lane below.",
-                "Owned by Settings Hub",
-                self.open_diagnostics_requested,
-            ),
-            (
-                "Recovery",
-                "Warmup, restart, audit, and recovery actions live in the operations lane below.",
-                "Owned by Settings Hub",
-                self.open_recovery_requested,
-            ),
-            (
-                "Connectors",
-                "Friendly account linking, API-key storage, and connector inventory now live in Device & Accounts inside this hub.",
-                "Owned by Settings Hub",
-                self.open_connectors_requested,
-            ),
-            (
-                "System",
-                "Desktop runtime, API state, and machine snapshots now live in this hub.",
-                "Owned by Settings Hub",
-                self.open_system_requested,
-            ),
-            (
-                "Terminal",
-                "Embedded terminal recipes and workflow loops now live in the operations lane below.",
-                "Owned by Settings Hub",
-                self.open_terminal_requested,
-            ),
-        ]
-        for index, (heading, description, owner, signal) in enumerate(cards):
-            card = self._build_section_card(heading, description, owner, signal)
-            self._overview_cards.append(card)
-            grid.addWidget(card, index // 2, index % 2)
-        overview_layout.addLayout(grid)
-        layout.addWidget(overview)
-
-        configuration_frame = QFrame()
-        configuration_frame.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
-        configuration_layout = QVBoxLayout(configuration_frame)
-        configuration_layout.setContentsMargins(16, 14, 16, 14)
-        configuration_layout.setSpacing(10)
-        configuration_layout.addWidget(_mono("CONFIGURATION", T.PRIMARY, T.FS_TINY, True))
-        configuration_layout.addWidget(
-            _mono(
-                "This is the existing SettingsView, preserved as the canonical editor for runtime defaults and persona configuration.",
-                T.DIM,
-                T.FS_SMALL,
-            )
-        )
-        configuration_layout.addWidget(self._settings_view)
-        layout.addWidget(configuration_frame)
-        self._configuration_frame = configuration_frame
-
-        device_frame = QFrame()
-        device_frame.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
-        device_layout = QVBoxLayout(device_frame)
-        device_layout.setContentsMargins(16, 14, 16, 14)
-        device_layout.setSpacing(10)
-        device_layout.addWidget(_mono("DEVICE & ACCOUNTS", T.PRIMARY, T.FS_TINY, True))
-        device_layout.addWidget(
-            _mono(
-                "Runtime health, machine state, connector guidance, and account linking now share the same settings home.",
-                T.DIM,
-                T.FS_SMALL,
-            )
-        )
-        device_layout.addWidget(self._device_accounts_panel)
-        layout.addWidget(device_frame)
-        self._device_frame = device_frame
-
-        operations_frame = QFrame()
-        operations_frame.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; }}")
-        operations_layout = QVBoxLayout(operations_frame)
-        operations_layout.setContentsMargins(16, 14, 16, 14)
-        operations_layout.setSpacing(10)
-        operations_layout.addWidget(_mono("OPERATIONS", T.PRIMARY, T.FS_TINY, True))
-        operations_layout.addWidget(
-            _mono(
-                "Diagnostics, recovery, automation evidence, and terminal workflows remain intact but now belong to this hub instead of a separate page.",
-                T.DIM,
-                T.FS_SMALL,
-            )
-        )
-        operations_layout.addWidget(self._operations_panel)
-        layout.addWidget(operations_frame)
-        self._operations_frame = operations_frame
-        layout.addStretch(1)
-
-        scroll.setWidget(content)
-        outer.addWidget(scroll)
-
-    def _build_section_card(
-        self,
-        heading: str,
-        description: str,
-        owner: str,
-        signal: Signal | None,
-    ) -> QWidget:
-        frame = QFrame()
-        frame.setStyleSheet(f"QFrame {{ background: {T.BG0}; border: 1px solid {T.BORDER}; }}")
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
-        layout.addWidget(_mono(heading.upper(), T.TEXT, T.FS_TINY, True))
-        layout.addWidget(_mono(description, T.DIM, T.FS_SMALL))
-        layout.addWidget(_mono(owner, T.PRIMARY_DIM, T.FS_TINY, True))
-        if signal is not None:
-            button = QPushButton("FOCUS SECTION")
-            button.setToolTip(f"Scroll to the {heading} section in this hub")
+        tabs_row = QHBoxLayout()
+        tabs_row.setSpacing(8)
+        for key, label, tooltip in [
+            ("general", "General", "Plain-language home for the settings hub."),
+            ("customization", "Customization", "Assistant naming and persona behavior."),
+            ("performance", "Performance", "Runtime defaults and execution posture."),
+            ("accounts", "Accounts", "Vendor sign-in, keys, and account linking."),
+            ("plugins", "Plugins", "Connector and plugin inventory handled in the same clean settings surface."),
+            ("backend_stats", "Backend Stats", "Diagnostics, recovery, terminal, and automation evidence."),
+            ("help", "Help", "Explain what each settings area is for."),
+        ]:
+            button = QPushButton(label.upper())
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setMinimumHeight(36)
-            button.setStyleSheet(
-                f"QPushButton {{ background: {T.BG0}; color: {T.PRIMARY}; border: 1px solid {T.PRIMARY};"
-                f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-                f"QPushButton:hover {{ background: {T.PRIMARY}; color: {T.BG}; }}"
-            )
-            button.clicked.connect(signal.emit)
-            self._focus_buttons.append(button)
-            layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignLeft)
-        return frame
+            button.setMinimumHeight(_TAB_MIN_HEIGHT)
+            button.setToolTip(tooltip)
+            button.clicked.connect(lambda _=False, target=key: self._set_active_tab(target))
+            self._tab_buttons[key] = button
+            tabs_row.addWidget(button)
+        tabs_row.addStretch(1)
+        outer.addLayout(tabs_row)
 
-    def _overview_columns(self, width: int) -> int:
-        return 1 if width <= 1180 else 2
+        content_frame = QFrame()
+        content_frame.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; border-radius: {_CARD_RADIUS + 2}px; }}")
+        content_frame.setMinimumHeight(520)
+        content_layout = QVBoxLayout(content_frame)
+        content_layout.setContentsMargins(22, 18, 22, 20)
+        content_layout.setSpacing(10)
+        self._content_title = QLabel("")
+        self._content_title.setStyleSheet(
+            f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_TITLE + 1}pt; font-weight: 800;"
+        )
+        self._content_note = _mono("", T.DIM, T.FS_SMALL)
+        content_layout.addWidget(self._content_title)
+        content_layout.addWidget(self._content_note)
+        self._content_layout = content_layout
+        outer.addWidget(content_frame, stretch=1)
 
-    def _apply_density_mode(self, width: int) -> None:
-        compact = width <= 1040
-        for button in self._focus_buttons:
-            button.setText("OPEN" if compact else "FOCUS SECTION")
-        if self._overview_grid is None or not self._overview_cards:
+        self._set_active_tab("general")
+
+    def _clear_content(self) -> None:
+        if self._content_layout is None:
             return
-        while self._overview_grid.count():
-            item = self._overview_grid.takeAt(0)
+        while self._content_layout.count() > 2:
+            item = self._content_layout.takeAt(2)
             widget = item.widget()
             if widget is not None:
                 widget.setParent(None)
-        columns = self._overview_columns(width)
-        for index, card in enumerate(self._overview_cards):
-            self._overview_grid.addWidget(card, index // columns, index % columns)
 
-    def showEvent(self, event: QShowEvent) -> None:  # type: ignore[override]
-        super().showEvent(event)
-        self._apply_density_mode(self.width())
+    def _configure_settings_section(self, section: str) -> None:
+        shower = getattr(self._settings_view, "show_settings_section", None)
+        if callable(shower):
+            shower(section)
 
-    def resizeEvent(self, event: QResizeEvent) -> None:  # type: ignore[override]
-        super().resizeEvent(event)
-        self._apply_density_mode(event.size().width())
+    def _set_active_tab(self, tab: str) -> None:
+        self._active_tab = tab
+        for key, button in self._tab_buttons.items():
+            button.setStyleSheet(_tab_button_style(key == tab))
+
+        configs = {
+            "general": (
+                "General",
+                "Start here when you need to understand what Guppy is using and where to change it.",
+                self._general_page,
+                None,
+            ),
+            "customization": (
+                "Customization",
+                "Name the assistant, tune its behavior, and keep persona separate from model identity.",
+                self._settings_view,
+                "personas",
+            ),
+            "performance": (
+                "Performance",
+                "Set runtime defaults, daemon posture, and the everyday execution profile.",
+                self._settings_view,
+                "runtime",
+            ),
+            "accounts": (
+                "Accounts",
+                "Connect vendors, store keys, and verify account state in one place.",
+                self._device_accounts_panel,
+                None,
+            ),
+            "plugins": (
+                "Plugins",
+                "Use the same clean vendor inventory surface for plugin-style connectors and external integrations.",
+                self._device_accounts_panel,
+                None,
+            ),
+            "backend_stats": (
+                "Backend Stats",
+                "See runtime health, recovery state, automation evidence, and terminal workflows without hunting through nested panes.",
+                self._operations_panel,
+                None,
+            ),
+            "help": (
+                "Help",
+                "Quick explanations so every section reads clearly instead of relying on vague labels.",
+                self._help_page,
+                None,
+            ),
+        }
+        title, note, widget, section = configs.get(tab, configs["general"])
+        if self._content_title is not None:
+            self._content_title.setText(title)
+        if self._content_note is not None:
+            self._content_note.setText(note)
+        if section is not None:
+            self._configure_settings_section(section)
+        self._clear_content()
+        if self._content_layout is not None:
+            self._content_layout.addWidget(widget, stretch=1)
 
     def set_daily_context_activity(self, text: str) -> None:
         self._operations_panel.set_daily_context_activity(text)
@@ -347,8 +340,7 @@ class SettingsHubView(QWidget):
         account_id: str = "",
         note: str = "",
     ) -> None:
-        if self._scroll_area is not None and self._device_frame is not None:
-            self._scroll_area.ensureWidgetVisible(self._device_frame, 0, 48)
+        self._set_active_tab("accounts")
         focus = getattr(self._device_accounts_panel, "focus_connector", None)
         if callable(focus):
             focus(
@@ -366,14 +358,17 @@ class SettingsHubView(QWidget):
         self._operations_panel.append_log(text)
 
     def focus_operator_logs(self, log_filter: str = "ALL", note: str = "") -> None:
+        self._set_active_tab("backend_stats")
         self._operations_panel.focus_operator_logs(log_filter, note=note)
         self.open_diagnostics_requested.emit()
 
     def focus_terminal(self, note: str = "") -> None:
+        self._set_active_tab("backend_stats")
         self._operations_panel.focus_terminal(note=note)
         self.open_terminal_requested.emit()
 
     def focus_automation_test(self, note: str = "") -> None:
+        self._set_active_tab("backend_stats")
         self._operations_panel.focus_automation_test(note=note)
         self.open_diagnostics_requested.emit()
 
@@ -384,6 +379,7 @@ class SettingsHubView(QWidget):
         label: str = "",
         recipe_context: dict[str, object] | None = None,
     ) -> bool:
+        self._set_active_tab("backend_stats")
         return self._operations_panel.queue_terminal_recipe(commands, label=label, recipe_context=recipe_context)
 
     def automation_status_text(self) -> str:

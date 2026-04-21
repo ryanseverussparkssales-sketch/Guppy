@@ -35,12 +35,12 @@ class Waiver:
 # current strangler work still needs to land.
 WAIVED_PATHS: dict[str, Waiver] = {
     "src/guppy/api/server_runtime_snapshot.py": Waiver(
-        max_lines=1141,
-        rationale="Runtime snapshot compatibility shell is materially smaller after instance/governance, telemetry, realtime-route, status-context, and runtime-state extraction plus the runtime-support split, but it still carries the assembled compatibility surface pending one final bounded decomposition pass.",
+        max_lines=859,
+        rationale="Runtime snapshot compatibility shell reduced to 859 after status/auth/metrics route extraction; follow-up route-family splits remain required.",
     ),
     "ui/launcher/launcher_window.py": Waiver(
-        max_lines=2141,
-        rationale="Launcher shell is materially smaller after runtime-control and Windows Ops mixin extraction plus earlier shell splits, but it still carries top-level hub orchestration and request routing pressure pending the next bounded pass.",
+        max_lines=1263,
+        rationale="Launcher shell reduced to 1263 after signal wiring and personalization seam extraction; remaining orchestration seams are tracked for continued splits.",
     ),
 }
 

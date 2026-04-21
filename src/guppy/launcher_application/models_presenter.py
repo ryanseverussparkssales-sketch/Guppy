@@ -41,7 +41,13 @@ def build_models_library_hint_text(
 
 def _normalized_backend(value: str) -> str:
     cleaned = str(value or "ollama").strip().lower()
-    return "lemonade" if cleaned == "lemonade" else "ollama"
+    if cleaned == "lemonade":
+        return "lemonade"
+    if cleaned in {"lm studio", "lmstudio", "lmstudio_local"}:
+        return "lmstudio"
+    if cleaned in {"local harness", "local_harness", "harness"}:
+        return "local_harness"
+    return "ollama"
 
 
 def _normalized_model_name(value: str) -> str:
@@ -135,10 +141,22 @@ def build_models_runtime_summary_text(
         text += "\nCurrent Lemonade mapping: " + (" | ".join(mapping) if mapping else "none saved yet")
         if names:
             text += f"\nDownloaded Lemonade models visible now: {', '.join(names[:6])}"
+    elif editor == "lmstudio":
+        text = "LM Studio is a supported local lane. Turn on the LM Studio local server, then refresh to load models here."
+        if names:
+            text += f"\nVisible LM Studio models: {', '.join(names[:6])}"
+        else:
+            text += "\nExpected setup: LM Studio local server on http://127.0.0.1:1234/v1"
+    elif editor == "local_harness":
+        text = "Local Harness is the development OpenAI-compatible lane. Start the harness, then refresh to load any reported models here."
+        if names:
+            text += f"\nVisible harness models: {', '.join(names[:6])}"
+        else:
+            text += "\nExpected setup: local harness on http://127.0.0.1:8001"
     else:
         text = (
             "Ollama remains the default local runtime. Local cards reflect direct Ollama tags, "
-            "and the Lemonade mapping controls wake up when you switch runtimes."
+            "and the runtime controls switch to LM Studio, Local Harness, or Lemonade when you choose those lanes."
         )
         if names:
             text += f"\nVisible Ollama tags: {', '.join(names[:6])}"
@@ -456,6 +474,8 @@ def build_models_provider_readiness_state(
         lines.append("Provider keys: " + " | ".join(cloud_bits))
     if not harness_ready:
         lines.append("Harness note: the local benchmark and OpenAI-compatible dev lane is not ready yet.")
+    if not is_ready(lmstudio_local):
+        lines.append("LM Studio setup: turn on the local server in LM Studio and refresh this panel.")
 
     tone = "success"
     if not active_ready:

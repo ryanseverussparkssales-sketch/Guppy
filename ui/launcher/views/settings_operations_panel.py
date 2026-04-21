@@ -1,4 +1,4 @@
-"""Settings-owned operations panel extracted from the legacy advanced surface."""
+"""Settings-owned operations panel extracted from the prior advanced surface."""
 from __future__ import annotations
 
 from pathlib import Path

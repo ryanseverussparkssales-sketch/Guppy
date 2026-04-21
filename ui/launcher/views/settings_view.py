@@ -89,6 +89,7 @@ class SettingsView(QWidget):
         self._loading_persona = False
         self._settings_section = "runtime"
         self._section_buttons: dict[str, QPushButton] = {}
+        self._embedded_mode = False
         self._build_ui()
         self._load()
 
@@ -109,9 +110,11 @@ class SettingsView(QWidget):
 
         title = QLabel("Settings")
         title.setStyleSheet("font-size: 26pt; font-weight: 900;")
+        self._title_lbl = title
         layout.addWidget(title)
         subtitle = QLabel("Runtime defaults plus assistant naming and persona behavior for launcher-local use.")
         subtitle.setWordWrap(True)
+        self._subtitle_lbl = subtitle
         layout.addWidget(subtitle)
 
         section_row = QHBoxLayout()
@@ -123,7 +126,10 @@ class SettingsView(QWidget):
             self._section_buttons[key] = btn
             section_row.addWidget(btn)
         section_row.addStretch()
-        layout.addLayout(section_row)
+        self._section_row = section_row
+        self._section_row_host = QWidget()
+        self._section_row_host.setLayout(section_row)
+        layout.addWidget(self._section_row_host)
 
         self._runtime_frame = QFrame()
         runtime_layout = QVBoxLayout(self._runtime_frame)
@@ -279,6 +285,23 @@ class SettingsView(QWidget):
         scroll.setWidget(content)
         outer.addWidget(scroll)
         self._set_settings_section("runtime")
+
+    def set_embed_mode(self, embedded: bool) -> None:
+        self._embedded_mode = bool(embedded)
+        self._title_lbl.setVisible(not self._embedded_mode)
+        self._subtitle_lbl.setVisible(not self._embedded_mode)
+        self._section_row_host.setVisible(not self._embedded_mode)
+
+    def show_settings_section(self, section: str) -> None:
+        aliases = {
+            "general": "runtime",
+            "performance": "runtime",
+            "customization": "personas",
+            "persona": "personas",
+            "help": "advanced",
+        }
+        target = aliases.get(str(section or "").strip().lower(), str(section or "").strip().lower())
+        self._set_settings_section(target or "runtime")
 
     def _set_settings_section(self, section: str) -> None:
         target = str(section or "runtime").strip().lower() or "runtime"

@@ -136,12 +136,34 @@ from src.guppy.launcher_application.automation_test_support import (
     write_user_test_evidence_summary,
 )
 from src.guppy.launcher_application.automation_test_coordination import (
+    approve_latest_builder_task,
     build_launcher_automation_test_snapshot,
+    handle_automation_action_request,
+    handle_builder_task_requested,
     preferred_builder_workspace_name,
+    queue_builder_task as _queue_builder_task_fn,
     sync_launcher_automation_test_state,
     user_test_evidence_paths,
     write_launcher_automation_report,
     write_launcher_user_test_evidence_pack,
+)
+from src.guppy.launcher_application.launcher_event_log import log_launcher_event as _log_launcher_event_fn
+from src.guppy.launcher_application.launcher_tools_coordination import (
+    load_tool_states as _load_tool_states_fn,
+    on_settings_saved as _on_settings_saved_fn,
+    on_tool_hint_requested as _on_tool_hint_requested_fn,
+    on_tool_management_requested as _on_tool_management_requested_fn,
+    on_tool_state_changed as _on_tool_state_changed_fn,
+    on_voice_bindings_changed as _on_voice_bindings_changed_fn,
+)
+from src.guppy.launcher_application.launcher_signal_personalization import (
+    bootstrap_personalization_scaffold_worker as _bootstrap_personalization_scaffold_worker_fn,
+    refresh_personalization_state as _refresh_personalization_state_fn,
+    wire_signals as _wire_signals_fn,
+)
+from src.guppy.launcher_application.launcher_first_run import (
+    on_first_run_action_requested as _on_first_run_action_requested_fn,
+    refresh_first_run_banner as _refresh_first_run_banner_fn,
 )
 from src.guppy.launcher_application.first_run_wizard import FirstRunWizard
 from src.guppy.launcher_application.status_poll import (
@@ -150,14 +172,41 @@ from src.guppy.launcher_application.status_poll import (
 )
 from src.guppy.launcher_application.launcher_shell_support import (
     QuickActionPlan,
+    apply_quick_action_plan as _apply_quick_action_plan_fn,
     build_notification_badge_state,
     build_quick_action_plan,
     build_runtime_badge_state,
+    on_home_starter_requested as _on_home_starter_requested_fn,
 )
 from src.guppy.launcher_application.launcher_command_flow import (
+    apply_chat_context as _apply_chat_context_fn,
+    assistant_model_id as _assistant_model_id_fn,
     build_shell_model_loadout_summary,
-    derive_topbar_model_context,
+    chat_timeout_for_request,
+    drain_assistant_events,
+    finish_request_ui as _finish_request_ui_fn,
     handle_assistant_command,
+    humanize_chat_error,
+    initialize_embedded_agent as _initialize_embedded_agent_fn,
+    on_agent_init_requested as _on_agent_init_requested_fn,
+    on_cancel_assistant_request as _on_cancel_assistant_request_fn,
+    on_chat_context_changed as _on_chat_context_changed_fn,
+    on_model_selected as _on_model_selected_fn,
+    on_runtime_settings_saved as _on_runtime_settings_saved_fn,
+    required_local_model_for_mode,
+    rotate_chat_session as _rotate_chat_session_fn,
+    validate_mode_ready as _validate_mode_ready_fn,
+)
+from src.guppy.launcher_application.launcher_poll_orchestration import (
+    complete_startup_phase as _complete_startup_phase_fn,
+    orchestrate_status_poll,
+    sync_topbar_model_context as _sync_topbar_model_context_fn,
+)
+from src.guppy.launcher_application.launcher_voice_strip import (
+    build_sys_strip as _build_sys_strip_fn,
+    ensure_voice_capture as _ensure_voice_capture_fn,
+    on_mic_requested as _on_mic_requested_fn,
+    update_sys_strip as _update_sys_strip_fn,
 )
 from src.guppy.launcher_application.workspace_snapshot_support import (
     build_local_instance_snapshot,
@@ -471,80 +520,10 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
             threading.Thread(target=self._bootstrap_personalization_scaffold_worker, daemon=True).start()
 
     def _bootstrap_personalization_scaffold_worker(self) -> None:
-        try:
-            self._scaffold_created = ensure_personalization_scaffold()
-            if self._scaffold_created:
-                created = ",".join(sorted(self._scaffold_created.keys()))
-                self._deferred_syslog.put(f"personalization scaffold ready: {created}")
-                self._log_launcher_event("personalization_scaffold_created", created=list(self._scaffold_created.keys()))
-            self._log_launcher_event("startup_phase", phase="personalization_scaffold_thread_complete")
-        except Exception as e:
-            self._deferred_syslog.put(f"personalization scaffold failed: {e}")
-            self._log_launcher_event("personalization_scaffold_error", error=str(e))
-            self._log_launcher_event("startup_phase", phase="personalization_scaffold_thread_error", error=str(e))
+        _bootstrap_personalization_scaffold_worker_fn(self)
 
     def _wire_signals(self) -> None:
-        """Composition helper — all inter-widget signal connections in one named seam."""
-        self._sidebar.tab_changed.connect(self._on_tab_change)
-        self._topbar.nav_requested.connect(self._on_tab_change)
-        self._settings_hub_view.open_diagnostics_requested.connect(lambda: self._on_tab_change(_SETTINGS_VIEW_INDEX))
-        self._settings_hub_view.open_recovery_requested.connect(lambda: self._on_tab_change(_SETTINGS_VIEW_INDEX))
-        self._settings_hub_view.open_terminal_requested.connect(lambda: self._on_tab_change(_SETTINGS_VIEW_INDEX))
-        self._settings_hub_view.open_connectors_requested.connect(lambda: self._on_tab_change(_SETTINGS_VIEW_INDEX))
-        self._settings_hub_view.open_system_requested.connect(lambda: self._on_tab_change(_SETTINGS_VIEW_INDEX))
-        self._settings_view.settings_saved.connect(self._on_settings_saved)
-        self._tools_view.tool_state_changed.connect(self._on_tool_state_changed)
-        self._tools_view.tool_hint_requested.connect(self._on_tool_hint_requested)
-        self._tools_view.tool_management_requested.connect(self._on_tool_management_requested)
-        self._tools_view.builder_task_requested.connect(self._on_builder_task_requested)
-        self._status_panel.tool_requested.connect(self._on_tool_hint_requested)
-        self._settings_hub_view.recovery_requested.connect(self._on_recovery_requested)
-        self._settings_hub_view.windows_ops_requested.connect(self._on_windows_ops_requested)
-        self._settings_hub_view.connector_action_requested.connect(self._on_connector_action_requested)
-        self._settings_hub_view.connector_guided_link_requested.connect(self._on_connector_guided_link_requested)
-        self._settings_hub_view.automation_action_requested.connect(self._on_automation_action_requested)
-        self._settings_hub_view.terminal_recipe_finished.connect(self._on_terminal_recipe_finished)
-        self._models_hub_view.model_selected.connect(self._on_model_selected)
-        self._models_hub_view.runtime_settings_saved.connect(self._on_runtime_settings_saved)
-        self._models_hub_view.bindings_changed.connect(self._on_voice_bindings_changed)
-        self._topbar.search_submitted.connect(self._on_search)
-        self._topbar.quick_action.connect(self._on_quick_action)
-        self._topbar.launcher_context_requested.connect(lambda: self._on_quick_action("toggle_drawer"))
-        self._assistant_view.command_submitted.connect(self._on_assistant_command)
-        self._assistant_view.starter_requested.connect(self._on_home_starter_requested)
-        self._assistant_view.cancel_requested.connect(self._on_cancel_assistant_request)
-        self._assistant_view.mic_requested.connect(self._on_mic_requested)
-        self._assistant_view.assistant_reply_library_requested.connect(self._on_assistant_reply_library_requested)
-        self._assistant_view.assistant_reply_artifact_requested.connect(self._on_assistant_reply_artifact_requested)
-        self._assistant_view.latest_saved_output_attach_requested.connect(self._on_latest_saved_output_attached)
-        self._assistant_view.latest_saved_output_library_requested.connect(self._on_library_context_opened)
-        self._assistant_view.active_context_refresh_requested.connect(self._on_active_context_refresh_requested)
-        self._assistant_view.active_context_clear_requested.connect(self._on_library_context_cleared)
-        self._assistant_view.active_context_focus_requested.connect(self._on_library_context_focused)
-        self._assistant_view.active_context_default_requested.connect(self._on_library_context_default_requested)
-        self._assistant_view.active_context_library_requested.connect(self._on_library_context_opened)
-        self._assistant_view.active_context_remove_requested.connect(self._on_library_context_removed)
-        self._assistant_view.first_run_action_requested.connect(self._on_first_run_action_requested)
-        self.assistant_event_queued.connect(self._drain_assistant_events)
-        self.connector_action_event_queued.connect(self._drain_connector_action_events)
-        self._assistant_view.chat_context_changed.connect(self._on_chat_context_changed)
-        self._assistant_view.launcher_summary_changed.connect(self._topbar.set_launcher_summary)
-        self._library_view.context_requested.connect(self._on_library_context_requested)
-        self._library_view.approved_root_requested.connect(self._on_library_root_requested)
-        self._library_view.note_requested.connect(self._on_library_note_requested)
-        self._library_view.note_updated.connect(self._on_library_note_updated)
-        self._library_view.artifact_requested.connect(self._on_library_artifact_requested)
-        self._library_view.artifact_updated.connect(self._on_library_artifact_updated)
-        self._library_view.library_item_delete_requested.connect(self._on_library_item_deleted)
-        self._instance_manager_view.refresh_requested.connect(self._on_instance_manager_refresh)
-        self._instance_manager_view.activate_requested.connect(self._on_instance_selected)
-        self._instance_manager_view.create_requested.connect(self._on_instance_create_requested)
-        self._instance_manager_view.governance_save_requested.connect(self._on_instance_governance_save_requested)
-        self._instance_manager_view.connector_binding_save_requested.connect(self._on_instance_connector_binding_save_requested)
-        self._instance_manager_view.delete_requested.connect(self._on_instance_delete_requested)
-        self._instance_manager_view.logs_requested.connect(self._on_instance_logs_requested)
-        self._topbar.instance_selected.connect(self._on_instance_selected)
-        self._status_panel.agent_init_requested.connect(self._on_agent_init_requested)
+        _wire_signals_fn(self, settings_view_index=_SETTINGS_VIEW_INDEX)
 
     def _wire_tools_trace_adapter(self) -> None:
         adapter = LauncherToolsTraceAdapter(
@@ -577,39 +556,11 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
             processed += 1
 
     def _refresh_personalization_state(self, preferred_persona: str = "") -> None:
-        try:
-            persona_config = load_persona_config() if _PERSONALIZATION_BOOTSTRAP_AVAILABLE else {}
-            voice_bindings = load_voice_bindings() if _PERSONALIZATION_BOOTSTRAP_AVAILABLE else {}
-            persona_choices = list_persona_choices(persona_config)
-            target_persona = preferred_persona or self._assistant_view.chat_context()[1]
-            active_model_id = self._assistant_model_id(self._assistant_view.selected_mode())
-            voice_choice = resolve_voice_binding(
-                persona_id=target_persona,
-                model_id=active_model_id,
-                voice_bindings=voice_bindings,
-            )
-            empty_state = PersonalizationState.empty()
-            personalization_state = PersonalizationState(
-                persona_options=build_persona_options(persona_choices) or empty_state.persona_options,
-                voice_options=tuple(voice_option_choices(voice_bindings)) or empty_state.voice_options,
-                voice_summary=voice_binding_summary(voice_choice),
-                model_id=active_model_id,
-                voice_choice=voice_choice if isinstance(voice_choice, dict) else {},
-            )
-            self._assistant_view.set_persona_options(list(personalization_state.persona_options), selected=target_persona)
-            self._instance_manager_view.set_persona_options(list(personalization_state.persona_options), selected=target_persona)
-            self._instance_manager_view.set_voice_options(list(personalization_state.voice_options), selected="default")
-            self._models_hub_view.refresh_voice_assignments()
-            self._assistant_view.set_runtime_facts(
-                profile=self._assistant_view._cb_profile.currentText().strip().lower() or "standard",
-                model=personalization_state.model_id,
-                voice=personalization_state.voice_summary,
-                latency="-",
-                last_query=self._last_command or "-",
-            )
-            self._settings_hub_view.set_daily_context_runtime(self._assistant_view._runtime_facts.text())
-        except Exception as exc:
-            self._status_panel.append_syslog(f"personalization refresh failed: {exc}")
+        _refresh_personalization_state_fn(
+            self,
+            preferred_persona=preferred_persona,
+            personalization_available=_PERSONALIZATION_BOOTSTRAP_AVAILABLE,
+        )
 
     def _update_route_preview(self, text: str = "") -> None:
         update_route_preview(self, text)
@@ -623,100 +574,10 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
 
     # ── Bottom strip ──────────────────────────────────────────────────────────
     def _build_sys_strip(self) -> QFrame:
-        strip = QFrame()
-        strip.setFixedHeight(26)
-        strip.setObjectName("sys_strip")
-        strip.setStyleSheet(
-            f"QFrame#sys_strip {{"
-            f"  background-color: {T.BG0};"
-            f"  border-top: 1px solid {T.BORDER};"
-            f"}}"
-        )
-
-        def _chip(text: str, color: str = T.DIM) -> QLabel:
-            lbl = QLabel(text)
-            lbl.setStyleSheet(
-                f"color: {color}; font-family: '{T.FF_MONO}';"
-                f"font-size: {T.FS_TINY}pt; letter-spacing: 1px; padding: 0 8px;"
-            )
-            return lbl
-
-        def _sep() -> QFrame:
-            f = QFrame()
-            f.setFixedSize(1, 14)
-            f.setStyleSheet(f"background: {T.BORDER};")
-            return f
-
-        row = QHBoxLayout(strip)
-        row.setContentsMargins(12, 0, 12, 0)
-        row.setSpacing(0)
-
-        self._strip_uptime  = _chip("UPTIME: —")
-        self._strip_cpu     = _chip("CPU: —")
-        self._strip_mem     = _chip("MEM: —")
-        self._strip_tokens  = _chip("BUFFER: — tok")
-        self._strip_status  = _chip("STATUS: NOMINAL", T.GREEN)
-
-        row.addWidget(self._strip_uptime)
-        row.addWidget(_sep())
-        row.addWidget(self._strip_cpu)
-        row.addWidget(_sep())
-        row.addWidget(self._strip_mem)
-        row.addWidget(_sep())
-        row.addWidget(self._strip_tokens)
-        row.addStretch()
-        row.addWidget(self._strip_status)
-
-        return strip
+        return _build_sys_strip_fn(self, tokens=T)
 
     def _update_sys_strip(self) -> None:
-        # Uptime
-        elapsed = int(time.monotonic() - _START_TIME)
-        h, m = divmod(elapsed // 60, 60)
-        s = elapsed % 60
-        self._strip_uptime.setText(f"UPTIME: {h:02d}:{m:02d}:{s:02d}")
-
-        # CPU + MEM via psutil (optional)
-        try:
-            import psutil
-            cpu = psutil.cpu_percent(interval=None)
-            mem = psutil.virtual_memory()
-            self._strip_cpu.setText(f"CPU: {cpu:.0f}%")
-            self._strip_mem.setText(f"MEM: {mem.percent:.0f}%")
-            status_ok = cpu < 85 and mem.percent < 85
-            self._strip_status.setText("STATUS: NOMINAL" if status_ok else "STATUS: HIGH LOAD")
-            self._strip_status.setStyleSheet(
-                f"color: {T.GREEN if status_ok else T.ERROR}; font-family: '{T.FF_MONO}';"
-                f"font-size: {T.FS_TINY}pt; letter-spacing: 1px; padding: 0 8px;"
-            )
-        except Exception:
-            pass  # psutil unavailable — uptime still shows
-
-        # Token buffer from scorecard if available
-        try:
-            scorecard = _RUNTIME / "router_scorecard.jsonl"
-            if scorecard.exists():
-                lines = scorecard.read_text(encoding="utf-8").strip().splitlines()
-                if lines:
-                    last = json.loads(lines[-1])
-                    tokens = last.get("input_tokens", last.get("total_tokens", "—"))
-                    self._strip_tokens.setText(f"BUFFER: {tokens} tok")
-        except Exception:
-            pass
-
-        # Startup summary for quick freeze-risk visibility.
-        if not self._startup_first_poll_ok:
-            self._strip_status.setText("STATUS: STARTING")
-            self._strip_status.setStyleSheet(
-                f"color: {T.DIM}; font-family: '{T.FF_MONO}';"
-                f"font-size: {T.FS_TINY}pt; letter-spacing: 1px; padding: 0 8px;"
-            )
-        elif self._startup_over_budget:
-            self._strip_status.setText("STATUS: STARTUP WARN")
-            self._strip_status.setStyleSheet(
-                f"color: {T.ERROR}; font-family: '{T.FF_MONO}';"
-                f"font-size: {T.FS_TINY}pt; letter-spacing: 1px; padding: 0 8px;"
-            )
+        _update_sys_strip_fn(self, runtime_path=_RUNTIME, start_time=_START_TIME, tokens=T)
 
     # ── Status polling ────────────────────────────────────────────────────────
     def _start_status_poll(self) -> None:
@@ -726,164 +587,15 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         QTimer.singleShot(0, self._poll_status)
 
     def _poll_status(self) -> None:
-        poll_t0 = time.monotonic()
-        self._drain_deferred_syslog()
-        self._drain_assistant_events()
-        self._drain_recovery_events()
-        self._update_sys_strip()
-
-        # Heartbeats
-        guppy_online = (_RUNTIME / "guppy.heartbeat").exists()
-
-        # Guppy status
-        gs = read_json_dict(_RUNTIME / "guppy.status")
-        gs["guppy_online"] = guppy_online
-        api_status = fetch_api_status(self._http_json)
-
-        voice_summary = str(gs.get("tts_engine", os.environ.get("GUPPY_TTS_ENGINE", "edge")) or "edge")
-        active_model_id = self._assistant_model_id(
-            self._assistant_view.selected_mode(),
-            str(gs.get("active_model", "") or ""),
+        orchestrate_status_poll(
+            self,
+            runtime_path=_RUNTIME,
+            personalization_available=_PERSONALIZATION_BOOTSTRAP_AVAILABLE,
+            start_time=_START_TIME,
         )
-        try:
-            if _PERSONALIZATION_BOOTSTRAP_AVAILABLE:
-                voice_summary = voice_binding_summary(
-                    resolve_voice_binding(
-                        persona_id=self._assistant_view.chat_context()[1],
-                        model_id=active_model_id,
-                        voice_bindings=load_voice_bindings(),
-                    )
-                )
-        except Exception:
-            pass
-
-        poll_snapshot = build_launcher_status_poll_snapshot(
-            launcher_status=gs,
-            api_status=api_status,
-            environment=os.environ,
-            active_instance_name=self._active_instance_name,
-            last_instance_snapshot=self._last_instance_snapshot,
-            embedded_online=self._embedded_online,
-            fallback_last_query=self._last_command,
-            voice_summary=voice_summary,
-            route_evidence=self._assistant_view._route_facts.text(),
-        )
-        data = poll_snapshot.data
-
-        self._status_panel.update_status(data)
-        self._assistant_view.set_runtime_facts(
-            profile=str(data.get("profile", "standard") or "standard"),
-            model=active_model_id,
-            voice=voice_summary,
-            latency=str(data.get("latency", "-") or "-"),
-            last_query=str(data.get("last_query", "-") or "-"),
-        )
-        self._settings_hub_view.set_daily_context_runtime(self._assistant_view._runtime_facts.text())
-        self._settings_hub_view.set_daily_context_route(self._assistant_view._route_facts.text())
-        self._sync_topbar_model_context(main_model=active_model_id)
-
-        # Update agent cards
-        guppy_load = poll_snapshot.guppy_load
-        guppy_online = poll_snapshot.guppy_online
-
-        self._status_panel.update_agent_status("guppy", guppy_online, "—", guppy_load)
-        self._assistant_view.set_background_status(
-            poll_snapshot.background_summary,
-            healthy=guppy_online,
-        )
-        self._settings_hub_view.set_daily_context_recovery(
-            f"Recovery: {'stable' if guppy_online else 'needs attention'}",
-            ok=guppy_online,
-        )
-        runtime_health = poll_snapshot.runtime_health
-        self._runtime_health_snapshot = runtime_health
-        startup_summary = summarize_startup_readiness(
-            poll_snapshot.api_status.get("startup_readiness", {})
-        )
-        runtime_badge = build_runtime_badge_state(
-            api_status=poll_snapshot.api_status,
-            runtime_overall=runtime_health.overall,
-            startup_summary=startup_summary,
-            startup_first_poll_ok=self._startup_first_poll_ok,
-            startup_over_budget=bool(self._startup_over_budget),
-        )
-        self._topbar.set_runtime_status(
-            runtime_badge.label,
-            detail=runtime_badge.detail,
-            severity=runtime_badge.severity,
-        )
-        self._models_hub_view.set_status_snapshot(poll_snapshot.api_status)
-        self._settings_hub_view.set_status_snapshot(poll_snapshot.settings_status_snapshot)
-        windows_snapshot = self._settings_hub_view.windows_ops_snapshot()
-        windows_snapshot_signature = self._payload_signature(windows_snapshot)
-        if windows_snapshot_signature != self._last_windows_snapshot_signature:
-            self._settings_hub_view.set_windows_snapshot(windows_snapshot)
-            self._last_windows_snapshot_signature = windows_snapshot_signature
-        self._refresh_notification_badge()
-        self._sync_recovery_outcome()
-        # Avoid competing with an active chat turn for the periodic instance refresh.
-        # The next idle poll will resync the workspace snapshot.
-        if not self._request_in_flight and self._bootstrap_instance_refresh_complete:
-            self._refresh_instance_views(load_logs=False)
-        if not self._startup_logged_first_poll:
-            self._startup_logged_first_poll = True
-            self._startup_first_poll_ok = True
-            self._complete_startup_phase("first_status_poll", start_at=self._startup_phase_started["window_init"])
-            self._log_launcher_event("startup_phase", phase="first_status_poll_complete")
-            if self._startup_over_budget:
-                summary = ", ".join(self._startup_over_budget)
-                self._status_panel.append_syslog(f"startup budget warning: {summary}")
-            else:
-                self._status_panel.append_syslog(
-                    f"startup budget OK (<={self._startup_budget_ms}ms phases)"
-                )
-
-        if (
-            not self._auth_self_check_ok
-            and not self._auth_self_check_inflight
-            and bool(api_status)
-            and (time.monotonic() - self._auth_self_check_last_attempt) >= 5.0
-        ):
-            self._auth_self_check_inflight = True
-            self._auth_self_check_last_attempt = time.monotonic()
-            threading.Thread(target=self._run_auth_self_check, daemon=True).start()
-
-        poll_ms = int((time.monotonic() - poll_t0) * 1000)
-        if poll_ms > self._startup_budget_ms:
-            now = time.monotonic()
-            if now - self._last_poll_warn_ts > 10.0:
-                self._last_poll_warn_ts = now
-                self._log_launcher_event(
-                    "ui_poll_over_budget",
-                    poll_ms=poll_ms,
-                    budget_ms=self._startup_budget_ms,
-                )
-                self._status_panel.append_syslog(
-                    f"ui poll over budget: {poll_ms}ms (budget {self._startup_budget_ms}ms)"
-                )
 
     def _complete_startup_phase(self, phase: str, start_at: float | None = None) -> None:
-        started = start_at if start_at is not None else self._startup_phase_started.get(phase, time.monotonic())
-        dur_ms = int((time.monotonic() - started) * 1000)
-        self._startup_phase_durations_ms[phase] = dur_ms
-        self._log_launcher_event(
-            "startup_phase_duration",
-            phase=phase,
-            duration_ms=dur_ms,
-            budget_ms=self._startup_budget_ms,
-            over_budget=dur_ms > self._startup_budget_ms,
-        )
-        if dur_ms > self._startup_budget_ms:
-            self._startup_over_budget.append(f"{phase}:{dur_ms}ms")
-            self._log_launcher_event(
-                "startup_phase_over_budget",
-                phase=phase,
-                duration_ms=dur_ms,
-                budget_ms=self._startup_budget_ms,
-            )
-            self._status_panel.append_syslog(
-                f"startup phase over budget: {phase}={dur_ms}ms"
-            )
+        _complete_startup_phase_fn(self, phase, start_at=start_at)
 
     def _sync_recovery_outcome(self) -> None:
         sync_recovery_outcome(self, runtime_path=_RUNTIME, read_jsonl_tail=read_jsonl_tail)
@@ -894,18 +606,7 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         main_model: str = "",
         support_model: str = "",
     ) -> None:
-        setter = getattr(self._topbar, "set_model_context", None)
-        if not callable(setter):
-            return
-        route_text = str(getattr(self._assistant_view, "_route_facts", QLabel("")).text() if hasattr(self, "_assistant_view") else "")
-        setter(
-            **derive_topbar_model_context(
-                route_text=route_text,
-                runtime=self._runtime_health_snapshot.local_runtime,
-                main_model=main_model,
-                support_model=support_model,
-            )
-        )
+        _sync_topbar_model_context_fn(self, main_model=main_model, support_model=support_model)
 
     @staticmethod
     def _classify_recovery_summary(summary: str, ok: bool, default: str = "") -> str:
@@ -1041,31 +742,7 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         )
 
     def _apply_quick_action_plan(self, plan: QuickActionPlan) -> bool:
-        if plan.toggle_sidebar:
-            self._toggle_sidebar()
-            return True
-        if plan.toggle_drawer:
-            self._toggle_status_panel()
-            return True
-        if plan.tab_index is not None:
-            self._on_tab_change(plan.tab_index)
-        if plan.operator_logs_focus is not None:
-            self._settings_hub_view.focus_operator_logs(
-                plan.operator_logs_focus.level,
-                note=plan.operator_logs_focus.note,
-            )
-        if plan.terminal_focus is not None:
-            self._settings_hub_view.focus_terminal(note=plan.terminal_focus.note)
-        if plan.daily_activity:
-            self._set_daily_activity(plan.daily_activity)
-        if plan.syslog:
-            self._status_panel.append_syslog(plan.syslog)
-        if isinstance(plan.launcher_event, dict):
-            self._log_launcher_event("quick_action", **plan.launcher_event)
-        if plan.unsupported_message:
-            self._status_panel.append_syslog(plan.unsupported_message)
-            return False
-        return True
+        return _apply_quick_action_plan_fn(self, plan)
 
     def _instances_config_path(self) -> Path:
         return instances_config_path(_CONFIG)
@@ -1105,46 +782,14 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         LauncherWindow._refresh_first_run_banner(self)
 
     def _refresh_first_run_banner(self) -> None:
-        assistant = getattr(self, "_assistant_view", None)
-        if assistant is None or not hasattr(assistant, "set_first_run_status"):
-            return
-        wizard = FirstRunWizard(workspace_id=self._active_instance_name)
-        if wizard.should_skip():
-            assistant.set_first_run_status(visible=False)
-            return
-
-        checkpoint1 = wizard.state.get_status(1).value
-        checkpoint2 = wizard.state.get_status(2).value
-        checkpoint3 = wizard.state.get_status(3).value
-
-        if checkpoint1 != "passed":
-            summary = "Finish desktop install checks first."
-            detail = "Open Settings to review install readiness, accounts, logs, and setup guidance before deeper model work."
-        elif checkpoint2 != "passed":
-            summary = "Choose and verify a local model runtime next."
-            detail = "Open Models to confirm Ollama, LM Studio, or the local harness path, then come back here for a short test ask."
-        else:
-            summary = "Send one short test ask from Home to prove first success."
-            detail = "The final checkpoint only closes after a real request verifier path succeeds, so keep this step honest."
-
-        assistant.set_first_run_status(
-            visible=True,
-            summary=summary,
-            detail=detail,
-            install_status=checkpoint1,
-            model_status=checkpoint2,
-            request_status=checkpoint3,
-        )
+        _refresh_first_run_banner_fn(self, wizard_factory=FirstRunWizard)
 
     def _on_first_run_action_requested(self, action: str) -> None:
-        target = (action or "").strip().lower()
-        if target == "settings":
-            self._on_tab_change(_SETTINGS_VIEW_INDEX)
-            self._set_daily_activity("First-run guidance opened Settings")
-            return
-        if target == "models":
-            self._on_tab_change(_MODELS_VIEW_INDEX)
-            self._set_daily_activity("First-run guidance opened Models")
+        _on_first_run_action_requested_fn(
+            self, action,
+            settings_view_index=_SETTINGS_VIEW_INDEX,
+            models_view_index=_MODELS_VIEW_INDEX,
+        )
 
     def _build_launcher_state_snapshot(
         self,
@@ -1331,222 +976,40 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
 
     # ── Event handlers ────────────────────────────────────────────────────────
     def _on_settings_saved(self, settings: dict) -> None:
-        profile = settings.get("runtime_profile", "standard")
-        persona_name = str(settings.get("active_persona_name", "")).strip()
-        self._assistant_view.apply_settings(settings)
-        self._refresh_personalization_state(preferred_persona=str(settings.get("active_persona_id", "")).strip())
-        detail = f"Settings saved for {str(profile).upper()} profile"
-        if persona_name:
-            detail += f" · persona {persona_name}"
-        self._set_daily_activity(detail)
-        self._status_panel.append_syslog(detail.lower())
+        _on_settings_saved_fn(self, settings)
 
     def _on_voice_bindings_changed(self, _bindings: dict) -> None:
-        self._refresh_personalization_state()
-        self._set_daily_activity("Voice bindings updated")
-        self._status_panel.append_syslog("voice bindings updated")
+        _on_voice_bindings_changed_fn(self)
 
     def _load_tool_states(self) -> None:
-        path = self._tool_state_path()
-        if not path.exists():
-            self._refresh_tools_debug_surface()
-            return
-        try:
-            states = read_json_dict(path)
-            if isinstance(states, dict):
-                self._tools_view.set_states({k: bool(v) for k, v in states.items()})
-                self._status_panel.append_syslog("tools state restored")
-                self._log_launcher_event("tools_state_restored", count=len(states))
-        except Exception as e:
-            self._status_panel.append_syslog(f"tools state restore failed: {e}")
-            self._log_launcher_event("tools_state_restore_error", error=str(e))
-        self._refresh_tools_debug_surface()
+        _load_tool_states_fn(self)
 
     def _on_tool_state_changed(self, tool_key: str, enabled: bool) -> None:
-        states = self._tools_view.get_states()
-        try:
-            path = self._tool_state_path()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(states, indent=2), encoding="utf-8")
-            self._status_panel.append_syslog(
-                f"tool {tool_key} -> {'ON' if enabled else 'OFF'}"
-            )
-            self._log_launcher_event(
-                "tool_state_changed",
-                tool=tool_key,
-                enabled=enabled,
-            )
-        except Exception as e:
-            self._status_panel.append_syslog(f"tool state save failed: {e}")
-            self._log_launcher_event(
-                "tool_state_save_error",
-                tool=tool_key,
-                enabled=enabled,
-                error=str(e),
-            )
-        self._refresh_tools_debug_surface()
+        _on_tool_state_changed_fn(self, tool_key, enabled)
 
     def _log_launcher_event(self, event: str, **fields: object) -> None:
-        record = {
-            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "source": "launcher",
-            "event": event,
-            "uptime_s": round(time.monotonic() - _START_TIME, 3),
-            **fields,
-        }
-        try:
-            append_jsonl(_RUNTIME / "launcher_events.jsonl", record)
-        except Exception:
-            try:
-                path = _RUNTIME / "launcher_events.jsonl"
-                with path.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(record, ensure_ascii=True) + "\n")
-            except Exception:
-                pass
+        _log_launcher_event_fn(event, runtime_path=_RUNTIME, start_time=_START_TIME, **fields)
 
     def _drain_assistant_events(self) -> None:
-        processed = 0
-        while processed < self._MAX_ASSISTANT_EVENTS_PER_TICK:
-            try:
-                kind, payload, seq = self._assistant_events.get_nowait()
-            except Empty:
-                break
-            if kind == "voice_input":
-                self._mic_capture_active = False
-                self._assistant_view.set_mic_capture_state(False)
-                text = str(payload or "").strip()
-                if text:
-                    self._set_daily_activity(f"Voice captured: {text[:72]}")
-                    self._status_panel.append_syslog("voice capture ready")
-                    self._on_assistant_command(text)
-                else:
-                    self._assistant_view.set_status("Ready")
-                processed += 1
-                continue
-            if kind == "voice_error":
-                self._mic_capture_active = False
-                self._assistant_view.set_mic_capture_state(False)
-                self._assistant_view.set_status("Ready")
-                self._assistant_view.add_system_message(str(payload or "Voice capture failed."))
-                self._status_panel.append_syslog(f"voice capture failed: {str(payload or '')[:120]}")
-                processed += 1
-                continue
-            if seq in self._canceled_request_seqs:
-                self._canceled_request_seqs.discard(seq)
-                processed += 1
-                continue
-            # Discard stale responses from superseded requests.
-            if seq != self._active_request_seq:
-                processed += 1
-                continue
-            if kind == "assistant":
-                self._assistant_view.set_status("Ready")
-                self._finish_request_ui()
-                self._assistant_view.add_assistant_message(payload)
-                self._on_instance_logs_requested(self._active_instance_name, quiet=True)
-            elif kind == "error":
-                self._assistant_view.set_status("Error")
-                self._finish_request_ui()
-                self._assistant_view.add_assistant_message(self._humanize_chat_error(payload))
-                QTimer.singleShot(2500, lambda: self._assistant_view.set_status("Ready"))
-                self._status_panel.append_syslog(f"chat error: {payload[:120]}")
-                self._on_instance_logs_requested(self._active_instance_name, quiet=True)
-            processed += 1
+        drain_assistant_events(self, timer_single_shot=QTimer.singleShot)
 
     def _humanize_chat_error(self, raw: str) -> str:
-        txt = (raw or "").strip()
-        low = txt.lower()
-        if "still warming up" in low or "restarted" in low and "retry now" in low:
-            return "The local service restarted, but the first reply is still warming up. Please retry now."
-        if "http 401" in low or "unauthorized" in low or "jwt_expired" in low:
-            return "Authentication expired. Please retry now."
-        if "http 403" in low:
-            return "This action is not permitted right now."
-        if "http 429" in low:
-            return "Too many requests at once. Please wait a few seconds and retry."
-        if "timed out" in low or "timeout" in low:
-            return "The request timed out before a response was received. Please try again."
-        if "network error" in low or "connection refused" in low:
-            return "Could not reach the local API service. Check that the API is running, then retry."
-        if ("local-only mode failed" in low or "local-only retry failed" in low
-                or "ollama" in low and ("not running" in low or "unavailable" in low or "could not contact" in low)):
-            return "Local model service is unavailable. Start Ollama or switch to Claude mode."
-        if "ollama" in low and ("not running" in low or "unavailable" in low or "could not contact" in low):
-            return "Local model service is unavailable. Start Ollama or switch to Claude mode."
-        return "The assistant request failed. Please retry."
+        return humanize_chat_error(raw)
 
     @staticmethod
     def _chat_timeout_for_request(mode: str, command: str = "") -> float:
-        m = (mode or "auto").strip().lower()
-        base = 25.0 if m in {"claude", "auto", "teaching"} else 35.0 if m in {"local", "ollama", "code", "vault"} else 30.0
-        text = (command or "").strip().lower()
-        if not text:
-            return base
-        if any(
-            token in text
-            for token in (
-                "diagnostic",
-                "diagnose",
-                "health check",
-                "system check",
-                "audit",
-                "scan",
-                "debug",
-                "trace",
-                "investigate",
-            )
-        ):
-            return max(base, 60.0)
-        if any(token in text for token in ("review", "triage", "analyze", "search the repo", "walk the codebase")):
-            return max(base, 45.0)
-        if len(text) > 220:
-            return max(base, 45.0)
-        return base
+        return chat_timeout_for_request(mode, command)
 
     @staticmethod
     def _required_local_model_for_mode(mode: str) -> str | None:
-        m = (mode or "").strip().lower()
-        if m in {"local", "ollama"}:
-            return (os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()
-        if m == "teaching":
-            return (os.environ.get("GUPPY_LOCAL_TEACH_MODEL", "guppy-teach") or "guppy-teach").strip()
-        if m == "code":
-            return (os.environ.get("GUPPY_LOCAL_CODE_MODEL", "guppy-code") or "guppy-code").strip()
-        if m == "vault":
-            return (os.environ.get("GUPPY_LOCAL_VAULT_MODEL", "vault-scraper") or "vault-scraper").strip()
-        return None
+        return required_local_model_for_mode(mode)
 
     @staticmethod
     def _assistant_model_id(mode: str, active_model: str = "") -> str:
-        candidate = str(active_model or "").strip()
-        if candidate and candidate not in {"-", "—"}:
-            return candidate
-
-        normalized_mode = (mode or "auto").strip().lower()
-        if normalized_mode == "claude":
-            return (
-                os.environ.get("ANTHROPIC_HAIKU_MODEL", "claude-haiku-4-5-20251001")
-                or "claude-haiku-4-5-20251001"
-            ).strip()
-
-        required_local = LauncherWindow._required_local_model_for_mode(normalized_mode)
-        if required_local:
-            return required_local
-
-        return (os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()
+        return _assistant_model_id_fn(mode, active_model)
 
     def _validate_mode_ready(self, mode: str) -> tuple[bool, str]:
-        model = LauncherWindow._required_local_model_for_mode(mode)
-        if not model:
-            return True, ""
-        try:
-            from guppy_core.network_utils import check_ollama
-            ok, err = check_ollama(model)
-            if ok:
-                return True, ""
-            return False, f"{mode.upper()} mode requires local model '{model}'. {err.splitlines()[0]}"
-        except Exception:
-            return False, f"{mode.upper()} mode requires local model '{model}', but readiness could not be verified."
+        return _validate_mode_ready_fn(self, mode)
 
     def _rotate_chat_session(
         self,
@@ -1556,130 +1019,40 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         instance: str = "",
         clear_live_history: bool = False,
     ) -> None:
-        inst = (instance or self._active_instance_name or "guppy-primary").strip()
-        suffix = f"-{inst}"
-        if mode or persona:
-            suffix += f"-{mode}-{persona}"
-        self._chat_session_id = f"launcher-{int(time.time())}{suffix}"
-        self._assistant_view.set_session_id(self._chat_session_id)
-        if clear_live_history:
-            self._assistant_view.reset_live_history()
-        self._topbar.set_session(f"{inst} {self._chat_session_id[-8:]}")
-        self._log_launcher_event(
-            "chat_session_rotated",
-            reason=reason,
-            session_id=self._chat_session_id,
-            instance=inst,
+        _rotate_chat_session_fn(
+            self,
+            reason,
             mode=mode,
             persona=persona,
+            instance=instance,
+            clear_live_history=clear_live_history,
         )
 
     def _on_chat_context_changed(self, mode: str, persona: str) -> None:
-        self._refresh_personalization_state(preferred_persona=persona)
-        self._update_route_preview(self._last_command)
-        if self._request_in_flight:
-            self._pending_chat_context = (mode, persona)
-            self._status_panel.append_syslog(f"chat context queued until current request completes: {persona}/{mode}")
-            return
-        self._apply_chat_context(mode, persona)
+        _on_chat_context_changed_fn(self, mode, persona)
 
     def _apply_chat_context(self, mode: str, persona: str) -> None:
-        self._rotate_chat_session(
-            "context_changed",
-            mode=mode,
-            persona=persona,
-            instance=self._active_instance_name,
-            clear_live_history=True,
-        )
-        self._assistant_view.add_system_message(
-            f"New chat session started for {persona.upper()} / {mode.upper()}."
-        )
-        self._status_panel.append_syslog(f"chat session rotated: {persona}/{mode}")
-        self._update_route_preview(self._last_command)
+        _apply_chat_context_fn(self, mode, persona)
 
     def _finish_request_ui(self) -> None:
-        self._assistant_view.set_request_in_flight(False)
-        self._request_in_flight = False
-        if self._pending_chat_context:
-            mode, persona = self._pending_chat_context
-            self._pending_chat_context = None
-            self._apply_chat_context(mode, persona)
+        _finish_request_ui_fn(self)
 
     def _on_cancel_assistant_request(self) -> None:
-        if not self._request_in_flight:
-            return
-        self._canceled_request_seqs.add(self._active_request_seq)
-        self._finish_request_ui()
-        self._assistant_view.set_status("Ready")
-        self._assistant_view.add_system_message("Request canceled.")
-        self._status_panel.append_syslog(f"request canceled: seq={self._active_request_seq}")
-        self._log_launcher_event("command_canceled", seq=self._active_request_seq)
+        _on_cancel_assistant_request_fn(self)
 
     def _drain_recovery_events(self) -> None:
         drain_recovery_events(self)
 
     def _on_tool_hint_requested(self, tool_key: str) -> None:
-        key = (tool_key or "").strip()
-        if not key:
-            return
-        states = self._tools_view.current_tool_states()
-        if states.get(key) == "restricted":
-            self._log_launcher_event(
-                "tool_hint_blocked",
-                tool=key,
-                instance=self._active_instance_name,
-                status=states.get(key, "unknown"),
-            )
-            message = (
-                f"{key.replace('_', ' ')} is blocked in {self._active_instance_name}. "
-                "Switch workspaces or review permissions in Agent Tools before you try again."
-            )
-            self._assistant_view.add_system_message(message)
-            self._set_daily_activity(f"Workspace tool blocked: {key}")
-            self._status_panel.append_syslog(f"workspace tool blocked: {key}")
-            self._refresh_tools_debug_surface()
-            return
-        self._on_tab_change(0)
-        self._assistant_view.set_input_text(self._tool_prompt_for_home(key))
-        self._set_daily_activity(f"Workspace tool loaded into Home: {key}")
-        self._status_panel.append_syslog(f"workspace tool primed: {key}")
-        self._log_launcher_event(
-            "tool_hint_requested",
-            tool=key,
-            instance=self._active_instance_name,
-            status=states.get(key, "unknown"),
+        _on_tool_hint_requested_fn(
+            self,
+            tool_key,
+            settings_view_index=_SETTINGS_VIEW_INDEX,
+            tool_prompt_fn=self._tool_prompt_for_home,
         )
-        self._refresh_tools_debug_surface()
 
     def _on_tool_management_requested(self, payload: dict) -> None:
-        if not isinstance(payload, dict):
-            return
-        connector_id = str(payload.get("connector", "") or "").strip().lower()
-        provider = str(payload.get("provider", "") or "").strip().lower()
-        account_id = str(payload.get("account_id", "") or "").strip().lower()
-        tool_key = str(payload.get("tool", "") or "").strip().lower()
-        note = str(payload.get("note", "") or "").strip()
-        self._on_tab_change(_SETTINGS_VIEW_INDEX)
-        focus = getattr(self._settings_hub_view, "focus_connectors", None)
-        if callable(focus):
-            focus(
-                connector_id,
-                provider=provider,
-                account_id=account_id,
-                note=note,
-            )
-        summary = f"Settings owns connector setup for {tool_key or connector_id or 'this tool'}."
-        self._assistant_view.add_system_message(summary)
-        self._set_daily_activity(summary)
-        self._status_panel.append_syslog(f"tool management redirect: {tool_key or connector_id or 'unknown'}")
-        self._log_launcher_event(
-            "tool_management_redirected",
-            tool=tool_key,
-            connector=connector_id,
-            provider=provider,
-            account_id=account_id,
-            target=str(payload.get('destination', '') or 'settings_device_accounts'),
-        )
+        _on_tool_management_requested_fn(self, payload, settings_view_index=_SETTINGS_VIEW_INDEX)
 
     @staticmethod
     def _tool_prompt_for_home(tool_key: str) -> str:
@@ -1782,26 +1155,14 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         instance_name: str,
         announce_text: str,
     ) -> dict[str, object]:
-        from src.guppy.launcher_application.builder_workflow import enqueue_builder_task, render_builder_task
-
-        task = render_builder_task(
-            template_id,
+        return _queue_builder_task_fn(
+            self,
+            template_id=template_id,
             target_ref=target_ref,
-            requested_by_instance=instance_name,
+            instance_name=instance_name,
+            announce_text=announce_text,
+            automation_report_path=_AUTOMATION_REPORT_PATH,
         )
-        enqueue_builder_task(task)
-        self._tools_view.set_builder_status(f"Queued {task['title']} for dry-run review")
-        self._assistant_view.add_system_message(
-            f"Queued local builder task: {task['title']} -> {task['output_file_path']}"
-        )
-        self._set_daily_activity(announce_text)
-        self._status_panel.append_syslog(f"builder task queued: {task['id']}")
-        self._sync_automation_test_state(
-            status=f"Queued {task['title']} for dry-run review.",
-            report_path=_AUTOMATION_REPORT_PATH,
-            persist=True,
-        )
-        return task
 
     def _write_automation_report(self) -> Path:
         return write_launcher_automation_report(
@@ -1811,199 +1172,28 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         )
 
     def _approve_latest_builder_task(self) -> dict[str, object]:
-        from src.guppy.launcher_application.builder_workflow import approve_builder_task, metrics_path, queue_path, results_path
-
-        queue_file = queue_path()
-        results_file = results_path()
-        metrics_file = metrics_path()
-        queue_payload = read_json_dict(queue_file)
-        tasks = [
-            item for item in queue_payload.get("tasks", [])
-            if isinstance(item, dict)
-        ] if isinstance(queue_payload, dict) else []
-        pending_task = next(
-            (
-                item for item in reversed(tasks)
-                if str(item.get("status", "")).strip() == "awaiting_approval"
-                and isinstance(item.get("pending_approval"), dict)
-            ),
-            None,
-        )
-        if pending_task is None:
-            raise ValueError("No staged builder task is awaiting approval.")
-        return approve_builder_task(
-            str(pending_task.get("id", "")).strip(),
-            queue_path=queue_file,
-            results_path=results_file,
-            metrics_path=metrics_file,
-            approved_by=self._active_instance_name or "launcher",
-        )
+        return approve_latest_builder_task(self)
 
     def _on_builder_task_requested(self, payload: dict[str, object]) -> None:
-        try:
-            template_id = str(payload.get("template_id", "")).strip()
-            target_ref = str(payload.get("target_ref", "")).strip()
-            instance_name = str(payload.get("instance_name", self._active_instance_name)).strip() or self._active_instance_name
-            self._log_launcher_event(
-                "tool_builder_task_requested",
-                tool="builder_task",
-                instance=instance_name,
-                action=template_id,
-                summary=target_ref,
-            )
-            task = self._queue_builder_task(
-                template_id=template_id,
-                target_ref=target_ref,
-                instance_name=instance_name,
-                announce_text=f"Builder task queued for {instance_name}: {template_id}",
-            )
-            self._settings_hub_view.set_automation_status(
-                f"Queued {task['title']} from Tools. Review staged output in Settings when it is ready."
-            )
-        except Exception as exc:
-            self._tools_view.set_builder_status(f"Queue failed: {exc}", ok=False)
-            self._settings_hub_view.set_automation_status(f"Queue failed: {exc}", ok=False)
-            self._status_panel.append_syslog(f"builder task queue failed: {exc}")
-            self._log_launcher_event(
-                "tool_builder_task_error",
-                tool="builder_task",
-                instance=self._active_instance_name,
-                error=str(exc),
-            )
-        self._refresh_tools_debug_surface()
+        handle_builder_task_requested(
+            self,
+            payload,
+            automation_report_path=_AUTOMATION_REPORT_PATH,
+        )
 
     def _on_automation_action_requested(self, action: str) -> None:
-        target = (action or "").strip().lower()
-        if target == "verify_now":
-            self._settings_hub_view.focus_automation_test(
-                note="VERIFY NOW queued runtime readiness checks in the Settings terminal."
-            )
-            self._on_windows_ops_requested("verify_runtime")
-            self._sync_automation_test_state(
-                status="VERIFY NOW queued runtime readiness checks in the embedded terminal.",
-                persist=True,
-            )
-            return
-        if target == "switch_builder_workspace":
-            preferred = self._preferred_builder_instance_name()
-            if preferred != "builder-collab":
-                self._sync_automation_test_state(
-                    status="builder-collab is unavailable, so the current workspace stays active.",
-                    ok=False,
-                    persist=True,
-                )
-                return
-            if self._active_instance_name == "builder-collab":
-                self._sync_automation_test_state(status="builder-collab is already active.", persist=True)
-                return
-            self._on_instance_selected("builder-collab")
-            self._settings_hub_view.focus_automation_test(
-                note="Builder workspace selected for automation dry runs."
-            )
-            self._sync_automation_test_state(status="Switched to builder-collab for automation testing.", persist=True)
-            return
-        if target == "queue_dry_run":
-            instance_name = self._preferred_builder_instance_name()
-            try:
-                task = self._queue_builder_task(
-                    template_id="regression_checklist",
-                    target_ref="automation test launcher and approval flow",
-                    instance_name=instance_name,
-                    announce_text=f"Automation dry run queued for {instance_name}",
-                )
-            except Exception as exc:
-                self._sync_automation_test_state(status=f"Queue failed: {exc}", ok=False, persist=True)
-                self._status_panel.append_syslog(f"automation dry run queue failed: {exc}")
-                return
-            self._settings_hub_view.focus_automation_test(
-                note=f"Dry run queued: {task['title']} -> {task['output_file_path']}"
-            )
-            return
-        if target == "open_latest_report":
-            path = self._write_automation_report()
-            evidence_bundle = self._write_user_test_evidence_pack(
-                report_path=path,
-                status="Evidence pack refreshed for the guided tester lane.",
-            )
-            summary_path = str(evidence_bundle.get("summary_path", "") or "")
-            self._settings_hub_view.focus_operator_logs(
-                "ALL",
-                note=f"Evidence pack refreshed: {summary_path or path}",
-            )
-            self._assistant_view.add_system_message(f"Evidence pack refreshed: {summary_path or path}")
-            self._status_panel.append_syslog(f"automation evidence refreshed: {summary_path or path}")
-            self._sync_automation_test_state(
-                status=f"Evidence pack refreshed at {summary_path or path}",
-                report_path=path,
-                persist=True,
-            )
-            return
-        if target == "approve_latest_staged_task":
-            try:
-                payload = self._approve_latest_builder_task()
-            except Exception as exc:
-                self._sync_automation_test_state(status=f"Approval failed: {exc}", ok=False, persist=True)
-                self._status_panel.append_syslog(f"automation approval failed: {exc}")
-                return
-            output_file = str(payload.get("output_file", "") or "").strip()
-            self._assistant_view.add_system_message(f"Approved staged builder output -> {output_file}")
-            self._status_panel.append_syslog(f"automation approval complete: {output_file}")
-            self._set_daily_activity("Approved staged automation test output")
-            self._sync_automation_test_state(
-                status=f"Approved latest staged task -> {output_file}",
-                report_path=_AUTOMATION_REPORT_PATH,
-                persist=True,
-            )
-            return
-        if target == "run_validation":
-            queued = self._settings_hub_view.queue_terminal_recipe(
-                [_AUTOMATION_TEST_VALIDATION_COMMAND],
-                label="AUTOMATION TEST VALIDATION",
-                recipe_context={
-                    "kind": "automation_test",
-                    "action": "run_validation",
-                    "changes": "Runs the focused builder validation suite after dry-run review or approval.",
-                },
-            )
-            if queued:
-                self._set_daily_activity("Automation validation queued in Settings terminal")
-                self._status_panel.append_syslog("automation validation queued")
-                self._sync_automation_test_state(
-                    status="Focused automation validation queued in the embedded terminal.",
-                    persist=True,
-                )
-            else:
-                self._sync_automation_test_state(
-                    status="Validation could not queue in the embedded terminal.",
-                    ok=False,
-                    persist=True,
-                )
-            return
-        self._sync_automation_test_state(status=f"Automation action unavailable: {action}", ok=False, persist=True)
+        handle_automation_action_request(
+            self,
+            action,
+            automation_report_path=_AUTOMATION_REPORT_PATH,
+            validation_command=_AUTOMATION_TEST_VALIDATION_COMMAND,
+        )
 
     def _initialize_embedded_agent(self, agent_id: str) -> tuple[bool, str]:
-        aid = (agent_id or "").strip().lower()
-        if aid != "guppy":
-            return False, f"unknown agent: {agent_id}"
-        self._embedded_online.add(aid)
-        self._assistant_view.activate_agent(aid)
-        self._assistant_view.add_system_message(f"{aid.upper()} embedded session initialized.")
-        self._set_daily_activity(f"Embedded {aid.upper()} session initialized")
-        return True, "embedded session active"
+        return _initialize_embedded_agent_fn(self, agent_id)
 
     def _on_agent_init_requested(self, agent_id: str) -> None:
-        aid = (agent_id or "").strip().lower()
-        if not aid:
-            return
-        self._stack.setCurrentIndex(0)
-        self._sidebar.set_active(0)
-        self._status_panel.append_syslog(f"init requested: {aid}")
-        self._log_launcher_event("agent_init_requested", agent=aid)
-        ok, summary = self._initialize_embedded_agent(aid)
-        self._status_panel.append_syslog(
-            f"init {aid}: {'OK' if ok else 'ERROR'} — {summary}"
-        )
-        self._log_launcher_event("agent_init_result", agent=aid, ok=ok, summary=summary)
+        _on_agent_init_requested_fn(self, agent_id)
 
     def _on_recovery_requested(self, action: str) -> None:
         start_recovery_request(self, action, thread_factory=threading.Thread)
@@ -2012,21 +1202,10 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         run_recovery_request(self, act)
 
     def _on_model_selected(self, model: str) -> None:
-        self._status_panel.append_syslog(f"active model -> {model}")
-
-        self._refresh_personalization_state()
-        self._update_route_preview(self._last_command)
-        if self._stack.currentIndex() == _MODELS_VIEW_INDEX:
-            self._sync_shell_model_summary(active_model=model)
+        _on_model_selected_fn(self, model, models_view_index=_MODELS_VIEW_INDEX)
 
     def _on_runtime_settings_saved(self, settings: dict) -> None:
-        backend = str(settings.get("local_runtime_backend", "ollama") or "ollama").strip().lower() or "ollama"
-        self._status_panel.append_syslog(f"local runtime saved -> {backend}")
-        self._refresh_personalization_state()
-        self._update_route_preview(self._last_command)
-        if self._stack.currentIndex() == _MODELS_VIEW_INDEX:
-            self._sync_shell_model_summary(runtime_backend=backend)
-        self._log_launcher_event("local_runtime_saved", backend=backend)
+        _on_runtime_settings_saved_fn(self, settings, models_view_index=_MODELS_VIEW_INDEX)
 
     def _on_search(self, query: str) -> None:
         if not query.strip():
@@ -2047,11 +1226,7 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         dispatch_windows_ops_request(self, action, delayed_scheduler=QTimer.singleShot)
 
     def _on_home_starter_requested(self, starter_id: str, prompt: str) -> None:
-        self._on_tab_change(0)
-        self._update_route_preview(prompt)
-        self._set_daily_activity(f"Starter loaded: {starter_id}")
-        self._status_panel.append_syslog(f"home starter loaded: {starter_id}")
-        self._log_launcher_event("home_starter_loaded", starter_id=starter_id)
+        _on_home_starter_requested_fn(self, starter_id, prompt)
 
     def _on_assistant_command(self, command: str) -> None:
         handle_assistant_command(
@@ -2078,64 +1253,11 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         self._topbar.set_notification_badge(state.count, severity=state.severity)
 
     def _ensure_voice_capture(self) -> tuple[bool, str]:
-        if not _VOICE_CAPTURE_AVAILABLE or GuppyVoice is None:
-            return False, "Voice capture backend is unavailable in this launcher build."
-        if self._launcher_voice is not None:
-            return True, "ok"
-        try:
-            self._launcher_voice = GuppyVoice()
-            return True, "ok"
-        except Exception as exc:
-            self._launcher_voice = None
-            return False, f"Voice capture failed to initialize: {exc}"
+        return _ensure_voice_capture_fn(
+            self,
+            voice_capture_available=_VOICE_CAPTURE_AVAILABLE,
+            voice_class=GuppyVoice,
+        )
 
     def _on_mic_requested(self) -> None:
-        if self._request_in_flight:
-            self._assistant_view.add_system_message("A request is already in progress. Wait for it to finish before using push to talk.")
-            return
-        if self._mic_capture_active:
-            voice = self._launcher_voice
-            if voice is not None and hasattr(voice, "stop_listening"):
-                try:
-                    voice.stop_listening()
-                except Exception:
-                    pass
-            self._set_daily_activity("Stopping push-to-talk capture...")
-            self._status_panel.append_syslog("voice capture stop requested")
-            return
-
-        ok, summary = self._ensure_voice_capture()
-        if not ok:
-            self._assistant_view.add_system_message(summary)
-            self._status_panel.append_syslog(f"voice capture unavailable: {summary}")
-            return
-
-        self._mic_capture_active = True
-        self._assistant_view.set_mic_capture_state(True)
-        self._set_daily_activity("Push-to-talk listening...")
-        self._status_panel.append_syslog("voice capture started")
-        self._log_launcher_event("voice_capture_started")
-
-        def _worker() -> None:
-            voice = self._launcher_voice
-            if voice is None:
-                self._assistant_events.put(("voice_error", "Voice capture backend was not available.", 0))
-            else:
-                try:
-                    result = voice.listen_once(timeout=10)
-                    text = str(result.get("text", "") or "").strip() if isinstance(result, dict) else ""
-                    error = str(result.get("error", "") or "").strip() if isinstance(result, dict) else ""
-                    if text:
-                        self._assistant_events.put(("voice_input", text, 0))
-                        self._log_launcher_event("voice_capture_result", ok=True, chars=len(text))
-                    else:
-                        self._assistant_events.put(("voice_error", error or "No speech captured.", 0))
-                        self._log_launcher_event("voice_capture_result", ok=False, error=error or "no_speech")
-                except Exception as exc:
-                    self._assistant_events.put(("voice_error", f"Voice capture failed: {exc}", 0))
-                    self._log_launcher_event("voice_capture_result", ok=False, error=str(exc))
-            emitter = getattr(self, "assistant_event_queued", None)
-            if emitter is not None and hasattr(emitter, "emit"):
-                emitter.emit()
-
-        threading.Thread(target=_worker, daemon=True).start()
+        _on_mic_requested_fn(self, thread_factory=threading.Thread)

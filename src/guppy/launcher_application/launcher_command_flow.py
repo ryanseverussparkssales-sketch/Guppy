@@ -1,74 +1,23 @@
 from __future__ import annotations
 
-import os
-import re
 import uuid
 from typing import Callable
 
-
-def derive_topbar_model_context(
-    *,
-    route_text: str,
-    runtime: object,
-    main_model: str = "",
-    support_model: str = "",
-) -> dict[str, str]:
-    using_match = re.search(r"\busing\s+([A-Za-z0-9._:/-]+)", route_text, flags=re.IGNORECASE)
-    backup_match = re.search(r"\bbackup\s+([A-Za-z0-9._:/-]+)", route_text, flags=re.IGNORECASE)
-    route_match = re.search(r"\bvia\s+([A-Za-z0-9._:/-]+)", route_text, flags=re.IGNORECASE)
-
-    normalized_main = str(main_model or getattr(runtime, "chat_model", "") or getattr(runtime, "model", "") or "").strip()
-    normalized_support = str(support_model or (backup_match.group(1) if backup_match else "")).strip()
-    if not normalized_main and using_match is not None:
-        normalized_main = str(using_match.group(1) or "").strip()
-    backend = str(getattr(runtime, "backend", "") or "").strip().lower()
-    route_name = str(route_match.group(1) if route_match else "").strip().upper()
-    return {
-        "main_model": normalized_main,
-        "support_model": normalized_support,
-        "backend": backend,
-        "route": route_name,
-    }
-
-
-def build_shell_model_loadout_summary(
-    *,
-    active_model: str = "",
-    runtime_backend: str = "",
-    settings_payload: dict[str, object] | None = None,
-    environment: dict[str, str] | None = None,
-) -> str:
-    settings = settings_payload if isinstance(settings_payload, dict) else {}
-    env = environment if isinstance(environment, dict) else dict(os.environ)
-    backend = (
-        str(settings.get("local_runtime_backend", "") or "").strip()
-        or str(runtime_backend or "").strip()
-        or str(env.get("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama") or "ollama").strip()
-        or "ollama"
-    )
-    main_model = (
-        str(settings.get("local_main_model", "") or "").strip()
-        or str(env.get("GUPPY_MAIN_MODEL", "") or "").strip()
-        or str(active_model or "").strip()
-        or str(env.get("OLLAMA_MODEL", "") or "").strip()
-        or "unset"
-    )
-    sub_a_model = (
-        str(settings.get("local_sub_model_a", "") or "").strip()
-        or str(env.get("GUPPY_SUB_MODEL_A", "") or "").strip()
-        or str(env.get("GUPPY_LOCAL_FAST_MODEL", "") or "").strip()
-        or "unset"
-    )
-    sub_b_model = (
-        str(settings.get("local_sub_model_b", "") or "").strip()
-        or str(env.get("GUPPY_SUB_MODEL_B", "") or "").strip()
-        or str(env.get("GUPPY_LOCAL_CODE_MODEL", "") or "").strip()
-        or "unset"
-    )
-    return (
-        f"MODELS / {backend.upper()} / "
-        f"MAIN {main_model} / SUB A {sub_a_model} / SUB B {sub_b_model}"
-    )
+from .launcher_command_policy import (
+    assistant_model_id,
+    build_shell_model_loadout_summary,
+    chat_timeout_for_request,
+    derive_topbar_model_context,
+    required_local_model_for_mode,
+)
+from .launcher_assistant_event_flow import (
+    apply_chat_context as _apply_chat_context,
+    drain_assistant_events as _drain_assistant_events,
+    finish_request_ui as _finish_request_ui,
+    on_cancel_assistant_request as _on_cancel_assistant_request,
+    on_chat_context_changed as _on_chat_context_changed,
+    rotate_chat_session as _rotate_chat_session,
+)
 
 
 def handle_assistant_command(
@@ -157,7 +106,7 @@ def handle_assistant_command(
         activity_setter(f"Working on: {cmd[:96]}")
     launcher._status_panel.append_syslog("command queued")
     launcher._log_launcher_event("command_submitted", command=cmd, seq=req_seq, idempotency_key=idempotency_key)
-    request_timeout = launcher._chat_timeout_for_request(selected_mode, cmd)
+    request_timeout = chat_timeout_for_request(selected_mode, cmd)
     retry_timeout = max(request_timeout + 20.0, 60.0)
 
     def _emit_assistant_result(text: str, *, retried_after_401: bool = False) -> None:
@@ -329,3 +278,149 @@ def handle_assistant_command(
             _emit_error(err_text)
 
     thread_factory(target=_worker, daemon=True).start()
+
+
+def drain_assistant_events(owner: object, *, timer_single_shot: Callable) -> None:
+    _drain_assistant_events(owner, timer_single_shot=timer_single_shot)
+
+
+def validate_mode_ready(owner: Any, mode: str) -> tuple[bool, str]:
+    """Check whether a mode's required local model is available.
+
+    Extracted from LauncherWindow._validate_mode_ready as part of TR54-B1 Wave 6.
+    """
+    model = required_local_model_for_mode(mode)
+    if not model:
+        return True, ""
+    try:
+        from guppy_core.network_utils import check_ollama
+        ok, err = check_ollama(model)
+        if ok:
+            return True, ""
+        return False, f"{mode.upper()} mode requires local model '{model}'. {err.splitlines()[0]}"
+    except Exception:
+        return False, f"{mode.upper()} mode requires local model '{model}', but readiness could not be verified."
+
+
+def rotate_chat_session(
+    owner: Any,
+    reason: str,
+    *,
+    mode: str = "",
+    persona: str = "",
+    instance: str = "",
+    clear_live_history: bool = False,
+) -> None:
+    _rotate_chat_session(
+        owner,
+        reason,
+        mode=mode,
+        persona=persona,
+        instance=instance,
+        clear_live_history=clear_live_history,
+    )
+
+
+def apply_chat_context(owner: Any, mode: str, persona: str) -> None:
+    _apply_chat_context(owner, mode, persona)
+
+
+def on_chat_context_changed(owner: Any, mode: str, persona: str) -> None:
+    _on_chat_context_changed(owner, mode, persona)
+
+
+def finish_request_ui(owner: Any) -> None:
+    _finish_request_ui(owner)
+
+
+def on_cancel_assistant_request(owner: Any) -> None:
+    _on_cancel_assistant_request(owner)
+
+
+def initialize_embedded_agent(owner: Any, agent_id: str) -> tuple[bool, str]:
+    """Activate an embedded agent session in the assistant view.
+
+    Extracted from LauncherWindow._initialize_embedded_agent as part of TR54-B1 Wave 8.
+    """
+    aid = (agent_id or "").strip().lower()
+    if aid != "guppy":
+        return False, f"unknown agent: {agent_id}"
+    embedded_online = getattr(owner, "_embedded_online", None)
+    if embedded_online is not None:
+        embedded_online.add(aid)
+    assistant_view = getattr(owner, "_assistant_view", None)
+    if assistant_view is not None:
+        assistant_view.activate_agent(aid)
+        assistant_view.add_system_message(f"{aid.upper()} embedded session initialized.")
+    set_act = getattr(owner, "_set_daily_activity", None)
+    if callable(set_act):
+        set_act(f"Embedded {aid.upper()} session initialized")
+    return True, "embedded session active"
+
+
+def on_agent_init_requested(owner: Any, agent_id: str) -> None:
+    """Handle an agent initialisation request from the UI.
+
+    Extracted from LauncherWindow._on_agent_init_requested as part of TR54-B1 Wave 8.
+    """
+    aid = (agent_id or "").strip().lower()
+    if not aid:
+        return
+    stack = getattr(owner, "_stack", None)
+    if stack is not None:
+        stack.setCurrentIndex(0)
+    sidebar = getattr(owner, "_sidebar", None)
+    if sidebar is not None:
+        sidebar.set_active(0)
+    status_panel = getattr(owner, "_status_panel", None)
+    if status_panel is not None:
+        status_panel.append_syslog(f"init requested: {aid}")
+    owner._log_launcher_event("agent_init_requested", agent=aid)
+    ok, summary = initialize_embedded_agent(owner, aid)
+    if status_panel is not None:
+        status_panel.append_syslog(f"init {aid}: {'OK' if ok else 'ERROR'} — {summary}")
+    owner._log_launcher_event("agent_init_result", agent=aid, ok=ok, summary=summary)
+
+
+def on_model_selected(owner: Any, model: str, *, models_view_index: int) -> None:
+    """React to a model selection change from the models hub.
+
+    Extracted from LauncherWindow._on_model_selected as part of TR54-B1 Wave 8.
+    """
+    status_panel = getattr(owner, "_status_panel", None)
+    if status_panel is not None:
+        status_panel.append_syslog(f"active model -> {model}")
+    refresh = getattr(owner, "_refresh_personalization_state", None)
+    if callable(refresh):
+        refresh()
+    update_preview = getattr(owner, "_update_route_preview", None)
+    if callable(update_preview):
+        update_preview(getattr(owner, "_last_command", ""))
+    stack = getattr(owner, "_stack", None)
+    if stack is not None and stack.currentIndex() == models_view_index:
+        sync_summary = getattr(owner, "_sync_shell_model_summary", None)
+        if callable(sync_summary):
+            sync_summary(active_model=model)
+
+
+def on_runtime_settings_saved(owner: Any, settings: dict, *, models_view_index: int) -> None:
+    """React to a local runtime backend settings save.
+
+    Extracted from LauncherWindow._on_runtime_settings_saved as part of TR54-B1 Wave 8.
+    """
+    backend = str(settings.get("local_runtime_backend", "ollama") or "ollama").strip().lower() or "ollama"
+    status_panel = getattr(owner, "_status_panel", None)
+    if status_panel is not None:
+        status_panel.append_syslog(f"local runtime saved -> {backend}")
+    refresh = getattr(owner, "_refresh_personalization_state", None)
+    if callable(refresh):
+        refresh()
+    update_preview = getattr(owner, "_update_route_preview", None)
+    if callable(update_preview):
+        update_preview(getattr(owner, "_last_command", ""))
+    stack = getattr(owner, "_stack", None)
+    if stack is not None and stack.currentIndex() == models_view_index:
+        sync_summary = getattr(owner, "_sync_shell_model_summary", None)
+        if callable(sync_summary):
+            sync_summary(runtime_backend=backend)
+    owner._log_launcher_event("local_runtime_saved", backend=backend)

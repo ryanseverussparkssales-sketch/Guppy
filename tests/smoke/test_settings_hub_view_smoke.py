@@ -22,23 +22,26 @@ class SettingsHubViewSmokeTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls._app = QApplication.instance() or QApplication([])
 
-    def test_settings_hub_exposes_section_ownership_and_embeds_settings_view(self):
+    def test_settings_hub_exposes_requested_tabs_and_embeds_settings_view(self):
         settings_view = SettingsView()
         hub = SettingsHubView(settings_view, SettingsDeviceAccountsPanel(), SettingsOperationsPanel())
 
         labels = [label.text() for label in hub.findChildren(QLabel)]
+        buttons = [button.text() for button in hub.findChildren(QPushButton)]
         combined = "\n".join(text for text in labels if isinstance(text, str))
+        joined_buttons = "\n".join(text for text in buttons if isinstance(text, str))
 
-        self.assertIn("Settings Hub", combined)
-        self.assertIn("CONFIGURATION", combined)
-        self.assertIn("DIAGNOSTICS", combined)
-        self.assertIn("RECOVERY", combined)
-        self.assertIn("CONNECTORS", combined)
-        self.assertIn("SYSTEM", combined)
-        self.assertIn("TERMINAL", combined)
+        self.assertIn("Settings", combined)
+        self.assertIn("GENERAL", joined_buttons)
+        self.assertIn("CUSTOMIZATION", joined_buttons)
+        self.assertIn("PERFORMANCE", joined_buttons)
+        self.assertIn("ACCOUNTS", joined_buttons)
+        self.assertIn("PLUGINS", joined_buttons)
+        self.assertIn("BACKEND STATS", joined_buttons)
+        self.assertIn("HELP", joined_buttons)
         self.assertIs(hub._settings_view, settings_view)
 
-    def test_settings_hub_owner_buttons_emit_legacy_lane_signals(self):
+    def test_settings_hub_focus_methods_emit_legacy_lane_signals(self):
         settings_view = SettingsView()
         hub = SettingsHubView(settings_view, SettingsDeviceAccountsPanel(), SettingsOperationsPanel())
         emissions = {
@@ -55,17 +58,15 @@ class SettingsHubViewSmokeTests(unittest.TestCase):
         hub.open_system_requested.connect(lambda: emissions.__setitem__("system", emissions["system"] + 1))
         hub.open_terminal_requested.connect(lambda: emissions.__setitem__("terminal", emissions["terminal"] + 1))
 
-        buttons = [button for button in hub.findChildren(QPushButton) if button.text() == "FOCUS SECTION"]
-
-        self.assertEqual(len(buttons), 5)
-        for button in buttons:
-            button.click()
+        hub.focus_operator_logs()
+        hub.focus_terminal()
+        hub.focus_connectors()
 
         self.assertEqual(emissions["diagnostics"], 1)
-        self.assertEqual(emissions["recovery"], 1)
+        self.assertEqual(emissions["recovery"], 0)
         self.assertEqual(emissions["connectors"], 1)
-        self.assertEqual(emissions["system"], 1)
         self.assertEqual(emissions["terminal"], 1)
+        self.assertEqual(emissions["system"], 0)
 
     def test_settings_hub_focus_connectors_selects_requested_service(self):
         panel = SettingsDeviceAccountsPanel()

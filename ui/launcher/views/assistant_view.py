@@ -172,8 +172,12 @@ class AssistantView(QWidget):
         self._workspace_details_host.setVisible(self._workspace_details_expanded)
 
     def _update_starter_visibility(self) -> None:
-        self._starter_buttons_host.setVisible(self._starters_expanded and self.width() >= 920)
-        self._starters_btn.setText("HIDE STARTERS" if self._starters_expanded else "STARTERS")
+        buttons_visible = self._starters_expanded and self.width() >= 920
+        has_context = bool(self._active_context_items)
+        has_draft = hasattr(self, "_input") and bool(self._input.text().strip())
+        self._starter_buttons_host.setVisible(buttons_visible)
+        self._starter_summary.setVisible(self.width() >= 920 and (buttons_visible or has_context or has_draft))
+        self._starters_btn.setText("HIDE PROMPTS" if self._starters_expanded else "PROMPTS")
 
     def _build_empty_state(self) -> QFrame:
         frame = QFrame()

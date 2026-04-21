@@ -66,7 +66,7 @@ def build_assistant_shell(
     identity_row.addWidget(owner._identity_mode_chip)
     identity_row.addWidget(owner._identity_note, stretch=1)
     identity_row.addWidget(owner._identity_details_btn)
-    owner._purpose_lbl = QLabel("HOME - Chat with your assistant, attach sources from Library, and send one clear request at a time.")
+    owner._purpose_lbl = QLabel("HOME - Ask one clear thing. Attach Library sources only when they help.")
     owner._purpose_lbl.setObjectName("hub-purpose")
     owner._purpose_lbl.setWordWrap(True)
     owner._purpose_lbl.setStyleSheet(
@@ -458,9 +458,9 @@ def build_assistant_shell(
     starter_summary_row = QHBoxLayout()
     starter_summary_row.setSpacing(10)
     starter_summary_row.addWidget(owner._starter_summary, stretch=1)
-    owner._starters_btn = QPushButton("STARTERS")
+    owner._starters_btn = QPushButton("PROMPTS")
     owner._starters_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    owner._starters_btn.setToolTip("Show or hide ready-made starter prompts for this workspace")
+    owner._starters_btn.setToolTip("Show or hide ready-made prompt suggestions for this workspace")
     owner._starters_btn.setStyleSheet(
         f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
         f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
