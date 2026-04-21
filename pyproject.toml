@@ -1,7 +1,14 @@
-[tool.pytest.ini_options]
-pythonpath = ["."]
-testpaths = ["tests"]
-addopts = "-q"
+[project]
+name = "guppy"
+version = "0.1.0"
+description = "Guppy runtime and API"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115.0",
+  "python-jose[cryptography]>=3.3.0",
+  "python-multipart>=0.0.9",
+  "uvicorn>=0.30.0",
+]
 
 [tool.ruff]
 line-length = 100

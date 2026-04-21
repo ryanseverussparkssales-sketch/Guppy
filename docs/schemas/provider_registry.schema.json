@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guppy.local/schemas/provider_registry.schema.json",
+  "title": "Guppy Provider Registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "default_route", "providers", "routes"],
+  "properties": {
+    "version": {"type": "integer", "minimum": 1},
+    "default_route": {"type": "string", "minLength": 1},
+    "providers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "enabled", "models"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9_\\-]{2,64}$"},
+          "name": {"type": "string", "minLength": 2},
+          "enabled": {"type": "boolean"},
+          "api_base": {"type": "string", "minLength": 1},
+          "auth_env": {"type": "string", "minLength": 1},
+          "models": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "label", "enabled", "tags", "pricing"],
+              "properties": {
+                "id": {"type": "string", "minLength": 1},
+                "label": {"type": "string", "minLength": 1},
+                "enabled": {"type": "boolean"},
+                "context_window": {"type": "integer", "minimum": 1},
+                "speed_tier": {"type": "string", "enum": ["fast", "balanced", "heavy"]},
+                "tags": {
+                  "type": "array",
+                  "items": {"type": "string", "enum": ["free", "cheap", "reasoning", "teaching", "local", "vision", "voice"]}
+                },
+                "pricing": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["tier"],
+                  "properties": {
+                    "tier": {"type": "string", "enum": ["free", "cheap", "premium"]},
+                    "input_per_mtok_usd": {"type": "number", "minimum": 0},
+                    "output_per_mtok_usd": {"type": "number", "minimum": 0}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "routes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["simple", "complex", "teaching", "fallback_chain"],
+      "properties": {
+        "simple": {"type": "string", "minLength": 1},
+        "complex": {"type": "string", "minLength": 1},
+        "teaching": {"type": "string", "minLength": 1},
+        "fallback_chain": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

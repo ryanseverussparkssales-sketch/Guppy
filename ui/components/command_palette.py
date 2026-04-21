@@ -1,7 +1,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QLineEdit, QListWidget, QListWidgetItem
-from guppy_theme import SHARED
+from src.guppy.ui.theme import SHARED
 
 
 class CommandPaletteDialog(QDialog):

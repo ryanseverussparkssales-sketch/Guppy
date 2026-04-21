@@ -2,10 +2,13 @@
 # Updated 2026-04-12
 
 # ── Core UI ───────────────────────────────────────────────
-PySide6
+PySide6>=6.11.0
 
 # ── AI / LLM ──────────────────────────────────────────────
-anthropic
+anthropic>=0.86.0
+openai>=2.29.0
+google-generativeai
+mistralai
 
 # ── Voice (STT + TTS) ─────────────────────────────────────
 sounddevice
@@ -13,6 +16,10 @@ soundfile
 numpy
 faster-whisper
 kokoro
+
+# ── Security ──────────────────────────────────────────────
+cryptography>=46.0.0
+keyring>=25.0.0
 
 # ── Web / Scraping ────────────────────────────────────────
 requests
@@ -46,13 +53,5 @@ uvicorn[standard]
 python-jose[cryptography]
 httpx
 
-# ── Phase 4: Wake Word Detection (optional) ──────────────
-# Install to enable openwakeword fast path (<1% CPU).
-# Without this, wake word falls back to transcription-based detection.
-# Custom "hey guppy" model: record 10-20 samples, train with openwakeword CLI.
-openwakeword
-
-# ── Semantic Memory (optional Chroma backend) ─────────────
-# Default semantic backend uses SQLite and does not require chromadb.
-# Install chromadb only if GUPPY_SEMANTIC_BACKEND=chroma.
-chromadb
+# ── Secrets (OS credential store) ────────────────────────
+keyring

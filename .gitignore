@@ -41,17 +41,70 @@ ENV/
 *.sqlite
 *.sqlite3
 guppy_memory.db
+chroma_db/
+entities.json
+mempalace.yaml
 
 # Logs
 *.log
 debug.log
+*.pid
 runtime/*.heartbeat
 runtime/*.activity
 runtime/*.jsonl
+runtime/*.jsonl.*
+runtime/*.status
+runtime/*.cmd
+runtime/*.pid
+runtime/*.lock
+runtime/repair_token.txt
+runtime/instance_state.json
+runtime/connector_state.json
+runtime/windows_ops_state.json
+runtime/windows_release_receipt.json
+runtime/logging_health_snapshot.json
+runtime/model_runtime_snapshot.json
+runtime/provider_runtime_snapshot.json
+runtime/pilot_exit_report.json
+runtime/beta_policy_report.json
+runtime/beta_release_dry_run_report.json
+runtime/tool_schema_audit.json
+runtime/offhours_task_queue.json
+runtime/offhours_task_worker_state.json
+runtime/triage_regression_state.json
+runtime/resource_envelope.status.json
+runtime/overnight_low_compute_report.json
+runtime/overnight_low_compute_report_quick.json
+runtime/stress_run_output.txt
+runtime/logs/
+runtime/offhours_results/
+runtime/canary/*.json
+runtime/canary/*.jsonl
+runtime/canary/*.md
+runtime/hub_analysis_cache.json
+runtime/router_tuning_patch.env
+runtime/stress_report_*.json
+runtime/stress_reports/*.json
+runtime/lifecycle_*_report.json
+runtime/_validate_write_test.tmp
+runtime/diagnostics_bundle_*.json
+runtime/*.md
+runtime/*.log
+runtime/__pycache__/
+
+# Local tool/operator settings
+.claude/settings.local.json
+
+# Local secrets and auth artifacts
+gmail_credentials*.json
+*credentials*.json
+*token*.json
+*token*.txt
 
 # Temporary files
 *.tmp
 *.temp
+*.bak
 .cache/
 
 # OS

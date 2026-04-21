@@ -1,7 +1,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel
-from guppy_theme import SHARED
+from src.guppy.ui.theme import SHARED
 
 
 class IncidentBadge(QLabel):
