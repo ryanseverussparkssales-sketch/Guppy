@@ -64,7 +64,8 @@
       "Bash(.venv/Scripts/python -c \"import openai; print\\('openai', openai.__version__\\)\")",
       "Bash(.venv/Scripts/python -c \"import google.generativeai; print\\('google-generativeai ok'\\)\")",
       "Bash(.venv/Scripts/python -c \"import google.generativeai; print\\('genai ok'\\)\")",
-      "Bash(.venv/Scripts/pip show *)"
+      "Bash(.venv/Scripts/pip show *)",
+      "Bash(PYTHONPATH=. GUPPY_DEV_MODE=1 GUPPY_JWT_SECRET=dev-secret .venv/Scripts/python -c \"from src.guppy.api.server_runtime import app; print\\('backend OK'\\)\")"
     ]
   }
 }
