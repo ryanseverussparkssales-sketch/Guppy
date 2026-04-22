@@ -21,5 +21,8 @@ export default defineConfig({
   build: {
     outDir: '../static',
     emptyOutDir: true,
+    rollupOptions: {
+      input: 'index.html',
+    },
   },
 })
