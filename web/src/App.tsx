@@ -2,7 +2,7 @@ import { Routes, Route, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { AppShell } from './components/layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { ErrorToastContainer, useErrorToast } from './components/ErrorToast'
+import { ErrorToastContainer } from './components/ErrorToast'
 import AssistantView from './views/AssistantView'
 import InstancesView from './views/InstancesView'
 import LibraryView from './views/LibraryView'
@@ -14,6 +14,7 @@ import StatusView from './views/StatusView'
 import AdminPanel from './views/AdminPanel'
 import DashboardView from './views/DashboardView'
 import { useAppStore, useWorkspaceStore, syncManager } from './store'
+import { useErrorStore } from './store/errorStore'
 import api from './api/client'
 import './index.css'
 
@@ -48,7 +49,7 @@ import './index.css'
 function AppContent() {
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
-  const { toasts, dismissToast } = useErrorToast()
+  const { errors, removeError } = useErrorStore()
 
   // Initialize app data on mount
   useEffect(() => {
@@ -77,4 +78,4 @@ function AppContent() {
 
   // Listen for navigation events from sidebar/command palette
   useEffect(() => {
-    const handleNavigate = (e: CustomEvent<{ view: string }>) => {
+    const handleNavigate = (e:

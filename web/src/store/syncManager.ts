@@ -10,10 +10,12 @@
  * - Deduplicating concurrent requests
  *
  * Data flow: UI → syncManager → API → syncManager → store → UI
+ * Errors: syncManager catches errors and can report to error store for display
  */
 
 import api from '../api/client'
 import { useAppStore, ChatMessage, Conversation, Settings, Workspace, Provider } from './appStore'
+import { getErrorStore } from './errorStore'
 
 // ============= TYPES =============
 
@@ -48,6 +50,24 @@ const handleError = (error: any, defaultMessage: string): APIError => {
   } else {
     // Error in request setup
     return new APIError(-1, error.message || defaultMessage, error)
+  }
+}
+
+/**
+ * Report error to error store for display as toast
+ * Call this when you want to show an error to the user
+ * @param error - The error to report
+ * @param showToast - Whether to show this error as a toast (default: true)
+ * @param onRetry - Optional retry callback
+ */
+const reportError = (error: APIError, showToast: boolean = true, onRetry?: () => Promise<void>) => {
+  if (showToast) {
+    const errorStore = getErrorStore()
+    errorStore.updateError(
+      error.statusCode.toString(),
+      error.message,
+      onRetry
+    )
   }
 }
 
@@ -442,31 +462,4 @@ export class SyncManager {
       const response = await api.post('/api/settings/provider', { provider })
 
       store.setActiveProvider(provider)
-      store.setSettingsLoading(false)
-
-      return response.data
-    } catch (error) {
-      const apiError = handleError(error, `Failed to switch to ${provider}`)
-      store.setSyncStatus('settings', {
-        loading: false,
-        error: apiError.message,
-      })
-      throw apiError
-    }
-  }
-
-  // ============= BATCH INITIALIZATION =============
-
-  /**
-   * Initialize all data on app startup
-   * Call this once in App.tsx useEffect
-   */
-  async initializeApp() {
-    const store = useAppStore.getState()
-
-    try {
-      // Fetch workspaces first
-      const workspaces = await this.fetchWorkspaces()
-
-      // If no active workspace, use first one
-      if (!store.activeWorks
+      store.setSetting
