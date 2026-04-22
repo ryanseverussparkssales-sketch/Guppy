@@ -1,6 +1,8 @@
 import { Routes, Route, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { AppShell } from './components/layout'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { ErrorToastContainer, useErrorToast } from './components/ErrorToast'
 import AssistantView from './views/AssistantView'
 import InstancesView from './views/InstancesView'
 import LibraryView from './views/LibraryView'
@@ -11,78 +13,68 @@ import SettingsView from './views/SettingsView'
 import StatusView from './views/StatusView'
 import AdminPanel from './views/AdminPanel'
 import DashboardView from './views/DashboardView'
-import { useAppStore } from './store'
+import { useAppStore, useWorkspaceStore, syncManager } from './store'
 import api from './api/client'
 import './index.css'
 
 /**
  * App - Main application component
- * 
- * BACKEND INTEGRATION:
- * - Fetches API status on mount and every 30 seconds
- * - Status endpoint: GET /api/ (root)
- * - Navigation is handled via react-router-dom
- * - Custom events from sidebar/command palette trigger navigation
+ *
+ * INITIALIZATION FLOW:
+ * 1. On mount: Initialize app with syncManager.initializeApp()
+ *    - Fetches workspaces
+ *    - Sets active workspace (first one if not set)
+ *    - Fetches settings
+ *    - Loads conversations for active workspace
+ *
+ * 2. Data flow: store (Zustand) ← syncManager ← API
+ *    - All data fetched through syncManager
+ *    - All mutations go through syncManager
+ *    - Store is source of truth for UI
+ *
+ * 3. Error handling: ErrorBoundary catches React errors, ErrorToast shows API errors
+ *    - Unhandled React component errors → ErrorBoundary fallback UI
+ *    - API/async errors → ErrorToast notifications with retry buttons
+ *    - All errors logged to telemetry on backend
+ *
+ * 4. Navigation is handled via react-router-dom
+ *    - Custom events from sidebar/command palette trigger navigation
  */
-function App() {
-  const { setStatus } = useAppStore()
-  const navigate = useNavigate()
 
-  // Fetch API status on mount
+/**
+ * AppContent - Inner component wrapped by ErrorBoundary
+ * Separated to allow error boundary to catch initialization errors
+ */
+function AppContent() {
+  const navigate = useNavigate()
+  const { activeWorkspaceId } = useWorkspaceStore()
+  const { toasts, dismissToast } = useErrorToast()
+
+  // Initialize app data on mount
   useEffect(() => {
-    const checkStatus = async () => {
+    const initializeApp = async () => {
       try {
-        const response = await api.get('/')
-        setStatus(response.data)
+        console.log('[App] Initializing application...')
+        await syncManager.initializeApp()
+        console.log('[App] App initialization complete')
       } catch (error) {
-        console.error('Failed to fetch API status:', error)
+        console.error('[App] Failed to initialize app:', error)
+        // Don't crash - user can still navigate and try again
       }
     }
 
-    checkStatus()
-    const interval = setInterval(checkStatus, 30000)
-    return () => clearInterval(interval)
-  }, [setStatus])
+    initializeApp()
+  }, [])
+
+  // Load workspace data when active workspace changes
+  useEffect(() => {
+    if (activeWorkspaceId) {
+      syncManager
+        .loadWorkspaceData(activeWorkspaceId)
+        .catch((error) => console.error('[App] Failed to load workspace data:', error))
+    }
+  }, [activeWorkspaceId])
 
   // Listen for navigation events from sidebar/command palette
   useEffect(() => {
     const handleNavigate = (e: CustomEvent<{ view: string }>) => {
-      const viewToRoute: Record<string, string> = {
-        dashboard: '/',
-        assistant: '/assistant',
-        instances: '/instances',
-        library: '/library',
-        models: '/models',
-        tools: '/tools',
-        voices: '/voices',
-        settings: '/settings',
-        status: '/status',
-        admin: '/admin',
-      }
-      const route = viewToRoute[e.detail.view] || '/'
-      navigate(route)
-    }
-
-    window.addEventListener('guppy:navigate', handleNavigate as EventListener)
-    return () => window.removeEventListener('guppy:navigate', handleNavigate as EventListener)
-  }, [navigate])
-
-  return (
-    <AppShell>
-      <Routes>
-        <Route path="/" element={<DashboardView />} />
-        <Route path="/assistant" element={<AssistantView />} />
-        <Route path="/instances" element={<InstancesView />} />
-        <Route path="/library" element={<LibraryView />} />
-        <Route path="/models" element={<ModelsView />} />
-        <Route path="/tools" element={<ToolsView />} />
-        <Route path="/voices" element={<VoicesView />} />
-        <Route path="/settings" element={<SettingsView />} />
-        <Route path="/status" element={<StatusView />} />
-        <Route path="/admin" element={<AdminPanel />} />
-      </Routes>
-    </AppShell>
-  )
-}
-
-export default App
