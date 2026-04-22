@@ -5,6 +5,11 @@ Global QSS for the launcher shell.
 
 from . import tokens as T
 
+# Import Atoll Editorial fonts (Noto Serif, Manrope, JetBrains Mono)
+FONTS = """
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&display=swap');
+"""
+
 SHEET = f"""
 * {{
     outline: none;
@@ -27,15 +32,15 @@ QFrame {{
 QComboBox {{
     background-color: {T.SURFACE_ELEVATED};
     color: {T.TEXT};
-    border: 1px solid {T.BORDER_SOFT};
-    border-radius: 14px;
-    padding: 6px 11px;
+    border: 2px solid {T.BORDER_SOFT};
+    border-radius: 4px;
+    padding: 6px 12px;
     font-family: "{T.FF_BODY}";
     font-size: {T.FS_LABEL}pt;
-    min-height: 30px;
+    min-height: 32px;
 }}
-QComboBox:hover {{ border-color: {T.PRIMARY}; background-color: {T.SURFACE_ELEVATED_92}; }}
-QComboBox:focus {{ border-color: {T.TERTIARY}; background-color: {T.WHITE}; }}
+QComboBox:hover {{ border-color: {T.ACCENT_TEAL}; background-color: rgba(0, 0, 0, 0.03); }}
+QComboBox:focus {{ border-color: {T.ACCENT_TEAL}; background-color: {T.WHITE}; }}
 QComboBox::drop-down {{
     border: none;
     width: 22px;
@@ -59,14 +64,14 @@ QComboBox QAbstractItemView {{
 QLineEdit {{
     background-color: {T.SURFACE_ELEVATED};
     color: {T.TEXT};
-    border: 1px solid {T.BORDER_SOFT};
-    border-radius: 16px;
-    padding: 6px 11px;
+    border: 2px solid {T.BORDER_SOFT};
+    border-radius: 4px;
+    padding: 6px 12px;
     font-family: "{T.FF_BODY}";
     font-size: {T.FS_LABEL}pt;
-    min-height: 30px;
+    min-height: 32px;
 }}
-QLineEdit:focus {{ border-color: {T.TERTIARY}; background-color: {T.WHITE}; }}
+QLineEdit:focus {{ border-color: {T.ACCENT_TEAL}; background-color: {T.WHITE}; }}
 QScrollArea {{
     background: transparent;
     border: none;
@@ -87,25 +92,26 @@ QScrollBar:horizontal {{ height: 0; }}
 QPushButton {{
     background-color: {T.SURFACE_ELEVATED};
     color: {T.TEXT};
-    border: 1px solid {T.BORDER_SOFT};
-    border-radius: 16px;
-    padding: 7px 14px;
+    border: 2px solid {T.BORDER_SOFT};
+    border-radius: 4px;
+    padding: 8px 16px;
     font-family: "{T.FF_BODY}";
     font-size: {T.FS_SMALL}pt;
-    min-height: 30px;
+    min-height: 32px;
 }}
 QPushButton:hover {{
-    background-color: {T.HOVER_PRIMARY_SOFT};
-    border-color: {T.PRIMARY};
+    background-color: rgba(0, 0, 0, 0.05);
+    border-color: {T.ACCENT_TEAL};
 }}
 QPushButton:focus, QPushButton:focus-visible {{
     background-color: {T.WHITE};
-    border: 2px solid {T.TERTIARY};
-    border-radius: 16px;
-    padding: 6px 13px;
+    border: 2px solid {T.ACCENT_TEAL};
+    border-radius: 4px;
+    padding: 8px 16px;
 }}
 QPushButton:pressed {{
-    background-color: {T.HOVER_PRIMARY_MED};
+    background-color: rgba(0, 106, 106, 0.1);
+    border-color: {T.ACCENT_TEAL};
 }}
 QPushButton:disabled {{
     color: {T.BORDER};
@@ -125,8 +131,8 @@ QCheckBox::indicator {{
     border-radius: 7px;
 }}
 QCheckBox::indicator:checked {{
-    background-color: {T.PRIMARY};
-    border-color: {T.PRIMARY};
+    background-color: {T.ACCENT_TEAL};
+    border-color: {T.ACCENT_TEAL};
 }}
 QSplitter::handle {{
     background-color: {T.BORDER_MID_35};
