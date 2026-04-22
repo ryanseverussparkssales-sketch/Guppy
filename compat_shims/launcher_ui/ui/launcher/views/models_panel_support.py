@@ -110,19 +110,19 @@ class _ModelCard(QFrame):
         self._apply_card_style()
 
     def _apply_card_style(self) -> None:
-        border = T.PRIMARY if self._is_recommended else T.BORDER
+        border = T.ACCENT_ORANGE if self._is_recommended else T.BORDER_SOFT
         background = T.BG0 if self._is_recommended else T.BG1
         self.setStyleSheet(
-            f"QFrame#model_card {{ background-color: {background}; border: 1px solid {border}; }}"
+            f"QFrame#model_card {{ background-color: {background}; border: 1px solid {border}; border-radius: 4px; }}"
         )
         badge_text = f"{self._tier} PICK" if self._is_recommended else self._tier
-        badge_color = T.PRIMARY if self._tier == "LOCAL" else T.SECONDARY
-        badge_border = T.PRIMARY if self._is_recommended else badge_color
+        badge_color = T.ACCENT_TEAL if self._tier == "LOCAL" else T.ACCENT_ORANGE
+        badge_border = T.ACCENT_ORANGE if self._is_recommended else badge_color
         badge_fill = T.BG0 if self._is_recommended else "transparent"
         self._badge_lbl.setText(badge_text)
         self._badge_lbl.setStyleSheet(
             f"color: {badge_border}; background: {badge_fill}; font-family: '{T.FF_MONO}'; "
-            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px; padding: 1px 4px; border: 1px solid {badge_border};"
+            f"font-size: {T.FS_TINY}pt; letter-spacing: 1px; padding: 1px 4px; border: 1px solid {badge_border}; border-radius: 3px;"
         )
         self._name_lbl.setStyleSheet(
             f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_LABEL}pt; "
@@ -132,17 +132,17 @@ class _ModelCard(QFrame):
             f"color: {T.TEXT}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; "
             f"font-weight: {'bold' if self._is_recommended else 'normal'};"
         )
-        status_color = T.PRIMARY if self._is_active else T.GREEN
+        status_color = T.ACCENT_ORANGE if self._is_active else T.STATUS_SUCCESS
         self._status_lbl.setStyleSheet(
             f"color: {status_color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
-        button_border = T.PRIMARY if self._is_recommended else T.BORDER
+        button_border = T.ACCENT_ORANGE if self._is_recommended else T.BORDER_SOFT
         button_bg = T.BG0 if self._is_recommended else T.BG1
-        button_color = T.PRIMARY if self._is_recommended else T.TEXT
+        button_color = T.ACCENT_ORANGE if self._is_recommended else T.TEXT
         self._set_btn.setStyleSheet(
-            f"QPushButton {{ background-color: {button_bg}; color: {button_color}; border: 1px solid {button_border}; "
+            f"QPushButton {{ background-color: {button_bg}; color: {button_color}; border: 1px solid {button_border}; border-radius: 4px;"
             f"padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:disabled {{ color: {T.DIM}; border-color: {T.BORDER}; }}"
+            f"QPushButton:disabled {{ color: {T.DIM}; border-color: {T.BORDER_SOFT}; }}"
         )
 
     def set_recommended(self, recommended: bool) -> None:

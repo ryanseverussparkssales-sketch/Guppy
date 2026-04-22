@@ -83,13 +83,13 @@ class LibraryView(QWidget):
         title_row = QHBoxLayout()
         title = QLabel("Library")
         title.setStyleSheet(
-            f"color: {T.INK}; font-family: '{T.FF_HEAD}'; font-size: 28pt; font-weight: 700;"
+            f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: 28pt; font-weight: 700;"
         )
         title_row.addWidget(title)
         title_row.addStretch()
         self._workspace_chip = QLabel("DAILY WORKSPACE")
         self._workspace_chip.setStyleSheet(
-            f"color: {T.SECONDARY}; background: rgba(47,111,122,0.10); border: 1px solid rgba(214,197,174,0.40);"
+            f"color: {T.ACCENT_TEAL}; background: rgba(0,106,106,0.10); border: 1px solid rgba(0,106,106,0.30);"
             f" border-radius: 14px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
         title_row.addWidget(self._workspace_chip)
@@ -106,7 +106,7 @@ class LibraryView(QWidget):
         self._summary_lbl = _body("")
         header_layout.addWidget(self._summary_lbl)
 
-        self._roots_lbl = _body("", color=T.SECONDARY, size=T.FS_TINY)
+        self._roots_lbl = _body("", color=T.ACCENT_ORANGE, size=T.FS_TINY)
         header_layout.addWidget(self._roots_lbl)
 
         self._search = QLineEdit()
@@ -126,7 +126,7 @@ class LibraryView(QWidget):
         manager_layout = QVBoxLayout(manager)
         manager_layout.setContentsMargins(16, 14, 16, 14)
         manager_layout.setSpacing(10)
-        manager_layout.addWidget(_mono("MANAGE LIBRARY", T.PRIMARY, T.FS_TINY, True))
+        manager_layout.addWidget(_mono("MANAGE LIBRARY", T.ACCENT_TEAL, T.FS_TINY, True))
 
         root_row = QHBoxLayout()
         root_row.setSpacing(8)
@@ -617,4 +617,3 @@ class LibraryView(QWidget):
             "study": self._current_source_summary("study", self._state.study_summary),
             "coding": self._current_source_summary("coding", self._state.coding_summary),
         }
-

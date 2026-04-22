@@ -195,9 +195,9 @@ def set_route_preview(
 
 def set_background_status(owner, text: str, healthy: bool = True) -> None:
     msg = (text or "ready").strip() or "ready"
-    color = T.GREEN if healthy else T.ERROR
-    background = "rgba(90,196,122,0.08)" if healthy else "rgba(226,92,92,0.08)"
-    border = "rgba(90,196,122,0.24)" if healthy else "rgba(226,92,92,0.24)"
+    color = T.STATUS_SUCCESS if healthy else T.STATUS_ERROR
+    background = "rgba(0,200,83,0.10)" if healthy else "rgba(255,61,0,0.10)"
+    border = "rgba(0,200,83,0.24)" if healthy else "rgba(255,61,0,0.24)"
     owner._background_chip.setText(msg.upper())
     owner._background_chip.setStyleSheet(
         f"color: {color}; background-color: {background}; border: 1px solid {border};"
@@ -239,7 +239,7 @@ def set_runtime_facts(
 
 def set_recovery_summary(owner, text: str, healthy: bool = True) -> None:
     summary = (text or "stable").strip() or "stable"
-    color = T.GREEN if healthy else T.ERROR
+    color = T.STATUS_SUCCESS if healthy else T.STATUS_ERROR
     prefix = "System health" if healthy else "Needs attention"
     owner._recovery_summary.setText(f"{prefix}: {summary}")
     show_operator_details = getattr(owner, "_home_operator_details_enabled", True)
@@ -247,7 +247,7 @@ def set_recovery_summary(owner, text: str, healthy: bool = True) -> None:
     if not healthy and show_operator_details:
         owner._context_details_visible = True
     owner._entry_hint.setStyleSheet(
-        f"color: {T.PRIMARY if healthy else T.ERROR}; font-family: '{T.FF_MONO}';"
+        f"color: {T.ACCENT_TEAL if healthy else T.STATUS_ERROR}; font-family: '{T.FF_MONO}';"
         f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
     )
     owner._recovery_summary.setStyleSheet(

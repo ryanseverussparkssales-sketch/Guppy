@@ -27,13 +27,13 @@ def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = Fa
 def _tab_button_style(active: bool) -> str:
     if active:
         return (
-            f"QPushButton {{ background: {T.INK}; color: {T.BG}; border: 1px solid {T.INK}; "
-            f"border-radius: 12px; padding: 8px 12px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+            f"QPushButton {{ background: {T.ACCENT_TEAL}; color: {T.BG}; border: 1px solid {T.ACCENT_TEAL}; "
+            f"border-radius: 4px; padding: 8px 12px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
         )
     return (
-        f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER}; "
-        f"border-radius: 12px; padding: 8px 12px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-        f"QPushButton:hover {{ color: {T.PRIMARY}; border-color: {T.PRIMARY}; }}"
+        f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER_SOFT}; "
+        f"border-radius: 4px; padding: 8px 12px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
+        f"QPushButton:hover {{ color: {T.ACCENT_TEAL}; border-color: {T.ACCENT_TEAL}; }}"
     )
 
 
@@ -45,20 +45,20 @@ class _SettingsInfoPage(QWidget):
         layout.setSpacing(_OUTER_SPACING)
 
         frame = QFrame()
-        frame.setStyleSheet(f"QFrame {{ background: {T.BG0}; border: 1px solid {T.BORDER}; border-radius: {_CARD_RADIUS}px; }}")
+        frame.setStyleSheet(f"QFrame {{ background: {T.BG0}; border: 1px solid {T.BORDER_SOFT}; border-radius: 4px; }}")
         frame.setMinimumHeight(180)
         frame_layout = QVBoxLayout(frame)
         frame_layout.setContentsMargins(18, 14, 18, 14)
         frame_layout.setSpacing(10)
-        frame_layout.addWidget(_mono(heading, T.PRIMARY, T.FS_TINY, True))
+        frame_layout.addWidget(_mono(heading, T.ACCENT_TEAL, T.FS_TINY, True))
         frame_layout.addWidget(_mono(detail, T.TEXT, T.FS_SMALL))
         chips_row = QHBoxLayout()
         chips_row.setSpacing(8)
         for chip in chips:
             badge = QLabel(chip.upper())
             badge.setStyleSheet(
-                f"color: {T.DIM}; background: {T.SURFACE_ELEVATED_92}; border: 1px solid {T.BORDER};"
-                f" border-radius: 10px; padding: 4px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+                f"color: {T.DIM}; background: {T.SURFACE_ELEVATED_92}; border: 1px solid {T.BORDER_SOFT};"
+                f" border-radius: 4px; padding: 4px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
             )
             chips_row.addWidget(badge)
         chips_row.addStretch(1)
@@ -197,7 +197,7 @@ class SettingsHubView(QWidget):
         outer.addLayout(tabs_row)
 
         content_frame = QFrame()
-        content_frame.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER}; border-radius: {_CARD_RADIUS + 2}px; }}")
+        content_frame.setStyleSheet(f"QFrame {{ background: {T.BG1}; border: 1px solid {T.BORDER_SOFT}; border-radius: 4px; }}")
         content_frame.setMinimumHeight(520)
         content_layout = QVBoxLayout(content_frame)
         content_layout.setContentsMargins(22, 18, 22, 20)

@@ -3,13 +3,13 @@ ui/launcher/tokens.py
 Launcher design tokens for the calm productivity shell.
 """
 
-# Color palette
-PRIMARY = "#c96a2b"
-PRIMARY_DIM = "#a85720"
-SECONDARY = "#2f6f7a"
+# Color palette (Stitch/Atoll Editorial System)
+PRIMARY = "#FF6D00"  # Sunset Orange (Atoll)
+PRIMARY_DIM = "#CC5600"
+SECONDARY = "#006A6A"  # Atoll Turquoise
 TERTIARY = "#4662c7"
-ERROR = "#b74942"
-GREEN = "#2c7b59"
+ERROR = "#FF3D00"  # Status error
+GREEN = "#00C853"  # Status success
 
 BG = "#f4efe7"
 BG0 = "#fffdf8"
@@ -18,8 +18,8 @@ BG2 = "#e5d8c6"
 BG3 = "#d5c4ae"
 BG4 = "#18202a"
 
-TEXT = "#1f252d"
-DIM = "#5f574f"
+TEXT = "#1B1C19"  # Deep Charcoal (Atoll)
+DIM = "rgba(27, 28, 25, 0.60)"  # Muted text (60% opacity)
 BORDER = "#d6c5ae"
 
 ART_RED = "#ff6d43"
@@ -85,24 +85,30 @@ HOVER_TERTIARY_MED = "rgba(70,98,199,0.46)"
 HOVER_PRIMARY_SOFT = "rgba(201,106,43,0.08)"
 HOVER_PRIMARY_MED = "rgba(201,106,43,0.14)"
 
-# Accent system (turquoise + sunset orange — aligns with existing primary/secondary)
-ACCENT_TEAL = "#2f6f7a"
-ACCENT_ORANGE = "#c96a2b"
-ACCENT_GLOW = "#e8935a"
-ACCENT_TEAL_TEXT = "#295963"
-ACCENT_ORANGE_TEXT = "#8f4c20"
+# Accent system (Atoll Editorial — Turquoise + Sunset Orange)
+ACCENT_TEAL = "#006A6A"  # Atoll Turquoise (primary accent)
+ACCENT_TEAL_BRIGHT = "#08BDBD"  # Bright turquoise variant
+ACCENT_ORANGE = "#FF6D00"  # Sunset Orange (secondary accent)
+ACCENT_GLOW = "#FF8C42"  # Warm glow variant
+ACCENT_TEAL_TEXT = "#006A6A"  # Turquoise text
+ACCENT_ORANGE_TEXT = "#CC5600"  # Orange text
 
-# Gradient definitions for QSS use
-GRADIENT_SUNSET = "qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #2f6f7a,stop:1 #c96a2b)"
-GRADIENT_SAND = "qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #FBF9F4,stop:1 #EDE9E1)"
+# Status indicators (Atoll Editorial)
+STATUS_SUCCESS = "#00C853"  # Green
+STATUS_WARNING = "#FFD600"  # Amber/Yellow
+STATUS_ERROR = "#FF3D00"  # Red
 
-# Typography — add serif headline pairing
-FONT_SERIF = "Georgia"
+# Gradient definitions for QSS use (Stitch)
+GRADIENT_SUNSET = "qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #006A6A,stop:1 #FF6D00)"
+GRADIENT_SAND = "qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #FBF9F4,stop:1 #F5F3EE)"
+
+# Typography (Atoll Editorial Design System)
+FONT_SERIF = "Noto Serif"  # Editorial serif (headings, branding)
 
 # Typography
-FF_HEAD = "Cambria"
-FF_MONO = "Cascadia Mono"
-FF_BODY = "Bahnschrift"
+FF_HEAD = "Noto Serif"  # Headings (editorial feel)
+FF_MONO = "JetBrains Mono"  # Code/metrics/data display
+FF_BODY = "Manrope"  # Body/interface text (clean geometric sans)
 
 FS_TINY = 8
 FS_SMALL = 9

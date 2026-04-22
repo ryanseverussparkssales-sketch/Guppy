@@ -86,7 +86,7 @@ class StatusPanel(QFrame):
         title_row = QHBoxLayout()
         title = QLabel("WORKSPACE")
         title.setStyleSheet(
-            f"color: {T.INK}; font-family: '{T.FF_HEAD}';"
+            f"color: {T.ACCENT_TEAL}; font-family: '{T.FF_HEAD}';"
             f"font-size: {T.FS_TITLE}pt; font-weight: bold;"
         )
         title_row.addWidget(title)
@@ -99,14 +99,14 @@ class StatusPanel(QFrame):
         self._extras_btn.setStyleSheet(
             f"QPushButton {{ background: {T.SURFACE_ELEVATED_92}; color: {T.DIM}; border: 1px solid {T.BORDER_SOFT_60};"
             f" border-radius: 14px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: {T.HOVER_TERTIARY_MED}; color: {T.TERTIARY}; background: {T.WHITE}; }}"
+            f"QPushButton:hover {{ border-color: {T.ACCENT_TEAL}; color: {T.ACCENT_TEAL}; background: {T.WHITE}; }}"
         )
         self._extras_btn.clicked.connect(self._toggle_extras)
         title_row.addWidget(self._extras_btn)
         outer.addLayout(title_row)
 
         self._workspace_lbl = _mono("GUPPY-PRIMARY / DAILY", T.TEXT, T.FS_TINY, True)
-        self._tray_status_lbl = _mono("READY", T.GREEN, T.FS_TINY, True)
+        self._tray_status_lbl = _mono("READY", T.STATUS_SUCCESS, T.FS_TINY, True)
         self._activity_lbl = _mono("Latest: Workspace ready", T.DIM, T.FS_TINY)
         self._activity_lbl.setWordWrap(True)
         self._activity_lbl.setStyleSheet(
@@ -128,7 +128,7 @@ class StatusPanel(QFrame):
         tools_layout = QVBoxLayout(tools_frame)
         tools_layout.setContentsMargins(10, 10, 10, 8)
         tools_layout.setSpacing(6)
-        tools_layout.addWidget(_mono("UTILITIES", T.PRIMARY_DIM, T.FS_TINY, True))
+        tools_layout.addWidget(_mono("UTILITIES", T.ACCENT_TEAL, T.FS_TINY, True))
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -173,7 +173,7 @@ class StatusPanel(QFrame):
         spaces_layout.setSpacing(6)
 
         spaces_head = QHBoxLayout()
-        spaces_head.addWidget(_mono("MORE ACTIONS", T.PRIMARY_DIM, T.FS_TINY, True))
+        spaces_head.addWidget(_mono("MORE ACTIONS", T.ACCENT_TEAL, T.FS_TINY, True))
         spaces_head.addStretch()
         spaces_head.addWidget(_mono("WRITE / CODE / SHELL", T.DIM, T.FS_TINY))
         spaces_layout.addLayout(spaces_head)
@@ -226,7 +226,7 @@ class StatusPanel(QFrame):
         media_layout.setSpacing(8)
 
         media_top = QHBoxLayout()
-        media_top.addWidget(_mono("OPTIONAL SPACES", T.PRIMARY_DIM, T.FS_TINY, True))
+        media_top.addWidget(_mono("OPTIONAL SPACES", T.ACCENT_TEAL, T.FS_TINY, True))
         media_top.addStretch()
         media_top.addWidget(_mono("MEDIA / FOLLOW-UP", T.DIM, T.FS_TINY))
         media_layout.addLayout(media_top)
@@ -240,16 +240,16 @@ class StatusPanel(QFrame):
         art_layout = QVBoxLayout(artwork)
         art_layout.setContentsMargins(14, 10, 14, 10)
         art_layout.setSpacing(5)
-        optional_lbl = _mono("OPTIONAL", T.INK, T.FS_TINY, True)
+        optional_lbl = _mono("OPTIONAL", T.ACCENT_TEAL, T.FS_TINY, True)
         optional_lbl.setStyleSheet(
-            f"color: {T.INK}; background-color: {T.SURFACE_ELEVATED_92};"
+            f"color: {T.ACCENT_TEAL}; background-color: {T.SURFACE_ELEVATED_92};"
             f" border-radius: 9px; padding: 2px 8px; font-family: '{T.FF_MONO}';"
             f" font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
         )
         art_layout.addWidget(optional_lbl)
         self._media_title_lbl = QLabel("Keep the daily path light")
         self._media_title_lbl.setStyleSheet(
-            f"color: {T.INK}; background-color: {T.SURFACE_ELEVATED_92};"
+            f"color: {T.ACCENT_TEAL}; background-color: {T.SURFACE_ELEVATED_92};"
             f" border-radius: 12px; padding: 3px 8px; font-family: '{T.FF_HEAD}';"
             " font-size: 15pt; font-weight: bold;"
         )
@@ -268,7 +268,7 @@ class StatusPanel(QFrame):
         art_layout.addWidget(self._media_subtitle_lbl)
         art_gesture = QLabel("// calm / focus / context")
         art_gesture.setStyleSheet(
-            f"color: {T.INK}; background-color: {T.SURFACE_ELEVATED_88};"
+            f"color: {T.ACCENT_TEAL}; background-color: {T.SURFACE_ELEVATED_88};"
             f" border-radius: 9px; padding: 2px 8px; font-family: '{T.FF_MONO}'; font-size: 9pt; letter-spacing: 2px;"
         )
         art_layout.addWidget(art_gesture)
@@ -301,7 +301,7 @@ class StatusPanel(QFrame):
             return (
                 f"QPushButton {{ background: {T.SURFACE_ELEVATED_92}; color: {T.TEXT}; border: 1px solid {T.BORDER_MID_30};"
                 f" border-radius: 15px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; font-weight: bold; }}"
-                f"QPushButton:hover {{ border-color: {T.HOVER_TERTIARY_MED}; color: {T.PRIMARY}; background: {T.WHITE}; }}"
+                f"QPushButton:hover {{ border-color: {T.ACCENT_TEAL}; color: {T.ACCENT_TEAL}; background: {T.WHITE}; }}"
             )
         return (
             "QPushButton {"
@@ -317,7 +317,7 @@ class StatusPanel(QFrame):
         return (
             f"QPushButton {{ background: {T.SURFACE_ELEVATED_92}; color: {T.TEXT}; border: 1px solid {T.BORDER_MID_30};"
             f" border-radius: 14px; padding: 0 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: {T.HOVER_TERTIARY_MED}; color: {T.PRIMARY}; background: {T.WHITE}; }}"
+            f"QPushButton:hover {{ border-color: {T.ACCENT_TEAL}; color: {T.ACCENT_TEAL}; background: {T.WHITE}; }}"
         )
 
     def set_workspace(self, name: str, workspace_type: str = "") -> None:
@@ -372,7 +372,7 @@ class StatusPanel(QFrame):
 
     def set_recovery_outcome(self, action: str, ok: bool, summary: str) -> None:
         state = "OK" if ok else "ERROR"
-        color = T.GREEN if ok else T.ERROR
+        color = T.STATUS_SUCCESS if ok else T.STATUS_ERROR
         message = f"Latest: {action.upper()} {state}"
         if summary:
             message = f"{message} / {summary}"

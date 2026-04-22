@@ -288,25 +288,25 @@ class InstanceManagerView(QWidget):
         if state.warning_text:
             self._status_lbl.setText(state.warning_text)
             self._status_lbl.setStyleSheet(
-                f"color: {T.ERROR}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+                f"color: {T.STATUS_WARNING}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
             )
 
     def set_status(self, text: str, ok: bool = True) -> None:
-        color = T.GREEN if ok else T.ERROR
+        color = T.STATUS_SUCCESS if ok else T.STATUS_ERROR
         self._status_lbl.setText(text)
         self._status_lbl.setStyleSheet(
             f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
 
     def set_governance_status(self, text: str, ok: bool = True) -> None:
-        color = T.GREEN if ok else T.ERROR
+        color = T.STATUS_SUCCESS if ok else T.STATUS_ERROR
         self._governance_status.setText(text)
         self._governance_status.setStyleSheet(
             f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
 
     def set_connector_binding_status(self, text: str, ok: bool = True) -> None:
-        color = T.GREEN if ok else T.ERROR
+        color = T.STATUS_SUCCESS if ok else T.STATUS_ERROR
         self._connector_status.setText(text)
         self._connector_status.setStyleSheet(
             f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
@@ -351,8 +351,8 @@ class InstanceManagerView(QWidget):
             empty_card.setWordWrap(True)
             empty_card.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
             empty_card.setStyleSheet(
-                f"color: {T.DIM}; background-color: {T.BG1}; border: 1px dashed {T.BORDER};"
-                f" padding: 14px; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
+                f"color: {T.DIM}; background-color: {T.BG1}; border: 1px solid {T.BORDER_SOFT};"
+                f" border-radius: 4px; padding: 14px; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
             )
             self._cards_layout.addWidget(empty_card)
 

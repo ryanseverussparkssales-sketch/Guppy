@@ -62,14 +62,14 @@ def build_library_layout(owner) -> None:
     title_row = QHBoxLayout()
     title = QLabel("Library")
     title.setStyleSheet(
-        f"color: {T.INK}; font-family: '{T.FF_HEAD}'; font-size: 28pt; font-weight: 700;"
+        f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: 28pt; font-weight: 700;"
     )
     title_row.addWidget(title)
     title_row.addStretch()
     owner._workspace_chip = QLabel("DAILY WORKSPACE")
     owner._workspace_chip.setStyleSheet(
-        f"color: {T.SECONDARY}; background: rgba(47,111,122,0.10); border: 1px solid rgba(214,197,174,0.40);"
-        f" border-radius: 14px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        f"color: {T.ACCENT_ORANGE}; background: rgba(255,109,0,0.10); border: 1px solid rgba(255,109,0,0.30);"
+        f" border-radius: 4px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
     )
     title_row.addWidget(owner._workspace_chip)
     header_layout.addLayout(title_row)
@@ -85,7 +85,7 @@ def build_library_layout(owner) -> None:
     owner._summary_lbl = _body("")
     header_layout.addWidget(owner._summary_lbl)
 
-    owner._roots_lbl = _body("", color=T.SECONDARY, size=T.FS_TINY)
+    owner._roots_lbl = _body("", color=T.ACCENT_ORANGE, size=T.FS_TINY)
     header_layout.addWidget(owner._roots_lbl)
 
     owner._search = QLineEdit()

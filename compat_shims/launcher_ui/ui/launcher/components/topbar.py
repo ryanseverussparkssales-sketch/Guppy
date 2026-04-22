@@ -89,7 +89,7 @@ class TopBar(QFrame):
         brand_col.setSpacing(1)
         title = QLabel("Editorial\nIntelligence")
         title.setStyleSheet(
-            f"color: {T.PRIMARY}; font-family: '{T.FONT_SERIF}'; font-size: {T.FS_TITLE + 2}pt;"
+            f"color: {T.ACCENT_TEAL}; font-family: '{T.FONT_SERIF}'; font-size: {T.FS_TITLE + 2}pt;"
             " font-style: italic; font-weight: 600; letter-spacing: 0px;"
         )
         self._brand_title = title
@@ -286,15 +286,15 @@ class TopBar(QFrame):
 
     def _apply_runtime_chip_style(self, severity: str) -> None:
         palette = {
-            "ok": (T.GREEN, "rgba(44,123,89,0.12)"),
-            "warn": (T.SECONDARY, "rgba(255,109,0,0.12)"),
-            "error": (T.ERROR, "rgba(183,73,66,0.12)"),
-            "info": (T.PRIMARY, "rgba(0,106,106,0.10)"),
+            "ok": (T.STATUS_SUCCESS, "rgba(0,200,83,0.12)"),
+            "warn": (T.STATUS_WARNING, "rgba(255,214,0,0.12)"),
+            "error": (T.STATUS_ERROR, "rgba(255,61,0,0.12)"),
+            "info": (T.ACCENT_TEAL, "rgba(0,106,106,0.10)"),
         }
         text_color, bg_color = palette.get((severity or "info").strip().lower(), palette["info"])
         self._runtime_chip.setStyleSheet(
             f"color: {text_color}; background-color: {bg_color};"
-            f" border: 1px solid {T.BORDER_SOFT_68}; border-radius: 13px;"
+            f" border: 1px solid {T.BORDER_SOFT_68}; border-radius: 8px;"
             f" padding: 0 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: 700;"
         )
 
@@ -302,23 +302,23 @@ class TopBar(QFrame):
     def _nav_style(active: bool) -> str:
         if active:
             return (
-                f"QPushButton {{ background-color: transparent; color: {T.PRIMARY}; border: none;"
-                f" border-bottom: 2px solid {T.PRIMARY}; border-radius: 0px;"
-                f" padding: 0 8px; font-family: '{T.FONT_SERIF}'; font-size: {T.FS_SMALL}pt; font-weight: 700; }}"
+                f"QPushButton {{ background-color: transparent; color: {T.ACCENT_TEAL}; border: none;"
+                f" border-bottom: 3px solid {T.ACCENT_TEAL}; border-radius: 0px;"
+                f" padding: 0 8px; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; font-weight: 600; }}"
             )
         return (
-            f"QPushButton {{ background-color: transparent; color: {T.TEXT_DIM_78}; border: none;"
+            f"QPushButton {{ background-color: transparent; color: {T.DIM}; border: none;"
             f" border-bottom: 2px solid transparent; border-radius: 0px;"
-            f" padding: 0 8px; font-family: '{T.FONT_SERIF}'; font-size: {T.FS_SMALL}pt; font-weight: 500; }}"
-            f"QPushButton:hover {{ color: {T.TEXT}; border-bottom-color: {T.BORDER_SOFT_60}; }}"
+            f" padding: 0 8px; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; font-weight: 500; }}"
+            f"QPushButton:hover {{ color: {T.TEXT}; border-bottom-color: {T.ACCENT_TEAL}; }}"
         )
 
     @staticmethod
     def _icon_button_style(bg: str, color: str) -> str:
         return (
-            f"QPushButton {{ background-color: {bg}; color: {color}; border: 1px solid {T.BORDER_SOFT_72};"
-            f" border-radius: 12px; font-family: '{T.FF_BODY}'; font-size: {T.FS_TINY}pt; font-weight: 700; }}"
-            f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; background-color: {T.WHITE}; }}"
+            f"QPushButton {{ background-color: {bg}; color: {color}; border: 2px solid {T.BORDER_SOFT};"
+            f" border-radius: 4px; font-family: '{T.FF_BODY}'; font-size: {T.FS_TINY}pt; font-weight: 600; }}"
+            f"QPushButton:hover {{ border-color: {T.ACCENT_TEAL}; color: {T.ACCENT_TEAL}; background-color: rgba(0,0,0,0.03); }}"
         )
 
     def _on_nav(self, tab_index: int) -> None:
@@ -390,13 +390,13 @@ class TopBar(QFrame):
 
     def _apply_notif_style(self) -> None:
         btn_color = T.TEXT
-        badge_color = T.TERTIARY
+        badge_color = T.ACCENT_TEAL
         if self._notif_severity == "error":
-            btn_color = T.ERROR
-            badge_color = T.ERROR
+            btn_color = T.STATUS_ERROR
+            badge_color = T.STATUS_ERROR
         elif self._notif_severity == "warn":
-            btn_color = T.PRIMARY
-            badge_color = T.PRIMARY
+            btn_color = T.ACCENT_ORANGE
+            badge_color = T.ACCENT_ORANGE
 
         self._notif_btn.setStyleSheet(self._icon_button_style(T.BG0, btn_color))
         if self._notif_count <= 0:

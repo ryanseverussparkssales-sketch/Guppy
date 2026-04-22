@@ -53,8 +53,8 @@ def rebuild_root_cards(owner) -> None:
         header = QHBoxLayout()
         header.setSpacing(8)
         if is_selected:
-            header.addWidget(_mono("ACTIVE ROOT", T.TERTIARY, T.FS_TINY, True))
-        header.addWidget(_mono(str(root.get("label", "") or "Approved root"), T.PRIMARY, T.FS_TINY, True))
+            header.addWidget(_mono("ACTIVE ROOT", T.ACCENT_TEAL, T.FS_TINY, True))
+        header.addWidget(_mono(str(root.get("label", "") or "Approved root"), T.ACCENT_ORANGE, T.FS_TINY, True))
         header.addStretch()
         browse_btn = _action_button("BROWSE")
         browse_btn.clicked.connect(lambda _=False, path=root_path: owner._browse_root(path))
@@ -62,7 +62,7 @@ def rebuild_root_cards(owner) -> None:
         layout.addLayout(header)
         layout.addWidget(_body(str(root.get("detail", "") or "")))
         if is_selected:
-            layout.addWidget(_body("This is the current folder Guppy will browse for the file lane below.", color=T.TERTIARY))
+            layout.addWidget(_body("This is the current folder Guppy will browse for the file lane below.", color=T.ACCENT_TEAL))
         owner._roots_layout.addWidget(card)
 
 
@@ -81,7 +81,7 @@ def _rebuild_context_cards(owner, *, cards: list[dict[str, str]], target_layout,
         layout.setSpacing(8)
         top = QHBoxLayout()
         top.setSpacing(8)
-        top.addWidget(_mono(str(card_state.get("kind", "file") or "file").upper(), T.SECONDARY, T.FS_TINY, True))
+        top.addWidget(_mono(str(card_state.get("kind", "file") or "file").upper(), T.ACCENT_ORANGE, T.FS_TINY, True))
         top.addStretch()
         action = _action_button(str(card_state.get("action_label", "USE IN CHAT") or "USE IN CHAT"))
         title = str(card_state.get("title", "") or "").strip()
@@ -99,11 +99,11 @@ def _rebuild_context_cards(owner, *, cards: list[dict[str, str]], target_layout,
         title_lbl = QLabel(title)
         title_lbl.setWordWrap(True)
         title_lbl.setStyleSheet(
-            f"color: {T.INK}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_LABEL}pt; font-weight: 700;"
+            f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_LABEL}pt; font-weight: 700;"
         )
         layout.addWidget(title_lbl)
         layout.addWidget(_body(detail, color=T.DIM))
-        layout.addWidget(_body(action_help, color=T.TERTIARY))
+        layout.addWidget(_body(action_help, color=T.ACCENT_TEAL))
         target_layout.addWidget(card)
 
 

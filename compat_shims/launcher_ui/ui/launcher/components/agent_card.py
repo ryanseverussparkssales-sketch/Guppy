@@ -24,7 +24,7 @@ class AgentCard(QFrame):
     def __init__(
         self,
         name: str,
-        accent: str = T.PRIMARY,
+        accent: str = T.ACCENT_ORANGE,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -104,7 +104,7 @@ class AgentCard(QFrame):
         self._btn_init.setToolTip(f"Start embedded {name} session.")
         self._btn_init.clicked.connect(lambda: self.init_requested.emit(self._name.lower()))
         self._btn_init.setStyleSheet(
-            f"color: {T.ERROR}; border: 1px solid {T.ERROR};"
+            f"color: {T.STATUS_ERROR}; border: 1px solid {T.STATUS_ERROR}; border-radius: 3px;"
             f"font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; padding: 3px 10px;"
         )
 
@@ -128,7 +128,7 @@ class AgentCard(QFrame):
         if online:
             self._badge.setText("● READY")
             self._badge.setStyleSheet(
-                f"color: {T.GREEN}; font-family: '{T.FF_MONO}';"
+                f"color: {T.STATUS_SUCCESS}; font-family: '{T.FF_MONO}';"
                 f"font-size: {T.FS_SMALL}pt; letter-spacing: 1px;"
             )
             self._load_label_lbl.setVisible(True)
@@ -140,7 +140,7 @@ class AgentCard(QFrame):
         else:
             self._badge.setText("● OFFLINE")
             self._badge.setStyleSheet(
-                f"color: {T.ERROR}; font-family: '{T.FF_MONO}';"
+                f"color: {T.STATUS_ERROR}; font-family: '{T.FF_MONO}';"
                 f"font-size: {T.FS_SMALL}pt; letter-spacing: 1px;"
             )
             self._load_label_lbl.setVisible(False)
