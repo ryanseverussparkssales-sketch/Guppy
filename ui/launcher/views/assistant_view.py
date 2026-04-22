@@ -1,4 +1,4 @@
-﻿"""
+"""
 ui/launcher/views/assistant_view.py
 Home chat surface with a calmer, messenger-style launcher layout.
 """
@@ -207,7 +207,7 @@ class AssistantView(QWidget):
         self._empty_state_recipe_lbl.setWordWrap(True)
         self._empty_state_recipe_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self._empty_state_recipe_lbl.setStyleSheet(
-            f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+            f"color: {T.ACCENT_TEAL}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
         layout.addWidget(self._empty_state_recipe_lbl)
         return frame
@@ -608,9 +608,9 @@ class AssistantView(QWidget):
 
     @staticmethod
     def _starter_button_style(primary: bool = False) -> str:
-        border = T.PRIMARY if primary else T.BORDER
-        color = T.PRIMARY if primary else T.TEXT
-        background = "rgba(242,202,80,0.10)" if primary else T.BG0
+        border = T.ACCENT_ORANGE if primary else T.BORDER
+        color = T.ACCENT_ORANGE if primary else T.TEXT
+        background = "rgba(255,109,0,0.10)" if primary else T.BG0
         return (
             f"QPushButton {{ background: {background}; color: {color}; border: 1px solid {border};"
             f" border-radius: 13px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"

@@ -157,20 +157,22 @@ class _NavItem(QWidget):
     def _apply_style(self, active: bool) -> None:
         if active:
             self._btn.setStyleSheet(
-                f"QPushButton {{ background-color: {T.WHITE}; color: {T.PRIMARY};"
+                f"QPushButton {{ background-color: rgba(0,0,0,0.03); color: {T.ACCENT_TEAL};"
                 " border: none;"
-                " border-top-right-radius: 16px; border-bottom-right-radius: 16px;"
+                f" border-left: 4px solid {T.ACCENT_TEAL};"
                 " border-top-left-radius: 0px; border-bottom-left-radius: 0px;"
-                f" padding: 0 16px; text-align: left; font-family: '{T.FF_BODY}';"
-                f" font-size: {T.FS_SMALL + 1}pt; font-weight: 700; }}"
+                " border-top-right-radius: 0px; border-bottom-right-radius: 0px;"
+                f" padding: 0 16px; margin-left: 8px; text-align: left; font-family: '{T.FF_BODY}';"
+                f" font-size: {T.FS_SMALL + 1}pt; font-weight: 600; }}"
             )
             return
         self._btn.setStyleSheet(
-            f"QPushButton {{ background-color: transparent; color: {T.TEXT_DIM_78}; border: none;"
-            " border-radius: 12px;"
+            f"QPushButton {{ background-color: transparent; color: {T.DIM}; border: none;"
+            " border-left: 4px solid transparent;"
+            " border-radius: 0px; margin-left: 8px;"
             f" padding: 0 16px; text-align: left; font-family: '{T.FF_BODY}';"
-            f" font-size: {T.FS_SMALL + 1}pt; font-weight: 600; }}"
-            f"QPushButton:hover {{ color: {T.PRIMARY}; background-color: {T.SURFACE_ELEVATED_92}; }}"
+            f" font-size: {T.FS_SMALL + 1}pt; font-weight: 500; }}"
+            f"QPushButton:hover {{ color: {T.TEXT}; background-color: rgba(0,0,0,0.03); border-left-color: {T.ACCENT_TEAL}; }}"
         )
 
     def set_active(self, v: bool) -> None:
@@ -185,13 +187,13 @@ class _NavItem(QWidget):
             self._btn.setText(self._icon)
             self._btn.setFixedSize(44, 40)
             self._btn.setStyleSheet(
-                f"QPushButton {{ background-color: transparent; color: {T.TEXT_DIM_78}; border: none; border-radius: 12px;"
-                f" font-family: '{T.FF_BODY}'; font-size: {T.FS_LABEL}pt; font-weight: 700; }}"
-                f"QPushButton:hover {{ color: {T.PRIMARY}; background-color: {T.SURFACE_ELEVATED_92}; }}"
+                f"QPushButton {{ background-color: transparent; color: {T.DIM}; border: none; border-radius: 4px;"
+                f" font-family: '{T.FF_BODY}'; font-size: {T.FS_LABEL}pt; font-weight: 600; }}"
+                f"QPushButton:hover {{ color: {T.ACCENT_TEAL}; background-color: rgba(0,0,0,0.05); }}"
             )
         else:
             self._btn.setText(f"{self._icon}  {self._label_text}")
-            self._btn.setFixedSize(T.SIDEBAR_W_EXPANDED - 22, 44)
+            self._btn.setFixedSize(300 - 22, 44)  # Updated to match new sidebar width
             self._apply_style(self._active)
 
 
@@ -201,10 +203,10 @@ class Sidebar(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._collapsed = False
-        self.setFixedWidth(T.SIDEBAR_W)
+        self.setFixedWidth(300)  # Atoll Editorial: persistent 300px sidebar
         self.setObjectName("sidebar")
         self.setStyleSheet(
-            f"QFrame#sidebar {{ background-color: {T.SURFACE_BASE}; border-right: 1px solid {T.BORDER_SOFT_64}; }}"
+            f"QFrame#sidebar {{ background-color: {T.SURFACE_BASE}; border-right: none; }}"
         )
 
         root = QVBoxLayout(self)
@@ -244,7 +246,7 @@ class Sidebar(QFrame):
         self._g_mark = QLabel("")
         self._g_mark.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self._g_mark.setStyleSheet(
-            f"color: {T.ACCENT_TEAL_TEXT}; font-family: '{T.FONT_SERIF}', '{T.FF_HEAD}', serif;"
+            f"color: {T.ACCENT_TEAL}; font-family: '{T.FONT_SERIF}', '{T.FF_HEAD}', serif;"
             " font-size: 12pt; font-weight: bold; padding: 0 0 0 0;"
         )
         root.addWidget(self._g_mark)

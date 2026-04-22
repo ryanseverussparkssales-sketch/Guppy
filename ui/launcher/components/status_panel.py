@@ -128,7 +128,7 @@ class StatusPanel(QFrame):
         tools_layout = QVBoxLayout(tools_frame)
         tools_layout.setContentsMargins(10, 10, 10, 8)
         tools_layout.setSpacing(6)
-        tools_layout.addWidget(_mono("UTILITIES", T.PRIMARY_DIM, T.FS_TINY, True))
+        tools_layout.addWidget(_mono("UTILITIES", T.ACCENT_TEAL, T.FS_TINY, True))
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -173,7 +173,7 @@ class StatusPanel(QFrame):
         spaces_layout.setSpacing(6)
 
         spaces_head = QHBoxLayout()
-        spaces_head.addWidget(_mono("MORE ACTIONS", T.PRIMARY_DIM, T.FS_TINY, True))
+        spaces_head.addWidget(_mono("MORE ACTIONS", T.ACCENT_TEAL, T.FS_TINY, True))
         spaces_head.addStretch()
         spaces_head.addWidget(_mono("WRITE / CODE / SHELL", T.DIM, T.FS_TINY))
         spaces_layout.addLayout(spaces_head)
@@ -226,7 +226,7 @@ class StatusPanel(QFrame):
         media_layout.setSpacing(8)
 
         media_top = QHBoxLayout()
-        media_top.addWidget(_mono("OPTIONAL SPACES", T.PRIMARY_DIM, T.FS_TINY, True))
+        media_top.addWidget(_mono("OPTIONAL SPACES", T.ACCENT_TEAL, T.FS_TINY, True))
         media_top.addStretch()
         media_top.addWidget(_mono("MEDIA / FOLLOW-UP", T.DIM, T.FS_TINY))
         media_layout.addLayout(media_top)
@@ -301,7 +301,7 @@ class StatusPanel(QFrame):
             return (
                 f"QPushButton {{ background: {T.SURFACE_ELEVATED_92}; color: {T.TEXT}; border: 1px solid {T.BORDER_MID_30};"
                 f" border-radius: 15px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; font-weight: bold; }}"
-                f"QPushButton:hover {{ border-color: {T.HOVER_TERTIARY_MED}; color: {T.PRIMARY}; background: {T.WHITE}; }}"
+                f"QPushButton:hover {{ border-color: {T.ACCENT_TEAL}; color: {T.ACCENT_TEAL}; background: {T.WHITE}; }}"
             )
         return (
             "QPushButton {"
@@ -317,7 +317,7 @@ class StatusPanel(QFrame):
         return (
             f"QPushButton {{ background: {T.SURFACE_ELEVATED_92}; color: {T.TEXT}; border: 1px solid {T.BORDER_MID_30};"
             f" border-radius: 14px; padding: 0 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: {T.HOVER_TERTIARY_MED}; color: {T.PRIMARY}; background: {T.WHITE}; }}"
+            f"QPushButton:hover {{ border-color: {T.ACCENT_TEAL}; color: {T.ACCENT_TEAL}; background: {T.WHITE}; }}"
         )
 
     def set_workspace(self, name: str, workspace_type: str = "") -> None:
