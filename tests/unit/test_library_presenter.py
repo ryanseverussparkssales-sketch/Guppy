@@ -69,14 +69,20 @@ class LibraryPresenterTests(unittest.TestCase):
             state = build_library_surface_state("builder-collab", workspace_type="builder_instance")
 
         self.assertEqual(state.saved_item_cards[0]["kind"], "note")
-        self.assertIn("Pinned note", state.saved_item_cards[0]["detail"])
+        self.assertEqual(state.saved_item_cards[0]["source_line"], "Pinned note")
         self.assertNotIn("\n", state.saved_item_cards[0]["detail"])
+        self.assertNotIn("Pinned note", state.saved_item_cards[0]["detail"])
         self.assertEqual(state.saved_item_cards[0]["summary"], snapshot["recent_items"][0]["summary"])
+        self.assertEqual(state.saved_item_cards[1]["source_line"], "Local video · Saved artifact")
         self.assertTrue(state.saved_item_cards[1]["is_media"])
         self.assertEqual(state.saved_item_cards[1]["media_kind"], "video")
+        self.assertEqual(state.root_file_cards[0]["source_line"], "Local video · Current Guppy repo")
         self.assertTrue(state.root_file_cards[0]["is_media"])
         self.assertEqual(state.root_file_cards[0]["media_kind"], "video")
         self.assertTrue(any(card["is_media"] for card in state.recent_cards))
+        self.assertIn("walkthrough.mp4", state.root_file_cards[0]["search_text"])
+        self.assertIn("Current Guppy repo", state.approved_roots[0]["search_text"])
+        self.assertIn("full file paths and source labels", state.selected_root_hint)
 
     def test_describe_library_media_path_detects_supported_local_media(self) -> None:
         descriptor = describe_library_media_path("C:/repo/media/standup.mp3")

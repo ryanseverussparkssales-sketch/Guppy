@@ -108,6 +108,30 @@
       "default_target": "builder approval payload",
       "output_path_template": "config/generated/{target_slug}.schema.example.json",
       "prompt_template": "Create a safe example JSON schema-like document for Guppy about {target_ref}. Output path: {output_path}. Return one fenced json block only. Keep keys descriptive and avoid production-only fields."
+    },
+    {
+      "id": "approval_handoff",
+      "title": "Draft approval handoff",
+      "description": "Create a focused reviewer handoff note for a staged off-hours output under docs/generated.",
+      "target": "guppy-fast",
+      "task_type": "write",
+      "requires_target": true,
+      "target_hint": "Dry-run workflow, staged artifact, or review lane",
+      "default_target": "automation approval lane",
+      "output_path_template": "docs/generated/{target_slug}_approval_handoff.md",
+      "prompt_template": "Draft a concise reviewer handoff note for Guppy covering {target_ref}. Output path: {output_path}. Return one fenced markdown block only. Include what changed, why approval is still gated, and the exact validation evidence a reviewer should check before approving."
+    },
+    {
+      "id": "stress_validation_note",
+      "title": "Draft stress validation note",
+      "description": "Create a bounded stress-validation note under docs/generated for builder/off-hours follow-up.",
+      "target": "guppy-fast",
+      "task_type": "write",
+      "requires_target": true,
+      "target_hint": "Workflow or lane that needs repeated stress evidence",
+      "default_target": "off-hours builder stability",
+      "output_path_template": "docs/generated/{target_slug}_stress_validation.md",
+      "prompt_template": "Draft a concise stress-validation note for Guppy focused on {target_ref}. Output path: {output_path}. Return one fenced markdown block only. Include the stress profile, pass/fail expectations, approval risks, and exact repeatable validation steps."
     }
   ]
 }

@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-import json
 import logging
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
+from utils.instance_capability_policy import (
+    bindings_config_path as _policy_bindings_config_path,
+    coerce_permissions as _policy_coerce_permissions,
+    coerce_policy_entry as _policy_coerce_policy_entry,
+    load_tool_permission_policy as _load_tool_permission_policy,
+    merge_policy_entry as _merge_policy_entry,
+    normalize_auth_mode as _policy_normalize_auth_mode,
+    resolve_instance_permissions as _resolve_instance_permissions,
+    save_tool_permission_policy as _save_tool_permission_policy,
+)
 from utils.connector_manager import (
     connector_action_for_tool,
     connector_id_for_tool,
@@ -142,174 +151,38 @@ _LOCAL_ENDPOINT_PREFIXES = (
 
 
 def _bindings_config_path(config_path: str | Path | None) -> Path | None:
-    if not config_path:
-        return None
-    path = Path(config_path)
-    return path.with_name("connector_bindings.json")
+    return _policy_bindings_config_path(config_path)
 
 
 def _coerce_permissions(raw: Any) -> dict[str, bool]:
-    data = raw if isinstance(raw, dict) else {}
-    return {key: bool(data.get(key, False)) for key in _CAPABILITY_KEYS}
+    return _policy_coerce_permissions(raw, capability_keys=_CAPABILITY_KEYS)
 
 
 def _normalize_auth_mode(value: Any) -> str:
-    normalized = str(value or _DEFAULT_AUTH_MODE).strip().lower()
-    aliases = {
-        "default": "runtime_default",
-        "inherit": "runtime_default",
-        "runtime": "runtime_default",
-        "workspace_token": "workspace_token_required",
-        "token_required": "workspace_token_required",
-        "local": "local_only",
-        "off": "disabled",
-        "blocked": "disabled",
-    }
-    normalized = aliases.get(normalized, normalized)
-    return normalized if normalized in _AUTH_MODE_LABELS else _DEFAULT_AUTH_MODE
-
-
-def _coerce_name_list(raw: Any) -> list[str]:
-    if not isinstance(raw, (list, tuple, set)):
-        return []
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for item in raw:
-        value = str(item or "").strip().lower()
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        ordered.append(value)
-    return ordered
-
-
-def _coerce_endpoint_list(raw: Any) -> list[str]:
-    if not isinstance(raw, (list, tuple, set)):
-        return []
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for item in raw:
-        value = str(item or "").strip().lower()
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        ordered.append(value)
-    return ordered
+    return _policy_normalize_auth_mode(
+        value,
+        default_auth_mode=_DEFAULT_AUTH_MODE,
+        auth_mode_labels=_AUTH_MODE_LABELS,
+    )
 
 
 def _coerce_policy_entry(raw: Any) -> dict[str, Any]:
-    data = raw if isinstance(raw, dict) else {}
-    policy = _coerce_permissions(data)
-    policy["_auth_mode"] = _normalize_auth_mode(data.get("auth_mode", data.get("_auth_mode")))
-    policy["_tool_allow"] = _coerce_name_list(
-        data.get("tool_allow") or data.get("allow_tools") or data.get("_tool_allow")
+    return _policy_coerce_policy_entry(
+        raw,
+        capability_keys=_CAPABILITY_KEYS,
+        default_auth_mode=_DEFAULT_AUTH_MODE,
+        auth_mode_labels=_AUTH_MODE_LABELS,
     )
-    policy["_tool_block"] = _coerce_name_list(
-        data.get("tool_block") or data.get("block_tools") or data.get("_tool_block")
-    )
-    policy["_endpoint_allow"] = _coerce_endpoint_list(
-        data.get("endpoint_allow") or data.get("allow_endpoints") or data.get("_endpoint_allow")
-    )
-    policy["_endpoint_block"] = _coerce_endpoint_list(
-        data.get("endpoint_block") or data.get("block_endpoints") or data.get("_endpoint_block")
-    )
-    policy["_policy_note"] = str(data.get("policy_note", data.get("_policy_note", "")) or "").strip()
-    return policy
-
-
-def _merge_name_lists(base: list[str], override: list[str], *, merge: bool = False) -> list[str]:
-    if not merge:
-        return list(override) if override else list(base)
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for value in [*base, *override]:
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        ordered.append(value)
-    return ordered
-
-
-def _merge_policy_entry(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    merged = dict(base)
-    for key in _CAPABILITY_KEYS:
-        if key in override:
-            merged[key] = bool(override.get(key, False))
-    merged["_auth_mode"] = _normalize_auth_mode(override.get("_auth_mode", merged.get("_auth_mode", _DEFAULT_AUTH_MODE)))
-    merged["_tool_allow"] = _merge_name_lists(
-        list(merged.get("_tool_allow", [])),
-        list(override.get("_tool_allow", [])),
-    )
-    merged["_tool_block"] = _merge_name_lists(
-        list(merged.get("_tool_block", [])),
-        list(override.get("_tool_block", [])),
-        merge=True,
-    )
-    merged["_endpoint_allow"] = _merge_name_lists(
-        list(merged.get("_endpoint_allow", [])),
-        list(override.get("_endpoint_allow", [])),
-    )
-    merged["_endpoint_block"] = _merge_name_lists(
-        list(merged.get("_endpoint_block", [])),
-        list(override.get("_endpoint_block", [])),
-        merge=True,
-    )
-    policy_note = str(override.get("_policy_note", "") or "").strip()
-    if policy_note:
-        merged["_policy_note"] = policy_note
-    return merged
-
-
-def _default_policy_payload() -> dict[str, Any]:
-    return {
-        "version": 2,
-        "defaults": _coerce_policy_entry(
-            {
-                "read": True,
-                "write": False,
-                "execute": False,
-                "network": True,
-                "auth_mode": _DEFAULT_AUTH_MODE,
-            }
-        ),
-        "instances": {},
-    }
-
-
-def _serialize_policy_entry(policy: dict[str, Any]) -> dict[str, Any]:
-    payload = {key: bool(policy.get(key, False)) for key in _CAPABILITY_KEYS}
-    payload["auth_mode"] = _normalize_auth_mode(policy.get("_auth_mode"))
-    if policy.get("_tool_allow"):
-        payload["tool_allow"] = list(policy.get("_tool_allow", []))
-    if policy.get("_tool_block"):
-        payload["tool_block"] = list(policy.get("_tool_block", []))
-    if policy.get("_endpoint_allow"):
-        payload["endpoint_allow"] = list(policy.get("_endpoint_allow", []))
-    if policy.get("_endpoint_block"):
-        payload["endpoint_block"] = list(policy.get("_endpoint_block", []))
-    note = str(policy.get("_policy_note", "") or "").strip()
-    if note:
-        payload["policy_note"] = note
-    return payload
-
 
 def save_tool_permission_policy(policy: dict[str, Any], config_path: str | Path | None = None) -> Path:
-    path = Path(config_path) if config_path else _DEFAULT_POLICY_PATH
-    defaults = _coerce_policy_entry(policy.get("defaults", {}))
-    instances_raw = policy.get("instances", {}) if isinstance(policy.get("instances"), dict) else {}
-    instances = {
-        str(name).strip(): _serialize_policy_entry(_coerce_policy_entry(value))
-        for name, value in instances_raw.items()
-        if str(name).strip()
-    }
-    payload = {
-        "version": max(2, int(policy.get("version", 2) or 2)),
-        "defaults": _serialize_policy_entry(defaults),
-        "instances": instances,
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
-    return path
+    return _save_tool_permission_policy(
+        policy,
+        default_policy_path=_DEFAULT_POLICY_PATH,
+        capability_keys=_CAPABILITY_KEYS,
+        default_auth_mode=_DEFAULT_AUTH_MODE,
+        auth_mode_labels=_AUTH_MODE_LABELS,
+        config_path=config_path,
+    )
 
 
 def set_instance_tool_permission_policy(
@@ -329,29 +202,13 @@ def set_instance_tool_permission_policy(
 
 
 def load_tool_permission_policy(config_path: str | Path | None = None) -> dict[str, Any]:
-    path = Path(config_path) if config_path else _DEFAULT_POLICY_PATH
-    if not path.exists():
-        return _default_policy_payload()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        logger.warning("Failed to parse tool permission policy at %s: %s", path, exc)
-        data = {}
-    except OSError as exc:
-        logger.warning("Failed to read tool permission policy at %s: %s", path, exc)
-        data = {}
-    defaults = _coerce_policy_entry(data.get("defaults", {}))
-    instances_raw = data.get("instances", {}) if isinstance(data.get("instances"), dict) else {}
-    instances = {
-        str(name).strip(): _coerce_policy_entry(value)
-        for name, value in instances_raw.items()
-        if str(name).strip()
-    }
-    return {
-        "version": int(data.get("version", 2) or 2),
-        "defaults": defaults,
-        "instances": instances,
-    }
+    return _load_tool_permission_policy(
+        default_policy_path=_DEFAULT_POLICY_PATH,
+        capability_keys=_CAPABILITY_KEYS,
+        default_auth_mode=_DEFAULT_AUTH_MODE,
+        auth_mode_labels=_AUTH_MODE_LABELS,
+        config_path=config_path,
+    )
 
 
 def resolve_instance_permissions(
@@ -359,15 +216,16 @@ def resolve_instance_permissions(
     instance_type: str | None = None,
     config_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    policy = load_tool_permission_policy(config_path)
-    permissions = dict(policy.get("defaults", {}))
-    normalized_type = str(instance_type or "").strip().lower()
-    if normalized_type in _INSTANCE_TYPE_DEFAULTS:
-        permissions.update(_coerce_permissions(_INSTANCE_TYPE_DEFAULTS[normalized_type]))
-    normalized_name = str(instance_name or "").strip()
-    if normalized_name:
-        permissions = _merge_policy_entry(permissions, policy.get("instances", {}).get(normalized_name, {}))
-    return permissions
+    return _resolve_instance_permissions(
+        instance_name=instance_name,
+        instance_type=instance_type,
+        config_path=config_path,
+        instance_type_defaults=_INSTANCE_TYPE_DEFAULTS,
+        default_policy_path=_DEFAULT_POLICY_PATH,
+        capability_keys=_CAPABILITY_KEYS,
+        default_auth_mode=_DEFAULT_AUTH_MODE,
+        auth_mode_labels=_AUTH_MODE_LABELS,
+    )
 
 
 def required_capability_for_tool(tool_name: str) -> str:

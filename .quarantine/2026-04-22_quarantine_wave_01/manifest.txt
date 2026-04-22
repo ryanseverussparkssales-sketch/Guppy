@@ -1,0 +1,6 @@
+﻿repo=C:\Users\Ryan\Guppy
+created_utc=2026-04-22T07:06:30.3464853Z
+moved:
+- splits => .quarantine/2026-04-22_quarantine_wave_01/splits
+- dist => .quarantine/2026-04-22_quarantine_wave_01/dist
+- build => .quarantine/2026-04-22_quarantine_wave_01/build

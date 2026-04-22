@@ -1,0 +1,1 @@
+{"ts": "2026-04-13T02:40:44.811141+00:00", "event": "offhours_task_complete", "task_id": "fault_case", "ok": false, "status": "failed", "error": "synthetic failure"}

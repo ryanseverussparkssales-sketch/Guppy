@@ -1,9 +1,13 @@
 """Fail CI if active live Python modules exceed the transitional line cap.
 
-Coverage now includes the main live-code roots: ``src/guppy/``, ``ui/``, and
-``utils/``. Existing oversized hotspot modules are temporarily waived, but each
-waiver is pinned to the current observed file size so the module cannot keep
-growing while the strangler refactor lands.
+Coverage includes the main live-code roots: ``src/guppy/``, ``ui/``,
+``compat_shims/launcher_ui/ui/launcher/``, and ``utils/``. Existing oversized
+hotspot modules are temporarily waived, but each waiver is pinned to the current
+observed file size so the module cannot keep growing while the strangler refactor
+lands.
+
+The baseline run also reports softer hardening tiers so the team can keep moving
+large modules toward a healthier dispersed shape before they hit the fail cap.
 """
 from __future__ import annotations
 
@@ -13,6 +17,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+IDEAL_MODULE_LINES = int(os.environ.get("GUPPY_IDEAL_MODULE_LINES", "250"))
+HEALTHY_MODULE_LINES = int(os.environ.get("GUPPY_HEALTHY_MODULE_LINES", "400"))
+REVIEW_MODULE_LINES = int(os.environ.get("GUPPY_REVIEW_MODULE_LINES", "600"))
 LINE_CAP = int(os.environ.get("GUPPY_MODULE_LINE_CAP", "700"))
 GUARD_SCOPE = (os.environ.get("GUPPY_GUARD_SCOPE", "delta") or "delta").strip().lower()
 WAIVER_DRIFT_WARN_LINES = int(os.environ.get("GUPPY_WAIVER_DRIFT_WARN_LINES", "50"))
@@ -20,6 +27,7 @@ WAIVER_DRIFT_WARN_LINES = int(os.environ.get("GUPPY_WAIVER_DRIFT_WARN_LINES", "5
 ENFORCED_PREFIXES = (
     "src/guppy/",
     "ui/",
+    "compat_shims/launcher_ui/ui/launcher/",
     "utils/",
 )
 
@@ -30,19 +38,10 @@ class Waiver:
     rationale: str
 
 
-# Transitional waivers are intentionally narrow and temporary. Each path keeps a
-# rationale here so baseline enforcement can start now without hiding where the
-# current strangler work still needs to land.
-WAIVED_PATHS: dict[str, Waiver] = {
-    "src/guppy/api/server_runtime_snapshot.py": Waiver(
-        max_lines=789,
-        rationale="Runtime snapshot compatibility shell reduced to 789 after auth/cache stubs and prompt-builder block extracted to snapshot_auth_cache_support.py and snapshot_prompt_support.py; further route-family splits remain required.",
-    ),
-    "ui/launcher/launcher_window.py": Waiver(
-        max_lines=993,
-        rationale="Launcher shell reduced to 993 after nav/tab/panel/notification family extraction into launcher_nav_handlers.py; remaining orchestration seams are tracked for continued splits.",
-    ),
-}
+# Transitional waivers are intentionally narrow and temporary. Existing large
+# modules stay visible in the baseline watchlist, but only active over-cap files
+# should remain waived here.
+WAIVED_PATHS: dict[str, Waiver] = {}
 
 
 def _all_enforced_python_files() -> list[Path]:
@@ -108,6 +107,18 @@ def _is_enforced(rel_posix: str) -> bool:
     return any(rel_posix.startswith(prefix) for prefix in ENFORCED_PREFIXES)
 
 
+def classify_module_size(line_count: int) -> str:
+    if line_count <= IDEAL_MODULE_LINES:
+        return "ideal"
+    if line_count <= HEALTHY_MODULE_LINES:
+        return "healthy"
+    if line_count <= REVIEW_MODULE_LINES:
+        return "review"
+    if line_count <= LINE_CAP:
+        return "urgent"
+    return "oversized"
+
+
 def _waiver_drift_note(rel_posix: str, line_count: int, waiver: Waiver) -> str:
     headroom = waiver.max_lines - line_count
     if headroom < 0:
@@ -124,6 +135,10 @@ def _waiver_drift_note(rel_posix: str, line_count: int, waiver: Waiver) -> str:
     )
 
 
+def _module_size_summary(rel_path: Path, line_count: int) -> str:
+    return f"{rel_path.as_posix()}: {line_count} lines [{classify_module_size(line_count)}]"
+
+
 def main() -> int:
     if GUARD_SCOPE not in {"delta", "baseline"}:
         print(f"line-cap check failed: invalid GUPPY_GUARD_SCOPE={GUARD_SCOPE!r}")
@@ -132,12 +147,21 @@ def main() -> int:
 
     offenders: list[str] = []
     waived_notes: list[str] = []
+    tier_counts = {
+        "ideal": 0,
+        "healthy": 0,
+        "review": 0,
+        "urgent": 0,
+        "oversized": 0,
+    }
+    watchlist: list[tuple[int, Path]] = []
     for rel_path in _candidate_python_files():
         rel_posix = rel_path.as_posix()
         if not _is_enforced(rel_posix):
             continue
 
         line_count = len(rel_path.read_text(encoding="utf-8", errors="replace").splitlines())
+        tier_counts[classify_module_size(line_count)] += 1
         waiver = WAIVED_PATHS.get(rel_posix)
 
         if waiver is not None:
@@ -148,10 +172,13 @@ def main() -> int:
                 )
             elif GUARD_SCOPE == "baseline":
                 waived_notes.append(_waiver_drift_note(rel_posix, line_count, waiver))
+                watchlist.append((line_count, rel_path))
             continue
 
         if line_count > LINE_CAP:
             offenders.append(f"{rel_posix}: {line_count} lines exceeds cap {LINE_CAP}")
+        elif GUARD_SCOPE == "baseline" and line_count > HEALTHY_MODULE_LINES:
+            watchlist.append((line_count, rel_path))
 
     if offenders:
         print(f"line-cap check failed (scope={GUARD_SCOPE}, cap={LINE_CAP} lines):")
@@ -165,6 +192,24 @@ def main() -> int:
         print("transitional baseline waivers:")
         for item in waived_notes:
             print(f" - {item}")
+    if GUARD_SCOPE == "baseline":
+        print(
+            "module size tiers:"
+            f" ideal<={IDEAL_MODULE_LINES} healthy<={HEALTHY_MODULE_LINES}"
+            f" review<={REVIEW_MODULE_LINES} urgent<={LINE_CAP}"
+        )
+        print(
+            "module size counts:"
+            f" ideal={tier_counts['ideal']}"
+            f" healthy={tier_counts['healthy']}"
+            f" review={tier_counts['review']}"
+            f" urgent={tier_counts['urgent']}"
+            f" oversized={tier_counts['oversized']}"
+        )
+        if watchlist:
+            print("baseline size watchlist:")
+            for line_count, rel_path in sorted(watchlist, reverse=True)[:12]:
+                print(f" - {_module_size_summary(rel_path, line_count)}")
     return 0
 
 

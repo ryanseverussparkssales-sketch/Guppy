@@ -88,6 +88,103 @@ def auth_state_text(auth_state: str) -> str:
     }.get(normalized, "Needs setup")
 
 
+def _normalized_storage_posture(payload: dict[str, object]) -> str:
+    posture = str(payload.get("storage_posture", "") or "").strip().lower()
+    if posture:
+        return posture
+    source = str(payload.get("source", "") or "").strip().lower()
+    return {
+        "keyring": "keyring",
+        "env": "env_only",
+        "mixed": "mixed_env",
+    }.get(source, "none")
+
+
+def _selected_storage_payload(
+    item: dict[str, object],
+    providers: list[dict[str, object]],
+    selected_provider_id: str,
+) -> dict[str, object]:
+    normalized = str(selected_provider_id or "").strip().lower()
+    if normalized:
+        for row in providers:
+            if isinstance(row, dict) and str(row.get("id", "")).strip().lower() == normalized:
+                return row
+    return providers[0] if len(providers) == 1 and isinstance(providers[0], dict) else item
+
+
+def _selected_account_payload(
+    accounts: list[dict[str, object]],
+    selected_account_id: str,
+) -> dict[str, object]:
+    normalized = str(selected_account_id or "").strip().lower()
+    if normalized:
+        for row in accounts:
+            if isinstance(row, dict) and str(row.get("id", "")).strip().lower() == normalized:
+                return row
+    return accounts[0] if len(accounts) == 1 and isinstance(accounts[0], dict) else {}
+
+
+def _storage_posture_detail(label: str, payload: dict[str, object], *, auth_state: str) -> str:
+    posture = _normalized_storage_posture(payload)
+    if posture == "keyring" and auth_state in {"ready", "optional"}:
+        return f"Saved details stay in keyring-first storage on this PC for {label}."
+    if posture == "env_only":
+        prefix = (
+            f"{label} is working, but "
+            if auth_state in {"ready", "optional"}
+            else f"{label} setup is still using "
+        )
+        return prefix + "degraded environment fallback instead of keyring-first storage on this PC."
+    if posture == "mixed_env":
+        prefix = (
+            f"{label} is working, but "
+            if auth_state in {"ready", "optional"}
+            else f"{label} setup still has "
+        )
+        return prefix + "some saved details resolving from degraded environment fallback instead of keyring-first storage on this PC."
+    return ""
+
+
+def _merge_detail(base_detail: str, storage_detail: str) -> str:
+    base = str(base_detail or "").strip()
+    posture = str(storage_detail or "").strip()
+    if not posture:
+        return base
+    if not base:
+        return posture
+    return f"{base} {posture}".strip()
+
+
+def _account_inventory_detail(
+    accounts: list[dict[str, object]],
+    *,
+    selected_account_id: str,
+) -> str:
+    rows = [row for row in accounts if isinstance(row, dict)]
+    if not rows:
+        return ""
+    selected = _selected_account_payload(rows, selected_account_id)
+    selected_label = str(selected.get("label", selected.get("id", "")) or "").strip()
+    if selected_label:
+        return f"Selected account: {selected_label}."
+    if len(rows) == 1:
+        only_label = str(rows[0].get("label", rows[0].get("id", "")) or "").strip()
+        return f"Account ready on this PC: {only_label}." if only_label else ""
+    return f"{len(rows)} accounts are available on this PC. Choose one before reconnecting or removing access."
+
+
+def _storage_migration_hint(payload: dict[str, object], *, auth_state: str) -> str:
+    posture = _normalized_storage_posture(payload)
+    if auth_state not in {"ready", "optional"}:
+        return ""
+    if posture == "env_only":
+        return "Save the current details again on this PC to move them into keyring-first storage."
+    if posture == "mixed_env":
+        return "Re-save the current details on this PC to reduce degraded environment fallback and finish keyring-first storage."
+    return ""
+
+
 def selector_label(item: dict[str, object], *, fallback: str) -> str:
     label = str(item.get("label", item.get("id", fallback)) or fallback).strip() or fallback
     auth_state = str(item.get("auth_state", "") or "").strip().upper()
@@ -168,13 +265,22 @@ def friendly_runtime_summary(windows_snapshot: dict[str, str]) -> tuple[str, str
     )
 
     if state == "ready":
-        runtime_text = f"Local AI health: {live_backend.title()} is healthy and ready on this PC."
+        runtime_text = (
+            f"Local AI health: {live_backend.title()} is healthy and ready on this PC. "
+            "Choose or change the backend in Models > Model Sourcing."
+        )
         summary = f"{live_backend.title()} is ready on this PC."
     elif state == "unknown":
-        runtime_text = f"Local AI health: {configured.title()} is selected, but it still needs a quick Verify check."
+        runtime_text = (
+            f"Local AI health: {configured.title()} is selected, but it still needs a quick Verify check. "
+            "Choose or change the backend in Models > Model Sourcing."
+        )
         summary = f"{configured.title()} is selected, but it still needs a quick health check."
     else:
-        runtime_text = f"Local AI health: {configured.title()} needs attention before you rely on it."
+        runtime_text = (
+            f"Local AI health: {configured.title()} needs attention before you rely on it. "
+            "Choose or change the backend in Models > Model Sourcing."
+        )
         summary = f"{configured.title()} needs attention before you rely on it."
 
     next_value = line_value(next_raw).lower()
@@ -187,7 +293,10 @@ def friendly_runtime_summary(windows_snapshot: dict[str, str]) -> tuple[str, str
     else:
         next_text = "Next step: Use Verify to check that your local setup is healthy."
 
-    diagnostics_text = "Health notes: Logs, supervised launch, and repair tools are ready if something goes wrong."
+    diagnostics_text = (
+        "Health notes: Logs, supervised launch, and repair tools are ready if something goes wrong. "
+        "Keys and provider sign-in stay in Device & Accounts with keyring-first posture called out when env fallback is active."
+    )
     return summary, install_text, runtime_text, next_text, diagnostics_text
 
 
@@ -198,6 +307,7 @@ def build_connector_panel_state(
     accounts: list[dict[str, object]],
     fields: list[dict[str, Any]],
     selected_provider_id: str,
+    selected_account_id: str = "",
 ) -> ConnectorPanelState:
     label = str(item.get("label", "This service") or "This service")
     connector_id = str(item.get("id", "") or "").strip().lower()
@@ -213,6 +323,11 @@ def build_connector_panel_state(
     has_secret_flow = auth_kind in {"api_key", "provider_secret", "oauth_secret"}
     example_prompt = get_example_prompt(connector_id).strip()
     next_step_hint = ""
+    storage_payload = _selected_storage_payload(item, providers, selected_provider_id)
+    selected_account_payload = _selected_account_payload(accounts, selected_account_id)
+    storage_detail = _storage_posture_detail(label, storage_payload, auth_state=auth_state)
+    account_detail = _account_inventory_detail(accounts, selected_account_id=selected_account_id)
+    account_selection_required = auth_kind == "oauth_file_token" and len(accounts) > 1 and not selected_account_payload
 
     if auth_kind == "api_key":
         status = f"{label} helps with {purpose.lower()} on this PC."
@@ -222,6 +337,7 @@ def build_connector_panel_state(
             detail = f"Your {label} API key is saved and ready to use."
         else:
             detail = connect_hint or f"{label} uses a single API key on this PC."
+        detail = _merge_detail(detail, storage_detail)
         step = f"Next step: Paste your {first_field_label.lower()}, then click Save API Key."
         save_text = "SAVE API KEY"
         verify_text = "VERIFY KEY"
@@ -238,13 +354,14 @@ def build_connector_panel_state(
                 f"{label} still needs the downloaded Google credentials file on this PC before browser sign-in can start."
             )
         if auth_state == "missing":
-            step = f"Next step: Add the {label.lower()} credentials file, then click Sign In."
+            step = f"Next step: Add the {label.lower()} credentials JSON file, then click Sign In."
         elif auth_state == "partial":
             step = f"Next step: Click Reconnect to finish connecting {label} on this PC."
-        elif len(accounts) > 1:
+        elif account_selection_required:
             step = f"Next step: Choose the {label} account you want to use, then click Sign In."
         else:
             step = f"Next step: Click Sign In to connect {label} on this PC."
+        detail = _merge_detail(detail, account_detail)
         save_text = "SAVE & VERIFY"
         verify_text = "VERIFY SIGN-IN"
         disconnect_text = "REMOVE SIGN-IN"
@@ -257,6 +374,7 @@ def build_connector_panel_state(
             step = f"Next step: Pick a {label} provider first."
         else:
             detail = connect_hint or f"{label} uses app credentials plus browser sign-in."
+            detail = _merge_detail(detail, storage_detail)
             step = f"Next step: Add your {first_field_label.lower()}, save it, then use Sign In."
         save_text = "SAVE APP KEYS"
         verify_text = "VERIFY CONNECTION"
@@ -272,6 +390,7 @@ def build_connector_panel_state(
                 detail = f"{label} is ready. You can now allow it in a workspace when you need it."
             else:
                 detail = connect_hint or f"Enter the provider details Guppy needs for {label.lower()}."
+            detail = _merge_detail(detail, storage_detail)
             step = f"Next step: Add your {first_field_label.lower()}, then click Save Details."
         save_text = "SAVE DETAILS"
         verify_text = "VERIFY SETUP"
@@ -288,9 +407,12 @@ def build_connector_panel_state(
 
     if auth_state in {"ready", "optional"}:
         hint_text = (registry_entry.next_step_hint if registry_entry else "").strip()
+        migration_hint = _storage_migration_hint(storage_payload, auth_state=auth_state)
         if hint_text:
             extra = f" {example_prompt}" if example_prompt else ""
             next_step_hint = f"Connected - {hint_text}{extra}"
+        if migration_hint:
+            next_step_hint = f"{next_step_hint} {migration_hint}".strip()
 
     show_connect = (
         "connect" in supports
@@ -303,6 +425,10 @@ def build_connector_panel_state(
     if example_prompt:
         verify_tooltip += f" {example_prompt}"
     disconnect_tooltip = f"Remove the current {label} connection from this PC."
+    if account_selection_required:
+        connect_tooltip = f"Choose a {label} account first."
+        verify_tooltip = f"Choose a {label} account first."
+        disconnect_tooltip = f"Choose a {label} account first."
 
     return ConnectorPanelState(
         current_auth_kind=auth_kind,
@@ -318,10 +444,10 @@ def build_connector_panel_state(
         show_save=has_secret_flow,
         show_verify="verify" in supports,
         show_disconnect="disconnect" in supports,
-        connect_enabled=show_connect,
+        connect_enabled=show_connect and not account_selection_required,
         save_enabled=has_secret_flow,
-        verify_enabled="verify" in supports,
-        disconnect_enabled="disconnect" in supports,
+        verify_enabled="verify" in supports and not account_selection_required,
+        disconnect_enabled="disconnect" in supports and not account_selection_required,
         connect_tooltip=connect_tooltip,
         save_tooltip=save_tooltip,
         verify_tooltip=verify_tooltip,

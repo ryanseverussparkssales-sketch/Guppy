@@ -1,0 +1,10 @@
+{
+  "ts": "2026-04-19T07:19:03.287383+00:00",
+  "idle": true,
+  "activity_states": {
+    "guppy": ""
+  },
+  "processed_this_run": 0,
+  "writes_this_run": 0,
+  "stale_running_reset": 1
+}

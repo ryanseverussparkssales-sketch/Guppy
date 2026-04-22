@@ -136,6 +136,32 @@ def run_security_gate() -> dict:
     return {"passed": passed, "failed": failed, "warnings": [], "launch_ready": len(failed) == 0}
 
 
+def security_gate_summary(result: dict | None = None) -> dict[str, object]:
+    gate_result = result if isinstance(result, dict) else run_security_gate()
+    passed = gate_result.get("passed", []) if isinstance(gate_result.get("passed"), list) else []
+    failed = gate_result.get("failed", []) if isinstance(gate_result.get("failed"), list) else []
+    warnings = gate_result.get("warnings", []) if isinstance(gate_result.get("warnings"), list) else []
+    ok = bool(gate_result.get("launch_ready", False))
+    if ok:
+        summary = f"PASS ({len(passed)} checks)"
+        detail = "all launch-grade security checks passed"
+    else:
+        summary = f"FAIL ({len(failed)} checks)"
+        first_failure = failed[0] if failed else ("unknown", "security gate failed")
+        detail = str(
+            first_failure[1]
+            if isinstance(first_failure, (list, tuple)) and len(first_failure) > 1
+            else first_failure
+        )
+    return {
+        "ok": ok,
+        "summary": summary,
+        "detail": detail,
+        "failed_count": len(failed),
+        "warning_count": len(warnings),
+    }
+
+
 def format_gate_report(result: dict | None = None) -> str:
     """Return a human-readable gate report string."""
     if result is None:

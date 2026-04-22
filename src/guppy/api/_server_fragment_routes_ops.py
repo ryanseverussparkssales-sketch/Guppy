@@ -63,8 +63,18 @@ async def chat_voice(
 
             # Store in memory if session provided and memory is available
             if session_id and GUPPY_MEMORY_AVAILABLE:
-                memory.save_message(session_id, "user", f"[Voice] {transcription}")
-                memory.save_message(session_id, "assistant", response)
+                memory.save_message(
+                    session_id,
+                    "user",
+                    f"[Voice] {transcription}",
+                    workspace_name=str(active_instance_name or "").strip(),
+                )
+                memory.save_message(
+                    session_id,
+                    "assistant",
+                    response,
+                    workspace_name=str(active_instance_name or "").strip(),
+                )
 
             return {
                 "transcription": transcription,

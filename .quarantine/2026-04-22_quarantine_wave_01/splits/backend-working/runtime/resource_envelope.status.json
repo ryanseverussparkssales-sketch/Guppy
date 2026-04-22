@@ -1,0 +1,17 @@
+{
+  "ts": "2026-04-15T00:23:25.466689",
+  "profile": "power",
+  "limits": {
+    "cpu_max_pct": 90.0,
+    "ram_max_pct": 92.0
+  },
+  "metrics": {
+    "cpu_pct": 69.8,
+    "ram_pct": 55.8,
+    "available_ram_gb": 41.35,
+    "total_ram_gb": 93.56
+  },
+  "state": "ok",
+  "violations": [],
+  "message": "resource envelope within limits"
+}

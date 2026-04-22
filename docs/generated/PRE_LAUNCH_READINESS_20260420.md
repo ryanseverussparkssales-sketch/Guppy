@@ -5,7 +5,7 @@ Branch: `chore/worktree-simplify-pass-2026-04-18`
 Ref: `release-check-20260420-154801`
 Status: LIMITED GO
 
-This is the current tranche-53 readiness checkpoint. The release lane is green, packaging truth is now honest, and Track 1 / Track 2 evidence is real. Launch sign-off is not yet unconditional because the remaining trust/security sweep and broader real-machine validation are still open.
+This is the current tranche-53 readiness checkpoint. The release lane is green, packaging truth is now honest, and Track 1 / Track 2 evidence is real. Launch sign-off is not yet unconditional because the remaining trust/security sweep and broader real-machine validation are still open, and the current launcher contract is now Settings-owned rather than the older App Mgmt naming.
 
 ## Current Gate Posture
 
@@ -35,6 +35,7 @@ This is the current tranche-53 readiness checkpoint. The release lane is green, 
 
 1. Broader packaged-environment and device-level runtime/voice validation remains open.
 2. The repository is still an active integration worktree rather than a freeze/tag-ready branch.
+3. Runtime and voice matrix closeout still need current-machine evidence before `LIMITED GO` can advance to `GO`.
 
 ## Recommendation
 

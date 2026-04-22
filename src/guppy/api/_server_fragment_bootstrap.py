@@ -18,7 +18,6 @@ Security:
 """
 
 import json
-import hashlib
 import importlib.util
 import logging
 import os
@@ -42,6 +41,16 @@ import uvicorn
 from jose import JWTError, jwt
 import urllib.request
 
+from src.guppy.api.bootstrap_runtime_support import (
+    build_chat_request_fingerprint as _support_build_chat_request_fingerprint,
+    clear_chat_idempotency_key as _support_clear_chat_idempotency_key,
+    complete_chat_idempotency_key as _support_complete_chat_idempotency_key,
+    detect_voice_backends as _support_detect_voice_backends,
+    prune_chat_idempotency_records as _support_prune_chat_idempotency_records,
+    register_chat_idempotency_key as _support_register_chat_idempotency_key,
+    resolve_chat_idempotency_key as _support_resolve_chat_idempotency_key,
+    takeover_chat_idempotency_key as _support_takeover_chat_idempotency_key,
+)
 from src.guppy.paths import CONFIG_DIR, RUNTIME_DIR
 from utils.env_bootstrap import load_env_file
 try:
@@ -327,39 +336,7 @@ _instance_query_lock = threading.Lock()
 
 # Detect voice backends once at module load so /status never pays import probe cost
 def _detect_voice_backends() -> tuple[str, str, list[str]]:
-    tts, stt, details = "sapi", "none", []
-    try:
-        if importlib.util.find_spec("kokoro") is not None:
-            tts = "kokoro"
-            details.append("kokoro module found")
-        else:
-            details.append("kokoro unavailable -> sapi fallback")
-    except Exception:
-        details.append("kokoro unavailable -> sapi fallback")
-
-    probe_whisper = os.environ.get("GUPPY_API_PROBE_WHISPER", "0").strip().lower() in {"1", "true", "yes", "on"}
-    try:
-        # Avoid importing native torch/ctranslate stacks at module import-time by default.
-        if importlib.util.find_spec("faster_whisper") is not None:
-            if probe_whisper:
-                from faster_whisper import WhisperModel as _WM  # noqa: F401
-                stt = "whisper"
-                details.append("faster-whisper import ok")
-            else:
-                stt = "whisper"
-                details.append("faster-whisper module found (lazy import)")
-        else:
-            raise ImportError("faster_whisper module not found")
-    except Exception:
-        try:
-            if importlib.util.find_spec("speech_recognition") is not None:
-                stt = "google"
-                details.append("speech_recognition module found")
-            else:
-                details.append("no transcription backend available")
-        except Exception:
-            details.append("no transcription backend available")
-    return tts, stt, details
+    return _support_detect_voice_backends()
 
 _VOICE_TTS_BACKEND, _VOICE_STT_BACKEND, _VOICE_BACKEND_DETAILS = _detect_voice_backends()
 
@@ -383,99 +360,44 @@ _chat_idempotency_records: Dict[str, Dict[str, Any]] = {}
 
 
 def _prune_chat_idempotency_records(now: float | None = None) -> None:
-    cutoff = (time.monotonic() if now is None else now) - _CHAT_IDEMPOTENCY_TTL_SECONDS
-    stale_keys = [
-        key
-        for key, record in _chat_idempotency_records.items()
-        if float(record.get("created_at", 0.0) or 0.0) < cutoff
-    ]
-    for key in stale_keys:
-        _chat_idempotency_records.pop(key, None)
+    _support_prune_chat_idempotency_records(
+        _chat_idempotency_records,
+        ttl_seconds=_CHAT_IDEMPOTENCY_TTL_SECONDS,
+        now=now,
+    )
 
 
 def _build_chat_request_fingerprint(request: "ChatRequest") -> str:
-    payload = {
-        "message": request.message,
-        "session_id": request.session_id or "",
-        "mode": request.mode or "",
-        "persona": request.persona or "",
-        "history": request.history or [],
-    }
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return _support_build_chat_request_fingerprint(request)
 
 
 def _register_chat_idempotency_key(key: str, fingerprint: str) -> tuple[bool, threading.Event]:
-    now = time.monotonic()
-    with _chat_idempotency_lock:
-        _prune_chat_idempotency_records(now)
-        record = _chat_idempotency_records.get(key)
-        if isinstance(record, dict):
-            return False, record["event"]
-        event = threading.Event()
-        _chat_idempotency_records[key] = {
-            "created_at": now,
-            "event": event,
-            "fingerprint": fingerprint,
-            "response": None,
-            "error": None,
-            "status": None,
-            "headers": None,
-        }
-        return True, event
+    return _support_register_chat_idempotency_key(
+        _chat_idempotency_records,
+        _chat_idempotency_lock,
+        key=key,
+        fingerprint=fingerprint,
+        ttl_seconds=_CHAT_IDEMPOTENCY_TTL_SECONDS,
+    )
 
 
 def _resolve_chat_idempotency_key(key: str, fingerprint: str) -> Dict[str, Any] | None:
-    with _chat_idempotency_lock:
-        record = _chat_idempotency_records.get(key)
-        if not isinstance(record, dict):
-            return None
-        if str(record.get("fingerprint", "") or "") != fingerprint:
-            return None
-        event = record.get("event")
-        if not isinstance(event, threading.Event) or not event.is_set():
-            return None
-        response = record.get("response")
-        payload: Dict[str, Any] = {
-            "status": int(record.get("status", 500) or 500),
-            "headers": dict(record.get("headers", {})) if isinstance(record.get("headers"), dict) else None,
-        }
-        if isinstance(response, dict):
-            payload["response"] = dict(response)
-            return payload
-        error = record.get("error")
-        if error:
-            payload["error"] = error
-            return payload
-        return None
+    return _support_resolve_chat_idempotency_key(
+        _chat_idempotency_records,
+        _chat_idempotency_lock,
+        key=key,
+        fingerprint=fingerprint,
+    )
 
 
 def _takeover_chat_idempotency_key(key: str, fingerprint: str) -> tuple[bool, threading.Event, bool]:
-    now = time.monotonic()
-    with _chat_idempotency_lock:
-        _prune_chat_idempotency_records(now)
-        record = _chat_idempotency_records.get(key)
-        if isinstance(record, dict):
-            event = record.get("event")
-            if not isinstance(event, threading.Event):
-                event = threading.Event()
-            stored_fingerprint = str(record.get("fingerprint", "") or "")
-            if stored_fingerprint == fingerprint:
-                return False, event, False
-            if not event.is_set():
-                return False, event, False
-            _chat_idempotency_records.pop(key, None)
-        event = threading.Event()
-        _chat_idempotency_records[key] = {
-            "created_at": now,
-            "event": event,
-            "fingerprint": fingerprint,
-            "response": None,
-            "error": None,
-            "status": None,
-            "headers": None,
-        }
-        return True, event, True
+    return _support_takeover_chat_idempotency_key(
+        _chat_idempotency_records,
+        _chat_idempotency_lock,
+        key=key,
+        fingerprint=fingerprint,
+        ttl_seconds=_CHAT_IDEMPOTENCY_TTL_SECONDS,
+    )
 
 
 def _complete_chat_idempotency_key(
@@ -486,23 +408,23 @@ def _complete_chat_idempotency_key(
     status_code: int = 200,
     headers: Dict[str, str] | None = None,
 ) -> None:
-    with _chat_idempotency_lock:
-        record = _chat_idempotency_records.get(key)
-        if not isinstance(record, dict):
-            return
-        record["created_at"] = time.monotonic()
-        record["response"] = dict(response) if isinstance(response, dict) else None
-        record["error"] = error
-        record["status"] = int(status_code or 500)
-        record["headers"] = dict(headers) if isinstance(headers, dict) else None
-        event = record.get("event")
-        if isinstance(event, threading.Event):
-            event.set()
+    _support_complete_chat_idempotency_key(
+        _chat_idempotency_records,
+        _chat_idempotency_lock,
+        key=key,
+        response=response,
+        error=error,
+        status_code=status_code,
+        headers=headers,
+    )
 
 
 def _clear_chat_idempotency_key(key: str) -> None:
-    with _chat_idempotency_lock:
-        _chat_idempotency_records.pop(key, None)
+    _support_clear_chat_idempotency_key(
+        _chat_idempotency_records,
+        _chat_idempotency_lock,
+        key=key,
+    )
 
 # â”€â”€ Pydantic Models â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

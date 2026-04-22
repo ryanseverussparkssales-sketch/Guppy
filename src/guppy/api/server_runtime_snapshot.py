@@ -246,11 +246,6 @@ from src.guppy.api.snapshot_prompt_support import (
 
 from src.guppy.api._server_fragment_models import (
     ChatRequest,
-    ConnectorActionRequest,
-    InstanceConfigRequest,
-    InstanceConnectorBindingRequest,
-    InstanceGovernanceRequest,
-    InstanceQueryRequest,
     RepairRequest,
     TokenResponse,
     TurnstileToken,
@@ -353,7 +348,12 @@ from src.guppy.api.snapshot_app_bootstrap import (
     configure_app as _configure_snapshot_app,
     create_lifespan as _create_snapshot_lifespan,
 )
+from src.guppy.api.snapshot_instance_binding_support import (
+    bind_instance_exports as _bind_snapshot_instance_exports,
+    register_instance_routes as _register_instance_routes,
+)
 from src.guppy.api.snapshot_status_routes import register_status_routes as _register_snapshot_status_routes
+from src.guppy.api.snapshot_misc_routes import register_misc_routes as _register_snapshot_misc_routes
 
 _VOICE_TTS_BACKEND, _VOICE_STT_BACKEND, _VOICE_BACKEND_DETAILS = _detect_voice_backends()
 
@@ -437,13 +437,15 @@ def _bind_runtime_service(func):
     return wrapper
 
 
-_ensure_m2_instance_scaffold = _bind_runtime_service(services_instances.ensure_m2_instance_scaffold)
-_load_instances_config = _bind_runtime_service(services_instances.load_instances_config)
-_load_instance_state = _bind_runtime_service(services_instances.load_instance_state)
-_save_instance_state = _bind_runtime_service(services_instances.save_instance_state)
-_save_instances_config = _bind_runtime_service(services_instances.save_instances_config)
-_load_normalized_instance_bundle = _bind_runtime_service(services_instances.load_normalized_instance_bundle)
-_get_active_instance_context = _bind_runtime_service(services_instances.get_active_instance_context)
+globals().update(
+    vars(
+        _bind_snapshot_instance_exports(
+            bind_runtime_service=_bind_runtime_service,
+            services_instances_module=services_instances,
+            snapshot_instances_support_module=snapshot_instances_support,
+        )
+    )
+)
 _read_resource_envelope_status = partial(
     services_ops.read_resource_envelope_status,
     _module_owner(),
@@ -476,16 +478,6 @@ _fetch_lemonade_model_ids = _bind_runtime_service(services_runtime.fetch_lemonad
 _build_local_runtime_status = _bind_runtime_service(services_runtime.build_local_runtime_status)
 _call_lemonade_chat = _bind_runtime_service(services_runtime.call_lemonade_chat)
 _call_selected_local_runtime = _bind_runtime_service(services_runtime.call_selected_local_runtime)
-_build_instance_list_response = _bind_runtime_service(snapshot_instances_support.build_instance_list_response)
-_create_or_update_instance_response = _bind_runtime_service(snapshot_instances_support.create_or_update_instance_response)
-_save_instance_governance_response = _bind_runtime_service(snapshot_instances_support.save_instance_governance_response)
-_list_connectors_response = _bind_runtime_service(snapshot_instances_support.list_connectors_response)
-_run_connector_action_response = _bind_runtime_service(snapshot_instances_support.run_connector_action_response)
-_list_instance_connectors_response = _bind_runtime_service(snapshot_instances_support.list_instance_connectors_response)
-_save_instance_connector_binding_response = _bind_runtime_service(snapshot_instances_support.save_instance_connector_binding_response)
-_activate_instance_response = _bind_runtime_service(snapshot_instances_support.activate_instance_response)
-_delete_instance_response = _bind_runtime_service(snapshot_instances_support.delete_instance_response)
-_build_instance_logs_response = _bind_runtime_service(snapshot_instances_support.build_instance_logs_response)
 _emit_integration_heartbeat = _bind_runtime_service(snapshot_runtime_support.emit_integration_heartbeat)
 _build_chat_system_prompt = _bind_runtime_service(snapshot_prompt_support.build_chat_system_prompt)
 
@@ -529,248 +521,37 @@ async def root():
 
 
 _register_snapshot_status_routes(app, _module_owner())
-
-
-@app.get("/instances")
-async def list_instances(user_id: str = Depends(require_rate_limit)):
-    """Contract-first M2 endpoint: list configured instances with lightweight runtime state."""
-    del user_id
-    return _build_instance_list_response()
-
-
-@app.post("/instances")
-async def create_or_update_instance(
-    request: InstanceConfigRequest,
-    user_id: str = Depends(require_rate_limit),
-):
-    del user_id
-    return _create_or_update_instance_response(request)
-
-
-@app.post("/instances/{name}/governance")
-async def save_instance_governance(
-    name: str,
-    request: InstanceGovernanceRequest,
-    user_id: str = Depends(require_rate_limit),
-):
-    del user_id
-    return _save_instance_governance_response(name, request)
-
-
-@app.get("/connectors")
-async def list_connectors(user_id: str = Depends(require_rate_limit)):
-    del user_id
-    return _list_connectors_response()
-
-
-@app.post("/connectors/{connector_id}/verify")
-async def verify_connector(
-    connector_id: str,
-    request: ConnectorActionRequest,
-    user_id: str = Depends(require_rate_limit),
-):
-    del user_id
-    return _run_connector_action_response(connector_id, "verify", request)
-
-
-@app.post("/connectors/{connector_id}/connect")
-async def connect_connector(
-    connector_id: str,
-    request: ConnectorActionRequest,
-    user_id: str = Depends(require_rate_limit),
-):
-    del user_id
-    return _run_connector_action_response(connector_id, "connect", request)
-
-
-@app.post("/connectors/{connector_id}/reconnect")
-async def reconnect_connector(
-    connector_id: str,
-    request: ConnectorActionRequest,
-    user_id: str = Depends(require_rate_limit),
-):
-    del user_id
-    return _run_connector_action_response(connector_id, "reconnect", request)
-
-
-@app.post("/connectors/{connector_id}/disconnect")
-async def disconnect_connector(
-    connector_id: str,
-    request: ConnectorActionRequest,
-    user_id: str = Depends(require_rate_limit),
-):
-    del user_id
-    return _run_connector_action_response(connector_id, "disconnect", request)
-
-
-@app.get("/instances/{name}/connectors")
-async def list_instance_connectors(
-    name: str,
-    user_id: str = Depends(require_rate_limit),
-):
-    del user_id
-    return _list_instance_connectors_response(name)
-
-
-@app.post("/instances/{name}/connectors/{connector_id}")
-async def save_instance_connector_binding(
-    name: str,
-    connector_id: str,
-    request: InstanceConnectorBindingRequest,
-    user_id: str = Depends(require_rate_limit),
-):
-    del user_id
-    return _save_instance_connector_binding_response(name, connector_id, request)
-
-
-@app.post("/instances/{name}/activate")
-async def activate_instance(
-    name: str,
-    user_id: str = Depends(require_rate_limit),
-):
-    del user_id
-    return _activate_instance_response(name)
-
-
-@app.delete("/instances/{name}")
-async def delete_instance(
-    name: str,
-    user_id: str = Depends(require_rate_limit),
-):
-    del user_id
-    return _delete_instance_response(name)
+globals().update(
+    vars(
+        _register_instance_routes(
+            app,
+            require_rate_limit=require_rate_limit,
+            build_instance_list_response=_build_instance_list_response,
+            create_or_update_instance_response=_create_or_update_instance_response,
+            save_instance_governance_response=_save_instance_governance_response,
+            list_connectors_response=_list_connectors_response,
+            run_connector_action_response=_run_connector_action_response,
+            list_instance_connectors_response=_list_instance_connectors_response,
+            save_instance_connector_binding_response=_save_instance_connector_binding_response,
+            activate_instance_response=_activate_instance_response,
+            delete_instance_response=_delete_instance_response,
+            build_instance_logs_response=_build_instance_logs_response,
+            query_instance_response=partial(
+                snapshot_route_support.query_instance_response,
+                _module_owner(),
+            ),
+        )
+    )
+)
+_register_snapshot_misc_routes(
+    app,
+    _module_owner(),
+    require_rate_limit=require_rate_limit,
+    require_repair_token=lambda request: services_ops.require_repair_token(_module_owner(), request),
+)
 
 # === END _server_fragment_runtime_calls.py ===
-
-# === BEGIN _server_fragment_routes_core.py ===
-@app.get("/instances/{name}/logs")
-async def get_instance_logs(
-    name: str,
-    limit: int = 50,
-    user_id: str = Depends(require_rate_limit),
-):
-    del user_id
-    return _build_instance_logs_response(name, limit=limit)
-
-
-@app.post("/instances/{name}/query")
-async def query_instance(
-    name: str,
-    request: InstanceQueryRequest,
-    user_id: str = Depends(require_rate_limit),
-):
-    del user_id
-    return await snapshot_route_support.query_instance_response(_module_owner(), name, request)
-
-
-@app.get("/logs/recent")
-async def get_recent_logs(
-    limit: int = 100,
-    user_id: str = Depends(require_rate_limit),
-):
-    del user_id
-    return snapshot_route_support.recent_logs_response(_module_owner(), limit=limit)
-
-
-@app.get("/telemetry/query")
-async def telemetry_query(
-    stream: Optional[str] = None,
-    event: Optional[str] = None,
-    level: Optional[str] = None,
-    since_minutes: int = 1440,
-    limit: int = 200,
-    backend: str = "auto",
-    user_id: str = Depends(require_rate_limit),
-):
-    """Query operational telemetry with filters (SQLite-first with JSONL fallback)."""
-    del user_id
-    return snapshot_telemetry_support.build_telemetry_query_response(
-        _module_owner(),
-        stream=stream,
-        event=event,
-        level=level,
-        since_minutes=since_minutes,
-        limit=limit,
-        backend=backend,
-    )
-
-
-@app.get("/telemetry/report")
-async def telemetry_report(
-    stream: Optional[str] = None,
-    since_minutes: int = 1440,
-    limit: int = 1000,
-    backend: str = "auto",
-    user_id: str = Depends(require_rate_limit),
-):
-    """Return summarized telemetry report for dashboards and ops checks."""
-    del user_id
-    return snapshot_telemetry_support.build_telemetry_report_response(
-        _module_owner(),
-        stream=stream,
-        since_minutes=since_minutes,
-        limit=limit,
-        backend=backend,
-    )
-
-
-def _require_repair_token(request: Request) -> None:
-    """Dependency: verify X-Repair-Token matches the in-memory token set at startup."""
-    services_ops.require_repair_token(_module_owner(), request)
-
-
-@app.get("/repair-token/refresh")
-async def repair_token_refresh(_req: Request):
-    client_ip = _req.client.host if _req.client else ""
-    return snapshot_route_support.repair_token_refresh_response(_module_owner(), client_ip)
-
-
-@app.post("/repair")
-async def repair_runtime(
-    request: RepairRequest,
-    _req: Request,
-    user_id: str = Depends(require_rate_limit),
-    _tok: None = Depends(_require_repair_token),
-):
-    del user_id
-    return await snapshot_route_support.repair_runtime_response(_module_owner(), request)
-
-
-@app.get("/revenue/dashboard")
-async def get_revenue_dashboard(user_id: str = Depends(require_rate_limit)):
-    del user_id
-    return snapshot_route_support.revenue_dashboard_response(_module_owner())
-
-@app.post("/chat")
-async def chat(request: ChatRequest, user_id: str = Depends(require_rate_limit)):
-    """Send text message and get response."""
-    del user_id
-    return await snapshot_realtime_support.chat_response(_module_owner(), request)
-
-# === END _server_fragment_routes_core.py ===
-
 # === BEGIN _server_fragment_routes_ops.py ===
-@app.post("/chat/voice")
-async def chat_voice(
-    file: UploadFile = File(...),
-    session_id: Optional[str] = None,
-    use_claude: Optional[bool] = True,
-    user_id: str = Depends(require_rate_limit)
-):
-    """Upload audio file and get transcription + response."""
-    del user_id
-    return await snapshot_realtime_support.chat_voice_response(
-        _module_owner(),
-        file=file,
-        session_id=session_id,
-        use_claude=use_claude,
-    )
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for streaming responses."""
-    await snapshot_realtime_support.websocket_response(_module_owner(), websocket)
-
 # â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 if __name__ == "__main__":

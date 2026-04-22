@@ -96,7 +96,8 @@ def check_syntax() -> bool:
     print("[5] Syntax checking key source files...")
     files = [
         "guppy_launcher.py",
-        "ui/launcher/launcher_window.py",
+        "src/guppy/apps/launcher_app.py",
+        "compat_shims/launcher_ui/ui/launcher/launcher_window.py",
         "guppy_core/__init__.py",
         "guppy_hub.py",
         "guppy_api.py",

@@ -76,3 +76,19 @@ def test_metadata_accessors_return_defensive_copies() -> None:
 
     assert connector_spec("crm")["label"] == connector_manager._CONNECTOR_CATALOG["crm"]["label"]
     assert provider_spec("crm", "hubspot")["label"] == connector_manager._CRM_PROVIDER_META["hubspot"]["label"]
+
+
+def test_planned_local_adapters_have_explicit_lifecycle_metadata() -> None:
+    anythingllm = connector_spec("anythingllm_local")
+    huggingface = connector_spec("huggingface_local")
+
+    assert anythingllm["availability_status"] == "planned"
+    assert anythingllm["installation_status"] == "not_installed"
+    assert anythingllm["default_auth_state"] == "planned"
+    assert anythingllm["default_result_code"] == "planned_not_installed"
+    assert anythingllm["actions_supported"] == []
+
+    assert huggingface["availability_status"] == "planned"
+    assert huggingface["installation_status"] == "not_installed"
+    assert huggingface["default_auth_state"] == "planned"
+    assert "not installed" in huggingface["default_auth_detail"].lower()

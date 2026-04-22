@@ -1,124 +1,71 @@
+from src.guppy.api.instance_config_support import (
+    default_instance_state as _support_default_instance_state,
+    ensure_instance_scaffold as _support_ensure_instance_scaffold,
+    get_active_instance_context as _support_get_active_instance_context,
+    get_instance_entry as _support_get_instance_entry,
+    instance_config_entry as _support_instance_config_entry,
+    instance_names as _support_instance_names,
+    load_instance_state as _support_load_instance_state,
+    load_instances_config as _support_load_instances_config,
+    load_normalized_instance_bundle as _support_load_normalized_instance_bundle,
+    save_instance_state as _support_save_instance_state,
+    save_instances_config as _support_save_instances_config,
+)
+
+
 def _ensure_m2_instance_scaffold() -> None:
-    _config_dir.mkdir(parents=True, exist_ok=True)
-    _runtime_dir.mkdir(parents=True, exist_ok=True)
-
-    if not _instances_path.exists():
-        _instances_path.write_text(
-            json.dumps(
-                {
-                    "version": 1,
-                    "active_instance": "guppy-primary",
-                    "instances": [
-                        {
-                            "name": "guppy-primary",
-                            "description": "Primary foreground assistant instance",
-                            "mode": "auto",
-                            "persona": "guppy",
-                            "voice": "default",
-                            "enabled": True,
-                            "type": "user_instance",
-                            "created_at": datetime.now(timezone.utc).isoformat(),
-                        },
-                        {
-                            "name": "builder-collab",
-                            "description": "Background collaborator instance",
-                            "mode": "teaching",
-                            "persona": "guppy",
-                            "voice": "default",
-                            "enabled": False,
-                            "type": "builder_instance",
-                            "created_at": datetime.now(timezone.utc).isoformat(),
-                        },
-                    ],
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-
-    if not _instance_state_path.exists():
-        _instance_state_path.write_text(
-            json.dumps(
-                {
-                    "version": 1,
-                    "active_instance": "guppy-primary",
-                    "instances": {
-                        "guppy-primary": {
-                            "status": "idle",
-                            "last_message": "",
-                            "last_updated": None,
-                            "message_count": 0,
-                            "model_currently_using": "auto",
-                        },
-                        "builder-collab": {
-                            "status": "idle",
-                            "last_message": "",
-                            "last_updated": None,
-                            "message_count": 0,
-                            "model_currently_using": "teaching",
-                        },
-                    },
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+    _support_ensure_instance_scaffold(
+        config_dir=_config_dir,
+        runtime_dir=_runtime_dir,
+        instances_path=_instances_path,
+        instance_state_path=_instance_state_path,
+    )
 
 
 def _load_instances_config() -> dict[str, Any]:
-    _ensure_m2_instance_scaffold()
-    try:
-        data = json.loads(_instances_path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    return _support_load_instances_config(
+        ensure_scaffold=_ensure_m2_instance_scaffold,
+        instances_path=_instances_path,
+    )
 
 
 def _load_instance_state(config: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    _ensure_m2_instance_scaffold()
-    try:
-        data = json.loads(_instance_state_path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    return _support_load_instance_state(
+        ensure_scaffold=_ensure_m2_instance_scaffold,
+        instance_state_path=_instance_state_path,
+        config=config,
+    )
 
 
 def _save_instance_state(state: dict[str, Any]) -> None:
-    _instance_state_path.parent.mkdir(parents=True, exist_ok=True)
-    if _ATOMIC_JSON_IO:
-        if not write_json_atomic(_instance_state_path, state):
-            raise OSError(f"Failed to write instance state atomically: {_instance_state_path}")
-    else:
-        _instance_state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    _support_save_instance_state(
+        state,
+        instance_state_path=_instance_state_path,
+        atomic_json_io=_ATOMIC_JSON_IO,
+        write_json_atomic=write_json_atomic,
+    )
 
 
 def _save_instances_config(config: dict[str, Any]) -> None:
-    _instances_path.parent.mkdir(parents=True, exist_ok=True)
-    if _ATOMIC_JSON_IO:
-        if not write_json_atomic(_instances_path, config):
-            raise OSError(f"Failed to write instances config atomically: {_instances_path}")
-    else:
-        _instances_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    _support_save_instances_config(
+        config,
+        instances_path=_instances_path,
+        atomic_json_io=_ATOMIC_JSON_IO,
+        write_json_atomic=write_json_atomic,
+    )
 
 
 def _load_normalized_instance_bundle(*, persist_repairs: bool = False) -> tuple[dict[str, Any], dict[str, Any], list[str], list[str]]:
-    raw_config = _load_instances_config()
-    config, config_warnings = _normalize_instances_config(raw_config)
-    if persist_repairs and raw_config != config:
-        _save_instances_config(config)
-        config_warnings = list(config_warnings) + ["persisted normalized instances config"]
-
-    raw_state = _load_instance_state(config)
-    state, state_warnings = _normalize_instance_state(
-        raw_state,
-        valid_names=_instance_names(config),
-        active_instance=str(config.get("active_instance", "guppy-primary")),
+    return _support_load_normalized_instance_bundle(
+        persist_repairs=persist_repairs,
+        load_instances_config_fn=_load_instances_config,
+        normalize_instances_config_fn=_normalize_instances_config,
+        save_instances_config_fn=_save_instances_config,
+        load_instance_state_fn=_load_instance_state,
+        normalize_instance_state_fn=_normalize_instance_state,
+        instance_names_fn=_instance_names,
+        save_instance_state_fn=_save_instance_state,
     )
-    if persist_repairs and raw_state != state:
-        _save_instance_state(state)
-        state_warnings = list(state_warnings) + ["persisted normalized instance runtime state"]
-
-    return config, state, config_warnings, state_warnings
 
 
 def _instance_config_entry(
@@ -132,54 +79,35 @@ def _instance_config_entry(
     instance_type: str = "user_instance",
     created_at: str | None = None,
 ) -> dict[str, Any]:
-    return {
-        "name": name,
-        "description": description,
-        "mode": mode,
-        "persona": persona,
-        "voice": voice,
-        "enabled": enabled,
-        "type": instance_type,
-        "created_at": created_at or datetime.now(timezone.utc).isoformat(),
-    }
+    return _support_instance_config_entry(
+        name=name,
+        description=description,
+        mode=mode,
+        persona=persona,
+        voice=voice,
+        enabled=enabled,
+        instance_type=instance_type,
+        created_at=created_at,
+    )
 
 
 def _default_instance_state(mode: str = "auto") -> dict[str, Any]:
-    return {
-        "status": "idle",
-        "last_message": "",
-        "last_updated": None,
-        "message_count": 0,
-        "model_currently_using": mode,
-    }
+    return _support_default_instance_state(mode)
 
 
 def _instance_names(config: dict[str, Any]) -> list[str]:
-    names: list[str] = []
-    for item in config.get("instances", []):
-        if isinstance(item, dict):
-            name = str(item.get("name", "")).strip()
-            if name:
-                names.append(name)
-    return names
+    return _support_instance_names(config)
 
 
 def _get_instance_entry(config: dict[str, Any], name: str) -> dict[str, Any] | None:
-    target = str(name or "").strip()
-    for item in config.get("instances", []):
-        if isinstance(item, dict) and str(item.get("name", "")).strip() == target:
-            return item
-    return None
+    return _support_get_instance_entry(config, name)
 
 
 def _get_active_instance_context() -> tuple[str | None, str | None, str | None, str | None]:
-    config, _state, _warnings, _state_warnings = _load_normalized_instance_bundle(persist_repairs=True)
-    active_name = str(config.get("active_instance", "")).strip()
-    entry = _get_instance_entry(config, active_name)
-    instance_type = str((entry or {}).get("type", "user_instance") or "user_instance").strip() or "user_instance"
-    persona = str((entry or {}).get("persona", "guppy") or "guppy").strip() or "guppy"
-    voice = str((entry or {}).get("voice", "default") or "default").strip() or "default"
-    return (active_name or None, instance_type, persona, voice)
+    return _support_get_active_instance_context(
+        load_normalized_instance_bundle_fn=_load_normalized_instance_bundle,
+        get_instance_entry_fn=_get_instance_entry,
+    )
 
 
 def _coerce_int(value: Any, default: int = 0) -> int:

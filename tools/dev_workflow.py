@@ -139,6 +139,35 @@ def _release_check_steps() -> list[tuple[str, list[str], dict[str, str]]]:
     ]
 
 
+def _backend_gate_steps() -> list[tuple[str, list[str], dict[str, str]]]:
+    return [
+        (
+            "backend gate: dev-check (delta)",
+            _python_command("tools/dev_workflow.py", "dev-check", "--guard-scope", "delta"),
+            {"GUPPY_GUARD_SCOPE": "delta"},
+        ),
+        (
+            "backend gate: unit contract bundle (tests/unit, no cache provider)",
+            [
+                *_pytest_command("tests/unit", label="backend-gate-unit-contract"),
+                "-p",
+                "no:cacheprovider",
+            ],
+            {},
+        ),
+        (
+            "backend gate: vercel preflight",
+            _python_command("tools/vercel_preflight.py", "--skip-env"),
+            {},
+        ),
+        (
+            "backend gate: release-check",
+            _python_command("tools/dev_workflow.py", "release-check"),
+            {},
+        ),
+    ]
+
+
 def _run_step(name: str, command: list[str], extra_env: dict[str, str] | None = None) -> StepResult:
     env = _workflow_env()
     if extra_env:
@@ -147,12 +176,17 @@ def _run_step(name: str, command: list[str], extra_env: dict[str, str] | None = 
     print(f"\n==> {name}")
     print(" ".join(command))
     started = time.perf_counter()
-    completed = subprocess.run(command, cwd=ROOT, env=env)
+    try:
+        completed = subprocess.run(command, cwd=ROOT, env=env)
+        returncode = completed.returncode
+    except KeyboardInterrupt:
+        print("workflow interrupted by operator")
+        returncode = 130
     duration = time.perf_counter() - started
     return StepResult(
         name=name,
         command=command,
-        returncode=completed.returncode,
+        returncode=returncode,
         duration_seconds=round(duration, 2),
     )
 
@@ -238,6 +272,10 @@ def main() -> int:
     subparsers.add_parser("test-fast", help="Run the fast unit-focused suite")
     subparsers.add_parser("test-default", help="Run the default unit+integration suite")
     subparsers.add_parser("test-smoke", help="Run launcher/runtime/security smoke tests")
+    subparsers.add_parser(
+        "backend-gate",
+        help="Run backend-focused CI gate: delta guardrails, backend unit contracts, then release-check",
+    )
 
     release_check = subparsers.add_parser("release-check", help="Run the release-oriented validation bundle")
     release_check.add_argument(
@@ -261,6 +299,13 @@ def main() -> int:
         return _run_simple_workflow(_test_default_steps())
     if args.subcommand == "test-smoke":
         return _run_simple_workflow(_test_smoke_steps())
+    if args.subcommand == "backend-gate":
+        for phase_name, command, extra_env in _backend_gate_steps():
+            result = _run_step(phase_name, command, extra_env=extra_env)
+            if not result.ok:
+                print(f"\nbackend-gate failed during phase: {phase_name}")
+                return result.returncode
+        return 0
 
     results: list[StepResult] = []
     for name, command, extra_env in _release_check_steps():

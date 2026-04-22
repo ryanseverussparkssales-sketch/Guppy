@@ -1,0 +1,66 @@
+{
+  "mode": "live",
+  "initial": {
+    "api": true,
+    "cloudflared": false,
+    "ollama": true
+  },
+  "actions": [
+    {
+      "service": "api",
+      "initial_running": true,
+      "steps": [
+        {
+          "op": "restart",
+          "result": {
+            "ok": true,
+            "status": "restart:api"
+          },
+          "running_after": true
+        }
+      ]
+    },
+    {
+      "service": "cloudflared",
+      "initial_running": false,
+      "steps": [
+        {
+          "op": "start",
+          "result": {
+            "ok": false,
+            "status": "start:cloudflared"
+          },
+          "running_after": false
+        },
+        {
+          "op": "stop",
+          "result": {
+            "ok": true,
+            "status": "stop:cloudflared"
+          },
+          "running_after": false
+        }
+      ]
+    },
+    {
+      "service": "ollama",
+      "initial_running": true,
+      "steps": [
+        {
+          "op": "restart",
+          "result": {
+            "ok": true,
+            "status": "restart:ollama"
+          },
+          "running_after": true
+        }
+      ]
+    }
+  ],
+  "final": {
+    "api": true,
+    "cloudflared": false,
+    "ollama": true
+  },
+  "ok": false
+}

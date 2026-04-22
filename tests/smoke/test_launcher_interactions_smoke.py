@@ -601,6 +601,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Active agent switched to GUPPY", assistant._background_event.text())
         self.assertTrue(assistant._background_event.isHidden())
         self.assertIn("Starters are optional.", assistant._hero_subtitle.text())
+        self.assertIn("Resume cue: Recent context: Finish the launcher framing pass", assistant._hero_subtitle.text())
         self.assertNotIn("Active agent switched to GUPPY", assistant._hero_subtitle.text())
         self.assertTrue(assistant._workspace_summary.isHidden())
         self.assertTrue(assistant._context_bar.isHidden())
@@ -656,6 +657,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertEqual(daily_starter, "MORNING BRIEF")
         self.assertIn("Planning partner for review loops.", assistant._workspace_summary.text())
         self.assertIn("Recent context: Finish the launcher framing pass", assistant._workspace_summary.text())
+        self.assertIn("Resume cue: Recent context: Finish the launcher framing pass", assistant._hero_subtitle.text())
         self.assertIn("Start here in builder-collab", assistant._entry_hint.text())
         self.assertIn("next pass", assistant._input.placeholderText().lower())
         self.assertEqual(assistant._starter_buttons["morning_brief"].text(), "PLAN NEXT PASS")
@@ -877,6 +879,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         view = LibraryView()
         view._root_label.clear()
         view._root_path.clear()
+        view._artifact_title.clear()
         view._artifact_path.clear()
 
         old_root_picker = library_view_module.QFileDialog.getExistingDirectory
@@ -896,6 +899,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
 
         self.assertEqual(view._root_path.text(), "C:/Users/Ryan/Documents/Study")
         self.assertEqual(view._root_label.text(), "Study")
+        self.assertEqual(view._artifact_title.text(), "checklist")
         self.assertEqual(view._artifact_path.text(), "C:/Users/Ryan/Documents/Study/checklist.md")
 
     def test_library_view_edit_cancel_buttons_restore_note_and_artifact_inputs(self):
@@ -961,6 +965,29 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         view._begin_note_edit(17, "Review packet", "Validation notes\nWith another line.")
         self.assertIn("Editing pinned note: Review packet.", view._note_editor_hint.text())
         self.assertIn("Body ready:", view._note_editor_hint.text())
+
+    def test_library_view_search_status_and_artifact_hint_track_reuse_state(self):
+        view = LibraryView()
+        view.set_instance_context(
+            {
+                "name": "builder-collab",
+                "type": "builder_instance",
+                "description": "Planning partner for review loops.",
+            },
+            {},
+        )
+
+        self.assertIn("Current root:", view._search_status_lbl.text())
+        self.assertIn("Pinned keeps durable notes and artifacts.", view._search_status_lbl.text())
+        self.assertIn("Artifacts keep reusable local file references", view._artifact_editor_hint.text())
+
+        view._artifact_title.setText("Checklist bundle")
+        view._artifact_path.setText("C:/Users/Ryan/Documents/Study/checklist.md")
+        view._refresh_artifact_editor_state()
+        self.assertIn("Artifact draft ready: Checklist bundle.", view._artifact_editor_hint.text())
+
+        view._search.setText("guide")
+        self.assertIn('Matches for "guide"', view._search_status_lbl.text())
 
     def test_library_view_media_panel_loads_controls_and_unloads_media(self):
         from PySide6.QtMultimedia import QMediaPlayer

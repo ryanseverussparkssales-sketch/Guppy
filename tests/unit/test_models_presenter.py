@@ -2,6 +2,7 @@ from src.guppy.launcher_application.models_presenter import (
     build_models_active_identity_text,
     build_models_library_hint_text,
     build_models_loadout_help_text,
+    build_models_runtime_lane_guide_text,
     build_models_runtime_summary_text,
     build_models_route_decision_text,
     build_models_route_evidence_text,
@@ -152,6 +153,17 @@ def test_runtime_summary_text_supports_lmstudio_setup_copy() -> None:
 
     assert "LM Studio is a supported local lane." in text
     assert "http://127.0.0.1:1234/v1" in text
+    assert "Supported local lanes" in text
+
+
+def test_runtime_lane_guide_text_calls_out_default_opt_in_and_planned_lanes() -> None:
+    text = build_models_runtime_lane_guide_text(selected_backend="lemonade")
+
+    assert "Default lane: Ollama." in text
+    assert "Supported local lanes: LM Studio and Local Harness." in text
+    assert "Opt-in challenger lane: Lemonade." in text
+    assert "Planned adapters stay out of rotation until shipped" in text
+    assert "Lemonade is selected now" in text
 
 
 def test_library_hint_text_keeps_model_and_persona_distinct() -> None:

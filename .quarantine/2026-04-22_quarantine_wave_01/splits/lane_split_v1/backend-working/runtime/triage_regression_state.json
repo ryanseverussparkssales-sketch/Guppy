@@ -1,0 +1,8 @@
+{
+  "timestamp_utc": "2026-04-18T18:10:41.323018+00:00",
+  "verdict": "UNKNOWN",
+  "failed_gates": [],
+  "stale_core": [],
+  "offhours_failures": 0,
+  "regression": false
+}

@@ -70,6 +70,64 @@ def _metadata_source_label(item: dict[str, object]) -> str:
     return ""
 
 
+def _fallback_source_label(item: dict[str, object]) -> str:
+    kind = str(item.get("item_kind", "file") or "file").strip().lower()
+    if kind == "note":
+        return "Pinned note"
+    if kind == "artifact":
+        return "Saved artifact"
+    if kind == "study":
+        return "Study source"
+    if kind == "coding":
+        return "Coding source"
+    return "File source"
+
+
+def _card_source_parts(item: dict[str, object]) -> list[str]:
+    kind = str(item.get("item_kind", "file") or "file").strip().lower()
+    item_path = str(item.get("item_path", "") or "").strip()
+    media = describe_library_media_path(item_path)
+    parts: list[str] = []
+    if media.is_media and media.source_label:
+        parts.append(media.source_label)
+    source_label = str(item.get("source_label", "") or "").strip() or _metadata_source_label(item)
+    if source_label:
+        parts.append(source_label)
+    fallback = _fallback_source_label(item)
+    if not parts:
+        parts.append(fallback)
+    elif kind in {"note", "artifact"} and source_label != fallback:
+        parts.append(fallback)
+    if not parts:
+        parts.append(_fallback_source_label(item))
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        normalized = part.casefold()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(part)
+    return deduped
+
+
+def _summary_without_source_labels(summary: str, source_parts: list[str]) -> str:
+    tokens = [token.strip() for token in str(summary or "").split("|") if token.strip()]
+    if not tokens:
+        return ""
+    skip = {part.casefold() for part in source_parts if part}
+    cleaned = [token for token in tokens if token.casefold() not in skip]
+    return " | ".join(cleaned)
+
+
+def _card_source_line(item: dict[str, object]) -> str:
+    return " · ".join(_card_source_parts(item))
+
+
+def _search_blob(*parts: object) -> str:
+    return " ".join(str(part or "").strip() for part in parts if str(part or "").strip())
+
+
 def _note_preview(text: str, *, limit: int = 160) -> str:
     cleaned = " ".join(str(text or "").split())
     if not cleaned:
@@ -80,16 +138,14 @@ def _note_preview(text: str, *, limit: int = 160) -> str:
 def _card_detail(item: dict[str, object]) -> str:
     kind = str(item.get("item_kind", "file") or "file").strip().lower()
     item_path = str(item.get("item_path", "") or "").strip()
-    media = describe_library_media_path(item_path)
     if kind == "note":
-        source_label = _metadata_source_label(item) or "Pinned note"
-        return _truncate(f"{_note_preview(str(item.get('summary', '') or ''))} | {source_label}", limit=160)
+        return _note_preview(str(item.get("summary", "") or ""), limit=160)
+    source_parts = _card_source_parts(item)
+    summary = _summary_without_source_labels(str(item.get("summary", "") or ""), source_parts)
     parts: list[str] = []
-    if media.is_media and media.source_label:
-        parts.append(media.source_label)
-    source_label = str(item.get("source_label", "") or "").strip() or _metadata_source_label(item)
-    summary = str(item.get("summary", "") or "").strip()
-    parts.extend(part for part in (summary, source_label, item_path) if part)
+    parts.extend(part for part in (summary, item_path) if part)
+    if not parts:
+        parts.append("Saved artifact ready to reuse in chat." if kind == "artifact" else "Saved source ready to reuse in chat.")
     return _truncate(" | ".join(parts), limit=160)
 
 
@@ -125,6 +181,17 @@ def _context_ref(item: dict[str, object]) -> str:
     if item_path:
         return item_path
     return str(item.get("title", "") or "").strip()
+
+
+def _approved_root_source_line(root: dict[str, object]) -> str:
+    source = str(root.get("source", "") or "").strip().lower()
+    if source == "repo":
+        return "Bundled repo root"
+    if source == "manual":
+        return "Approved folder"
+    if source:
+        return _truncate(source.replace("_", " ").title(), limit=28)
+    return "Approved folder"
 
 
 def build_library_surface_state(
@@ -177,6 +244,13 @@ def build_library_surface_state(
             "label": str(root.get("label", "") or "").strip(),
             "detail": _truncate(str(root.get("root_path", "") or "").strip(), limit=92),
             "root_path": str(root.get("root_path", "") or "").strip(),
+            "source_line": _approved_root_source_line(root),
+            "search_text": _search_blob(
+                root.get("label", ""),
+                root.get("root_path", ""),
+                root.get("source", ""),
+                _approved_root_source_line(root),
+            ),
         }
         for root in list(storage.get("approved_roots", []))[:4]
         if isinstance(root, dict)
@@ -205,6 +279,7 @@ def build_library_surface_state(
                 {
                     "title": _truncate(title, limit=52),
                     "detail": _card_detail(item),
+                    "source_line": _card_source_line(item),
                     "kind": str(item.get("item_kind", "file") or "file").strip().lower(),
                     "item_path": str(item.get("item_path", "") or "").strip(),
                     "action_label": "USE IN CHAT",
@@ -212,6 +287,14 @@ def build_library_surface_state(
                     "media_kind": media.media_kind,
                     "media_path": media.path if media.is_media else "",
                     "source_label": media.source_label,
+                    "search_text": _search_blob(
+                        title,
+                        item.get("summary", ""),
+                        item.get("item_path", ""),
+                        item.get("item_kind", ""),
+                        _card_source_line(item),
+                        item.get("source_label", ""),
+                    ),
                     "prompt": _item_prompt(item, name),
                 }
             )
@@ -232,6 +315,7 @@ def build_library_surface_state(
                 "title": _truncate(title, limit=48),
                 "full_title": title,
                 "detail": _card_detail(item),
+                "source_line": _card_source_line(item),
                 "kind": kind,
                 "item_path": str(item.get("item_path", "") or "").strip(),
                 "context_ref": _context_ref(item),
@@ -243,6 +327,15 @@ def build_library_surface_state(
                 else "",
                 "source_label": _metadata_source_label(item),
                 "action_label": "USE IN CHAT",
+                "search_text": _search_blob(
+                    title,
+                    item.get("summary", ""),
+                    item.get("item_path", ""),
+                    item.get("item_kind", ""),
+                    _card_source_line(item),
+                    item.get("source_label", ""),
+                    str((item.get("metadata", {}) or {}).get("source", "") if isinstance(item.get("metadata", {}), dict) else ""),
+                ),
                 "prompt": _item_prompt(item, name),
             }
         )
@@ -259,6 +352,7 @@ def build_library_surface_state(
             {
                 "title": _truncate(title, limit=48),
                 "detail": _card_detail(item),
+                "source_line": _card_source_line(item),
                 "kind": str(item.get("item_kind", "file") or "file").strip().lower(),
                 "item_path": str(item.get("item_path", "") or "").strip(),
                 "id": str(item.get("id", "") or "").strip(),
@@ -268,6 +362,15 @@ def build_library_surface_state(
                 "media_path": media.path if media.is_media else "",
                 "source_label": media.source_label or _metadata_source_label(item),
                 "action_label": "USE IN CHAT",
+                "search_text": _search_blob(
+                    title,
+                    item.get("summary", ""),
+                    item.get("item_path", ""),
+                    item.get("item_kind", ""),
+                    _card_source_line(item),
+                    item.get("source_label", ""),
+                    str((item.get("metadata", {}) or {}).get("source", "") if isinstance(item.get("metadata", {}), dict) else ""),
+                ),
                 "prompt": _item_prompt(item, name),
             }
         )
@@ -367,7 +470,7 @@ def build_library_surface_state(
         approved_roots=approved_roots,
         selected_root_label=selected_root_label or "Approved root",
         selected_root_hint=(
-            f"Active root: {selected_root_label or 'Approved root'}. Switch roots from the picker or cards below, then use USE IN CHAT to attach one as source context."
+            f"Active root: {selected_root_label or 'Approved root'}. Switch roots from the picker or cards below, browse only inside this approved folder, then use USE IN CHAT to attach one as source context. Search still matches full file paths and source labels."
             if selected_root
             else "Pick an approved root to browse files before using USE IN CHAT. Guppy only browses approved folders."
         ),

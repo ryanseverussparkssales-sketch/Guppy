@@ -98,6 +98,10 @@ def build_quick_action_plan_for_owner(owner, action: str, *, runtime_parent: Pat
 # ---------------------------------------------------------------------------
 
 def set_status_panel_visible(owner, visible: bool) -> None:
+    owner_setter = getattr(owner, "_set_status_panel_visible", None)
+    if callable(owner_setter):
+        owner_setter(visible)
+        return
     owner._status_divider.setVisible(visible)
     owner._status_panel.setVisible(visible)
     owner._topbar.set_drawer_open(visible)

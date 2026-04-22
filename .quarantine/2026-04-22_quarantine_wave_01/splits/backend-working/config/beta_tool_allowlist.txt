@@ -1,0 +1,31 @@
+# Beta restricted profile allowlist
+# One tool name per line
+read_file
+list_directory
+search_web
+fetch_url
+get_news
+remember
+recall
+semantic_remember
+semantic_recall
+add_task
+get_tasks
+complete_task
+save_contact
+get_contacts
+morning_brief
+get_reminders
+calendar_events
+gmail_scan_inbox
+gmail_list_accounts
+spotify_current
+youtube_search
+github
+get_foundation_readiness
+get_revenue_dashboard
+get_pipeline_items
+list_external_integrations
+notify
+clipboard_read
+get_active_window

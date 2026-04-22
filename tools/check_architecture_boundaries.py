@@ -59,6 +59,15 @@ FORBIDDEN_IMPORT_MAP: dict[str, tuple[tuple[str, str, str], ...]] = {
             r"^(from|import)\s+ui\.launcher\b",
         ),
     ),
+    "api/": (
+        (
+            "cloud-api-desktop-import",
+            "imports desktop/local-runtime modules from the cloud API surface",
+            r"^(from|import)\s+(guppy_core|src\.guppy\.voice|src\.guppy\.daemon"
+            r"|src\.guppy\.launcher_application|utils\.env_bootstrap|utils\.db_utils"
+            r"|src\.guppy\.paths)\b",
+        ),
+    ),
 }
 
 

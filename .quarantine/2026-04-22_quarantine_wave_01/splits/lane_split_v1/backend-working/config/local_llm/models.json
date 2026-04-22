@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "last_updated": "2026-04-16",
+  "owner": "M2 Local LLM Track",
+  "runtime": {
+    "baseline_backend": "ollama",
+    "runtime_challengers": [
+      {
+        "id": "llama.cpp",
+        "status": "planned",
+        "priority": "high",
+        "notes": "Primary direct-GGUF challenger for AMD local control and benchmark fidelity. Keep as a challenger runtime only until product-fit evidence beats the Ollama baseline."
+      },
+      {
+        "id": "lemonade",
+        "status": "planned",
+        "priority": "high",
+        "notes": "Platform-scale local runtime candidate; evaluate as future substrate, not a drop-in swap. Keep in challenger/runtime testing only until stability and answer quality beat the Ollama baseline."
+      },
+      {
+        "id": "vllm-rocm",
+        "status": "research",
+        "priority": "medium",
+        "notes": "Industrial Linux/ROCm serving track if Guppy expands beyond desktop-first inference."
+      }
+    ],
+    "artifact_paths": {
+      "runtime_snapshot": "runtime/model_runtime_snapshot.json",
+      "benchmark_latest": "runtime/local_llm_benchmarks/latest.json",
+      "benchmark_history": "runtime/local_llm_benchmarks/history.jsonl",
+      "benchmark_reviews": "runtime/local_llm_benchmarks/reviews/"
+    }
+  },
+  "memory": {
+    "baseline_backend": "semantic-sqlite",
+    "embedding_model": "nomic-embed-text:latest",
+    "backend_challengers": [
+      {
+        "id": "mempalace-adapter",
+        "status": "planned",
+        "priority": "high",
+        "notes": "Run as an adapter-shaped retrieval challenger before any prompt-path replacement."
+      },
+      {
+        "id": "semantic-chroma",
+        "status": "optional",
+        "priority": "medium",
+        "notes": "Existing opt-in path; keep only as comparison, not the primary destination."
+      }
+    ],
+    "directory_plan": {
+      "raw": "runtime/local_memory/raw/",
+      "index": "runtime/local_memory/index/",
+      "palace": "runtime/local_memory/palace/",
+      "wal": "runtime/local_memory/wal/",
+      "snapshots": "runtime/local_memory/snapshots/"
+    }
+  },
+  "baseline_models": [
+    {
+      "id": "guppy-fast",
+      "tag": "guppy-fast:latest",
+      "base_family": "qwen2.5",
+      "role": "fast_assistant",
+      "status": "baseline",
+      "context_window": 8192,
+      "latency_class": "fast",
+      "warm_policy": "keep_warm_day",
+      "selection_reason": "Primary fast/simple local lane for daily chat turns."
+    },
+    {
+      "id": "vault-scraper",
+      "tag": "vault-scraper:latest",
+      "base_family": "qwen2.5",
+      "role": "structured_extraction",
+      "status": "baseline",
+      "context_window": 8192,
+      "latency_class": "fast",
+      "warm_policy": "on_demand",
+      "selection_reason": "Structured extraction lane for vault/media workflows."
+    },
+    {
+      "id": "guppy-code",
+      "tag": "guppy-code:latest",
+      "base_family": "qwen2.5-coder",
+      "role": "code_assistant",
+      "status": "baseline",
+      "context_window": 16384,
+      "latency_class": "medium",
+      "warm_policy": "on_demand",
+      "selection_reason": "Current code-focused baseline until challenger testing proves a better default."
+    },
+    {
+      "id": "guppy",
+      "tag": "guppy:latest",
+      "base_family": "qwen2.5",
+      "role": "general_reasoning",
+      "status": "baseline",
+      "context_window": 16384,
+      "latency_class": "slow",
+      "warm_policy": "exclusive",
+      "selection_reason": "Primary local reasoning lane for complex daily-assistant tasks."
+    },
+    {
+      "id": "guppy-teach",
+      "tag": "guppy-teach:latest",
+      "base_family": "qwen2.5",
+      "role": "teaching_assistant",
+      "status": "baseline",
+      "context_window": 16384,
+      "latency_class": "slow",
+      "warm_policy": "exclusive",
+      "selection_reason": "Current teaching lane until manifest-driven role cleanup is complete."
+    }
+  ],
+  "challenger_models": [
+    {
+      "id": "qwen3-8b",
+      "tag": "qwen3:8b",
+      "role_candidates": [
+        "fast_assistant",
+        "general_reasoning"
+      ],
+      "status": "promotion_candidate",
+      "priority": "high",
+      "notes": "Primary challenger-to-promote for the daily local lane on this machine. Best current balance of speed, answer shape, and Guppy fit."
+    },
+    {
+      "id": "qwen3-30b",
+      "tag": "qwen3:30b",
+      "role_candidates": [
+        "general_reasoning",
+        "teaching_assistant",
+        "code_assistant"
+      ],
+      "status": "daily_lane_rejected",
+      "priority": "low",
+      "notes": "Keep available for targeted comparisons only. Current evidence does not support promotion into the daily local lane because it is slower and reasoning-noisier than qwen3:8b."
+    },
+    {
+      "id": "qwen2.5-32b",
+      "tag": "qwen2.5:32b",
+      "role_candidates": [
+        "general_reasoning",
+        "teaching_assistant"
+      ],
+      "status": "daily_lane_rejected",
+      "priority": "low",
+      "notes": "Keep available for compatibility checks only. On this machine it is far too slow for the daily local lane and does not justify promotion over newer challengers."
+    },
+    {
+      "id": "mistral-small3.1-24b",
+      "tag": "mistral-small3.1:24b",
+      "role_candidates": [
+        "general_reasoning",
+        "multimodal_future"
+      ],
+      "status": "heavy_lane_candidate",
+      "priority": "medium",
+      "notes": "Best current optional heavy local lane candidate if a slower, cleaner fallback is needed without promoting it to the default daily path."
+    },
+    {
+      "id": "gemma3-12b",
+      "tag": "gemma3:12b",
+      "role_candidates": [
+        "fast_assistant",
+        "multimodal_future"
+      ],
+      "status": "planned",
+      "priority": "medium",
+      "notes": "Fast challenger with useful latency evidence, but keep as a non-default candidate until product-fit and factuality on local/runtime prompts improve."
+    },
+    {
+      "id": "mxbai-embed-large",
+      "tag": "mxbai-embed-large:latest",
+      "role_candidates": [
+        "embedding"
+      ],
+      "status": "planned",
+      "priority": "high"
+    }
+  ],
+  "promotion_rule": {
+    "required_benchmark_tracks": [
+      "daily_chat",
+      "code_repo",
+      "tool_use",
+      "memory_recall",
+      "stability"
+    ],
+    "minimum_conditions": [
+      "No default-model promotion without benchmark evidence committed to runtime/local_llm_benchmarks.",
+      "No memory-backend promotion without a MemPalace-vs-semantic recall comparison on real Guppy follow-ups.",
+      "No runtime swap without at least one warm-start and one cold-start pass on the target machine."
+    ]
+  }
+}

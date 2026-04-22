@@ -1,0 +1,22 @@
+{
+  "timestamp_utc": "2026-04-13T02:40:44.811141+00:00",
+  "files": {
+    "session_events.jsonl": {
+      "exists": true,
+      "fresh": false
+    },
+    "router_scorecard.jsonl": {
+      "exists": true,
+      "fresh": true
+    },
+    "agent_performance.jsonl": {
+      "exists": true,
+      "fresh": true
+    }
+  },
+  "core_fresh_logs": [
+    "session_events.jsonl",
+    "router_scorecard.jsonl",
+    "agent_performance.jsonl"
+  ]
+}

@@ -1,0 +1,120 @@
+{
+  "ts": "2026-04-20T03:12:54.499527+00:00",
+  "ok": true,
+  "sections": [
+    {
+      "name": "route_resolution",
+      "iterations": 800,
+      "failures": 0,
+      "elapsed_s": 0.178,
+      "ops_per_s": 4496.42,
+      "routes": {
+        "haiku_voice|claude": 235,
+        "ollama|ollama": 174,
+        "claude_teaching|claude": 93,
+        "sonnet|claude": 94,
+        "ollama_teaching|ollama": 110,
+        "haiku|claude": 94
+      }
+    },
+    {
+      "name": "control_plane",
+      "checks": [
+        {
+          "name": "status_requires_bearer",
+          "ok": true,
+          "detail": "status=401",
+          "latency_ms": 22.61
+        },
+        {
+          "name": "auth_self_check",
+          "ok": true,
+          "detail": "status=200",
+          "latency_ms": 14.61
+        },
+        {
+          "name": "repair_token_refresh",
+          "ok": true,
+          "detail": "status=200",
+          "latency_ms": 25.33
+        },
+        {
+          "name": "repair_token_refresh_external_blocked",
+          "ok": true,
+          "detail": "status=403",
+          "latency_ms": 29.31
+        },
+        {
+          "name": "repair_guarded_post",
+          "ok": true,
+          "detail": "status=200",
+          "latency_ms": 28.9
+        },
+        {
+          "name": "chat_authenticated",
+          "ok": true,
+          "detail": "status=200",
+          "latency_ms": 41.8
+        },
+        {
+          "name": "websocket_authenticated",
+          "ok": true,
+          "detail": "chunk={'chunk': 'stress-chat-ok '} done={'done': True}",
+          "latency_ms": 29.45
+        }
+      ],
+      "failure_count": 0,
+      "failure_samples": [],
+      "elapsed_s": 0.195
+    },
+    {
+      "name": "api_endpoints",
+      "requests": 120,
+      "workers": 6,
+      "elapsed_s": 1.965,
+      "rps": 61.07,
+      "latency_ms_avg": 92.29,
+      "latency_ms_p95": 151.16,
+      "latency_ms_p95_hotpath": 134.6,
+      "latency_ms_p95_by_endpoint": {
+        "/status": 162.69,
+        "/metrics": 73.56,
+        "/startup/check": 147.26,
+        "/logs/recent?limit=5": 134.6
+      },
+      "status_counts": {
+        "/metrics:200": 31,
+        "/logs/recent?limit=5:200": 38,
+        "/status:200": 18,
+        "/startup/check:200": 33
+      },
+      "failure_count": 0,
+      "failure_samples": []
+    },
+    {
+      "name": "reminder_scheduler",
+      "requested": 80,
+      "created": 80,
+      "list_count_mid": 80,
+      "cancelled": 80,
+      "left_after_cancel": 0,
+      "failures": 0,
+      "elapsed_s": 0.053
+    },
+    {
+      "name": "logging_io",
+      "events_written": 600,
+      "session_tail_seen": 20,
+      "elapsed_s": 11.241,
+      "ops_per_s": 106.75
+    }
+  ],
+  "gates": {
+    "api_latency": {
+      "max_avg_ms": 1500.0,
+      "max_p95_ms": 5000.0,
+      "max_p95_hot_ms": 1100.0
+    },
+    "failures": []
+  }
+}

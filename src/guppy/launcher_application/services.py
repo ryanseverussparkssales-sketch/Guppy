@@ -16,6 +16,46 @@ from src.guppy.workspace_governance import (
     build_connector_inventory,
 )
 
+
+def _missing_connector_inventory() -> tuple[dict[str, Any], ...]:
+    return ()
+
+
+def _missing_workspace_connector_inventory(
+    workspace_name: str,
+    *,
+    config_path=None,
+) -> list[dict[str, Any]]:
+    return []
+
+
+def _missing_save_workspace_connector_binding(
+    workspace_name: str,
+    connector_id: str,
+    payload: dict[str, Any],
+    *,
+    config_path=None,
+) -> None:
+    raise RuntimeError("connector manager unavailable")
+
+
+def _missing_run_connector_action(
+    connector_id: str,
+    action: str,
+    *,
+    provider: str = "",
+    account_id: str = "",
+    secret_key: str = "",
+    secret_value: str = "",
+) -> dict[str, Any]:
+    return {}
+
+
+_connector_inventory = _missing_connector_inventory
+_workspace_connector_inventory = _missing_workspace_connector_inventory
+_save_workspace_connector_binding = _missing_save_workspace_connector_binding
+_run_connector_action = _missing_run_connector_action
+
 try:
     from utils.connector_manager import (
         connector_inventory as _connector_inventory,

@@ -1,0 +1,27 @@
+{
+  "instance": "builder-collab",
+  "updated_at": "2026-04-21T23:11:35.890893+00:00",
+  "window_days": 30,
+  "entry_count": 14,
+  "latest_timestamp": "2026-04-21T23:11:35.880755+00:00",
+  "roles": {
+    "user": 7,
+    "assistant": 7
+  },
+  "statuses": {
+    "ok": 14
+  },
+  "buckets": {
+    "2026-04-21": {
+      "entry_count": 14,
+      "roles": {
+        "user": 7,
+        "assistant": 7
+      },
+      "statuses": {
+        "ok": 14
+      },
+      "latest_timestamp": "2026-04-21T23:11:35.880755+00:00"
+    }
+  }
+}

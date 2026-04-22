@@ -5,6 +5,7 @@ from src.guppy.launcher_application.library_workflow import (
     sync_assistant_library_context,
 )
 from src.guppy.launcher_application.state_builder import build_launcher_state_snapshot
+from src.guppy.launcher_application.workspace_continuity import annotate_workspace_snapshot
 from src.guppy.launcher_application.workspace_state import (
     enabled_workspace_names,
     resolve_active_instance_payload,
@@ -38,7 +39,7 @@ def load_instance_logs(owner, name: str, *, quiet: bool = False, local_log_reade
 
 
 def refresh_instance_views(owner, *, load_logs: bool = False, force: bool = False) -> None:
-    snapshot = owner._fetch_instance_snapshot(force=force)
+    snapshot = annotate_workspace_snapshot(owner._fetch_instance_snapshot(force=force))
     owner._last_instance_snapshot = snapshot
     connector_inventory_snapshot = owner._fetch_connector_inventory(force=force)
     typed_connector_inventory = build_connector_inventory(connector_inventory_snapshot)
@@ -117,6 +118,7 @@ def refresh_instance_views(owner, *, load_logs: bool = False, force: bool = Fals
             persona=str(active_payload.get("persona", "guppy") or "guppy"),
             voice=str(active_payload.get("voice", "default") or "default"),
             last_message=str(active_payload.get("last_message", "") or ""),
+            continuity_snapshot=active_payload.get("continuity", {}),
         )
         sync_assistant_library_context(owner._assistant_view, library_view, active_library_items)
         role_label = workspace_role_label(str(active_payload.get("type", "user_instance") or "user_instance"))

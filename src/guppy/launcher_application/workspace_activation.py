@@ -8,6 +8,7 @@ from src.guppy.launcher_application.library_workflow import (
     sync_assistant_library_context,
 )
 from src.guppy.launcher_application.instance_manager_presenter import workspace_role_label
+from src.guppy.launcher_application.workspace_continuity import annotate_workspace_snapshot
 from src.guppy.launcher_application.workspace_state import resolve_active_instance_payload
 
 
@@ -35,6 +36,7 @@ def apply_instance_switch(owner, target: str, *, announce: bool = True) -> None:
         persona=str(active_payload.get("persona", "guppy") or "guppy"),
         voice=str(active_payload.get("voice", "default") or "default"),
         last_message=str(active_payload.get("last_message", "") or ""),
+        continuity_snapshot=active_payload.get("continuity", {}),
     )
     if isinstance(active_payload, dict):
         library_view = getattr(owner, "_library_view", None)
@@ -56,7 +58,7 @@ def apply_instance_switch(owner, target: str, *, announce: bool = True) -> None:
 
 
 def bootstrap_instance_switcher(owner, *, schedule_single_shot: Callable[[int, Callable[[], None]], None]) -> None:
-    snapshot = owner._local_instance_snapshot(include_workspace_details=False)
+    snapshot = annotate_workspace_snapshot(owner._local_instance_snapshot(include_workspace_details=False))
     names, active = owner._load_instance_catalog(snapshot=snapshot)
     owner._instance_histories = {}
     owner._active_instance_name = active
@@ -80,6 +82,7 @@ def bootstrap_instance_switcher(owner, *, schedule_single_shot: Callable[[int, C
             persona=str(active_payload.get("persona", "guppy") or "guppy"),
             voice=str(active_payload.get("voice", "default") or "default"),
             last_message=str(active_payload.get("last_message", "") or ""),
+            continuity_snapshot=active_payload.get("continuity", {}),
         )
         sync_assistant_library_context(owner._assistant_view, library_view, owner._active_library_context_items)
         owner._assistant_view.ensure_welcome_message()
@@ -96,7 +99,9 @@ def complete_bootstrap_instance_switcher(owner, *, schedule_single_shot: Callabl
     owner._bootstrap_instance_refresh_pending = False
     active = owner._active_instance_name
     try:
-        owner._last_instance_snapshot = owner._local_instance_snapshot(include_workspace_details=True)
+        owner._last_instance_snapshot = annotate_workspace_snapshot(
+            owner._local_instance_snapshot(include_workspace_details=True)
+        )
         owner._instance_snapshot_expires_at = monotonic() + max(2.0, owner._instance_snapshot_ttl_s)
         owner._last_connector_inventory_snapshot = [item.raw for item in fetch_connector_inventory()]
         owner._connector_inventory_expires_at = monotonic() + max(3.0, owner._connector_inventory_ttl_s)

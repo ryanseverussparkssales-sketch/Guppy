@@ -1,0 +1,27 @@
+{
+  "passed": [
+    [
+      "secret_storage",
+      "OS keyring available: WinVaultKeyring"
+    ],
+    [
+      "network_boundary",
+      "API server binds to 127.0.0.1 (localhost only)"
+    ],
+    [
+      "connector_scope",
+      "Connector actions are Settings-owned and connector manager still gates access via auth_state plus secret reads"
+    ],
+    [
+      "build_posture",
+      "No plaintext secret files in runtime/"
+    ],
+    [
+      "dependency_hygiene",
+      "requirements.txt present with 5 version-constrained dependency line(s)"
+    ]
+  ],
+  "failed": [],
+  "warnings": [],
+  "launch_ready": true
+}

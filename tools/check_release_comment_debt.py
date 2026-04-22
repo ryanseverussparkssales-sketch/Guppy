@@ -75,6 +75,14 @@ def _changed_files_from_worktree() -> set[str]:
     return changed
 
 
+def _has_local_changes(path: str) -> bool:
+    try:
+        raw = _run_git(["status", "--porcelain", "--", path])
+    except Exception:
+        return False
+    return bool(raw.strip())
+
+
 def _added_lines_for_path(path: str, commit_range: bool) -> list[str]:
     if commit_range:
         diff_args = ["diff", "--unified=0", "HEAD~1", "HEAD", "--", path]
@@ -128,10 +136,9 @@ def _find_markers_in_lines(path: str, lines: list[str]) -> list[str]:
 
 
 def main() -> int:
-    changed = _changed_files_from_last_commit()
-    from_commit = bool(changed)
-    if not changed:
-        changed = _changed_files_from_worktree()
+    changed_from_commit = _changed_files_from_last_commit()
+    changed_from_worktree = _changed_files_from_worktree()
+    changed = changed_from_commit or changed_from_worktree
 
     if not changed:
         print("release comment-debt check passed (no changed release-facing files)")
@@ -139,7 +146,8 @@ def main() -> int:
 
     findings: list[str] = []
     for path in sorted(changed):
-        added_lines = _added_lines_for_path(path, commit_range=from_commit)
+        use_commit_range = path in changed_from_commit and not _has_local_changes(path)
+        added_lines = _added_lines_for_path(path, commit_range=use_commit_range)
         findings.extend(_find_markers_in_lines(path, added_lines))
 
     if findings:

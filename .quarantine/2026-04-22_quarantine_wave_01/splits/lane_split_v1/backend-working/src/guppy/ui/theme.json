@@ -1,0 +1,34 @@
+{
+  "_comment": "Edit any value below to customize Guppy's appearance. Restart to apply.",
+
+  "guppy": {
+    "accent":     "#00c8ff",
+    "bg":         "#07070f",
+    "bg2":        "#0a0a14",
+    "bg3":        "#111122",
+    "text":       "#d0d0e0",
+    "dim":        "#404060",
+    "border":     "#1a1a2e",
+    "user_label": "Master Ryan"
+  },
+
+  "merlin": {
+    "accent":     "#c9a84c",
+    "bg":         "#0a0612",
+    "bg2":        "#0e0a1a",
+    "bg3":        "#110d1e",
+    "text":       "#e8dcc8",
+    "dim":        "#6b5e4a",
+    "border":     "#2a1f3d",
+    "user_label": "Apprentice"
+  },
+
+  "shared": {
+    "font_family":     "Segoe UI",
+    "font_size":       10,
+    "sidebar_width":   240,
+    "bubble_radius":   6,
+    "show_timestamps": true,
+    "orb_min_size":    160
+  }
+}

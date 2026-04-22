@@ -2,13 +2,13 @@
 
 ## Launcher-First Path
 
-For the common Windows packaging flow, start in App Mgmt before you drop to a terminal.
+For the common Windows packaging flow, start in Settings before you drop to a terminal.
 
-- App Mgmt `WINDOWS INSTALL / UPDATE / DIAGNOSTICS` now exposes:
+- Settings `WINDOWS INSTALL / UPDATE / DIAGNOSTICS` now exposes:
   - `VERIFY` for runtime/posture checks
   - `UPDATE` for dependency refresh plus postflight validation
   - `PACKAGE` for `bin/build_executable.bat --no-clean --ci` plus beta package-policy verification
-- App Mgmt `WINDOWS INSTALL / UPDATE / DIAGNOSTICS` also owns the release-evidence handoff for dry-run review:
+- Settings `WINDOWS INSTALL / UPDATE / DIAGNOSTICS` also owns the release-evidence handoff for dry-run review:
   - `RELEASE DRY RUN` now runs the canonical `tools/dev_workflow.py release-check` preflight first, then the beta release gate that writes `runtime/beta_release_dry_run_report.json`
   - completed servicing runs write `runtime/windows_release_receipt.json`
   - the launcher also writes a readable `runtime/windows_release_summary.md` companion summary for operator handoff
@@ -99,7 +99,7 @@ That keeps the user-facing shortcut stable at `Desktop\Guppy Launcher.lnk` while
 
 Launcher equivalent:
 
-- Open App Mgmt `WINDOWS INSTALL / UPDATE / DIAGNOSTICS`
+- Open Settings `WINDOWS INSTALL / UPDATE / DIAGNOSTICS`
 - Run `PACKAGE`
 - Review the embedded terminal and the final servicing summary/ref before sharing the build
 
@@ -130,7 +130,7 @@ Use `--onefile` only when extraction/startup behavior is acceptable for support 
 
 ## Pilot Candidate Hardening Gate
 
-If App Mgmt `PACKAGE` succeeds, the launcher already runs `tools/verify_beta_package_policy.py` as part of the package lane. Use the full gate below when you are preparing a broader pilot or release candidate.
+If Settings `PACKAGE` succeeds, the launcher already runs `tools/verify_beta_package_policy.py` as part of the package lane. Use the full gate below when you are preparing a broader pilot or release candidate.
 
 Run this before treating a build as a beta or pilot candidate:
 
@@ -159,9 +159,9 @@ before running the dry run and policy verification.
 
 ## Release Dry Run Handoff
 
-Use this when you need a reviewer-ready bundle from App Mgmt `WINDOWS INSTALL / UPDATE / DIAGNOSTICS`.
+Use this when you need a reviewer-ready bundle from Settings `WINDOWS INSTALL / UPDATE / DIAGNOSTICS`.
 
-1. Open App Mgmt and run `RELEASE DRY RUN`.
+1. Open Settings and run `RELEASE DRY RUN`.
 2. Let the embedded terminal finish the canonical `release-check` preflight before you treat the reviewer bundle as current.
 3. Review the bundle in this order:
    - `runtime/beta_release_dry_run_report.json`
@@ -196,7 +196,7 @@ Operator handoff checklist:
 - Share the dry-run report, receipt, and summary together in that order when the gate is green instead of paraphrasing the result.
 - If the summary says `Fix-First`, hand off the `Fix in`, `Doc`, and `Cmd` lines exactly before anyone retries the lane.
 
-If any of those files are missing or stale, rerun `python tools/dev_workflow.py release-check` and then `python tools/beta_release_dry_run.py`, or use App Mgmt `RELEASE DRY RUN` again so the docs and launcher stay aligned.
+If any of those files are missing or stale, rerun `python tools/dev_workflow.py release-check` and then `python tools/beta_release_dry_run.py`, or use Settings `RELEASE DRY RUN` again so the docs and launcher stay aligned.
 
 ---
 
@@ -243,7 +243,7 @@ dist\Guppy.exe
 - [ ] Test with/without internet connection
 - [ ] Test voice features
 - [ ] Test all tools (file ops, screenshots, etc.)
-- [ ] Confirm App Mgmt servicing evidence clearly shows the final package action, ref, and next step
+- [ ] Confirm Settings servicing evidence clearly shows the final package action, ref, and next step
 
 ### For Release
 - [ ] Create GitHub release

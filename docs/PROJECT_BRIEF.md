@@ -1,6 +1,6 @@
 # Guppy Project Brief
 
-Last updated: 2026-04-20
+Last updated: 2026-04-21
 
 ## Purpose
 
@@ -130,6 +130,23 @@ Views no longer on the top-level nav rail: `instance_manager_view.py` (Workspace
 1. API: `src/guppy/api/server.py`, composed by `src/guppy/api/server_runtime.py`, launched from `guppy_api.py`
 2. Hub and tray: `src/guppy/apps/hub_app.py`, launched from `guppy_hub.py`
 3. Daemon: `src/guppy/daemon/daemon.py`
+
+## Backend Boundary (Freeze)
+
+Boundary intent: preserve the current five-hub product ownership while freezing what counts as backend-owned versus launcher-entry compatibility surfaces.
+
+1. Backend-owned modules (authoritative runtime/business logic)
+   - `src/guppy/api/` (routers, auth, runtime/status services, telemetry/query surfaces)
+   - `src/guppy/runtime_application/`, `src/guppy/workspace_governance/`, `src/guppy/experience_config/`, `src/guppy/launcher_application/` seam contracts/services
+   - `src/guppy/daemon/` and backend service helpers under `src/guppy/api/services_*`
+2. Thin wrappers and entrypoints (launch-only, no domain ownership)
+   - root shims: `guppy_api.py`, `guppy_hub.py`, `app.py`
+   - API module shim: `src/guppy/api/server.py` forwarding to `src/guppy/api/server_runtime.py`
+   - CLI/app composition roots: `src/guppy/apps/*`, `src/guppy/cli/launch.py`
+3. Quarantined UI/legacy paths (compatibility only; no new feature ownership)
+   - `compat_shims/legacy_surfaces/` and other `compat_shims/` legacy facades
+   - historical specialist surfaces (Merlin/Council) and other legacy-only launch paths
+   - removed/legacy launcher view surfaces already folded into the five canonical hubs
 
 ---
 
@@ -1994,6 +2011,44 @@ Residual non-blocking follow-up:
 7. Governance and Windows ops have stronger productized surfaces, but richer provider/account UX, deeper credential lifecycle polish, broader release automation, and fuller installer lifecycle polish still remain.
 8. Home calm-start work is now routed through shared presenter copy and mixed-role starter states, and the first Library-to-Chat context chips are live, but transcript/composer rhythm, starter priority, and broader persistence polish still need one more pass before the May 22 checkpoint feels closed.
 
+## Planned Tranche 55 (Desktop Assistant End-State Execution Deck)
+
+Execution note (April 21, 2026):
+
+- This tranche translates the current `P6` hardening lane into an end-state execution checklist for the actual Guppy product contract: five-hub desktop launcher, tray/background companion, local-first model execution, persistent memory/library continuity, extensible tools/plugins, and backup web parity against the same backend.
+- The deck stays bound to the north-star and feature filter: chat-first daily flow remains primary, while diagnostics/admin/power surfaces stay demoted to the correct hubs.
+- Planned adapter lanes such as AnythingLLM or Hugging Face local are treated as explicit registry/onboarding contracts, not fake-ready runtime claims.
+
+Program artifact:
+
+1. `docs/generated/TRANCHE_55_DESKTOP_ASSISTANT_EXECUTION_CARDS_20260421.md`
+
+Primary acceptance direction:
+
+1. Launcher, tray, and fallback web surfaces all agree on one backend/runtime/workspace truth.
+2. Local-runtime, voice, memory, library, and tool/plugin flows are honest, bounded, and validated on real machines.
+3. Guppy feels like one calm desktop assistant rather than a shell plus disconnected side surfaces.
+
+## Move-Everything-To-Strong Roadmap (April 22, 2026)
+
+Execution note:
+
+- The April 22 quarantine plus core audit pass confirmed that the live repo is healthy, quarantined trees do not contain must-restore product code, and the remaining work is mostly finish-quality rather than architecture rescue.
+- The new roadmap focuses on upgrading all non-strong surfaces to `strong` without reopening scope drift.
+
+Program artifact:
+
+1. `docs/generated/ROADMAP_MOVE_ALL_SURFACES_TO_STRONG_20260422.md`
+2. `docs/generated/CORE_INVENTORY_NORTH_STAR_AUDIT_20260422.md`
+
+Primary execution order:
+
+1. Continuity spine: Home, Workspaces, memory payoff
+2. Tool clarity and plugin truth
+3. Model, voice, and local runtime confidence
+4. Tray/runtime/web alignment
+5. Library polish and freeze-quality calmness cleanup
+
 ## Developer Rules
 
 1. Keep entrypoint wrappers thin and move product logic under `src/guppy/`.
@@ -2084,7 +2139,7 @@ Post-TR54 hotspot inventory:
 ## CI Guardrails
 
 1. `tools/dev_workflow.py` is the canonical command entrypoint for local and CI workflows: `dev-check`, `test-fast`, `test-default`, `test-smoke`, and `release-check`.
-2. `tools/check_new_module_line_cap.py` enforces the live-code line cap across `src/guppy/`, `ui/`, and `utils/`.
+2. `tools/check_new_module_line_cap.py` enforces the live-code line cap across `src/guppy/`, `ui/`, `compat_shims/launcher_ui/ui/launcher/`, and `utils/`, with baseline hardening tiers of ideal `<=250`, healthy `<=400`, review `<=600`, urgent `<=700`, and waiver-only above the cap.
 3. `tools/check_architecture_boundaries.py` blocks legacy-surface imports and new UI/runtime-governance coupling outside the narrow launcher transition waivers.
    The runtime-auth/UI waiver is now closed; remaining launcher transition pressure is tracked primarily through line-cap hotspot waivers.
 
@@ -2112,3 +2167,4 @@ Post-TR54 hotspot inventory:
 9. Daily operator runbook: `docs/DAILY_WORKFLOW.md`
 10. Local LLM plan: `docs/LOCAL_LLM_IMPLEMENTATION_PLAN.md`
 11. Historical roadmap log: `docs/archive/root-history/ROADMAP_2026-04-17.md`
+12. Move-everything-to-strong execution roadmap: `docs/generated/ROADMAP_MOVE_ALL_SURFACES_TO_STRONG_20260422.md`

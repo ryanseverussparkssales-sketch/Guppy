@@ -1,0 +1,89 @@
+{
+  "instance": "guppy-primary",
+  "updated_at": "2026-04-21T22:23:47.881808+00:00",
+  "window_days": 30,
+  "entry_count": 923,
+  "latest_timestamp": "2026-04-21T22:23:47.814314+00:00",
+  "roles": {
+    "user": 465,
+    "assistant": 458
+  },
+  "statuses": {
+    "submitted": 465,
+    "ok": 458
+  },
+  "buckets": {
+    "2026-04-16": {
+      "entry_count": 44,
+      "roles": {
+        "user": 22,
+        "assistant": 22
+      },
+      "statuses": {
+        "submitted": 22,
+        "ok": 22
+      },
+      "latest_timestamp": "2026-04-16T23:48:29.679530+00:00"
+    },
+    "2026-04-17": {
+      "entry_count": 213,
+      "roles": {
+        "user": 108,
+        "assistant": 105
+      },
+      "statuses": {
+        "submitted": 108,
+        "ok": 105
+      },
+      "latest_timestamp": "2026-04-17T22:40:31.454068+00:00"
+    },
+    "2026-04-18": {
+      "entry_count": 110,
+      "roles": {
+        "user": 55,
+        "assistant": 55
+      },
+      "statuses": {
+        "submitted": 55,
+        "ok": 55
+      },
+      "latest_timestamp": "2026-04-18T22:54:04.212632+00:00"
+    },
+    "2026-04-19": {
+      "entry_count": 186,
+      "roles": {
+        "user": 95,
+        "assistant": 91
+      },
+      "statuses": {
+        "submitted": 95,
+        "ok": 91
+      },
+      "latest_timestamp": "2026-04-19T23:53:27.182655+00:00"
+    },
+    "2026-04-20": {
+      "entry_count": 276,
+      "roles": {
+        "user": 138,
+        "assistant": 138
+      },
+      "statuses": {
+        "submitted": 138,
+        "ok": 138
+      },
+      "latest_timestamp": "2026-04-20T22:27:00.736398+00:00"
+    },
+    "2026-04-21": {
+      "entry_count": 94,
+      "roles": {
+        "user": 47,
+        "assistant": 47
+      },
+      "statuses": {
+        "submitted": 47,
+        "ok": 47
+      },
+      "latest_timestamp": "2026-04-21T22:23:47.814314+00:00"
+    }
+  }
+}

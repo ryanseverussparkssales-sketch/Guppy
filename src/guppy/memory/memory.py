@@ -25,6 +25,7 @@ from .memory_store import (
     get_revenue_dashboard_data_map,
     get_session_summaries_text,
     get_recent_messages_text,
+    get_workspace_memory_snapshot as get_workspace_memory_snapshot_map,
 )
 from .memory_support import (
     PIPELINE_STAGES,
@@ -104,13 +105,25 @@ def forget(key: str) -> str:
 
 # ── Conversation history ───────────────────────────────────
 
-def save_message(session_id: str, role: str, content: str):
-    save_conversation_message(DB_PATH, session_id, role, content)
+def save_message(
+    session_id: str,
+    role: str,
+    content: str,
+    *,
+    workspace_name: str | None = None,
+):
+    save_conversation_message(DB_PATH, session_id, role, content, workspace_name=workspace_name)
 
-def load_recent_history(session_id: str = None, limit: int = 20) -> list:
-    return load_recent_history_records(DB_PATH, session_id, limit)
+def load_recent_history(
+    session_id: str = None,
+    limit: int = 20,
+    *,
+    workspace_name: str | None = None,
+) -> list:
+    return load_recent_history_records(DB_PATH, session_id, limit, workspace_name=workspace_name)
 
-def get_session_summary(limit: int = 5) -> str:
+def get_session_summary(limit: int = 5, *, workspace_name: str | None = None) -> str:
+    return get_session_summary_text(DB_PATH, limit, workspace_name=workspace_name).replace(" - ", " â€” ")
     return get_session_summary_text(DB_PATH, limit).replace(" - ", " — ")
 
 # ── Contacts ──────────────────────────────────────────────
@@ -237,19 +250,34 @@ def get_session_summaries(limit: int = 3) -> str:
 
 # ── Recent conversation recall ─────────────────────────────
 
-def get_recent_messages(exclude_session: str = None, limit: int = 10) -> str:
+def get_recent_messages(
+    exclude_session: str = None,
+    limit: int = 10,
+    *,
+    workspace_name: str | None = None,
+) -> str:
     """Return the last `limit` messages from the most recent prior session.
 
     Pass `exclude_session` (the current session_id) so we don't pull
     messages that are already live in the in-memory history.
     Returns an empty string if no prior messages exist.
     """
+    return get_recent_messages_text(
+        DB_PATH,
+        exclude_session,
+        limit,
+        workspace_name=workspace_name,
+    ).replace("...", "â€¦")
     return get_recent_messages_text(DB_PATH, exclude_session, limit).replace("...", "…")
 
 
 # ── Startup context ───────────────────────────────────────
 
-def get_startup_context(exclude_session: str = None) -> str:
+def get_startup_context(
+    exclude_session: str = None,
+    *,
+    workspace_name: str | None = None,
+) -> str:
     """Returns a summary of what Guppy should know on startup.
 
     Pass `exclude_session` (current session_id) to keep last-session
@@ -294,7 +322,12 @@ def get_startup_context(exclude_session: str = None) -> str:
 
     recent = ""
     if need_recent:
-        recent = get_recent_messages(exclude_session=exclude_session, limit=5)  # Reduced limit
+        recent = get_recent_messages(
+            exclude_session=exclude_session,
+            limit=5,
+            workspace_name=workspace_name,
+        )  # Reduced limit
+        recent = recent
 
     parts = ["MEMORY BRIEFING FOR MASTER RYAN'S SESSION:"]
 
@@ -304,6 +337,89 @@ def get_startup_context(exclude_session: str = None) -> str:
     parts.append("\nPENDING TASKS:")
     parts.append(tasks)
 
+    parts.append(f"\nCONTACTS: {contacts_count} in database")
+
+    if summaries:
+        parts.append(f"\n{summaries}")
+    if recent:
+        parts.append(f"\n{recent}")
+    if not summaries and not recent:
+        parts.append("\nNo previous sessions on record.")
+
+    return "\n".join(parts)
+
+
+def get_workspace_memory_snapshot(workspace_name: str | None = None) -> dict[str, object]:
+    return get_workspace_memory_snapshot_map(DB_PATH, workspace_name)
+
+
+# Canonical workspace-aware overrides retained here so older compatibility blocks
+# above do not change the public runtime behavior.
+def get_session_summary(limit: int = 5, *, workspace_name: str | None = None) -> str:
+    return get_session_summary_text(DB_PATH, limit, workspace_name=workspace_name)
+
+
+def get_recent_messages(
+    exclude_session: str = None,
+    limit: int = 10,
+    *,
+    workspace_name: str | None = None,
+) -> str:
+    return get_recent_messages_text(
+        DB_PATH,
+        exclude_session,
+        limit,
+        workspace_name=workspace_name,
+    ).replace("...", "â€¦")
+
+
+def get_startup_context(
+    exclude_session: str = None,
+    *,
+    workspace_name: str | None = None,
+) -> str:
+    facts = recall()
+    tasks = get_tasks("pending")
+    conn = _conn()
+    try:
+        contacts_count = conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
+    finally:
+        conn.close()
+
+    summaries = get_session_summaries(limit=5)
+
+    need_recent = False
+    if summaries:
+        conn = _conn()
+        try:
+            row = conn.execute(
+                "SELECT updated FROM facts WHERE category='session_summary' "
+                "ORDER BY updated DESC LIMIT 1"
+            ).fetchone()
+            if row:
+                from datetime import datetime, timedelta
+
+                summary_date = datetime.fromisoformat(row[0].replace("Z", "+00:00"))
+                if datetime.now(summary_date.tzinfo) - summary_date > timedelta(days=7):
+                    need_recent = True
+        finally:
+            conn.close()
+    else:
+        need_recent = True
+
+    recent = ""
+    if need_recent:
+        recent = get_recent_messages(
+            exclude_session=exclude_session,
+            limit=5,
+            workspace_name=workspace_name,
+        )
+
+    parts = ["MEMORY BRIEFING FOR MASTER RYAN'S SESSION:"]
+    parts.append("\nSTORED FACTS:")
+    parts.append(facts if facts != "Nothing found in memory." else "No facts stored yet.")
+    parts.append("\nPENDING TASKS:")
+    parts.append(tasks)
     parts.append(f"\nCONTACTS: {contacts_count} in database")
 
     if summaries:

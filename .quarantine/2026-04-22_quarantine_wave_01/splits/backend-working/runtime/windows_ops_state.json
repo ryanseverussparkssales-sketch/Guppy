@@ -1,0 +1,46 @@
+{
+  "timestamp": "2026-04-17T22:01:05.769047+00:00",
+  "action": "verify_runtime",
+  "ok": true,
+  "summary": "WINDOWS VERIFY completed 3/3 servicing step(s).",
+  "changes": "Refresh local runtime readiness, challenger availability, and logging-health evidence. | challenger snapshot refreshed",
+  "commands": [
+    ".venv\\Scripts\\python.exe tools/verify_ollama_runtime.py --prompt ok",
+    ".venv\\Scripts\\python.exe tools/verify_runtime_challengers.py",
+    ".venv\\Scripts\\python.exe tools/verify_logging_health.py --emit-probe --require-fresh-core"
+  ],
+  "event_id": "recipe-d9f31fb329",
+  "steps_completed": 3,
+  "steps_total": 3,
+  "phase": "completed",
+  "next_step": "Runtime verification passed. If you need a fresh desktop build, run bin\\build_executable.bat --no-clean next.",
+  "fix_target": "bin\\build_executable.bat",
+  "docs_hint": "docs/PACKAGING.md",
+  "entry_point": "bin\\build_executable.bat --no-clean",
+  "artifacts": [
+    {
+      "id": "diagnostics",
+      "label": "diagnostics bundle",
+      "path": "C:\\Users\\Ryan\\Guppy\\runtime\\diagnostics_bundle_20260417_215745.json",
+      "mtime": "2026-04-17T21:57:45.114745+00:00",
+      "size": 712
+    },
+    {
+      "id": "challenger",
+      "label": "challenger snapshot",
+      "path": "C:\\Users\\Ryan\\Guppy\\runtime\\runtime_challenger_snapshot.json",
+      "mtime": "2026-04-17T22:01:04.958065+00:00",
+      "size": 3514
+    }
+  ],
+  "release_receipt": "C:\\Users\\Ryan\\Guppy\\runtime\\windows_release_receipt.json",
+  "release_summary": "C:\\Users\\Ryan\\Guppy\\runtime\\windows_release_summary.md",
+  "gate_summary": "",
+  "gate_detail": "",
+  "gate_failed_checks": [],
+  "gate_missing_files": [],
+  "gate_passed_checks": null,
+  "gate_total_checks": null,
+  "gate_recommendations": [],
+  "gate_recommendation_details": []
+}

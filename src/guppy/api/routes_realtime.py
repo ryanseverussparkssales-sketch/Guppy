@@ -19,12 +19,23 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
         user_text: str,
         assistant_text: str,
         persona_id: str = "",
+        workspace_name: str = "",
     ) -> None:
         if not session_id or not owner.GUPPY_MEMORY_AVAILABLE:
             return
         try:
-            owner.memory.save_message(session_id, "user", user_text)
-            owner.memory.save_message(session_id, "assistant", assistant_text)
+            owner.memory.save_message(
+                session_id,
+                "user",
+                user_text,
+                workspace_name=workspace_name,
+            )
+            owner.memory.save_message(
+                session_id,
+                "assistant",
+                assistant_text,
+                workspace_name=workspace_name,
+            )
             if hasattr(owner.memory, "promote_durable_chat_memory"):
                 owner.memory.promote_durable_chat_memory(
                     user_text,
@@ -104,7 +115,12 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 if request.session_id and owner.GUPPY_MEMORY_AVAILABLE:
                     for role, content in (("user", request.message), ("assistant", response)):
                         try:
-                            owner.memory.save_message(request.session_id, role, content)
+                            owner.memory.save_message(
+                                request.session_id,
+                                role,
+                                content,
+                                workspace_name=str(active_instance_name or "").strip(),
+                            )
                         except Exception as exc:
                             owner.logger.error(
                                 "morning brief memory.save_message failed session_id=%r role=%s error=%s",
@@ -178,6 +194,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 user_text=request.message,
                 assistant_text=response,
                 persona_id=str(request.persona or active_instance_persona or "").strip(),
+                workspace_name=str(active_instance_name or "").strip(),
             )
 
             payload = {"response": response, "session_id": request.session_id}
@@ -283,6 +300,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     user_text=f"[Voice] {transcription}",
                     assistant_text=response,
                     persona_id=str(active_instance_persona or "").strip(),
+                    workspace_name=str(active_instance_name or "").strip(),
                 )
 
                 return {
@@ -377,6 +395,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         user_text=message,
                         assistant_text=text,
                         persona_id=str(data.get("persona") or active_instance_persona or "").strip(),
+                        workspace_name=str(active_instance_name or "").strip(),
                     )
 
                 except WebSocketDisconnect:

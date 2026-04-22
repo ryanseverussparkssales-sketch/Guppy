@@ -62,6 +62,30 @@ def all_packaging_assumptions_hold(repo_root: Path) -> tuple[bool, tuple[Packagi
     return all(item.ok for item in statuses), statuses
 
 
+def packaging_audit_summary(repo_root: Path) -> dict[str, object]:
+    paths_ok, path_statuses = all_packaging_paths_writable(repo_root)
+    assumptions_ok, assumption_statuses = all_packaging_assumptions_hold(repo_root)
+    path_failures = [item.detail or item.error or item.label for item in path_statuses if not item.writable]
+    assumption_failures = [item.detail for item in assumption_statuses if not item.ok]
+    ok = bool(paths_ok and assumptions_ok)
+    total_failures = len(path_failures) + len(assumption_failures)
+    summary = "PASS" if ok else f"FAIL ({total_failures} issue{'s' if total_failures != 1 else ''})"
+    detail = (
+        assumption_failures[0]
+        if assumption_failures
+        else path_failures[0]
+        if path_failures
+        else "all packaging paths and assumptions passed"
+    )
+    return {
+        "ok": ok,
+        "summary": summary,
+        "detail": detail,
+        "path_failures": tuple(path_failures),
+        "assumption_failures": tuple(assumption_failures),
+    }
+
+
 def _check_writable_directory(label: str, path: Path) -> PackagingPathStatus:
     try:
         path.mkdir(parents=True, exist_ok=True)
@@ -243,6 +267,20 @@ def _check_dist_layout_contract(repo_root: Path) -> PackagingAssumptionStatus:
             True,
             f"found canonical onefile package output at {_display_path(repo_root, one_file)}",
         )
+    quarantined_output = _find_quarantined_dist_output(repo_root)
+    if quarantined_output is not None:
+        size = int(quarantined_output.stat().st_size or 0)
+        if size < _MIN_EXECUTABLE_BYTES:
+            return PackagingAssumptionStatus(
+                "dist artifact layout",
+                False,
+                f"quarantined packaged output {_display_path(repo_root, quarantined_output)} is only {size // 1024 // 1024} MB; expected a real packaged build over 50 MB",
+            )
+        return PackagingAssumptionStatus(
+            "dist artifact layout",
+            True,
+            f"found quarantined package output at {_display_path(repo_root, quarantined_output)}",
+        )
     if dist_root.exists():
         return PackagingAssumptionStatus(
             "dist artifact layout",
@@ -254,6 +292,22 @@ def _check_dist_layout_contract(repo_root: Path) -> PackagingAssumptionStatus:
         False,
         "no built dist/ artifact present yet; expected dist/Guppy/Guppy.exe or dist/Guppy.exe before packaging can be marked GO",
     )
+
+
+def _find_quarantined_dist_output(repo_root: Path) -> Path | None:
+    quarantine_root = repo_root / ".quarantine"
+    if not quarantine_root.exists():
+        return None
+
+    candidates = sorted(
+        list(quarantine_root.glob("*/dist/Guppy/Guppy.exe"))
+        + list(quarantine_root.glob("*/dist/Guppy.exe")),
+        reverse=True,
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _validate_receipt_payload(payload: object) -> list[str]:

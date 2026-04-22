@@ -140,7 +140,10 @@ def test_windows_ops_feedback_and_followup_lines_use_structured_inputs() -> None
     assert updated["next"].startswith("Next step: Fix gate findings before package")
     assert updated["gate"] == "Release check: FAIL | missing reviewer bundle"
     assert updated["gate_fix"].startswith("Fix first: Run release dry run again after fixing docs.")
-    assert "receipt=runtime/windows_release_receipt.json" in updated["handoff"]
+    assert (
+        "receipt=runtime/windows_release_receipt.json" in updated["handoff"]
+        or "receipt=C:/Users/Ryan/Guppy/runtime/windows_release_receipt.json" in updated["handoff"]
+    )
 
 
 def test_windows_ops_feedback_uses_review_copy_when_release_gate_is_green() -> None:
@@ -176,8 +179,14 @@ def test_windows_ops_feedback_uses_review_copy_when_release_gate_is_green() -> N
     assert updated["gate_fix"].startswith("Review next: Review the generated handoff bundle.")
     assert " | Review: runtime/windows_release_receipt.json" in updated["gate_fix"]
     assert "review order=runtime/beta_release_dry_run_report.json -> runtime/windows_release_receipt.json -> runtime/windows_release_summary.md" in updated["handoff"]
-    assert "receipt=runtime/windows_release_receipt.json" in updated["handoff"]
-    assert "summary=runtime/windows_release_summary.md" in updated["handoff"]
+    assert (
+        "receipt=runtime/windows_release_receipt.json" in updated["handoff"]
+        or "receipt=C:/Users/Ryan/Guppy/runtime/windows_release_receipt.json" in updated["handoff"]
+    )
+    assert (
+        "summary=runtime/windows_release_summary.md" in updated["handoff"]
+        or "summary=C:/Users/Ryan/Guppy/runtime/windows_release_summary.md" in updated["handoff"]
+    )
 
 
 def test_build_windows_gate_followup_line_falls_back_to_recommendation_text() -> None:
@@ -405,6 +414,8 @@ def test_build_windows_ops_snapshot_reads_runtime_state_and_defaults(tmp_path: P
     assert "runtime=" in state["paths"]
     assert state["repair"].startswith("Repair help: keyring-backed first; file fallback present")
     assert "Review handoff bundle" in state["next"]
+    assert "security gate=" in state["diagnostics"]
+    assert "packaging audit=" in state["diagnostics"]
     assert "Ref: evt-123" in state["service"]
     assert state["gate"] == "Release check: PASS | all checks passed"
     assert state["gate_fix"].startswith("Review next: Review the generated handoff bundle.")

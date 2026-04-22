@@ -31,6 +31,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from utils.hub_operator_service_control import (
+    restart_service as service_control_restart_service,
+    start_service as service_control_start_service,
+    stop_service as service_control_stop_service,
+)
+
 # Suppress console windows on Windows for all subprocess calls
 _WIN_NO_WINDOW = (
     {"creationflags": subprocess.CREATE_NO_WINDOW}
@@ -465,158 +471,25 @@ class HubOperator:
             return {"ok": False, "status": f"exception:{str(e)[:60]}", "code": -1, "stdout": "", "stderr": ""}
 
     def start_service(self, service: str, dry_run: bool = False, verify_timeout_sec: float = 4.0) -> dict:
-        """
-        Start supported service in detached mode.
-        Allowed: api, cloudflared, ollama.
-        """
-        svc = (service or "").lower()
-        if not self.service_allowed(svc):
-            return {"ok": False, "status": "blocked_by_allowlist"}
-
-        if dry_run:
-            return {"ok": True, "status": f"dry_run:start:{svc}"}
-
-        if svc == "api":
-            pre = self._api_preflight()
-            if not pre.get("ok"):
-                status = pre.get("status", "api_preflight_failed")
-                hint = pre.get("hint", "")
-                outcome = f"{status} | {hint}" if hint else status
-                self.record_event("hub", "service_start_api", "operator", outcome)
-                return {"ok": False, "status": outcome}
-
-        if svc == "cloudflared":
-            pre = self._cloudflared_preflight()
-            if not pre.get("ok"):
-                status = pre.get("status", "cloudflared_preflight_failed")
-                hint = pre.get("hint", "")
-                outcome = f"{status} | {hint}" if hint else status
-                self.record_event("hub", "service_start_cloudflared", "operator", outcome)
-                return {"ok": False, "status": outcome}
-
-        try:
-            if svc == "api":
-                py = _ROOT / ".venv" / "Scripts" / "python.exe"
-                python_exe = str(py) if py.exists() else "python"
-                cmd = [python_exe, "guppy_api.py"]
-                launch = subprocess.Popen(cmd, cwd=str(_ROOT), **_WIN_DETACHED)
-            elif svc == "cloudflared":
-                bat = _ROOT / "bin" / "start_tunnel.bat"
-                if bat.exists():
-                    cmd = [str(bat)]
-                else:
-                    cmd = ["cloudflared", "tunnel", "run"]
-                launch = subprocess.Popen(cmd, cwd=str(_ROOT), **_WIN_DETACHED)
-            elif svc == "ollama":
-                cmd = ["ollama", "serve"]
-                launch = subprocess.Popen(cmd, cwd=str(_ROOT), **_WIN_DETACHED)
-            else:
-                return {"ok": False, "status": "unsupported"}
-
-            # Detached start command returns quickly; verify expected running state.
-            _ = launch.pid
-            deadline = time.time() + verify_timeout_sec
-            running = False
-            while time.time() < deadline:
-                if self._check_service_running(svc):
-                    running = True
-                    break
-                time.sleep(0.4)
-            if running:
-                self.record_event("hub", f"service_start_{svc}", "operator", "ok")
-                return {"ok": True, "status": "started_verified"}
-            self.record_event("hub", f"service_start_{svc}", "operator", "start_unverified")
-            return {"ok": False, "status": "start_unverified"}
-        except Exception as e:
-            self.record_event("hub", f"service_start_{svc}", "operator", f"error:{e}")
-            return {"ok": False, "status": str(e)[:80]}
+        return service_control_start_service(
+            self,
+            service,
+            root=_ROOT,
+            win_detached=_WIN_DETACHED,
+            dry_run=dry_run,
+            verify_timeout_sec=verify_timeout_sec,
+        )
 
     def stop_service(self, service: str, dry_run: bool = False, verify_timeout_sec: float = 4.0) -> dict:
-        """
-        Stop supported service safely.
-        Allowed: api, cloudflared, ollama.
-        """
-        svc = (service or "").lower()
-        if not self.service_allowed(svc):
-            return {"ok": False, "status": "blocked_by_allowlist"}
-
-        if dry_run:
-            return {"ok": True, "status": f"dry_run:stop:{svc}"}
-
-        # If it's already down, don't attempt kill commands that can produce noisy exit codes.
-        if not self._check_service_running(svc):
-            self.record_event("hub", f"service_stop_{svc}", "operator", "already_stopped")
-            return {"ok": True, "status": "already_stopped"}
-
-        try:
-            if svc == "api":
-                ps = (
-                    "$ErrorActionPreference = 'SilentlyContinue'; "
-                    "$p = Get-CimInstance Win32_Process | "
-                    "Where-Object { $_.CommandLine -match 'guppy_api.py' }; "
-                    "if ($p) { $p | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }; "
-                    "exit 0"
-                )
-                cmd_res = self._run_command(["powershell", "-NoProfile", "-Command", ps], timeout_sec=8)
-            elif svc == "cloudflared":
-                cmd_res = self._run_command(["taskkill", "/IM", "cloudflared.exe", "/F"], timeout_sec=8)
-            elif svc == "ollama":
-                ps = (
-                    "$ErrorActionPreference = 'SilentlyContinue'; "
-                    "Get-Process | Where-Object { $_.ProcessName -like 'ollama*' } | "
-                    "ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }; "
-                    "exit 0"
-                )
-                cmd_res = self._run_command(["powershell", "-NoProfile", "-Command", ps], timeout_sec=8)
-            else:
-                return {"ok": False, "status": "unsupported"}
-
-            # taskkill may return non-zero if process absent; treat already-stopped as success.
-            if not cmd_res.get("ok"):
-                err_mix = f"{cmd_res.get('stdout','')} {cmd_res.get('stderr','')}".lower()
-                if "not found" in err_mix or "no running instance" in err_mix or "cannot find" in err_mix:
-                    cmd_res = {"ok": True, "status": "already_stopped"}
-
-            if svc == "api":
-                running_check = self._api_process_running
-            elif svc == "ollama":
-                running_check = self._ollama_process_running
-            else:
-                running_check = lambda: self._check_service_running(svc)
-
-            deadline = time.time() + verify_timeout_sec
-            stopped = False
-            while time.time() < deadline:
-                if not running_check():
-                    stopped = True
-                    break
-                time.sleep(0.4)
-            if stopped and cmd_res.get("ok"):
-                self.record_event("hub", f"service_stop_{svc}", "operator", "ok")
-                return {"ok": True, "status": cmd_res.get("status", "stopped_verified")}
-            outcome = f"stop_unverified:{cmd_res.get('status','unknown')}"
-            self.record_event("hub", f"service_stop_{svc}", "operator", outcome)
-            return {"ok": False, "status": outcome}
-        except Exception as e:
-            self.record_event("hub", f"service_stop_{svc}", "operator", f"error:{e}")
-            return {"ok": False, "status": str(e)[:80]}
+        return service_control_stop_service(
+            self,
+            service,
+            dry_run=dry_run,
+            verify_timeout_sec=verify_timeout_sec,
+        )
 
     def restart_service(self, service: str, dry_run: bool = False) -> dict:
-        """Restart supported service via stop then start."""
-        svc = (service or "").lower()
-        if not self.service_allowed(svc):
-            return {"ok": False, "status": "blocked_by_allowlist"}
-
-        if dry_run:
-            return {"ok": True, "status": f"dry_run:restart:{svc}"}
-
-        stop_res = self.stop_service(svc)
-        time.sleep(0.5)
-        start_res = self.start_service(svc)
-        ok = bool(stop_res.get("ok") and start_res.get("ok"))
-        status = f"stop={stop_res.get('status')} start={start_res.get('status')}"
-        self.record_event("hub", f"service_restart_{svc}", "operator", status)
-        return {"ok": ok, "status": status}
+        return service_control_restart_service(self, service, dry_run=dry_run)
 
     # ── Smart Recommendations (no API) ─────────────────────────────────────────
 

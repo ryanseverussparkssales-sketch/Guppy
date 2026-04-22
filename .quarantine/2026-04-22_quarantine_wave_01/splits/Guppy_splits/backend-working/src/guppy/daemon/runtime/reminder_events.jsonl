@@ -1,0 +1,4 @@
+{"ts": "2026-04-13T17:10:48.131706", "event": "scheduled", "job_id": "reminder_4b864dbc91a14be98ad67bc74156e141", "short_id": "4156e141", "message": "workflow check", "trigger_time": "2026-04-13T17:20:48.130706"}
+{"ts": "2026-04-13T17:10:48.132705", "event": "cancelled", "job_id": "reminder_4b864dbc91a14be98ad67bc74156e141", "short_id": "4156e141", "message": "cancelled by user"}
+{"ts": "2026-04-13T17:11:15.518596", "event": "scheduled", "job_id": "reminder_61499377116a4559859d6917f2abfd79", "short_id": "f2abfd79", "message": "workflow check", "trigger_time": "2026-04-13T17:21:15.517594"}
+{"ts": "2026-04-13T17:11:15.519595", "event": "cancelled", "job_id": "reminder_61499377116a4559859d6917f2abfd79", "short_id": "f2abfd79", "message": "cancelled by user"}
