@@ -1,4 +1,4 @@
-﻿"""Explicit FastAPI server module.
+"""Explicit FastAPI server module.
 
 Readiness and status routes now live in first-class imported modules backed by
 `ServerContext`, while the remaining legacy helpers are still being peeled away
@@ -447,6 +447,16 @@ _server_context.require_repair_token = _require_repair_token
 app.include_router(build_instances_router(_server_context))
 app.include_router(build_ops_router(_server_context))
 app.include_router(build_realtime_router(_server_context))
+
+# Serve static web UI files
+try:
+    from fastapi.staticfiles import StaticFiles
+    from pathlib import Path as PathlibPath
+    _static_path = PathlibPath(__file__).parent.parent.parent.parent / "static"
+    if _static_path.exists():
+        app.mount("/", StaticFiles(directory=str(_static_path), html=True), name="static")
+except Exception as e:
+    logger.warning(f"Could not mount static files: {e}")
 if __name__ == "__main__":
     api_reload = os.environ.get("GUPPY_API_RELOAD", "").strip().lower() in {"1", "true", "yes", "on"}
     if not api_reload:
@@ -461,4 +471,3 @@ if __name__ == "__main__":
     )
 
 # === END _server_fragment_routes_ops.py ===
-

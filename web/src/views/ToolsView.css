@@ -1,0 +1,32 @@
+@import './InstancesView.css';
+
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 16px;
+}
+
+.tool-card {
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  padding: 20px;
+  transition: var(--transition);
+  cursor: pointer;
+}
+
+.tool-card:hover {
+  border-color: var(--color-accent);
+  background-color: var(--color-bg-hover);
+}
+
+.tool-card h3 {
+  margin: 0 0 8px 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.tool-card p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
