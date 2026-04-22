@@ -4,7 +4,7 @@ import { useTheme, THEME_PRESETS } from '../hooks/useTheme'
 import './ThemeSettings.css'
 
 export default function ThemeSettings() {
-  const { theme, preset, customColors, resolvedTheme, setThemeMode, setThemePreset, setCustomTheme, availablePresets } = useTheme()
+  const { theme, preset, customColors, resolvedTheme, setThemeMode, setThemePreset, availablePresets } = useTheme()
   const [copiedColor, setCopiedColor] = useState<string | null>(null)
   const [showColorPicker, setShowColorPicker] = useState(false)
 

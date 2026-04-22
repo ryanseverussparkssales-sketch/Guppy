@@ -8,7 +8,6 @@ import {
   Wrench,
   Volume2,
   Palette,
-  Settings,
   Shield,
   Activity,
   Menu,

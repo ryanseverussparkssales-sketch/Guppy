@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 
 export interface ChatMessage {
   id: string
@@ -57,8 +57,6 @@ export const useChatHistory = () => {
       .catch((error) => console.error('Failed to initialize IndexedDB:', error))
   }, [])
 
-  const useRef = require('react').useRef
-
   const loadSessions = useCallback(async () => {
     if (!dbRef.current) return
 
@@ -71,7 +69,7 @@ export const useChatHistory = () => {
 
       request.onsuccess = () => {
         const allSessions = request.result.sort(
-          (a, b) => b.updatedAt - a.updatedAt
+          (a: ChatSession, b: ChatSession) => b.updatedAt - a.updatedAt
         )
         setSessions(allSessions)
         setIsLoading(false)
