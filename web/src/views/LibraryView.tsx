@@ -22,13 +22,11 @@ import {
   FileText, 
   MessageSquare,
   Sparkles,
-  MoreHorizontal,
   Star,
   Clock,
   Copy,
   Trash2,
   Edit,
-  ChevronRight
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 

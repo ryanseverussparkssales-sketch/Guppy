@@ -1,4 +1,4 @@
-import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
+import { Routes, Route, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { AppShell } from './components/layout'
 import AssistantView from './views/AssistantView'
@@ -27,7 +27,6 @@ import './index.css'
 function App() {
   const { setStatus } = useAppStore()
   const navigate = useNavigate()
-  const location = useLocation()
 
   // Fetch API status on mount
   useEffect(() => {

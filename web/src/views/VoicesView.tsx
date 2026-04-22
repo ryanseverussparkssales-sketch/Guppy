@@ -19,8 +19,6 @@ import {
   Mic, 
   Play, 
   Square,
-  Settings,
-  ChevronDown,
   Check,
   Waveform,
   Headphones,

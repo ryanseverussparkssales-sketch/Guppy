@@ -1,7 +1,5 @@
-import React from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import {
   Server,
   MessageSquare,
@@ -90,24 +88,24 @@ export default function DashboardView() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <MetricCard
                   label="CPU Usage"
-                  value={status?.cpu ? `${status.cpu}%` : "--"}
-                  status={getMetricStatus(status?.cpu, 80, 60)}
+                  value={status?.resources?.cpuUsage ? `${status.resources.cpuUsage}%` : "--"}
+                  status={getMetricStatus(status?.resources?.cpuUsage, 80, 60)}
                 />
                 <MetricCard
                   label="Memory"
-                  value={status?.memory ? `${status.memory}%` : "--"}
-                  status={getMetricStatus(status?.memory, 85, 70)}
+                  value={status?.resources?.memoryUsage ? `${Math.round(status.resources.memoryUsage / status.resources.memoryTotal * 100)}%` : "--"}
+                  status={getMetricStatus(status?.resources?.memoryUsage ? Math.round(status.resources.memoryUsage / status.resources.memoryTotal * 100) : undefined, 85, 70)}
                 />
                 <MetricCard
                   label="Uptime"
-                  value={status?.uptime || "--"}
+                  value={status?.uptime ? formatUptime(status.uptime) : "--"}
                   icon={<Clock className="h-3 w-3" />}
                 />
                 <MetricCard
-                  label="API Latency"
-                  value={status?.latency ? `${status.latency}ms` : "--"}
+                  label="Health"
+                  value={status?.health || "--"}
                   icon={<Zap className="h-3 w-3" />}
-                  status={getMetricStatus(status?.latency, 200, 100, true)}
+                  status={status?.health === 'healthy' ? 'good' : status?.health === 'degraded' ? 'warning' : 'critical'}
                 />
               </div>
             )}
@@ -162,6 +160,17 @@ export default function DashboardView() {
       </Card>
     </div>
   )
+}
+
+// Helper Functions
+
+function formatUptime(seconds: number): string {
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const mins = Math.floor((seconds % 3600) / 60)
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${mins}m`
+  return `${mins}m`
 }
 
 // Helper Components

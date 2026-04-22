@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Save, CheckCircle, XCircle, ExternalLink, Moon, Sun, Sliders } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/hooks/useTheme'
@@ -25,6 +24,7 @@ interface Providers {
   openai: ProviderStatus
   google: ProviderStatus
   local: ProviderStatus & { backend: string }
+  [key: string]: ProviderStatus | (ProviderStatus & { backend: string })
 }
 
 const PROVIDER_DOCS: Record<string, { label: string; env: string; url: string }> = {
@@ -46,7 +46,7 @@ export default function SettingsView() {
   const [saved, setSaved] = useState(false)
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState('4096')
-  const { theme, toggleTheme, resolvedTheme } = useTheme()
+  const { toggleTheme, resolvedTheme } = useTheme()
 
   useEffect(() => {
     api.get('/providers').then((r) => setProviders(r.data)).catch(() => {})

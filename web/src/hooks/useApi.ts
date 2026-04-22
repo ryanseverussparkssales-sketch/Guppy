@@ -25,7 +25,6 @@ import type {
   Message,
   SystemStatus,
   Settings,
-  InstanceStatus,
 } from "../types/api"
 
 // =============================================================================

@@ -1,7 +1,5 @@
-import React from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import {
   Search,
   Sun,
@@ -28,7 +26,7 @@ interface TopBarProps {
  */
 export function TopBar({ onOpenCommandPalette }: TopBarProps) {
   const { theme, toggleTheme } = useTheme()
-  const { isConnected, latency } = useConnectionStatus()
+  const { isConnected } = useConnectionStatus()
 
   return (
     <header className="flex items-center justify-between h-14 px-6 bg-background border-b border-border">
@@ -47,7 +45,7 @@ export function TopBar({ onOpenCommandPalette }: TopBarProps) {
       {/* Right Side Controls */}
       <div className="flex items-center gap-4">
         {/* Connection Status */}
-        <ConnectionIndicator isConnected={isConnected} latency={latency} />
+        <ConnectionIndicator isConnected={isConnected} />
 
         {/* Notifications */}
         <Button variant="ghost" size="icon" className="relative">
