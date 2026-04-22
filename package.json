@@ -10,6 +10,9 @@
     "preview": "cd web && npm run preview"
   },
   "dependencies": {
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-router-dom": "^7.14.2",
     "vite": "^5.0.0"
   },
   "keywords": [
