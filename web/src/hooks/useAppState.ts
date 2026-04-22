@@ -1,17 +1,24 @@
 /**
  * useAppState - Global state management hook using Zustand
- * Manages all app state and actions for the web UI
+ * Manages app state for the backup web UI.
  */
 
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
-import { AppState, AppActions, Workspace, Model, Message, LibraryItem, UserSettings, APIError } from "@/types/api";
+import {
+  AppActions,
+  AppState,
+  LibraryItem,
+  Message,
+  Model,
+  Workspace,
+} from "@/types/api";
+import { coerceAPIError, getAPIClient } from "@/hooks/useAPI";
 
 interface StoreState extends AppState, AppActions {}
 
 export const useAppStore = create<StoreState>()(
   immer((set, get) => ({
-    // Initial state
     isAuthenticated: false,
     workspaces: [],
     models: [],
@@ -33,21 +40,41 @@ export const useAppStore = create<StoreState>()(
     activeTab: "assistant",
     isOnline: true,
 
-    // Workspace actions
     fetchWorkspaces: async () => {
       set((state) => {
         state.workspacesLoading = true;
+        state.workspacesError = undefined;
       });
+
       try {
-        // TODO: Call API
-        const workspaces: Workspace[] = [];
+        const client = getAPIClient();
+        const response = await client.listWorkspaces();
+        if (!response.success) {
+          throw response.error;
+        }
+
+        const payload = (response.data || {}) as {
+          workspaces?: Workspace[];
+          activeWorkspaceId?: string;
+        };
+        const workspaces = Array.isArray(payload.workspaces) ? payload.workspaces : [];
+        const activeWorkspace =
+          workspaces.find((workspace) => workspace.id === payload.activeWorkspaceId) ||
+          get().activeWorkspace ||
+          workspaces[0];
+
         set((state) => {
           state.workspaces = workspaces;
+          state.activeWorkspace = activeWorkspace;
           state.workspacesLoading = false;
         });
-      } catch (error: any) {
+      } catch (error) {
         set((state) => {
-          state.workspacesError = error;
+          state.workspacesError = coerceAPIError(
+            error,
+            "WORKSPACE_FETCH_FAILED",
+            "Failed to fetch workspaces"
+          );
           state.workspacesLoading = false;
         });
       }
@@ -55,22 +82,19 @@ export const useAppStore = create<StoreState>()(
 
     createWorkspace: async (config) => {
       try {
-        // TODO: Call API
-        const workspace: Workspace = {
-          id: "new-id",
-          name: config.name,
-          description: config.description,
-          type: config.type,
-          status: "active",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
+        const client = getAPIClient();
+        const response = await client.createWorkspace(config);
+        if (!response.success) {
+          throw response.error;
+        }
+        await get().fetchWorkspaces();
+      } catch (error) {
         set((state) => {
-          state.workspaces.push(workspace);
-        });
-      } catch (error: any) {
-        set((state) => {
-          state.workspacesError = error;
+          state.workspacesError = coerceAPIError(
+            error,
+            "WORKSPACE_CREATE_FAILED",
+            "Failed to create workspace"
+          );
         });
         throw error;
       }
@@ -78,18 +102,19 @@ export const useAppStore = create<StoreState>()(
 
     updateWorkspace: async (id, config) => {
       try {
-        // TODO: Call API
+        const client = getAPIClient();
+        const response = await client.updateWorkspace(id, config);
+        if (!response.success) {
+          throw response.error;
+        }
+        await get().fetchWorkspaces();
+      } catch (error) {
         set((state) => {
-          const workspace = state.workspaces.find((w) => w.id === id);
-          if (workspace) {
-            Object.assign(workspace, config, {
-              updatedAt: new Date().toISOString(),
-            });
-          }
-        });
-      } catch (error: any) {
-        set((state) => {
-          state.workspacesError = error;
+          state.workspacesError = coerceAPIError(
+            error,
+            "WORKSPACE_UPDATE_FAILED",
+            "Failed to update workspace"
+          );
         });
         throw error;
       }
@@ -97,16 +122,19 @@ export const useAppStore = create<StoreState>()(
 
     deleteWorkspace: async (id) => {
       try {
-        // TODO: Call API
+        const client = getAPIClient();
+        const response = await client.deleteWorkspace(id);
+        if (!response.success) {
+          throw response.error;
+        }
+        await get().fetchWorkspaces();
+      } catch (error) {
         set((state) => {
-          state.workspaces = state.workspaces.filter((w) => w.id !== id);
-          if (state.activeWorkspace?.id === id) {
-            state.activeWorkspace = undefined;
-          }
-        });
-      } catch (error: any) {
-        set((state) => {
-          state.workspacesError = error;
+          state.workspacesError = coerceAPIError(
+            error,
+            "WORKSPACE_DELETE_FAILED",
+            "Failed to delete workspace"
+          );
         });
         throw error;
       }
@@ -118,21 +146,36 @@ export const useAppStore = create<StoreState>()(
       });
     },
 
-    // Model actions
     fetchModels: async () => {
       set((state) => {
         state.modelsLoading = true;
+        state.modelsError = undefined;
       });
+
       try {
-        // TODO: Call API
-        const models: Model[] = [];
+        const client = getAPIClient();
+        const response = await client.listModels();
+        if (!response.success) {
+          throw response.error;
+        }
+
+        const models = Array.isArray(response.data) ? (response.data as Model[]) : [];
+        const activeModelId = get().runtimeStatus?.activeModel || "";
+        const activeModel =
+          models.find((model) => model.id === activeModelId) || get().activeModel || models[0];
+
         set((state) => {
           state.models = models;
+          state.activeModel = activeModel;
           state.modelsLoading = false;
         });
-      } catch (error: any) {
+      } catch (error) {
         set((state) => {
-          state.modelsError = error;
+          state.modelsError = coerceAPIError(
+            error,
+            "MODELS_FETCH_FAILED",
+            "Failed to fetch models"
+          );
           state.modelsLoading = false;
         });
       }
@@ -140,36 +183,75 @@ export const useAppStore = create<StoreState>()(
 
     getRuntimeStatus: async () => {
       try {
-        // TODO: Call API
+        const client = getAPIClient();
+        const response = await client.getRuntimeStatus();
+        if (!response.success) {
+          throw response.error;
+        }
+
+        const runtimeStatus = response.data || {
+          status: "offline",
+          uptime: 0,
+        };
+
         set((state) => {
-          state.runtimeStatus = {
-            status: "healthy",
-            uptime: 0,
-          };
+          state.runtimeStatus = runtimeStatus as any;
+          if (state.models.length > 0 && runtimeStatus.activeModel) {
+            const activeModel = state.models.find(
+              (model) => model.id === runtimeStatus.activeModel
+            );
+            if (activeModel) {
+              state.activeModel = activeModel;
+            }
+          }
         });
-      } catch (error: any) {
-        // Silently fail, don't block UI
+      } catch (error) {
+        set((state) => {
+          state.modelsError = coerceAPIError(
+            error,
+            "RUNTIME_STATUS_FAILED",
+            "Failed to get runtime status"
+          );
+        });
       }
     },
 
     setActiveModel: async (model) => {
       try {
-        // TODO: Call API
+        const client = getAPIClient();
+        const response = await client.setActiveModel(model.id);
+        if (!response.success) {
+          throw response.error;
+        }
+
         set((state) => {
           state.activeModel = model;
         });
-      } catch (error: any) {
+      } catch (error) {
         set((state) => {
-          state.modelsError = error;
+          state.modelsError = coerceAPIError(
+            error,
+            "MODEL_SELECT_FAILED",
+            "Failed to set active model"
+          );
         });
         throw error;
       }
     },
 
-    // Chat actions
     sendMessage: async (content) => {
       const workspace = get().activeWorkspace;
-      if (!workspace) throw new Error("No active workspace");
+      if (!workspace) {
+        throw new Error("No active workspace");
+      }
+
+      const history = get()
+        .messages.slice(-12)
+        .filter((message) => message.role === "user" || message.role === "assistant")
+        .map((message) => ({
+          role: message.role,
+          content: message.content,
+        }));
 
       const userMessage: Message = {
         id: `msg-${Date.now()}`,
@@ -181,23 +263,34 @@ export const useAppStore = create<StoreState>()(
       set((state) => {
         state.messages.push(userMessage);
         state.messagesLoading = true;
+        state.messagesError = undefined;
       });
 
       try {
-        // TODO: Call API and stream response
+        const client = getAPIClient();
+        const response = await client.sendMessage(workspace.id, content, { history });
+        if (!response.success) {
+          throw response.error;
+        }
+
         const assistantMessage: Message = {
           id: `msg-${Date.now() + 1}`,
           role: "assistant",
-          content: "Response pending...",
+          content: String(response.data?.response || "").trim() || "No response received.",
           timestamp: new Date().toISOString(),
         };
+
         set((state) => {
           state.messages.push(assistantMessage);
           state.messagesLoading = false;
         });
-      } catch (error: any) {
+      } catch (error) {
         set((state) => {
-          state.messagesError = error;
+          state.messagesError = coerceAPIError(
+            error,
+            "MESSAGE_SEND_FAILED",
+            "Failed to send message"
+          );
           state.messagesLoading = false;
         });
         throw error;
@@ -208,16 +301,26 @@ export const useAppStore = create<StoreState>()(
       set((state) => {
         state.messagesLoading = true;
       });
+
       try {
-        // TODO: Call API
-        const messages: Message[] = [];
+        const client = getAPIClient();
+        const response = await client.getConversationHistory(workspaceId);
+        if (!response.success) {
+          throw response.error;
+        }
+
+        const messages = Array.isArray(response.data) ? (response.data as Message[]) : [];
         set((state) => {
           state.messages = messages;
           state.messagesLoading = false;
         });
-      } catch (error: any) {
+      } catch (error) {
         set((state) => {
-          state.messagesError = error;
+          state.messagesError = coerceAPIError(
+            error,
+            "HISTORY_FETCH_FAILED",
+            "Failed to fetch conversation history"
+          );
           state.messagesLoading = false;
         });
       }
@@ -229,21 +332,31 @@ export const useAppStore = create<StoreState>()(
       });
     },
 
-    // Library actions
     fetchLibraryItems: async (workspaceId) => {
       set((state) => {
         state.libraryLoading = true;
+        state.libraryError = undefined;
       });
+
       try {
-        // TODO: Call API
-        const items: LibraryItem[] = [];
+        const client = getAPIClient();
+        const response = await client.getLibrary(workspaceId);
+        if (!response.success) {
+          throw response.error;
+        }
+
+        const items = Array.isArray(response.data) ? (response.data as LibraryItem[]) : [];
         set((state) => {
           state.libraryItems = items;
           state.libraryLoading = false;
         });
-      } catch (error: any) {
+      } catch (error) {
         set((state) => {
-          state.libraryError = error;
+          state.libraryError = coerceAPIError(
+            error,
+            "LIBRARY_FETCH_FAILED",
+            "Failed to fetch library items"
+          );
           state.libraryLoading = false;
         });
       }
@@ -251,26 +364,27 @@ export const useAppStore = create<StoreState>()(
 
     saveLibraryItem: async (item) => {
       try {
-        // TODO: Call API
         const workspace = get().activeWorkspace;
-        if (!workspace) throw new Error("No active workspace");
+        if (!workspace) {
+          throw new Error("No active workspace");
+        }
 
-        const newItem: LibraryItem = {
-          id: `item-${Date.now()}`,
-          type: (item.type as any) || "note",
-          title: item.title || "Untitled",
-          content: item.content || "",
-          workspaceId: workspace.id,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-
+        const client = getAPIClient();
+        const response = await client.saveArtifact(
+          workspace.id,
+          item.content || "",
+          String(item.type || "note")
+        );
+        if (!response.success) {
+          throw response.error;
+        }
+      } catch (error) {
         set((state) => {
-          state.libraryItems.push(newItem);
-        });
-      } catch (error: any) {
-        set((state) => {
-          state.libraryError = error;
+          state.libraryError = coerceAPIError(
+            error,
+            "ARTIFACT_SAVE_FAILED",
+            "Failed to save library item"
+          );
         });
         throw error;
       }
@@ -278,31 +392,45 @@ export const useAppStore = create<StoreState>()(
 
     deleteLibraryItem: async (id) => {
       try {
-        // TODO: Call API
         set((state) => {
-          state.libraryItems = state.libraryItems.filter((i) => i.id !== id);
+          state.libraryItems = state.libraryItems.filter((item) => item.id !== id);
         });
-      } catch (error: any) {
+      } catch (error) {
         set((state) => {
-          state.libraryError = error;
+          state.libraryError = coerceAPIError(
+            error,
+            "LIBRARY_DELETE_FAILED",
+            "Failed to delete library item"
+          );
         });
         throw error;
       }
     },
 
-    // Settings actions
     fetchSettings: async () => {
       set((state) => {
         state.settingsLoading = true;
+        state.settingsError = undefined;
       });
+
       try {
-        // TODO: Call API
+        const client = getAPIClient();
+        const response = await client.getSettings();
+        if (!response.success) {
+          throw response.error;
+        }
+
         set((state) => {
+          state.settings = { ...state.settings, ...(response.data || {}) };
           state.settingsLoading = false;
         });
-      } catch (error: any) {
+      } catch (error) {
         set((state) => {
-          state.settingsError = error;
+          state.settingsError = coerceAPIError(
+            error,
+            "SETTINGS_FETCH_FAILED",
+            "Failed to fetch settings"
+          );
           state.settingsLoading = false;
         });
       }
@@ -310,19 +438,27 @@ export const useAppStore = create<StoreState>()(
 
     updateSettings: async (settings) => {
       try {
-        // TODO: Call API
+        const client = getAPIClient();
+        const response = await client.updateSettings("user", settings);
+        if (!response.success) {
+          throw response.error;
+        }
+
         set((state) => {
           state.settings = { ...state.settings, ...settings };
         });
-      } catch (error: any) {
+      } catch (error) {
         set((state) => {
-          state.settingsError = error;
+          state.settingsError = coerceAPIError(
+            error,
+            "SETTINGS_UPDATE_FAILED",
+            "Failed to update settings"
+          );
         });
         throw error;
       }
     },
 
-    // UI actions
     toggleSidebar: () => {
       set((state) => {
         state.sidebarOpen = !state.sidebarOpen;
@@ -343,5 +479,4 @@ export const useAppStore = create<StoreState>()(
   }))
 );
 
-// Export hook for use in components
 export const useAppState = () => useAppStore();

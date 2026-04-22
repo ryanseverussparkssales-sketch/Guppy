@@ -11,8 +11,8 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication
 
-ROOT = Path(__file__).resolve().parents[2]
-VIEWS_DIR = ROOT / "ui" / "launcher" / "views"
+ROOT = Path(__file__).resolve().parents[3]
+VIEWS_DIR = ROOT / "compat_shims" / "launcher_ui" / "ui" / "launcher" / "views"
 
 views_package = sys.modules.get("ui.launcher.views")
 if views_package is None:
@@ -134,7 +134,7 @@ def test_tool_card_offers_settings_owned_management_route_for_blocked_connector(
     card._manage_btn.click()
 
     assert not card._manage_btn.isHidden()
-    assert card._manage_btn.text() == "OPEN APP MGMT"
+    assert card._manage_btn.text() == "OPEN DEVICE & ACCOUNTS"
     assert "Settings > Device & Accounts" in card._manage_btn.toolTip()
     assert "Gmail" in card._manage_btn.toolTip()
     assert emitted

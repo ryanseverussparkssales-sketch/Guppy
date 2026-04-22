@@ -7,7 +7,7 @@ No business logic — pure data + accessors.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,9 @@ class ProviderEntry:
     next_step_hint: str
     example_prompt: str = ""
     doc_url: str = ""
+    availability_status: str = "available"
+    installation_status: str = "installed"
+    listed: bool = True
 
 
 PROVIDER_REGISTRY: dict[str, ProviderEntry] = {
@@ -90,6 +93,30 @@ PROVIDER_REGISTRY: dict[str, ProviderEntry] = {
         next_step_hint="Ask Guppy to place a test call to confirm the setup.",
         example_prompt='Try: "Place a test call."',
     ),
+    "anythingllm_local": ProviderEntry(
+        id="anythingllm_local",
+        label="AnythingLLM",
+        description="Reserved local adapter lane for a future AnythingLLM integration.",
+        secret_fields=[],
+        verify_supported=False,
+        connect_hint="This adapter is planned and not installed in the current build yet.",
+        next_step_hint="Watch for a future build that ships the AnythingLLM local adapter.",
+        availability_status="planned",
+        installation_status="not_installed",
+        listed=False,
+    ),
+    "huggingface_local": ProviderEntry(
+        id="huggingface_local",
+        label="Hugging Face Local",
+        description="Reserved local adapter lane for a future Hugging Face local-runtime integration.",
+        secret_fields=[],
+        verify_supported=False,
+        connect_hint="This adapter is planned and not installed in the current build yet.",
+        next_step_hint="Watch for a future build that ships the Hugging Face local adapter.",
+        availability_status="planned",
+        installation_status="not_installed",
+        listed=False,
+    ),
 }
 
 
@@ -100,7 +127,7 @@ def get_provider(provider_id: str) -> ProviderEntry | None:
 
 def list_providers() -> list[ProviderEntry]:
     """Return all registered providers in stable insertion order."""
-    return list(PROVIDER_REGISTRY.values())
+    return [entry for entry in PROVIDER_REGISTRY.values() if entry.listed]
 
 
 def get_next_step(provider_id: str, *, is_connected: bool) -> str:

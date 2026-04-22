@@ -19,6 +19,10 @@ from src.guppy.launcher_application import (
 
 def ensure_library_workflow(owner):
     """Return the owner's LibraryWorkflowController, creating it if absent."""
+    instance_factory = getattr(owner, "_ensure_library_workflow", None)
+    class_factory = getattr(type(owner), "_ensure_library_workflow", None)
+    if callable(instance_factory) and class_factory is None:
+        return instance_factory()
     workflow = getattr(owner, "_library_workflow", None)
     if workflow is not None:
         return workflow
@@ -29,10 +33,10 @@ def ensure_library_workflow(owner):
         set_active_items=lambda items: setattr(owner, "_active_library_context_items", list(items)),
         get_active_instance_name=lambda: getattr(owner, "_active_instance_name", "guppy-primary"),
         get_library_view=lambda: getattr(owner, "_library_view", None),
-        refresh_library_surface=lambda: owner._refresh_library_surface(),
-        on_tab_change=lambda index: owner._on_tab_change(index),
-        set_daily_activity=lambda text: owner._set_daily_activity(text),
-        log_launcher_event=lambda event, **fields: owner._log_launcher_event(event, **fields),
+        refresh_library_surface=lambda: getattr(owner, "_refresh_library_surface", lambda: None)(),
+        on_tab_change=lambda index: getattr(owner, "_on_tab_change", lambda _index: None)(index),
+        set_daily_activity=lambda text: getattr(owner, "_set_daily_activity", lambda _text: None)(text),
+        log_launcher_event=lambda event, **fields: getattr(owner, "_log_launcher_event", lambda *_args, **_kwargs: None)(event, **fields),
     )
     setattr(owner, "_library_workflow", workflow)
     return workflow

@@ -35,6 +35,7 @@ class HomeWorkspaceState:
     role_label: str
     purpose: str
     entry_hint: str
+    resume_hint: str
     starter_summary: str
     onboarding_title: str
     onboarding_subtitle: str
@@ -259,6 +260,18 @@ def build_home_workspace_summary(
     )
 
 
+def build_home_resume_hint(last_message: str) -> str:
+    if not str(last_message or "").strip():
+        return ""
+    recent_text = workspace_recent_context({"last_message": last_message}).strip()
+    if not recent_text:
+        return ""
+    hint = recent_text
+    if hint.endswith("."):
+        hint = hint[:-1]
+    return f"Resume cue: {hint}."
+
+
 def build_home_welcome_message(workspace_type: str, *, description: str = "") -> str:
     copy = build_home_workspace_copy(workspace_type, description=description)
     return (
@@ -283,6 +296,7 @@ def build_home_workspace_state(
         role_label=copy.role_label,
         purpose=copy.purpose,
         entry_hint=f"Start here in {workspace_name}: {copy.entry_hint}",
+        resume_hint=build_home_resume_hint(last_message),
         starter_summary=copy.starter_summary,
         onboarding_title=copy.onboarding_title,
         onboarding_subtitle=copy.onboarding_subtitle,

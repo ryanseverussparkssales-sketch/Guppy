@@ -67,10 +67,12 @@ def test_merge_secret_sources_and_secret_status_cover_ready_partial_and_missing(
     assert machine_auth.merge_secret_sources(["env", "", "keyring"]) == "mixed"
     assert ready["auth_state"] == "ready"
     assert ready["storage_posture"] == "mixed_env"
-    assert "environment variables" in str(ready["storage_warning"])
+    assert "keyring-first storage" in str(ready["storage_warning"]).lower()
+    assert "degraded environment fallback" in str(ready["storage_warning"]).lower()
     assert partial["auth_state"] == "partial"
     assert partial["field_sources"]["FIELD_ENV"] == "env"
     assert partial["field_sources"]["FIELD_MISSING"] == "none"
     assert partial["storage_posture"] == "env_only"
+    assert "degraded environment fallback" in str(partial["storage_warning"]).lower()
     assert missing["auth_state"] == "missing"
     assert missing["storage_posture"] == "none"

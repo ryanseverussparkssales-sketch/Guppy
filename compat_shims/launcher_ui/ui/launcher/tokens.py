@@ -5,7 +5,7 @@ Launcher design tokens for the calm productivity shell.
 
 # Color palette (Stitch/Atoll Editorial System)
 PRIMARY = "#FF6D00"  # Sunset Orange (Atoll)
-PRIMARY_DIM = "#CC5600"
+PRIMARY_DIM = "#A64500"
 SECONDARY = "#006A6A"  # Atoll Turquoise
 TERTIARY = "#4662c7"
 ERROR = "#FF3D00"  # Status error
@@ -19,7 +19,7 @@ BG3 = "#d5c4ae"
 BG4 = "#18202a"
 
 TEXT = "#1B1C19"  # Deep Charcoal (Atoll)
-DIM = "rgba(27, 28, 25, 0.60)"  # Muted text (60% opacity)
+DIM = "#73604F"  # Muted warm body copy for sand surfaces
 BORDER = "#d6c5ae"
 
 ART_RED = "#ff6d43"
@@ -90,8 +90,8 @@ ACCENT_TEAL = "#006A6A"  # Atoll Turquoise (primary accent)
 ACCENT_TEAL_BRIGHT = "#08BDBD"  # Bright turquoise variant
 ACCENT_ORANGE = "#FF6D00"  # Sunset Orange (secondary accent)
 ACCENT_GLOW = "#FF8C42"  # Warm glow variant
-ACCENT_TEAL_TEXT = "#006A6A"  # Turquoise text
-ACCENT_ORANGE_TEXT = "#CC5600"  # Orange text
+ACCENT_TEAL_TEXT = "#005F5F"  # Deeper turquoise text
+ACCENT_ORANGE_TEXT = "#A64500"  # Deeper orange text
 
 # Status indicators (Atoll Editorial)
 STATUS_SUCCESS = "#00C853"  # Green

@@ -23,6 +23,7 @@ _OUTER_MARGIN_BOTTOM = 26
 _OUTER_SPACING = 14
 _TAB_MIN_HEIGHT = 36
 _CARD_RADIUS = 16
+_OWNERSHIP_NOTE = "Models owns backend choice, runtime readiness, and voice routing. Keys and accounts stay in Settings > Device & Accounts."
 
 
 def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = False) -> QLabel:
@@ -165,6 +166,12 @@ class _ModelSourcingTab(QWidget):
         )
         self._summary_lbl = _mono("", T.DIM, T.FS_SMALL)
         summary_layout.addWidget(self._summary_lbl)
+        self._ownership_lbl = _mono(
+            "Change the runtime lane and endpoint here. Provider credentials still live in Settings > Device & Accounts.",
+            T.DIM,
+            T.FS_TINY,
+        )
+        summary_layout.addWidget(self._ownership_lbl)
         layout.addWidget(summary)
 
         source_frame = QFrame()
@@ -232,8 +239,16 @@ class _ModelSourcingTab(QWidget):
         self._backend_combo.blockSignals(False)
         self._sync_endpoint_placeholder()
         self._endpoint_input.setText(endpoint)
-        self._summary_lbl.setText(summary)
-        self._status_lbl.setText(f"Current source: {options.get(backend, 'OLLAMA')}")
+        summary_text = str(summary or "").strip()
+        if not summary_text:
+            summary_text = "Backend readiness follows the selected local runtime lane."
+        elif not summary_text.lower().startswith("backend readiness"):
+            summary_text = f"Backend readiness: {summary_text}"
+        self._summary_lbl.setText(summary_text)
+        self._status_lbl.setText(
+            f"Current source: {options.get(backend, 'OLLAMA')}. "
+            "Change endpoints here; keep keys and provider sign-in in Settings > Device & Accounts."
+        )
 
     def _save(self) -> None:
         backend = self._backend_combo.currentText().strip().lower().replace(" ", "_")
@@ -301,17 +316,17 @@ class ModelsHubView(QWidget):
         )
         outer.addWidget(title)
 
-        purpose = QLabel("MODELS - Pick the model, pick the local runtime, and manage voice in one place.")
+        purpose = QLabel("MODELS - Pick the model, choose the local runtime lane, and manage voice readiness in one place.")
         purpose.setObjectName("hub-purpose")
         purpose.setWordWrap(True)
         purpose.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
-        purpose.setToolTip("This hub owns model choice, local model source, and voice routing. Keys and accounts stay in Settings.")
+        purpose.setToolTip(_OWNERSHIP_NOTE)
         outer.addWidget(purpose)
         outer.addWidget(
             _mono(
-                "Use tabs to focus one job at a time. Keys and accounts stay in Settings.",
+                _OWNERSHIP_NOTE,
                 T.DIM,
                 T.FS_SMALL,
             )
@@ -416,7 +431,7 @@ class ModelsHubView(QWidget):
             ),
             "voice": (
                 "Voice",
-                "Keep voice routing under Models so the chosen model and the chosen voice path stay together.",
+                "Keep voice routing and readiness under Models so the chosen model and voice path stay together. Provider keys and sign-in still stay in Settings > Device & Accounts.",
                 self._voice_panel,
             ),
         }

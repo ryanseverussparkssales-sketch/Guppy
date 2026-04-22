@@ -24,7 +24,7 @@ class _FakeWebSocket:
 
     async def receive_json(self) -> dict[str, object]:
         if not self._inbound:
-            raise RuntimeError("no more frames")
+            raise snapshot_realtime_support.WebSocketDisconnect()
         return self._inbound.pop(0)
 
     async def send_json(self, payload: dict[str, object]) -> None:
@@ -35,7 +35,7 @@ class _FakeWebSocket:
 
 
 def _chat_owner() -> SimpleNamespace:
-    saved_messages: list[tuple[str, str, str]] = []
+    saved_messages: list[tuple[str, str, str, str | None]] = []
     completed: list[dict[str, object]] = []
 
     async def run_blocking(func, *args, **kwargs):
@@ -52,7 +52,11 @@ def _chat_owner() -> SimpleNamespace:
         INFERENCE_ROUTER_AVAILABLE=True,
         CHAT_TIMEOUT_SECONDS=30.0,
         logger=SimpleNamespace(error=lambda *args, **kwargs: None, debug=lambda *args, **kwargs: None),
-        memory=SimpleNamespace(save_message=lambda session_id, role, content: saved_messages.append((session_id, role, content))),
+        memory=SimpleNamespace(
+            save_message=lambda session_id, role, content, workspace_name=None: saved_messages.append(
+                (session_id, role, content, workspace_name)
+            )
+        ),
         log_session_event=lambda *args, **kwargs: None,
         build_chat_request_fingerprint=lambda **kwargs: f"fp:{kwargs['message']}",
         register_chat_idempotency_key=lambda key, fingerprint: (True, SimpleNamespace(wait=lambda: None)),
@@ -113,15 +117,15 @@ def test_chat_response_serves_morning_brief_and_persists_messages() -> None:
     assert payload["brief"] is True
     assert payload["response"] == "brief"
     assert owner._saved_messages == [
-        ("brief-session", "user", "good morning"),
-        ("brief-session", "assistant", "brief"),
+        ("brief-session", "user", "good morning", "primary"),
+        ("brief-session", "assistant", "brief", "primary"),
     ]
 
 
 def test_chat_voice_response_transcribes_and_cleans_tempfile(tmp_path: Path) -> None:
     temp_file = tmp_path / "voice.wav"
     temp_file.write_bytes(b"audio")
-    saved_messages: list[tuple[str, str, str]] = []
+    saved_messages: list[tuple[str, str, str, str | None]] = []
 
     class _FakeVoice:
         def transcribe_audio(self, _path: str) -> str:
@@ -139,7 +143,11 @@ def test_chat_voice_response_transcribes_and_cleans_tempfile(tmp_path: Path) -> 
         CHAT_TIMEOUT_SECONDS=30.0,
         VOICE_TIMEOUT_SECONDS=10.0,
         voice=SimpleNamespace(GuppyVoice=lambda: _FakeVoice()),
-        memory=SimpleNamespace(save_message=lambda session_id, role, content: saved_messages.append((session_id, role, content))),
+        memory=SimpleNamespace(
+            save_message=lambda session_id, role, content, workspace_name=None: saved_messages.append(
+                (session_id, role, content, workspace_name)
+            )
+        ),
         logger=SimpleNamespace(error=lambda *args, **kwargs: None),
         log_session_event=lambda *args, **kwargs: None,
         _get_active_instance_context=lambda: ("primary", "user_instance", "guide", "voice"),
@@ -164,10 +172,15 @@ def test_chat_voice_response_transcribes_and_cleans_tempfile(tmp_path: Path) -> 
         "session_id": "voice-session",
     }
     assert saved_messages == [
-        ("voice-session", "user", "[Voice] hello from voice"),
-        ("voice-session", "assistant", "voice reply"),
+        ("voice-session", "user", "[Voice] hello from voice", "primary"),
+        ("voice-session", "assistant", "voice reply", "primary"),
     ]
     assert not temp_file.exists()
+
+
+async def _stream_text(text: str):
+    for chunk in text.split():
+        yield chunk + " "
 
 
 def test_websocket_response_rejects_missing_token() -> None:
@@ -182,3 +195,54 @@ def test_websocket_response_rejects_missing_token() -> None:
     assert websocket.accepted is True
     assert websocket.closed is True
     assert websocket.sent == [{"error": "Authentication required"}]
+
+
+def test_websocket_response_persists_workspace_scoped_messages() -> None:
+    websocket = _FakeWebSocket(
+        [
+            {"token": "token"},
+            {"message": "hello", "session_id": "ws-1", "mode": "auto"},
+        ]
+    )
+    saved_messages: list[tuple[str, str, str, str | None]] = []
+
+    async def run_blocking(func, *args, **kwargs):
+        timeout_seconds = kwargs.pop("timeout_seconds", None)
+        del timeout_seconds
+        return func(*args, **kwargs)
+
+    owner = SimpleNamespace(
+        GUPPY_CORE_AVAILABLE=True,
+        GUPPY_MEMORY_AVAILABLE=True,
+        CHAT_TIMEOUT_SECONDS=30.0,
+        SECRET_KEY="secret",
+        ALGORITHM="HS256",
+        JWTError=RuntimeError,
+        jwt=SimpleNamespace(decode=lambda token, secret, algorithms: {"sub": "tester"}),
+        logger=SimpleNamespace(error=lambda *args, **kwargs: None),
+        log_session_event=lambda *args, **kwargs: None,
+        memory=SimpleNamespace(
+            save_message=lambda session_id, role, content, workspace_name=None: saved_messages.append(
+                (session_id, role, content, workspace_name)
+            )
+        ),
+        _get_active_instance_context=lambda: ("primary", "user_instance", "guide", "voice"),
+        _build_chat_system_prompt=lambda **kwargs: "SYSTEM",
+        _run_blocking=run_blocking,
+        _call_unified_inference=lambda *args, **kwargs: "streamed reply",
+        _stream_chunks=_stream_text,
+        _saved_messages=saved_messages,
+    )
+
+    asyncio.run(snapshot_realtime_support.websocket_response(owner, websocket))
+
+    assert websocket.sent == [
+        {"status": "authenticated"},
+        {"chunk": "streamed "},
+        {"chunk": "reply "},
+        {"done": True},
+    ]
+    assert saved_messages == [
+        ("ws-1", "user", "hello", "primary"),
+        ("ws-1", "assistant", "streamed reply", "primary"),
+    ]

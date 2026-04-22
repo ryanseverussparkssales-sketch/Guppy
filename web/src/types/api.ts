@@ -26,11 +26,18 @@ export interface APIResponse<T = any> {
 }
 
 // Workspace Types
+export type WorkspaceType =
+  | "user_instance"
+  | "shared_instance"
+  | "read_only_instance"
+  | "builder_instance"
+  | "admin_instance";
+
 export interface Workspace {
   id: string;
   name: string;
   description: string;
-  type: "user_instance" | "shared_instance" | "read_only_instance";
+  type: WorkspaceType;
   status: "active" | "inactive" | "error";
   createdAt: string;
   updatedAt: string;
@@ -40,7 +47,7 @@ export interface Workspace {
 export interface WorkspaceCreate {
   name: string;
   description: string;
-  type: "user_instance" | "shared_instance";
+  type: WorkspaceType;
   persona?: string;
   mode?: string;
   voice?: string;
@@ -52,14 +59,17 @@ export interface Model {
   name: string;
   provider: string;
   size: string;
-  status: "available" | "downloading" | "installed" | "error";
+  status: "available" | "downloading" | "installed" | "missing" | "error";
   metadata?: Record<string, any>;
 }
 
 export interface RuntimeStatus {
-  status: "healthy" | "degraded" | "offline";
+  status: "healthy" | "degraded" | "offline" | "error";
   uptime: number;
   activeModel?: string;
+  backend?: string;
+  detail?: string;
+  availableModels?: string[];
   memory?: {
     used: number;
     total: number;

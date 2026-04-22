@@ -11,6 +11,25 @@ class PersonalizationConfigScaffoldTests(unittest.TestCase):
         self.assertEqual(pc.validate_provider_registry(pc.DEFAULT_PROVIDER_REGISTRY), [])
         self.assertEqual(pc.validate_voice_bindings(pc.DEFAULT_VOICE_BINDINGS), [])
 
+    def test_default_provider_registry_includes_opt_in_and_planned_local_adapter_lanes(self):
+        providers = {
+            provider["id"]: provider
+            for provider in pc.DEFAULT_PROVIDER_REGISTRY["providers"]
+            if isinstance(provider, dict) and isinstance(provider.get("id"), str)
+        }
+
+        self.assertIn("lemonade_local", providers)
+        self.assertIn("anythingllm_local", providers)
+        self.assertIn("huggingface_local", providers)
+
+        self.assertFalse(providers["lemonade_local"]["enabled"])
+        self.assertEqual(providers["lemonade_local"]["provider_tier"], "experimental")
+        self.assertEqual(providers["lemonade_local"]["availability_status"], "opt_in")
+
+        self.assertFalse(providers["anythingllm_local"]["enabled"])
+        self.assertEqual(providers["anythingllm_local"]["availability_status"], "planned")
+        self.assertEqual(providers["huggingface_local"]["availability_status"], "planned")
+
     def test_ensure_scaffold_writes_missing_files(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

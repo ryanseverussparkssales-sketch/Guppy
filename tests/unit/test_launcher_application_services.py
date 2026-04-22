@@ -42,7 +42,7 @@ def test_connector_service_filters_and_normalizes_inventory(monkeypatch: pytest.
 
     assert tuple(item.connector_id for item in inventory) == ("gmail", "crm")
     assert inventory[0].supported_actions == ("verify", "connect")
-    assert inventory[1].label == "Crm"
+    assert inventory[1].label == "CRM"
     assert inventory[1].inherited is True
 
 
@@ -121,4 +121,3 @@ def test_execute_connector_action_uses_request_id_when_backend_payload_omits_it(
     assert result.ok is True
     assert result.auth_state == "ready"
     assert result.next_step == "Keep the workspace binding in place."
-

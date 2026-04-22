@@ -88,13 +88,17 @@ class SettingsDeviceAccountsPanel(QWidget):
         layout.addWidget(title)
         layout.addWidget(
             _mono(
-                "Manage this Windows device, your local AI runtime, and the accounts Guppy can use here.",
+                "Check this Windows device, verify local AI health, and manage the accounts and API keys Guppy can use here.",
                 T.DIM,
                 T.FS_SMALL,
             )
         )
 
         self._summary_lbl = _mono("Checking this PC now.", T.PRIMARY_DIM, T.FS_SMALL)
+        self._summary_lbl.setToolTip(
+            "This panel verifies runtime health and stores provider credentials. "
+            "Choose the runtime lane and voice path in Models."
+        )
         layout.addWidget(self._summary_lbl)
 
         desktop_frame = QFrame()
@@ -107,6 +111,9 @@ class SettingsDeviceAccountsPanel(QWidget):
         self._pc_runtime_lbl = _mono("Local AI health: checking now", T.DIM, T.FS_SMALL)
         self._pc_next_lbl = _mono("Next step: checking now", T.DIM, T.FS_SMALL)
         self._pc_diag_lbl = _mono("Health notes: checking now", T.DIM, T.FS_TINY)
+        self._pc_runtime_lbl.setToolTip("Runtime health lives here. Change the local backend in Models > Model Sourcing.")
+        self._pc_next_lbl.setToolTip("Health and recovery guidance live here. Runtime selection stays in Models.")
+        self._pc_diag_lbl.setToolTip("Diagnostics live here. API keys and connector sign-in also stay in this Settings panel.")
         for widget in (self._pc_install_lbl, self._pc_runtime_lbl, self._pc_next_lbl, self._pc_diag_lbl):
             desktop_layout.addWidget(widget)
         action_row = QHBoxLayout()

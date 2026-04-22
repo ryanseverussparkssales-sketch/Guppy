@@ -21,6 +21,7 @@ from src.guppy.launcher_application.security_gate import (
     _check_build_posture,
     _check_network_boundary,
     _check_secret_storage,
+    security_gate_summary,
 )
 
 
@@ -61,6 +62,20 @@ class TestRunSecurityGateShape:
         all_names = {n for n, _ in result["passed"]} | {n for n, _ in result["failed"]}
         for check in SECURITY_GATE_CHECKS:
             assert check.name in all_names, f"Check {check.name!r} missing from gate result"
+
+    def test_security_gate_summary_prefers_first_failure_detail(self):
+        summary = security_gate_summary(
+            {
+                "passed": [("network_boundary", "ok")],
+                "failed": [("secret_storage", "Keyring resolved to degraded backend: PlaintextKeyring")],
+                "warnings": [],
+                "launch_ready": False,
+            }
+        )
+
+        assert summary["ok"] is False
+        assert summary["summary"] == "FAIL (1 checks)"
+        assert "PlaintextKeyring" in str(summary["detail"])
 
 
 # ── format_gate_report() ──────────────────────────────────────────────────────

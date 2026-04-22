@@ -42,12 +42,15 @@ def test_matrix_summary_counts_scenarios_and_pending(tmp_path: Path) -> None:
     assert summary["exists"] is True
     assert summary["scenario_count"] == 3
     assert summary["pending_count"] == 2
+    assert summary["status_counts"]["PASS"] == 1
+    assert summary["status_counts"]["PENDING"] == 2
 
 
 def test_prefill_markdown_includes_scope_and_follow_up() -> None:
     module = _load_module()
     md = module._prefill_markdown(
         ts_utc="2026-04-19T00:00:00+00:00",
+        local_date="2026-04-18",
         machine={
             "hostname": "testbox",
             "os": "Windows 11",
@@ -66,6 +69,7 @@ def test_prefill_markdown_includes_scope_and_follow_up() -> None:
             "error": "",
         },
         provider_snapshot={
+            "overall_state": "READY",
             "libraries": {"openai": "1.0.0"},
             "smoke_results": {"openrouter": {"ok": True}},
         },
@@ -73,8 +77,44 @@ def test_prefill_markdown_includes_scope_and_follow_up() -> None:
             "missing_models": [],
             "ping_results": {"guppy-code:latest": {"ok": True}},
         },
-        voice_matrix={"exists": True, "scenario_count": 10, "pending_count": 9},
-        runtime_matrix={"exists": True, "scenario_count": 6, "pending_count": 6},
+        voice_config={
+            "voice_enabled": True,
+            "runtime_backend": "local_harness",
+            "default_engine": "EDGE TTS",
+            "default_voice_id": "en-GB-RyanNeural",
+            "default_persona_id": "main_guppy",
+            "global_assignment": "main_guppy",
+            "persona_binding_count": 1,
+            "model_binding_count": 0,
+        },
+        voice_capabilities={
+            "edge_tts": True,
+            "kokoro": True,
+            "faster_whisper": True,
+            "sounddevice": True,
+            "elevenlabs_api_key": False,
+            "tts_provider_env": "auto",
+        },
+        package_evidence={
+            "timestamp": "2026-04-19T01:23:45+00:00",
+            "ok": True,
+            "stage": "package",
+            "summary": "Package built",
+            "artifact_path": "C:/Users/Ryan/Guppy/dist/Guppy/Guppy.exe",
+            "artifact_size": "12345",
+        },
+        voice_matrix={
+            "exists": True,
+            "scenario_count": 10,
+            "pending_count": 0,
+            "status_counts": {"PASS": 0, "FAIL": 0, "PREFILLED": 4, "WAIVED": 6, "PENDING": 0, "OTHER": 0},
+        },
+        runtime_matrix={
+            "exists": True,
+            "scenario_count": 6,
+            "pending_count": 0,
+            "status_counts": {"PASS": 2, "FAIL": 0, "PREFILLED": 2, "WAIVED": 2, "PENDING": 0, "OTHER": 0},
+        },
     )
 
     assert "Voice + Runtime Matrix Prefill Report" in md
@@ -82,4 +122,8 @@ def test_prefill_markdown_includes_scope_and_follow_up() -> None:
     assert "testbox" in md
     assert "Provider Runtime Snapshot | READY" in md
     assert "Ollama Runtime Snapshot | READY" in md
+    assert "Voice Runtime Snapshot" in md
+    assert "Package Evidence Snapshot" in md
+    assert "- Date Range: 2026-04-18 (local)" in md
+    assert "| Voice | True | 10 | 0 | 4 | 6 | 0 | 0 |" in md
     assert "Manual Follow-Up Still Required" in md

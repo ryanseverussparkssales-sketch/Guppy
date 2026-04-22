@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+import re
 from typing import Any
 
 from src.guppy.workspace_governance.connector_metadata import connector_id_for_tool
@@ -26,6 +27,8 @@ _SETTINGS_OWNED_REASON_CODES = {
     "connector_host_auth_missing",
 }
 
+_LEGACY_SETTINGS_PATTERN = re.compile(r"(?i)\bapp mgmt\b(?:\s*>\s*connector inventory)?")
+
 
 def read_workspace_tool_readiness(
     tool_name: str,
@@ -44,13 +47,20 @@ def read_workspace_tool_readiness(
     )
 
 
+def _normalize_settings_language(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return _LEGACY_SETTINGS_PATTERN.sub("Settings > Device & Accounts", text)
+
+
 def tool_policy_fix_hint(policy_reason_code: str, readiness_payload: Mapping[str, object] | None = None) -> str:
     hint = _POLICY_FIX_HINTS.get(str(policy_reason_code or "").strip().lower(), "")
     if hint:
         return hint
     readiness = readiness_payload if isinstance(readiness_payload, Mapping) else {}
-    next_step = str(readiness.get("next_step", "") or "").strip()
-    fix_target = str(readiness.get("fix_target", "") or "").strip()
+    next_step = _normalize_settings_language(readiness.get("next_step", ""))
+    fix_target = _normalize_settings_language(readiness.get("fix_target", ""))
     if next_step and fix_target:
         return f"{next_step} Fix in: {fix_target}."
     if next_step:
@@ -102,24 +112,25 @@ def tool_settings_route(
         return {}
     readiness = readiness_payload if isinstance(readiness_payload, Mapping) else {}
     normalized_code = str(policy_reason_code or "").strip().lower()
-    fix_target = str(readiness.get("fix_target", "") or "").strip()
-    next_step = str(readiness.get("next_step", "") or "").strip()
+    fix_target = _normalize_settings_language(readiness.get("fix_target", ""))
+    next_step = _normalize_settings_language(readiness.get("next_step", ""))
     fix_target_lower = fix_target.lower()
     is_settings_fix = (
         normalized_code in _SETTINGS_OWNED_REASON_CODES
-        or "app mgmt" in fix_target_lower
+        or "device & accounts" in fix_target_lower
         or fix_target_lower.startswith("settings")
     )
     if not is_settings_fix:
         return {}
     note = next_step or _POLICY_FIX_HINTS.get(normalized_code, "")
-    if note and "settings" not in note.lower() and "device & accounts" not in note.lower():
+    destination_hint = f"settings > device & accounts > {connector_id}"
+    if note and destination_hint not in note.lower():
         note = f"{note} Open Settings > Device & Accounts > {connector_id.title()} to continue."
     return {
         "connector": connector_id,
         "tool": str(tool_name or "").strip().lower(),
         "destination": "settings_device_accounts",
-        "button_label": "OPEN APP MGMT",
+        "button_label": "OPEN DEVICE & ACCOUNTS",
         "destination_label": "Settings > Device & Accounts",
         "note": note,
         "fix_target": fix_target,

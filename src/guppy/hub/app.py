@@ -11,8 +11,8 @@ from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from src.guppy.apps.process_guard import acquire_process_guard
 from src.guppy.hub.manager import HubManager
+from src.guppy.launcher_application.launcher_api_runtime_control import probe_api_runtime_label as check_api_server
 from src.guppy.hub.runtime_checks import (
-    check_api_server,
     check_auth_config,
     check_cloudflared,
     cloudflare_cert_paths,

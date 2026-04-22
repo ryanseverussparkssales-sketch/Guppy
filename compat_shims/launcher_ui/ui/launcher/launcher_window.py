@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+import urllib
 from queue import Empty, SimpleQueue
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from src.guppy.launcher_application import (
     build_library_chat_submission,
     build_windows_ops_plan,
     connector_backend_available,
+    fetch_connector_inventory,
     refresh_workspace_instance_views,
     set_daily_activity,
     sync_right_tray,
@@ -38,10 +40,12 @@ from src.guppy.launcher_application.tool_action_registry import get_home_starter
 from src.guppy.launcher_application.storage_io import (
     append_instance_log,
     instance_logger_backend_available,
+    read_json_dict,
     read_instance_log_tail,
     read_jsonl_tail,
     secret_store_client,
     secret_store_backend_available,
+    write_json_atomic,
 )
 from src.guppy.launcher_application.recovery_coordination import (
     classify_recovery_summary,
@@ -194,6 +198,14 @@ _AUTOMATION_TEST_VALIDATION_COMMAND = (
 _AUTOMATION_REPORT_PATH = _RUNTIME / "offhours_builder_report.json"
 _SETTINGS_VIEW_INDEX = _nav_handlers.SETTINGS_VIEW_INDEX
 _MODELS_VIEW_INDEX = _nav_handlers.MODELS_VIEW_INDEX
+_HOME_VIEW_INDEX = _nav_handlers.HOME_VIEW_INDEX
+_MODELS_LIBRARY_ALIAS_INDEX = _nav_handlers.MODELS_LIBRARY_ALIAS_INDEX
+connector_inventory = fetch_connector_inventory
+
+
+def _write_json(path: Path, payload: dict[str, object]) -> None:
+    if not write_json_atomic(path, payload):
+        raise OSError(f"Failed to write JSON payload to {path}")
 
 
 class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMainWindow):
@@ -510,9 +522,15 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         )
 
     def _sync_shell_model_summary(self, *, active_model: str = "", runtime_backend: str = "") -> None:
-        _nav_handlers.sync_shell_model_summary(
-            self, runtime_path=_RUNTIME, active_model=active_model, runtime_backend=runtime_backend
+        app_settings = read_json_dict(_RUNTIME / "app_settings.json")
+        summary = self._shell_model_loadout_summary(
+            active_model=active_model,
+            runtime_backend=runtime_backend,
+            settings_payload=app_settings if isinstance(app_settings, dict) else {},
+            environment=dict(os.environ),
         )
+        self._topbar.set_launcher_summary(summary)
+        self._sync_topbar_model_context(main_model=active_model)
 
     def _on_tab_change(self, index: int) -> None:
         _nav_handlers.on_tab_change(self, index, runtime_path=_RUNTIME)

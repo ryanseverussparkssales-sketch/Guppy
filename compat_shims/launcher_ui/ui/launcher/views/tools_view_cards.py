@@ -291,8 +291,10 @@ class ToolCard(QFrame):
         )
         self._hint_btn.clicked.connect(lambda: self.hint_requested.emit(str(self._tool.get("key", ""))))
         actions.addWidget(self._hint_btn)
-        self._manage_btn = QPushButton("OPEN APP MGMT")
-        self._manage_btn.setToolTip("Open the Settings-owned connector setup flow for this tool")
+        self._manage_btn = QPushButton("OPEN DEVICE & ACCOUNTS")
+        self._manage_btn.setToolTip(
+            "Open Settings > Device & Accounts for connector setup, verify, reconnect, remove, or disable actions"
+        )
         self._manage_btn.setStyleSheet(
             f"QPushButton {{ background: {T.BG0}; color: {T.SECONDARY}; border: 1px solid {T.SECONDARY};"
             f" padding: 4px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
@@ -494,14 +496,14 @@ class ToolCard(QFrame):
         self._manage_btn.setVisible(bool(settings_route))
         self._manage_btn.setEnabled(bool(settings_route))
         if settings_route:
-            button_label = str(settings_route.get("button_label", "") or "").strip() or "OPEN APP MGMT"
+            button_label = str(settings_route.get("button_label", "") or "").strip() or "OPEN DEVICE & ACCOUNTS"
             destination_label = str(settings_route.get("destination_label", "") or "").strip()
             note = str(settings_route.get("note", "") or "").strip()
             self._manage_btn.setText(button_label)
             tooltip = (
-                f"Open {destination_label} for connector setup and verification"
+                f"Open {destination_label} for connector setup, verify, reconnect, remove, or disable actions"
                 if destination_label
-                else "Open the Settings-owned connector setup flow"
+                else "Open the Settings-owned connector setup and account flow"
             )
             if note:
                 tooltip += f" | {note}"

@@ -100,11 +100,18 @@ def _complete_chat_error(
         )
 
 
-def _persist_message_pair(owner: Any, *, session_id: str | None, user_text: str, assistant_text: str) -> None:
+def _persist_message_pair(
+    owner: Any,
+    *,
+    session_id: str | None,
+    user_text: str,
+    assistant_text: str,
+    workspace_name: str = "",
+) -> None:
     if not session_id or not getattr(owner, "GUPPY_MEMORY_AVAILABLE", False):
         return
-    owner.memory.save_message(session_id, "user", user_text)
-    owner.memory.save_message(session_id, "assistant", assistant_text)
+    owner.memory.save_message(session_id, "user", user_text, workspace_name=workspace_name)
+    owner.memory.save_message(session_id, "assistant", assistant_text, workspace_name=workspace_name)
 
 
 def _system_prompt_for_chat(owner: Any, request: Any, active_instance_persona: str) -> str:
@@ -179,7 +186,12 @@ async def chat_response(owner: Any, request: Any) -> dict[str, Any]:
             if request.session_id and getattr(owner, "GUPPY_MEMORY_AVAILABLE", False):
                 for role, content in (("user", request.message), ("assistant", response)):
                     try:
-                        owner.memory.save_message(request.session_id, role, content)
+                        owner.memory.save_message(
+                            request.session_id,
+                            role,
+                            content,
+                            workspace_name=str(active_instance_name or "").strip(),
+                        )
                     except Exception as exc:
                         owner.logger.error(
                             "morning brief memory.save_message failed session_id=%r role=%s error=%s",
@@ -240,6 +252,7 @@ async def chat_response(owner: Any, request: Any) -> dict[str, Any]:
             session_id=request.session_id,
             user_text=request.message,
             assistant_text=response,
+            workspace_name=str(active_instance_name or "").strip(),
         )
         payload = {"response": response, "session_id": request.session_id}
         _complete_chat_success(
@@ -336,6 +349,7 @@ async def chat_voice_response(
                 session_id=session_id,
                 user_text=f"[Voice] {transcription}",
                 assistant_text=response,
+                workspace_name=str(active_instance_name or "").strip(),
             )
             return {
                 "transcription": transcription,
@@ -411,6 +425,13 @@ async def websocket_response(owner: Any, websocket: WebSocket) -> None:
                 async for chunk in owner._stream_chunks(text):
                     await websocket.send_json({"chunk": chunk})
                 await websocket.send_json({"done": True})
+                _persist_message_pair(
+                    owner,
+                    session_id=session_id,
+                    user_text=message,
+                    assistant_text=text,
+                    workspace_name=str(active_instance_name or "").strip(),
+                )
             except WebSocketDisconnect:
                 break
             except Exception as exc:

@@ -20,11 +20,11 @@ from PySide6.QtWidgets import (
 from .. import tokens as T
 
 _NAV: list[tuple[str, str, int, frozenset[int], bool]] = [
-    ("*", "INTELLIGENCE", 0, frozenset({0}), True),
-    ("R", "RESEARCH", 5, frozenset({5, 6, 7, 8, 9}), True),
-    ("W", "WORKSPACE", 3, frozenset({3}), True),
-    ("B", "BRIEFINGS", 4, frozenset({4}), True),
+    ("*", "HOME", 0, frozenset({0}), True),
+    ("R", "MODELS", 5, frozenset({5, 6, 7, 8, 9}), True),
+    ("W", "TOOLS", 3, frozenset({3}), True),
     ("L", "LIBRARY", 2, frozenset({2}), True),
+    ("B", "SETTINGS", 4, frozenset({4}), True),
     ("S", "SPACES", 1, frozenset({1}), False),
     ("P", "MY PC", 5, frozenset({5}), False),
     ("M", "LOCAL LLM", 6, frozenset({6}), False),
@@ -137,6 +137,8 @@ class _NavItem(QWidget):
 
         self._icon = icon
         self._label_text = label
+        self._label = QLabel(label, self)
+        self._label.hide()
         self._btn = QPushButton(f"{icon}  {label}")
         self._btn.setFlat(True)
         self._btn.setFixedSize(T.SIDEBAR_W_EXPANDED - 22, 44)
@@ -157,9 +159,9 @@ class _NavItem(QWidget):
     def _apply_style(self, active: bool) -> None:
         if active:
             self._btn.setStyleSheet(
-                f"QPushButton {{ background-color: rgba(0,0,0,0.03); color: {T.ACCENT_TEAL};"
+                f"QPushButton {{ background-color: rgba(0,0,0,0.03); color: {T.ACCENT_TEAL_TEXT};"
                 " border: none;"
-                f" border-left: 4px solid {T.ACCENT_TEAL};"
+                f" border-left: 4px solid {T.ACCENT_TEAL_TEXT};"
                 " border-top-left-radius: 0px; border-bottom-left-radius: 0px;"
                 " border-top-right-radius: 0px; border-bottom-right-radius: 0px;"
                 f" padding: 0 16px; margin-left: 8px; text-align: left; font-family: '{T.FF_BODY}';"
@@ -225,8 +227,9 @@ class Sidebar(QFrame):
         self._deck = QLabel("The Curator")
         self._deck.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self._deck.setStyleSheet(
-            f"color: {T.TEXT};"
-            f" padding: 2px 2px; font-family: '{T.FF_BODY}';"
+            f"color: {T.TEXT}; background-color: {T.SURFACE_ELEVATED_92};"
+            " border-radius: 10px;"
+            f" padding: 4px 8px; font-family: '{T.FF_BODY}';"
             f" font-size: {T.FS_SMALL + 1}pt; font-weight: 700;"
         )
         art_layout.addWidget(self._deck)
@@ -246,7 +249,7 @@ class Sidebar(QFrame):
         self._g_mark = QLabel("")
         self._g_mark.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self._g_mark.setStyleSheet(
-            f"color: {T.ACCENT_TEAL}; font-family: '{T.FONT_SERIF}', '{T.FF_HEAD}', serif;"
+            f"color: {T.ACCENT_TEAL_TEXT}; font-family: '{T.FONT_SERIF}', '{T.FF_HEAD}', serif;"
             " font-size: 12pt; font-weight: bold; padding: 0 0 0 0;"
         )
         root.addWidget(self._g_mark)

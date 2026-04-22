@@ -114,6 +114,7 @@ def test_local_model_readiness_passes_when_lmstudio_is_the_ready_route(
             LocalModelCheck("ollama_daemon", "Ollama daemon", False, lambda: False),
             LocalModelCheck("ollama_model_pulled", "Ollama model", False, lambda: False),
             LocalModelCheck("lemonade_cli", "Lemonade CLI", True, lambda: False),
+            LocalModelCheck("lemonade_runtime", "Lemonade runtime", True, lambda: False),
             LocalModelCheck("lmstudio_runtime", "LM Studio runtime", True, lambda: True),
             LocalModelCheck("local_harness_runtime", "Local harness", True, lambda: False),
             LocalModelCheck("runtime_hub_alive", "Runtime hub", True, lambda: False),
@@ -139,6 +140,7 @@ def test_local_model_readiness_fails_when_no_declared_local_route_is_ready(
             LocalModelCheck("ollama_daemon", "Ollama daemon", False, lambda: False),
             LocalModelCheck("ollama_model_pulled", "Ollama model", False, lambda: False),
             LocalModelCheck("lemonade_cli", "Lemonade CLI", True, lambda: False),
+            LocalModelCheck("lemonade_runtime", "Lemonade runtime", True, lambda: False),
             LocalModelCheck("lmstudio_runtime", "LM Studio runtime", True, lambda: False),
             LocalModelCheck("local_harness_runtime", "Local harness", True, lambda: False),
             LocalModelCheck("runtime_hub_alive", "Runtime hub", True, lambda: False),
@@ -154,3 +156,29 @@ def test_local_model_readiness_fails_when_no_declared_local_route_is_ready(
 
     assert result["failed"] == ["ready_local_runtime"]
     assert result["declared_but_unavailable"] == ["ollama", "lmstudio", "local_harness"]
+
+
+def test_local_model_readiness_passes_when_lemonade_is_the_declared_ready_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        local_model_readiness_module,
+        "LOCAL_MODEL_CHECKS",
+        [
+            LocalModelCheck("ollama_cli", "Ollama CLI", False, lambda: False),
+            LocalModelCheck("ollama_daemon", "Ollama daemon", False, lambda: False),
+            LocalModelCheck("ollama_model_pulled", "Ollama model", False, lambda: False),
+            LocalModelCheck("lemonade_cli", "Lemonade CLI", True, lambda: False),
+            LocalModelCheck("lemonade_runtime", "Lemonade runtime", True, lambda: True),
+            LocalModelCheck("lmstudio_runtime", "LM Studio runtime", True, lambda: False),
+            LocalModelCheck("local_harness_runtime", "Local harness", True, lambda: False),
+            LocalModelCheck("runtime_hub_alive", "Runtime hub", True, lambda: False),
+        ],
+    )
+    monkeypatch.setattr(local_model_readiness_module, "_declared_local_runtime_ids", lambda: ["lemonade_local"])
+
+    result = run_local_model_readiness()
+
+    assert result["failed"] == []
+    assert result["ready_runtimes"] == ["lemonade"]
+    assert "ready via: lemonade" in result["summary"]

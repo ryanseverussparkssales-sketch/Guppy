@@ -5,7 +5,6 @@
 
 import React, { useState } from "react";
 import { useAppStore } from "@/hooks/useAppState";
-import { useAPI, getAPIClient } from "@/hooks/useAPI";
 import { theme } from "@/styles/theme";
 
 const AssistantPage: React.FC = () => {
@@ -34,7 +33,6 @@ const AssistantPage: React.FC = () => {
         margin: "0 auto",
       }}
     >
-      {/* Header */}
       <div style={{ marginBottom: theme.spacing[6] }}>
         <h1
           style={{
@@ -46,14 +44,12 @@ const AssistantPage: React.FC = () => {
         >
           Assistant
         </h1>
-        {activeModel && (
-          <p style={{ color: theme.colors.textSecondary, margin: 0 }}>
-            Using <strong>{activeModel}</strong> model
-          </p>
-        )}
+        <p style={{ color: theme.colors.textSecondary, margin: 0 }}>
+          Workspace: <strong>{activeWorkspace?.name || "none"}</strong>
+          {activeModel ? ` | Model: ${activeModel.name}` : ""}
+        </p>
       </div>
 
-      {/* Messages Area */}
       <div
         style={{
           flex: 1,
@@ -74,12 +70,12 @@ const AssistantPage: React.FC = () => {
               color: theme.colors.textTertiary,
             }}
           >
-            <p>Start a conversation by typing a message below</p>
+            <p>Start a conversation by typing a message below.</p>
           </div>
         ) : (
-          messages.map((msg, idx) => (
+          messages.map((msg) => (
             <div
-              key={idx}
+              key={msg.id}
               style={{
                 alignSelf: msg.role === "user" ? "flex-end" : "flex-start",
                 maxWidth: "70%",
@@ -106,7 +102,6 @@ const AssistantPage: React.FC = () => {
         )}
       </div>
 
-      {/* Input Area */}
       <form onSubmit={handleSendMessage}>
         <div style={{ display: "flex", gap: theme.spacing[2] }}>
           <input

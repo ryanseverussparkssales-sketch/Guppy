@@ -38,6 +38,10 @@ WAIVED_PATHS: dict[str, Waiver] = {
         max_lines=789,
         rationale="Runtime snapshot compatibility shell reduced to 789 after auth/cache stubs and prompt-builder block extracted to snapshot_auth_cache_support.py and snapshot_prompt_support.py; further route-family splits remain required.",
     ),
+    "src/guppy/memory/memory_store.py": Waiver(
+        max_lines=710,
+        rationale="Memory store grew to 710 while workspace-aware conversation persistence landed; follow-up extraction should peel schema/bootstrap helpers or pipeline helpers into a dedicated seam instead of hiding the overage.",
+    ),
     "ui/launcher/launcher_window.py": Waiver(
         max_lines=993,
         rationale="Launcher shell reduced to 993 after nav/tab/panel/notification family extraction into launcher_nav_handlers.py; remaining orchestration seams are tracked for continued splits.",

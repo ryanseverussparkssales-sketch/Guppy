@@ -1,6 +1,6 @@
 # Guppy Project Brief
 
-Last updated: 2026-04-20
+Last updated: 2026-04-21
 
 ## Purpose
 
@@ -2010,6 +2010,24 @@ Residual non-blocking follow-up:
 6. Local LLM evidence is centralized, but promotion decisions still need more reviewer scores, broader challenger comparison, and a clearer default runtime decision between Ollama and Lemonade.
 7. Governance and Windows ops have stronger productized surfaces, but richer provider/account UX, deeper credential lifecycle polish, broader release automation, and fuller installer lifecycle polish still remain.
 8. Home calm-start work is now routed through shared presenter copy and mixed-role starter states, and the first Library-to-Chat context chips are live, but transcript/composer rhythm, starter priority, and broader persistence polish still need one more pass before the May 22 checkpoint feels closed.
+
+## Planned Tranche 55 (Desktop Assistant End-State Execution Deck)
+
+Execution note (April 21, 2026):
+
+- This tranche translates the current `P6` hardening lane into an end-state execution checklist for the actual Guppy product contract: five-hub desktop launcher, tray/background companion, local-first model execution, persistent memory/library continuity, extensible tools/plugins, and backup web parity against the same backend.
+- The deck stays bound to the north-star and feature filter: chat-first daily flow remains primary, while diagnostics/admin/power surfaces stay demoted to the correct hubs.
+- Planned adapter lanes such as AnythingLLM or Hugging Face local are treated as explicit registry/onboarding contracts, not fake-ready runtime claims.
+
+Program artifact:
+
+1. `docs/generated/TRANCHE_55_DESKTOP_ASSISTANT_EXECUTION_CARDS_20260421.md`
+
+Primary acceptance direction:
+
+1. Launcher, tray, and fallback web surfaces all agree on one backend/runtime/workspace truth.
+2. Local-runtime, voice, memory, library, and tool/plugin flows are honest, bounded, and validated on real machines.
+3. Guppy feels like one calm desktop assistant rather than a shell plus disconnected side surfaces.
 
 ## Developer Rules
 

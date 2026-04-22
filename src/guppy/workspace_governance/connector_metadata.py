@@ -5,7 +5,16 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-_CONNECTOR_IDS: tuple[str, ...] = ("gmail", "calendar", "spotify", "youtube", "crm", "voip")
+_CONNECTOR_IDS: tuple[str, ...] = (
+    "gmail",
+    "calendar",
+    "spotify",
+    "youtube",
+    "crm",
+    "voip",
+    "anythingllm_local",
+    "huggingface_local",
+)
 
 _CONNECTOR_CATALOG: dict[str, dict[str, Any]] = {
     "gmail": {
@@ -14,6 +23,8 @@ _CONNECTOR_CATALOG: dict[str, dict[str, Any]] = {
         "auth_kind": "oauth_file_token",
         "actions_supported": ["verify", "connect", "reconnect", "disconnect"],
         "secret_fields": [],
+        "availability_status": "available",
+        "installation_status": "installed",
     },
     "calendar": {
         "label": "Calendar",
@@ -21,6 +32,8 @@ _CONNECTOR_CATALOG: dict[str, dict[str, Any]] = {
         "auth_kind": "oauth_file_token",
         "actions_supported": ["verify", "connect", "reconnect", "disconnect"],
         "secret_fields": [],
+        "availability_status": "available",
+        "installation_status": "installed",
     },
     "spotify": {
         "label": "Spotify",
@@ -28,6 +41,8 @@ _CONNECTOR_CATALOG: dict[str, dict[str, Any]] = {
         "auth_kind": "oauth_secret",
         "actions_supported": ["verify", "connect", "reconnect", "disconnect"],
         "secret_fields": ["SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REDIRECT_URI"],
+        "availability_status": "available",
+        "installation_status": "installed",
     },
     "youtube": {
         "label": "YouTube",
@@ -35,6 +50,8 @@ _CONNECTOR_CATALOG: dict[str, dict[str, Any]] = {
         "auth_kind": "api_key",
         "actions_supported": ["verify", "connect", "disconnect"],
         "secret_fields": ["YOUTUBE_API_KEY"],
+        "availability_status": "available",
+        "installation_status": "installed",
     },
     "crm": {
         "label": "CRM",
@@ -48,6 +65,8 @@ _CONNECTOR_CATALOG: dict[str, dict[str, Any]] = {
             "GOHIGHLEVEL_API_KEY",
             "ZOHO_ACCESS_TOKEN",
         ],
+        "availability_status": "available",
+        "installation_status": "installed",
     },
     "voip": {
         "label": "VoIP",
@@ -55,6 +74,40 @@ _CONNECTOR_CATALOG: dict[str, dict[str, Any]] = {
         "auth_kind": "provider_secret",
         "actions_supported": ["verify", "connect", "disconnect"],
         "secret_fields": ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"],
+        "availability_status": "available",
+        "installation_status": "installed",
+    },
+    "anythingllm_local": {
+        "label": "AnythingLLM",
+        "category": "local_ai",
+        "auth_kind": "planned_adapter",
+        "actions_supported": [],
+        "secret_fields": [],
+        "availability_status": "planned",
+        "installation_status": "not_installed",
+        "default_auth_state": "planned",
+        "default_auth_detail": "AnythingLLM local adapter is planned and not installed in this build yet.",
+        "default_result_code": "planned_not_installed",
+        "default_summary": "AnythingLLM local adapter is planned and not installed yet.",
+        "default_next_step": "Wait for a future build that ships the AnythingLLM local adapter.",
+        "default_fix_target": "Models > Model Sourcing",
+        "default_note": "Planned adapter lane reserved in the registry; installation is not available yet.",
+    },
+    "huggingface_local": {
+        "label": "Hugging Face Local",
+        "category": "local_ai",
+        "auth_kind": "planned_adapter",
+        "actions_supported": [],
+        "secret_fields": [],
+        "availability_status": "planned",
+        "installation_status": "not_installed",
+        "default_auth_state": "planned",
+        "default_auth_detail": "Hugging Face local adapter is planned and not installed in this build yet.",
+        "default_result_code": "planned_not_installed",
+        "default_summary": "Hugging Face local adapter is planned and not installed yet.",
+        "default_next_step": "Wait for a future build that ships the Hugging Face local adapter.",
+        "default_fix_target": "Models > Model Sourcing",
+        "default_note": "Planned adapter lane reserved in the registry; installation is not available yet.",
     },
 }
 

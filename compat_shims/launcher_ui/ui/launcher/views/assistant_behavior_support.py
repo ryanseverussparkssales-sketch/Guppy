@@ -68,7 +68,9 @@ def set_active_instance(
     view._workspace_summary.setVisible(view._home_operator_details_enabled)
     hero_subtitle_for_workspace = getattr(view, "_hero_subtitle_for_workspace", None)
     if callable(hero_subtitle_for_workspace):
-        view._hero_subtitle.setText(hero_subtitle_for_workspace(view._workspace_type))
+        subtitle = str(hero_subtitle_for_workspace(view._workspace_type) or "").strip()
+        resume_hint = str(state.resume_hint or "").strip()
+        view._hero_subtitle.setText(f"{subtitle} {resume_hint}".strip())
     view._entry_hint.setText(state.entry_hint)
     view._refresh_resource_context()
     view._sync_context_bar_visibility()

@@ -417,6 +417,13 @@ def test_chat_route_persists_and_curates_memory_after_response() -> None:
             "chat-memory-1",
             "user",
             "I prefer concise answers. The Local LLM page should stay out of Home.",
+            workspace_name="guppy-primary",
+        )
+        save_message.assert_any_call(
+            "chat-memory-1",
+            "assistant",
+            "Understood. The Local LLM page should remain separate from Home.",
+            workspace_name="guppy-primary",
         )
         promote_memory.assert_called_once()
         args, kwargs = promote_memory.call_args

@@ -10,6 +10,10 @@ from utils.db_utils import open_db as _open_db
 from .memory_support import PIPELINE_STAGES, normalize_stage, normalize_text, safe_float, safe_int
 
 
+def _normalize_workspace_name(workspace_name: str | None) -> str:
+    return str(workspace_name or "").strip()
+
+
 def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
     cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if column not in cols:
@@ -106,11 +110,15 @@ def open_memory_connection(db_path: Path) -> sqlite3.Connection:
     ensure_column(conn, "facts", "normalized_key", "TEXT")
     ensure_column(conn, "facts", "normalized_value", "TEXT")
     ensure_column(conn, "conversations", "normalized_content", "TEXT")
+    ensure_column(conn, "conversations", "workspace_name", "TEXT")
 
     conn.execute("CREATE INDEX IF NOT EXISTS idx_facts_updated ON facts(updated DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_facts_norm_key ON facts(normalized_key)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_facts_norm_value ON facts(normalized_value)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_conv_session_id ON conversations(session_id, id DESC)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_conv_workspace_session ON conversations(workspace_name, session_id, id DESC)"
+    )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_ts ON memory_events(timestamp DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_stage ON pipeline_items(stage, updated DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_status ON pipeline_items(status, updated DESC)")
@@ -203,44 +211,95 @@ def forget_fact(db_path: Path, key: str) -> str:
         conn.close()
 
 
-def save_conversation_message(db_path: Path, session_id: str, role: str, content: str) -> None:
+def save_conversation_message(
+    db_path: Path,
+    session_id: str,
+    role: str,
+    content: str,
+    workspace_name: str | None = None,
+) -> None:
     conn = open_memory_connection(db_path)
     try:
+        normalized_workspace = _normalize_workspace_name(workspace_name)
         conn.execute(
-            "INSERT INTO conversations (session_id,role,content,normalized_content,timestamp) VALUES (?,?,?,?,?)",
-            (session_id, role, content, normalize_text(content), datetime.now().isoformat()),
+            "INSERT INTO conversations (session_id,workspace_name,role,content,normalized_content,timestamp) VALUES (?,?,?,?,?,?)",
+            (
+                session_id,
+                normalized_workspace or None,
+                role,
+                content,
+                normalize_text(content),
+                datetime.now().isoformat(),
+            ),
         )
-        journal_event(conn, "conversation.save", {"session_id": session_id, "role": role})
+        journal_event(
+            conn,
+            "conversation.save",
+            {
+                "session_id": session_id,
+                "role": role,
+                "workspace_name": normalized_workspace,
+            },
+        )
         conn.commit()
     finally:
         conn.close()
 
 
-def load_recent_history_records(db_path: Path, session_id: str | None = None, limit: int = 20) -> list[dict[str, str]]:
+def load_recent_history_records(
+    db_path: Path,
+    session_id: str | None = None,
+    limit: int = 20,
+    workspace_name: str | None = None,
+) -> list[dict[str, str]]:
     conn = open_memory_connection(db_path)
     try:
+        normalized_workspace = _normalize_workspace_name(workspace_name)
         if session_id:
-            rows = conn.execute(
-                "SELECT role,content FROM conversations WHERE session_id=? ORDER BY id DESC LIMIT ?",
-                (session_id, limit),
-            ).fetchall()
+            if normalized_workspace:
+                rows = conn.execute(
+                    "SELECT role,content FROM conversations WHERE session_id=? AND COALESCE(workspace_name, '')=? ORDER BY id DESC LIMIT ?",
+                    (session_id, normalized_workspace, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT role,content FROM conversations WHERE session_id=? ORDER BY id DESC LIMIT ?",
+                    (session_id, limit),
+                ).fetchall()
         else:
-            rows = conn.execute(
-                "SELECT role,content FROM conversations ORDER BY id DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            if normalized_workspace:
+                rows = conn.execute(
+                    "SELECT role,content FROM conversations WHERE COALESCE(workspace_name, '')=? ORDER BY id DESC LIMIT ?",
+                    (normalized_workspace, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT role,content FROM conversations ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
         return [{"role": row[0], "content": row[1]} for row in reversed(rows)]
     finally:
         conn.close()
 
 
-def get_session_summary_text(db_path: Path, limit: int = 5) -> str:
+def get_session_summary_text(
+    db_path: Path,
+    limit: int = 5,
+    workspace_name: str | None = None,
+) -> str:
     conn = open_memory_connection(db_path)
     try:
-        rows = conn.execute(
-            "SELECT DISTINCT session_id, MIN(timestamp), COUNT(*) FROM conversations GROUP BY session_id ORDER BY MIN(timestamp) DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        normalized_workspace = _normalize_workspace_name(workspace_name)
+        if normalized_workspace:
+            rows = conn.execute(
+                "SELECT DISTINCT session_id, MIN(timestamp), COUNT(*) FROM conversations WHERE COALESCE(workspace_name, '')=? GROUP BY session_id ORDER BY MIN(timestamp) DESC LIMIT ?",
+                (normalized_workspace, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT DISTINCT session_id, MIN(timestamp), COUNT(*) FROM conversations GROUP BY session_id ORDER BY MIN(timestamp) DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
         if not rows:
             return "No previous sessions found."
         return "\n".join(f"Session {row[0][:8]}... - {row[1][:10]} - {row[2]} messages" for row in rows)
@@ -568,25 +627,73 @@ def get_session_summaries_text(db_path: Path, limit: int = 3) -> str:
         conn.close()
 
 
-def get_recent_messages_text(db_path: Path, exclude_session: str | None = None, limit: int = 10) -> str:
+def get_recent_messages_text(
+    db_path: Path,
+    exclude_session: str | None = None,
+    limit: int = 10,
+    workspace_name: str | None = None,
+) -> str:
     conn = open_memory_connection(db_path)
     try:
-        if exclude_session:
-            row = conn.execute(
-                "SELECT session_id FROM conversations WHERE session_id != ? ORDER BY id DESC LIMIT 1",
-                (exclude_session,),
-            ).fetchone()
-        else:
-            row = conn.execute("SELECT session_id FROM conversations ORDER BY id DESC LIMIT 1").fetchone()
+        normalized_workspace = _normalize_workspace_name(workspace_name)
+        prior_session = ""
+        scoped_workspace = ""
 
-        if not row:
+        if normalized_workspace:
+            if exclude_session:
+                row = conn.execute(
+                    "SELECT session_id FROM conversations WHERE session_id != ? AND COALESCE(workspace_name, '')=? ORDER BY id DESC LIMIT 1",
+                    (exclude_session, normalized_workspace),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT session_id FROM conversations WHERE COALESCE(workspace_name, '')=? ORDER BY id DESC LIMIT 1",
+                    (normalized_workspace,),
+                ).fetchone()
+            if row:
+                prior_session = str(row[0] or "")
+                scoped_workspace = normalized_workspace
+            else:
+                if exclude_session:
+                    row = conn.execute(
+                        "SELECT session_id FROM conversations WHERE session_id != ? AND COALESCE(workspace_name, '')='' ORDER BY id DESC LIMIT 1",
+                        (exclude_session,),
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        "SELECT session_id FROM conversations WHERE COALESCE(workspace_name, '')='' ORDER BY id DESC LIMIT 1"
+                    ).fetchone()
+                if row:
+                    prior_session = str(row[0] or "")
+        else:
+            if exclude_session:
+                row = conn.execute(
+                    "SELECT session_id FROM conversations WHERE session_id != ? ORDER BY id DESC LIMIT 1",
+                    (exclude_session,),
+                ).fetchone()
+            else:
+                row = conn.execute("SELECT session_id FROM conversations ORDER BY id DESC LIMIT 1").fetchone()
+            if row:
+                prior_session = str(row[0] or "")
+
+        if not prior_session:
             return ""
 
-        prior_session = row[0]
-        rows = conn.execute(
-            "SELECT role, content, timestamp FROM conversations WHERE session_id = ? ORDER BY id DESC LIMIT ?",
-            (prior_session, limit),
-        ).fetchall()
+        if scoped_workspace:
+            rows = conn.execute(
+                "SELECT role, content, timestamp FROM conversations WHERE session_id = ? AND COALESCE(workspace_name, '')=? ORDER BY id DESC LIMIT ?",
+                (prior_session, scoped_workspace, limit),
+            ).fetchall()
+        elif normalized_workspace:
+            rows = conn.execute(
+                "SELECT role, content, timestamp FROM conversations WHERE session_id = ? AND COALESCE(workspace_name, '')='' ORDER BY id DESC LIMIT ?",
+                (prior_session, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT role, content, timestamp FROM conversations WHERE session_id = ? ORDER BY id DESC LIMIT ?",
+                (prior_session, limit),
+            ).fetchall()
 
         if not rows:
             return ""

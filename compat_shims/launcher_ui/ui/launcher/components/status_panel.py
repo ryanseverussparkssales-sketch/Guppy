@@ -128,7 +128,7 @@ class StatusPanel(QFrame):
         tools_layout = QVBoxLayout(tools_frame)
         tools_layout.setContentsMargins(10, 10, 10, 8)
         tools_layout.setSpacing(6)
-        tools_layout.addWidget(_mono("UTILITIES", T.ACCENT_TEAL, T.FS_TINY, True))
+        tools_layout.addWidget(_mono("UTILITIES", T.PRIMARY_DIM, T.FS_TINY, True))
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -173,7 +173,7 @@ class StatusPanel(QFrame):
         spaces_layout.setSpacing(6)
 
         spaces_head = QHBoxLayout()
-        spaces_head.addWidget(_mono("MORE ACTIONS", T.ACCENT_TEAL, T.FS_TINY, True))
+        spaces_head.addWidget(_mono("MORE ACTIONS", T.PRIMARY_DIM, T.FS_TINY, True))
         spaces_head.addStretch()
         spaces_head.addWidget(_mono("WRITE / CODE / SHELL", T.DIM, T.FS_TINY))
         spaces_layout.addLayout(spaces_head)
@@ -226,7 +226,7 @@ class StatusPanel(QFrame):
         media_layout.setSpacing(8)
 
         media_top = QHBoxLayout()
-        media_top.addWidget(_mono("OPTIONAL SPACES", T.ACCENT_TEAL, T.FS_TINY, True))
+        media_top.addWidget(_mono("OPTIONAL SPACES", T.PRIMARY_DIM, T.FS_TINY, True))
         media_top.addStretch()
         media_top.addWidget(_mono("MEDIA / FOLLOW-UP", T.DIM, T.FS_TINY))
         media_layout.addLayout(media_top)

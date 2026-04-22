@@ -195,6 +195,66 @@ DEFAULT_PROVIDER_REGISTRY: dict[str, Any] = {
             ],
         },
         {
+            "id": "lemonade_local",
+            "name": "Lemonade (Local)",
+            "enabled": False,
+            "api_base": "http://127.0.0.1:13305/api/v1",
+            "auth_env": "",
+            "provider_tier": "experimental",
+            "availability_status": "opt_in",
+            "models": [
+                {
+                    "id": "lemonade-default",
+                    "label": "Lemonade Active Model",
+                    "enabled": True,
+                    "context_window": 0,
+                    "speed_tier": "balanced",
+                    "tags": ["local", "challenger"],
+                    "pricing": {"tier": "local"},
+                }
+            ],
+        },
+        {
+            "id": "anythingllm_local",
+            "name": "AnythingLLM (Planned Adapter)",
+            "enabled": False,
+            "api_base": "http://127.0.0.1:3001/api/v1",
+            "auth_env": "",
+            "provider_tier": "experimental",
+            "availability_status": "planned",
+            "models": [
+                {
+                    "id": "anythingllm-planned",
+                    "label": "AnythingLLM Planned Adapter",
+                    "enabled": True,
+                    "context_window": 0,
+                    "speed_tier": "balanced",
+                    "tags": ["local", "planned", "adapter"],
+                    "pricing": {"tier": "local"},
+                }
+            ],
+        },
+        {
+            "id": "huggingface_local",
+            "name": "Hugging Face Local (Planned Adapter)",
+            "enabled": False,
+            "api_base": "http://127.0.0.1:8002/v1",
+            "auth_env": "",
+            "provider_tier": "experimental",
+            "availability_status": "planned",
+            "models": [
+                {
+                    "id": "huggingface-local-planned",
+                    "label": "Hugging Face Local Planned Adapter",
+                    "enabled": True,
+                    "context_window": 0,
+                    "speed_tier": "balanced",
+                    "tags": ["local", "planned", "adapter"],
+                    "pricing": {"tier": "local"},
+                }
+            ],
+        },
+        {
             "id": "local",
             "name": "Ollama (Local)",
             "enabled": True,

@@ -62,6 +62,30 @@ def all_packaging_assumptions_hold(repo_root: Path) -> tuple[bool, tuple[Packagi
     return all(item.ok for item in statuses), statuses
 
 
+def packaging_audit_summary(repo_root: Path) -> dict[str, object]:
+    paths_ok, path_statuses = all_packaging_paths_writable(repo_root)
+    assumptions_ok, assumption_statuses = all_packaging_assumptions_hold(repo_root)
+    path_failures = [item.detail or item.error or item.label for item in path_statuses if not item.writable]
+    assumption_failures = [item.detail for item in assumption_statuses if not item.ok]
+    ok = bool(paths_ok and assumptions_ok)
+    total_failures = len(path_failures) + len(assumption_failures)
+    summary = "PASS" if ok else f"FAIL ({total_failures} issue{'s' if total_failures != 1 else ''})"
+    detail = (
+        assumption_failures[0]
+        if assumption_failures
+        else path_failures[0]
+        if path_failures
+        else "all packaging paths and assumptions passed"
+    )
+    return {
+        "ok": ok,
+        "summary": summary,
+        "detail": detail,
+        "path_failures": tuple(path_failures),
+        "assumption_failures": tuple(assumption_failures),
+    }
+
+
 def _check_writable_directory(label: str, path: Path) -> PackagingPathStatus:
     try:
         path.mkdir(parents=True, exist_ok=True)

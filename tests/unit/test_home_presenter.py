@@ -1,4 +1,5 @@
 from src.guppy.launcher_application.home_presenter import (
+    build_home_resume_hint,
     build_home_workspace_copy,
     build_home_starter_state,
     build_home_welcome_message,
@@ -54,6 +55,7 @@ def test_build_home_workspace_state_keeps_calm_start_copy_aligned() -> None:
     )
 
     assert state.entry_hint == "Start here in reference-desk: start with SOURCE RESEARCH if you want evidence first."
+    assert state.resume_hint == "Resume cue: Recent context: Compare the current brief with the source material."
     assert state.input_placeholder == "Ask one evidence or source-check question..."
     assert "Saved context: LOCAL mode | GUPPY persona | DEFAULT voice." in state.workspace_summary
     assert "Recent context: Compare the current brief" in state.workspace_summary
@@ -72,3 +74,7 @@ def test_build_home_starter_state_returns_role_specific_feedback() -> None:
     assert starter.background_event == "Starter loaded: OPS CHECK. Edit the draft if needed, then press send."
     assert starter.starter_summary.startswith("OPS CHECK is ready in the composer")
     assert starter.status == "STARTER READY"
+
+
+def test_build_home_resume_hint_is_blank_without_recent_message() -> None:
+    assert build_home_resume_hint("") == ""

@@ -165,7 +165,7 @@ class SettingsOperationsPanel(QWidget):
         info_row.addStretch()
         header_layout.addLayout(info_row)
         subtitle = _mono(
-            "Keep setup, connectors, health, recovery, and machine operations in one secondary surface. Use details only when you need the deeper system lanes. Models and voices now live in the Models hub.",
+            "Keep setup, connectors, health, security checks, packaging readiness, recovery, and machine operations in one secondary surface. Use details only when you need the deeper system lanes. Models and voices now live in the Models hub.",
             T.DIM,
             T.FS_SMALL,
         )

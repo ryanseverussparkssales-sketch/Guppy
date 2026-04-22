@@ -88,6 +88,62 @@ def auth_state_text(auth_state: str) -> str:
     }.get(normalized, "Needs setup")
 
 
+def _normalized_storage_posture(payload: dict[str, object]) -> str:
+    posture = str(payload.get("storage_posture", "") or "").strip().lower()
+    if posture:
+        return posture
+    source = str(payload.get("source", "") or "").strip().lower()
+    return {
+        "keyring": "keyring",
+        "env": "env_only",
+        "mixed": "mixed_env",
+    }.get(source, "none")
+
+
+def _selected_storage_payload(
+    item: dict[str, object],
+    providers: list[dict[str, object]],
+    selected_provider_id: str,
+) -> dict[str, object]:
+    normalized = str(selected_provider_id or "").strip().lower()
+    if normalized:
+        for row in providers:
+            if isinstance(row, dict) and str(row.get("id", "")).strip().lower() == normalized:
+                return row
+    return providers[0] if len(providers) == 1 and isinstance(providers[0], dict) else item
+
+
+def _storage_posture_detail(label: str, payload: dict[str, object], *, auth_state: str) -> str:
+    posture = _normalized_storage_posture(payload)
+    if posture == "keyring" and auth_state in {"ready", "optional"}:
+        return f"Saved details stay in keyring-first storage on this PC for {label}."
+    if posture == "env_only":
+        prefix = (
+            f"{label} is working, but "
+            if auth_state in {"ready", "optional"}
+            else f"{label} setup is still using "
+        )
+        return prefix + "degraded environment fallback instead of keyring-first storage on this PC."
+    if posture == "mixed_env":
+        prefix = (
+            f"{label} is working, but "
+            if auth_state in {"ready", "optional"}
+            else f"{label} setup still has "
+        )
+        return prefix + "some saved details resolving from degraded environment fallback instead of keyring-first storage on this PC."
+    return ""
+
+
+def _merge_detail(base_detail: str, storage_detail: str) -> str:
+    base = str(base_detail or "").strip()
+    posture = str(storage_detail or "").strip()
+    if not posture:
+        return base
+    if not base:
+        return posture
+    return f"{base} {posture}".strip()
+
+
 def selector_label(item: dict[str, object], *, fallback: str) -> str:
     label = str(item.get("label", item.get("id", fallback)) or fallback).strip() or fallback
     auth_state = str(item.get("auth_state", "") or "").strip().upper()
@@ -168,13 +224,22 @@ def friendly_runtime_summary(windows_snapshot: dict[str, str]) -> tuple[str, str
     )
 
     if state == "ready":
-        runtime_text = f"Local AI health: {live_backend.title()} is healthy and ready on this PC."
+        runtime_text = (
+            f"Local AI health: {live_backend.title()} is healthy and ready on this PC. "
+            "Choose or change the backend in Models > Model Sourcing."
+        )
         summary = f"{live_backend.title()} is ready on this PC."
     elif state == "unknown":
-        runtime_text = f"Local AI health: {configured.title()} is selected, but it still needs a quick Verify check."
+        runtime_text = (
+            f"Local AI health: {configured.title()} is selected, but it still needs a quick Verify check. "
+            "Choose or change the backend in Models > Model Sourcing."
+        )
         summary = f"{configured.title()} is selected, but it still needs a quick health check."
     else:
-        runtime_text = f"Local AI health: {configured.title()} needs attention before you rely on it."
+        runtime_text = (
+            f"Local AI health: {configured.title()} needs attention before you rely on it. "
+            "Choose or change the backend in Models > Model Sourcing."
+        )
         summary = f"{configured.title()} needs attention before you rely on it."
 
     next_value = line_value(next_raw).lower()
@@ -187,7 +252,10 @@ def friendly_runtime_summary(windows_snapshot: dict[str, str]) -> tuple[str, str
     else:
         next_text = "Next step: Use Verify to check that your local setup is healthy."
 
-    diagnostics_text = "Health notes: Logs, supervised launch, and repair tools are ready if something goes wrong."
+    diagnostics_text = (
+        "Health notes: Logs, supervised launch, and repair tools are ready if something goes wrong. "
+        "Keys and provider sign-in stay in Device & Accounts with keyring-first posture called out when env fallback is active."
+    )
     return summary, install_text, runtime_text, next_text, diagnostics_text
 
 
@@ -213,6 +281,8 @@ def build_connector_panel_state(
     has_secret_flow = auth_kind in {"api_key", "provider_secret", "oauth_secret"}
     example_prompt = get_example_prompt(connector_id).strip()
     next_step_hint = ""
+    storage_payload = _selected_storage_payload(item, providers, selected_provider_id)
+    storage_detail = _storage_posture_detail(label, storage_payload, auth_state=auth_state)
 
     if auth_kind == "api_key":
         status = f"{label} helps with {purpose.lower()} on this PC."
@@ -222,6 +292,7 @@ def build_connector_panel_state(
             detail = f"Your {label} API key is saved and ready to use."
         else:
             detail = connect_hint or f"{label} uses a single API key on this PC."
+        detail = _merge_detail(detail, storage_detail)
         step = f"Next step: Paste your {first_field_label.lower()}, then click Save API Key."
         save_text = "SAVE API KEY"
         verify_text = "VERIFY KEY"
@@ -238,7 +309,7 @@ def build_connector_panel_state(
                 f"{label} still needs the downloaded Google credentials file on this PC before browser sign-in can start."
             )
         if auth_state == "missing":
-            step = f"Next step: Add the {label.lower()} credentials file, then click Sign In."
+            step = f"Next step: Add the {label.lower()} credentials JSON file, then click Sign In."
         elif auth_state == "partial":
             step = f"Next step: Click Reconnect to finish connecting {label} on this PC."
         elif len(accounts) > 1:
@@ -257,6 +328,7 @@ def build_connector_panel_state(
             step = f"Next step: Pick a {label} provider first."
         else:
             detail = connect_hint or f"{label} uses app credentials plus browser sign-in."
+            detail = _merge_detail(detail, storage_detail)
             step = f"Next step: Add your {first_field_label.lower()}, save it, then use Sign In."
         save_text = "SAVE APP KEYS"
         verify_text = "VERIFY CONNECTION"
@@ -272,6 +344,7 @@ def build_connector_panel_state(
                 detail = f"{label} is ready. You can now allow it in a workspace when you need it."
             else:
                 detail = connect_hint or f"Enter the provider details Guppy needs for {label.lower()}."
+            detail = _merge_detail(detail, storage_detail)
             step = f"Next step: Add your {first_field_label.lower()}, then click Save Details."
         save_text = "SAVE DETAILS"
         verify_text = "VERIFY SETUP"

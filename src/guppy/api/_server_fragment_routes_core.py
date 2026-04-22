@@ -444,7 +444,12 @@ async def chat(request: ChatRequest, user_id: str = Depends(require_rate_limit))
             if request.session_id and GUPPY_MEMORY_AVAILABLE:
                 for role, content in (("user", request.message), ("assistant", response)):
                     try:
-                        memory.save_message(request.session_id, role, content)
+                        memory.save_message(
+                            request.session_id,
+                            role,
+                            content,
+                            workspace_name=str(active_instance_name or "").strip(),
+                        )
                     except Exception as exc:
                         logger.error(
                             "morning brief memory.save_message failed session_id=%r role=%s error=%s",
@@ -506,8 +511,18 @@ async def chat(request: ChatRequest, user_id: str = Depends(require_rate_limit))
                 logger.debug("Response cache store skipped: %s", e)
 
         if request.session_id and GUPPY_MEMORY_AVAILABLE:
-            memory.save_message(request.session_id, "user", request.message)
-            memory.save_message(request.session_id, "assistant", response)
+            memory.save_message(
+                request.session_id,
+                "user",
+                request.message,
+                workspace_name=str(active_instance_name or "").strip(),
+            )
+            memory.save_message(
+                request.session_id,
+                "assistant",
+                response,
+                workspace_name=str(active_instance_name or "").strip(),
+            )
 
         payload = {"response": response, "session_id": request.session_id}
         if idempotency_owner and idempotency_key:

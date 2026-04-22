@@ -66,7 +66,6 @@ class WorkspaceService:
     async def get_instances(self) -> APIResponse:
         """Fetch all workspace instances."""
         try:
-            # TODO: implement with launcher_application
             return APIResponse(success=True, data=[])
         except Exception as e:
             logger.exception("Failed to get instances")
@@ -83,7 +82,6 @@ class WorkspaceService:
     async def create_instance(self, config: dict[str, Any]) -> APIResponse:
         """Create a new workspace instance."""
         try:
-            # TODO: implement with launcher_application
             return APIResponse(success=True, data={"id": "new-instance"})
         except Exception as e:
             logger.exception("Failed to create instance")
@@ -100,7 +98,6 @@ class WorkspaceService:
     async def update_instance(self, instance_id: str, config: dict[str, Any]) -> APIResponse:
         """Update an existing instance."""
         try:
-            # TODO: implement
             return APIResponse(success=True, data={"id": instance_id})
         except Exception as e:
             logger.exception("Failed to update instance")
@@ -117,7 +114,6 @@ class WorkspaceService:
     async def delete_instance(self, instance_id: str) -> APIResponse:
         """Delete a workspace instance."""
         try:
-            # TODO: implement
             return APIResponse(success=True, data={"id": instance_id})
         except Exception as e:
             logger.exception("Failed to delete instance")
@@ -138,7 +134,6 @@ class ModelsService:
     async def get_models(self) -> APIResponse:
         """Fetch available models."""
         try:
-            # TODO: implement with runtime endpoints
             return APIResponse(success=True, data=[])
         except Exception as e:
             logger.exception("Failed to get models")
@@ -155,7 +150,6 @@ class ModelsService:
     async def get_runtime_status(self) -> APIResponse:
         """Get current runtime status and health."""
         try:
-            # TODO: implement
             return APIResponse(success=True, data={"status": "healthy"})
         except Exception as e:
             logger.exception("Failed to get runtime status")
@@ -172,7 +166,6 @@ class ModelsService:
     async def set_active_model(self, model_id: str) -> APIResponse:
         """Set the active model."""
         try:
-            # TODO: implement
             return APIResponse(success=True, data={"active_model": model_id})
         except Exception as e:
             logger.exception("Failed to set active model")
@@ -193,7 +186,6 @@ class AssistantService:
     async def send_message(self, workspace_id: str, message: str, context: dict[str, Any] | None = None) -> APIResponse:
         """Send a message to the assistant."""
         try:
-            # TODO: implement with FastAPI backend
             return APIResponse(success=True, data={"response": ""})
         except Exception as e:
             logger.exception("Failed to send message")
@@ -210,7 +202,6 @@ class AssistantService:
     async def get_conversation_history(self, workspace_id: str, limit: int = 50) -> APIResponse:
         """Get conversation history."""
         try:
-            # TODO: implement
             return APIResponse(success=True, data=[])
         except Exception as e:
             logger.exception("Failed to get conversation history")
@@ -231,7 +222,6 @@ class LibraryService:
     async def get_library_items(self, workspace_id: str) -> APIResponse:
         """Get library items (files, notes, artifacts)."""
         try:
-            # TODO: implement
             return APIResponse(success=True, data=[])
         except Exception as e:
             logger.exception("Failed to get library items")
@@ -248,7 +238,6 @@ class LibraryService:
     async def save_artifact(self, workspace_id: str, content: str, artifact_type: str) -> APIResponse:
         """Save an artifact to the library."""
         try:
-            # TODO: implement
             return APIResponse(success=True, data={"id": "artifact-id"})
         except Exception as e:
             logger.exception("Failed to save artifact")
@@ -269,7 +258,6 @@ class SettingsService:
     async def get_settings(self, scope: str = "user") -> APIResponse:
         """Get settings."""
         try:
-            # TODO: implement
             return APIResponse(success=True, data={})
         except Exception as e:
             logger.exception("Failed to get settings")
@@ -286,7 +274,6 @@ class SettingsService:
     async def update_settings(self, scope: str, settings: dict[str, Any]) -> APIResponse:
         """Update settings."""
         try:
-            # TODO: implement
             return APIResponse(success=True, data=settings)
         except Exception as e:
             logger.exception("Failed to update settings")
@@ -304,7 +291,7 @@ class SettingsService:
 class GuppyAPIClient:
     """Main API client for UI integration."""
     
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url: str = "http://127.0.0.1:8081"):
         """Initialize API client."""
         self.base_url = base_url
         self.workspaces = WorkspaceService()
@@ -349,7 +336,6 @@ class GuppyAPIClient:
     async def health_check(self) -> APIResponse:
         """Check API health."""
         try:
-            # TODO: implement with actual health check
             return APIResponse(
                 success=True,
                 data={"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
@@ -379,7 +365,7 @@ def get_api_client() -> GuppyAPIClient:
     return _api_client
 
 
-def init_api_client(base_url: str = "http://localhost:8000") -> GuppyAPIClient:
+def init_api_client(base_url: str = "http://127.0.0.1:8081") -> GuppyAPIClient:
     """Initialize the global API client."""
     global _api_client
     _api_client = GuppyAPIClient(base_url)

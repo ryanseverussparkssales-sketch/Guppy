@@ -8,6 +8,7 @@ COMPAT = ROOT / "compat_shims"
 MAX_WRAPPER_LINES = 30
 
 WRAPPERS = {
+    "guppy_launcher.py": "from src.guppy.apps.launcher_app import main",
     "guppy_hub.py": "from src.guppy.apps.hub_app import main",
 }
 

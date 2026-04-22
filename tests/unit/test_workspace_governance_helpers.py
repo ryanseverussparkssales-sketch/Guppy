@@ -68,11 +68,34 @@ def test_connector_inventory_normalizes_tuple_fields_and_fallback_label() -> Non
     assert len(inventory) == 1
     item = inventory[0]
     assert item.connector_id == "crm"
-    assert item.label == "Crm"
+    assert item.label == "CRM"
     assert item.auth_state == "ready"
     assert item.inherited is True
     assert set(item.action_allow) == {"contact_write", "opportunity_write"}
     assert item.endpoint_block == ("connector://crm/private*",)
+
+
+def test_connector_inventory_synthesizes_planned_adapter_lifecycle_from_catalog() -> None:
+    inventory = build_connector_inventory(
+        [
+            {
+                "id": "anythingllm_local",
+                "auth_state": "missing",
+            }
+        ]
+    )
+
+    item = inventory[0]
+    assert item.connector_id == "anythingllm_local"
+    assert item.label == "AnythingLLM"
+    assert item.auth_state == "planned"
+    assert item.auth_kind == "planned_adapter"
+    assert item.supported_actions == ()
+    assert item.note.startswith("Planned adapter lane reserved")
+    assert item.raw["installation_status"] == "not_installed"
+    assert item.raw["result_code"] == "planned_not_installed"
+    assert "not installed" in item.raw["auth_detail"].lower()
+    assert "future build" in item.raw["next_step"].lower()
 
 
 def test_connector_action_request_preserves_secret_key_and_normalizes_ids() -> None:
@@ -142,6 +165,19 @@ def test_summarize_connector_readiness_covers_ready_missing_and_unknown() -> Non
     assert ready_state == ("READY", "2/2 ready, 0 partial, 0 missing.")
     assert missing_state == ("MISSING", "0/2 ready, 0 partial, 2 missing.")
     assert unknown_state == ("UNKNOWN", "0/1 ready, 0 partial, 0 missing.")
+
+
+def test_summarize_connector_readiness_reports_planned_rows_explicitly() -> None:
+    planned_state = summarize_connector_readiness(
+        build_connector_inventory(
+            [
+                {"id": "anythingllm_local", "auth_state": "missing"},
+                {"id": "huggingface_local", "auth_state": "unknown"},
+            ]
+        )
+    )
+
+    assert planned_state == ("PLANNED", "0/2 ready, 0 partial, 0 missing, 2 planned.")
 
 
 def test_workspace_governance_snapshot_uses_workspace_auth_mode_and_note_fallbacks() -> None:

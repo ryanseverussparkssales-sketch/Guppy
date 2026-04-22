@@ -23,6 +23,61 @@ def api_base_url(owner) -> str:
     return f"http://127.0.0.1:{port}"
 
 
+def startup_readiness_label(
+    state: str,
+    snapshot: dict[str, object] | None = None,
+) -> str:
+    normalized_state = str(state or "").strip().lower()
+    payload = snapshot if isinstance(snapshot, dict) else {}
+    overall = str(payload.get("overall", "") or "").strip().upper()
+    if normalized_state == "auth_failed":
+        return "AUTH"
+    if normalized_state != "reachable":
+        return "DOWN"
+    if overall in {"READY", "HEALTHY"}:
+        return "LIVE"
+    if overall in {"PARTIAL", "DEGRADED"}:
+        return "PARTIAL"
+    if not overall or overall == "UNKNOWN":
+        return "STARTING"
+    return overall
+
+
+def probe_api_runtime_label(
+    *,
+    base_url: str = "http://127.0.0.1:8081",
+    timeout: float = 0.75,
+) -> str:
+    def _fetch_json(
+        path: str,
+        *,
+        method: str = "GET",
+        timeout: float = timeout,
+        retry_auth_on_401: bool = False,
+        auth_retry_reason: str = "",
+    ) -> dict[str, object]:
+        del retry_auth_on_401, auth_retry_reason
+        req = urllib.request.Request(
+            f"{base_url}{path}",
+            headers={"Accept": "application/json"},
+            method=method,
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        return json.loads(raw) if raw.strip() else {}
+
+    def _unauthorized(detail: str) -> bool:
+        text = str(detail or "").lower()
+        return "401" in text or "403" in text or "unauthorized" in text or "forbidden" in text
+
+    state, _detail, snapshot = fetch_startup_readiness(
+        _fetch_json,
+        timeout=timeout,
+        unauthorized_error=_unauthorized,
+    )
+    return startup_readiness_label(state, snapshot)
+
+
 def refresh_api_auth_state(owner, reason: str) -> str:
     owner._api_bearer_token = owner._build_local_bearer_token()
     owner._auth_self_check_ok = False

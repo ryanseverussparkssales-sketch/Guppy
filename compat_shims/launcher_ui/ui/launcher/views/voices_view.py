@@ -158,6 +158,13 @@ class VoicesView(QWidget):
         self._update_engine_status_summary()
 
     @staticmethod
+    def _provider_owner_note(engine: str) -> str:
+        normalized = str(engine or "").strip().upper()
+        if normalized == "ELEVENLABS":
+            return " Add or update the ElevenLabs key in Settings > Device & Accounts."
+        return ""
+
+    @staticmethod
     def _engine_capability(engine: str) -> tuple[bool, str]:
         return engine_capability(engine)
 
@@ -252,6 +259,13 @@ class VoicesView(QWidget):
 
     def _update_engine_status_summary(self) -> None:
         self._engine_status_lbl.setText(build_engine_status_summary(ENGINES, self._engine_capabilities))
+        ownership_tooltip = (
+            "Voice readiness is shown here inside Models. "
+            "Provider keys and account sign-in stay in Settings > Device & Accounts."
+        )
+        self._engine_status_lbl.setToolTip(ownership_tooltip)
+        self._voice_evidence_lbl.setToolTip(ownership_tooltip)
+        self._assign_status.setToolTip(ownership_tooltip)
         self._refresh_voice_evidence()
 
     def _update_default_label(self) -> None:
@@ -291,12 +305,19 @@ class VoicesView(QWidget):
         if ok:
             self._assign_status.setText(f"{engine} is ready for preview and assignment.")
         else:
-            self._assign_status.setText(f"{engine} is unavailable: {reason}")
+            self._assign_status.setText(f"{engine} is unavailable: {reason}.{self._provider_owner_note(engine)}".strip())
         self._update_default_label()
         self._refresh_bindings_summary()
         self._refresh_voice_evidence()
 
     def _cancel_preview(self) -> None:
+        self._cancel_preview_with_status()
+
+    def _cancel_preview_with_status(self, *, announce: bool = True) -> None:
+        had_preview = (
+            "previewing " in self._assign_status.text().strip().lower()
+            or self._guppy_voice is not None
+        )
         self._preview_generation += 1
         try:
             import sounddevice as sd
@@ -313,73 +334,108 @@ class VoicesView(QWidget):
                 self._guppy_voice.stop_tts()
         except Exception:
             pass
+        if announce and had_preview:
+            self.preview_status.emit("Preview stopped.")
+
+    def _preview_is_current(self, token: int) -> bool:
+        return token == self._preview_generation
+
+    def _emit_preview_status_if_current(self, token: int, message: str) -> None:
+        if self._preview_is_current(token):
+            self.preview_status.emit(message)
+
+    def _speak_preview_with_voice_backend(
+        self,
+        *,
+        token: int,
+        engine: str,
+        voice_id: str,
+        preview_text: str,
+    ) -> None:
+        if GuppyVoice is None:
+            raise RuntimeError("GuppyVoice backend unavailable")
+
+        provider_map = {
+            "KOKORO": "auto",
+            "WINDOWS SAPI": "sapi",
+            "ELEVENLABS": "elevenlabs",
+        }
+        env_backup = {
+            "GUPPY_TTS_PROVIDER": os.environ.get("GUPPY_TTS_PROVIDER"),
+            "GUPPY_TTS_VOICE": os.environ.get("GUPPY_TTS_VOICE"),
+        }
+        voice_backend = None
+        try:
+            if not self._preview_is_current(token):
+                return
+            os.environ["GUPPY_TTS_PROVIDER"] = provider_map.get(engine, "auto")
+            os.environ["GUPPY_TTS_VOICE"] = voice_id
+            voice_backend = GuppyVoice(default_voice=voice_id)
+            self._guppy_voice = voice_backend
+            voice_backend.speak(preview_text, voice=voice_id)
+        finally:
+            for key, value in env_backup.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            if self._guppy_voice is voice_backend:
+                self._guppy_voice = None
 
     def _preview_voice(self, engine: str, voice_id: str) -> None:
         valid, reason = self._validate_engine_selection(engine, voice_id)
         if not valid:
             self._assign_status.setText(reason)
             return
-        self._cancel_preview()
+        self._cancel_preview_with_status(announce=False)
         token = self._preview_generation
         self._assign_status.setText(f"Previewing {voice_id} with {engine}.")
         preview_text = self._preview_phrase_input.text().strip() or _PREVIEW_PHRASE
 
         def _run_preview() -> None:
-            env_backup = {
-                "GUPPY_TTS_PROVIDER": os.environ.get("GUPPY_TTS_PROVIDER"),
-                "GUPPY_TTS_VOICE": os.environ.get("GUPPY_TTS_VOICE"),
-            }
             try:
-                if token != self._preview_generation:
-                    return
-                if engine == "EDGE TTS":
-                    import asyncio
-                    import io
-                    import edge_tts  # type: ignore
-                    import sounddevice as sd
-                    import soundfile as sf
+                with self._preview_lock:
+                    if not self._preview_is_current(token):
+                        return
+                    if engine == "EDGE TTS":
+                        import asyncio
+                        import io
+                        import edge_tts  # type: ignore
+                        import sounddevice as sd
+                        import soundfile as sf
 
-                    async def _do() -> None:
-                        communicate = edge_tts.Communicate(preview_text, voice_id)
-                        chunks: list[bytes] = []
-                        async for chunk in communicate.stream():
-                            if token != self._preview_generation:
+                        async def _do() -> None:
+                            communicate = edge_tts.Communicate(preview_text, voice_id)
+                            chunks: list[bytes] = []
+                            async for chunk in communicate.stream():
+                                if not self._preview_is_current(token):
+                                    return
+                                if chunk.get("type") == "audio":
+                                    chunks.append(chunk["data"])
+                            if not chunks or not self._preview_is_current(token):
                                 return
-                            if chunk.get("type") == "audio":
-                                chunks.append(chunk["data"])
-                        if not chunks or token != self._preview_generation:
-                            return
-                        buf = io.BytesIO(b"".join(chunks))
-                        data, sample_rate = sf.read(buf, dtype="float32")
-                        if token != self._preview_generation:
-                            return
-                        sd.play(data, sample_rate)
+                            buf = io.BytesIO(b"".join(chunks))
+                            data, sample_rate = sf.read(buf, dtype="float32")
+                            if not self._preview_is_current(token):
+                                return
+                            sd.play(data, sample_rate)
 
-                    asyncio.run(_do())
-                    return
-
-                if GuppyVoice is None:
-                    raise RuntimeError("GuppyVoice backend unavailable")
-                provider_map = {
-                    "KOKORO": "auto",
-                    "WINDOWS SAPI": "sapi",
-                    "ELEVENLABS": "elevenlabs",
-                }
-                os.environ["GUPPY_TTS_PROVIDER"] = provider_map.get(engine, "auto")
-                os.environ["GUPPY_TTS_VOICE"] = voice_id
-                voice_backend = GuppyVoice(default_voice=voice_id)
-                self._guppy_voice = voice_backend
-                voice_backend.speak(preview_text, voice=voice_id)
-            except Exception as exc:
-                self.preview_status.emit(f"preview failed: {exc}")
-            finally:
-                for key, value in env_backup.items():
-                    if value is None:
-                        os.environ.pop(key, None)
+                        asyncio.run(_do())
                     else:
-                        os.environ[key] = value
+                        self._speak_preview_with_voice_backend(
+                            token=token,
+                            engine=engine,
+                            voice_id=voice_id,
+                            preview_text=preview_text,
+                        )
+                self._emit_preview_status_if_current(
+                    token,
+                    f"Preview finished for {self._describe_voice_choice(engine, voice_id)}.",
+                )
+            except Exception as exc:
+                self._emit_preview_status_if_current(token, f"preview failed: {exc}")
+            finally:
                 self._pyttsx3_engine = None
-                self._guppy_voice = None
 
         threading.Thread(target=_run_preview, daemon=True).start()
 

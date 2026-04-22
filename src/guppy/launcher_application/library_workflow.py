@@ -420,6 +420,7 @@ class LibraryWorkflowController:
             summary=summary,
             metadata={"source": "assistant_reply", "attach_next": bool(attach_next)},
         )
+        self._refresh_library_surface()
         if attach_next:
             detail = f"Saved from the latest assistant reply in {self._get_active_instance_name()}"
             next_items = [
@@ -445,7 +446,6 @@ class LibraryWorkflowController:
             self._set_daily_activity(f"Reply saved and attached: {saved['title']}")
             self._log_launcher_event("assistant_reply_attached", title=saved["title"])
         else:
-            self._refresh_library_surface()
             self._assistant_view.set_status("Reply saved")
             if hasattr(self._assistant_view, "set_background_event"):
                 self._assistant_view.set_background_event(f"Saved reply to Library: {saved['title']}")

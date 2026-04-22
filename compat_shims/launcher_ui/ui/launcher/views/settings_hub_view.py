@@ -266,7 +266,7 @@ class SettingsHubView(QWidget):
             ),
             "backend_stats": (
                 "Backend Stats",
-                "See runtime health, recovery state, automation evidence, and terminal workflows without hunting through nested panes.",
+                "See runtime health, security gate, packaging audit, recovery state, automation evidence, and terminal workflows without hunting through nested panes.",
                 self._operations_panel,
                 None,
             ),

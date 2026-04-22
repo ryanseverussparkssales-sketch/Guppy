@@ -19,8 +19,11 @@ def test_friendly_runtime_summary_surfaces_packaging_and_ready_runtime() -> None
     assert "ready on this pc" in install_text.lower()
     assert "ollama is ready" in summary.lower()
     assert "healthy and ready" in runtime_text.lower()
+    assert "models > model sourcing" in runtime_text.lower()
     assert "fresh desktop build" in next_text.lower()
     assert "repair tools" in diagnostics_text.lower()
+    assert "device & accounts" in diagnostics_text.lower()
+    assert "keyring-first posture" in diagnostics_text.lower()
 
 
 def test_resolve_field_payloads_prefers_provider_field_details() -> None:
@@ -63,6 +66,34 @@ def test_build_connector_panel_state_guides_provider_selection_before_secret_ent
     assert state.show_connect is False
     assert state.show_save is True
     assert state.verify_text == "VERIFY SETUP"
+
+
+def test_build_connector_panel_state_calls_out_degraded_env_fallback_without_secret_names() -> None:
+    state = build_connector_panel_state(
+        item={
+            "id": "crm",
+            "label": "CRM",
+            "auth_kind": "provider_secret",
+            "auth_state": "ready",
+            "actions_supported": ["verify", "disconnect"],
+        },
+        providers=[
+            {
+                "id": "salesforce",
+                "label": "Salesforce",
+                "storage_posture": "mixed_env",
+                "auth_detail": "Salesforce still needs SALESFORCE_ACCESS_TOKEN and SALESFORCE_INSTANCE_URL.",
+            }
+        ],
+        accounts=[],
+        fields=[{"key": "TOKEN", "label": "Access Token"}],
+        selected_provider_id="salesforce",
+    )
+
+    assert "keyring-first storage" in state.detail_text.lower()
+    assert "degraded environment fallback" in state.detail_text.lower()
+    assert "salesforce_access_token" not in state.detail_text.lower()
+    assert "salesforce_instance_url" not in state.detail_text.lower()
 
 
 def test_build_device_accounts_density_state_shortens_labels_for_tight_widths() -> None:

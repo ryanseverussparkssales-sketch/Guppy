@@ -57,11 +57,12 @@ def build_launcher_status_poll_snapshot(
     api_payload = dict(api_status) if isinstance(api_status, Mapping) else {}
     env = environment if isinstance(environment, Mapping) else {}
 
-    guppy_online = bool(launcher_payload.get("guppy_online", False))
+    embedded_names = {str(item).strip().lower() for item in embedded_online}
+    launcher_online = bool(launcher_payload.get("guppy_online", False)) or ("guppy" in embedded_names)
     data = {
-        "guppy_online": guppy_online,
+        "guppy_online": launcher_online,
         "profile": launcher_payload.get("runtime_profile", env.get("GUPPY_RUNTIME_PROFILE", "standard")),
-        "daemon": launcher_payload.get("daemon_running", guppy_online),
+        "daemon": bool(launcher_payload.get("daemon_running", False)) or launcher_online,
         "voice_engine": launcher_payload.get("tts_engine", env.get("GUPPY_TTS_ENGINE", "edge")),
         "model": launcher_payload.get("active_model", env.get("GUPPY_LOCAL_MODEL", "guppy")),
         "wake_word": launcher_payload.get("wake_word", env.get("GUPPY_WAKE_WORD_ENABLED", "false")),
@@ -72,7 +73,6 @@ def build_launcher_status_poll_snapshot(
         data["last_query"] = fallback_last_query
     data["status"] = str(api_payload.get("status", "unknown") or "unknown")
 
-    launcher_online = guppy_online or ("guppy" in {str(item).strip().lower() for item in embedded_online})
     background_summary = _background_summary(
         active_instance_name=active_instance_name,
         last_instance_snapshot=last_instance_snapshot,
@@ -119,4 +119,4 @@ def _background_summary(
     )
     active_type = str((active_payload or {}).get("type", "user_instance") or "user_instance")
     role = workspace_role_label(active_type)
-    return f"{role.upper()} {'ONLINE' if guppy_online else 'NEEDS ATTENTION'}"
+    return f"{role.upper()} {'LIVE' if guppy_online else 'OFFLINE'}"

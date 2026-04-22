@@ -414,6 +414,8 @@ def test_build_windows_ops_snapshot_reads_runtime_state_and_defaults(tmp_path: P
     assert "runtime=" in state["paths"]
     assert state["repair"].startswith("Repair help: keyring-backed first; file fallback present")
     assert "Review handoff bundle" in state["next"]
+    assert "security gate=" in state["diagnostics"]
+    assert "packaging audit=" in state["diagnostics"]
     assert "Ref: evt-123" in state["service"]
     assert state["gate"] == "Release check: PASS | all checks passed"
     assert state["gate_fix"].startswith("Review next: Review the generated handoff bundle.")

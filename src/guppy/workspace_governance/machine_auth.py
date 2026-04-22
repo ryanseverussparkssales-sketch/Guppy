@@ -102,9 +102,17 @@ def storage_posture(values: Iterable[str]) -> str:
 def storage_warning(posture: str) -> str:
     normalized = str(posture or "").strip().lower()
     if normalized == "env_only":
-        return "Secrets are loading from environment variables; move them into the OS credential store for launch-grade posture."
+        return (
+            "Keyring-first storage is not active for these secrets on this PC; "
+            "Guppy is currently using degraded environment fallback. "
+            "Move them into the OS credential store for launch-grade posture."
+        )
     if normalized == "mixed_env":
-        return "Some secrets still resolve from environment variables; move them into the OS credential store to remove mixed storage."
+        return (
+            "Keyring-first storage is only partially active on this PC; "
+            "some secrets still resolve through degraded environment fallback. "
+            "Move them into the OS credential store to remove mixed storage."
+        )
     return ""
 
 

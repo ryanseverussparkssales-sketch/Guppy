@@ -131,7 +131,7 @@ class TopBar(QFrame):
         workspace_shell = QFrame()
         self._workspace_shell = workspace_shell
         workspace_shell.setStyleSheet(
-            f"background-color: {T.SURFACE_BASE_88};"
+            f"background-color: {T.SURFACE_ELEVATED_92};"
             f" border: 1px solid {T.BORDER_SOFT_58};"
             " border-radius: 18px;"
         )
@@ -165,7 +165,7 @@ class TopBar(QFrame):
         summary_shell = QFrame()
         self._summary_shell = summary_shell
         summary_shell.setStyleSheet(
-            f"background-color: {T.SURFACE_BASE_88};"
+            f"background-color: {T.SURFACE_ELEVATED_92};"
             f" border: 1px solid {T.BORDER_SOFT_58};"
             " border-radius: 18px;"
         )
@@ -219,7 +219,7 @@ class TopBar(QFrame):
         system_shell = QFrame()
         system_shell.setObjectName("topbar_system_shell")
         system_shell.setStyleSheet(
-            f"QFrame#topbar_system_shell {{ background-color: {T.SURFACE_BASE_88};"
+            f"QFrame#topbar_system_shell {{ background-color: {T.SURFACE_ELEVATED_88};"
             f" border: 1px solid {T.BORDER_SOFT_58}; border-radius: 18px; }}"
         )
         system_row = QHBoxLayout(system_shell)
@@ -241,7 +241,7 @@ class TopBar(QFrame):
         notif_layout = QVBoxLayout(notif_wrap)
         notif_layout.setContentsMargins(0, 0, 0, 0)
         notif_layout.setSpacing(0)
-        self._notif_btn = QPushButton("NOTIF")
+        self._notif_btn = QPushButton("\U0001f514")
         self._notif_btn.setFixedSize(40, 32)
         self._notif_btn.setToolTip("Open launcher warnings and recovery events in Settings.")
         self._notif_btn.setAccessibleName("Notifications")
@@ -258,7 +258,7 @@ class TopBar(QFrame):
         self._notif_badge.hide()
         self._apply_notif_style()
 
-        self._term_btn = QPushButton("SET")
+        self._term_btn = QPushButton("\u2328")
         self._term_btn.setFixedSize(40, 32)
         self._term_btn.setToolTip("Open logs and recent command activity in Settings.")
         self._term_btn.setAccessibleName("Open logs")

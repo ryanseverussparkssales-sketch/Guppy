@@ -3,6 +3,7 @@ from pathlib import Path
 from src.guppy.launcher_application.packaging_audit import (
     all_packaging_assumptions_hold,
     all_packaging_paths_writable,
+    packaging_audit_summary,
 )
 
 
@@ -199,3 +200,11 @@ def test_packaging_assumptions_reject_non_packaging_release_receipt(tmp_path: Pa
     assert ok is False
     status_by_label = {item.label: item for item in statuses}
     assert "action must be package_desktop or release_dry_run" in status_by_label["release handoff contract"].detail
+
+
+def test_packaging_audit_summary_surfaces_first_failure(tmp_path: Path) -> None:
+    summary = packaging_audit_summary(tmp_path)
+
+    assert summary["ok"] is False
+    assert str(summary["summary"]).startswith("FAIL")
+    assert "missing" in str(summary["detail"]).lower() or "no built dist/" in str(summary["detail"]).lower()

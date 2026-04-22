@@ -40,6 +40,7 @@ The objective is to support quarantine and purge decisions while preserving dire
 - `docs/generated/TRANCHE_53_SECURITY_AUDIT_20260420.md`
 - `docs/generated/TRANCHE_53_STITCH_DELTA_20260420.md`
 - `docs/generated/TRANCHE_54_MODULE_BREAKUP_AND_STITCH_EXECUTION_CARDS_20260420.md`
+- `docs/generated/TRANCHE_55_DESKTOP_ASSISTANT_EXECUTION_CARDS_20260421.md`
 
 ## Quarantine Candidates (review before purge)
 
@@ -79,3 +80,7 @@ Referenced by active docs and tools:
 2. Move unreferenced candidates into `docs/archive/reference-history/` with a dated closeout note.
 3. Re-run `python tools/dev_workflow.py dev-check --guard-scope delta` and smoke bundle.
 4. Remove quarantine candidates only after one green release-check cycle.
+
+## Addendum (2026-04-21)
+
+1. `docs/generated/TRANCHE_55_DESKTOP_ASSISTANT_EXECUTION_CARDS_20260421.md` is now an active generated planning artifact because `docs/PROJECT_BRIEF.md` references it directly for the end-state desktop assistant execution deck.

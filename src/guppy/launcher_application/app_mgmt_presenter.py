@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from .packaging_audit import packaging_audit_summary
+from .security_gate import security_gate_summary
 from .windows_ops_presenter import build_windows_gate_followup_line, build_windows_handoff_line
 from .windows_ops_runtime import latest_runtime_artifact
 
@@ -442,6 +444,8 @@ def build_windows_ops_snapshot(
     repair_file = runtime_dir / "repair_token.txt"
     latest_bundle = latest_runtime_artifact(runtime_dir, "diagnostics_bundle_*.json", "diagnostics_*.json")
     latest_bundle_text = str(latest_bundle) if latest_bundle is not None else "none yet"
+    packaging = packaging_audit_summary(root)
+    security = security_gate_summary()
     install_bits = [
         f"Launcher python: {launcher_python}",
         f"Repo python: {'present' if venv_python.exists() else 'missing'}",
@@ -520,6 +524,7 @@ def build_windows_ops_snapshot(
         ),
         "diagnostics": (
             f"Diagnostics: launcher log={launcher_events} | latest bundle={latest_bundle_text} | "
+            f"security gate={security['summary']} | packaging audit={packaging['summary']} | "
             "runtime check: python tools/verify_ollama_runtime.py --prompt ok"
         ),
         "entry": (
@@ -536,7 +541,13 @@ def build_windows_ops_snapshot(
                 + (f" | Command: {entry_point}" if entry_point else "")
             )
             if next_step
-            else "Recommended next step: choose VERIFY, UPDATE, PACKAGE, RELEASE DRY RUN, SUPERVISED API, RESTART, or REPAIR."
+            else (
+                "Review the Security Gate in Backend Stats first. " + str(security["detail"])
+                if not bool(security["ok"])
+                else "Review the Packaging Audit in Backend Stats next. " + str(packaging["detail"])
+                if not bool(packaging["ok"])
+                else "Recommended next step: choose VERIFY, UPDATE, PACKAGE, RELEASE DRY RUN, SUPERVISED API, RESTART, or REPAIR."
+            )
         ),
         "service": (
             f"Recent service action: {last_action} @ {last_timestamp} | {'OK' if ok else 'CHECK'} | {last_summary}{phase_text}{step_text}{ref_text}"

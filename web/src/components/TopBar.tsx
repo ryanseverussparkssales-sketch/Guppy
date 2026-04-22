@@ -13,7 +13,6 @@ const TopBar: React.FC = () => {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Implement search
     console.log("Search:", searchQuery);
   };
 
@@ -30,7 +29,6 @@ const TopBar: React.FC = () => {
         gap: theme.spacing[4],
       }}
     >
-      {/* Menu toggle (mobile) */}
       <button
         onClick={toggleSidebar}
         style={{
@@ -40,11 +38,11 @@ const TopBar: React.FC = () => {
           cursor: "pointer",
           padding: 0,
         }}
+        aria-label="Toggle sidebar"
       >
-        ☰
+        =
       </button>
 
-      {/* Search */}
       <form
         onSubmit={handleSearch}
         style={{
@@ -66,10 +64,8 @@ const TopBar: React.FC = () => {
         />
       </form>
 
-      {/* Spacer */}
       <div style={{ flex: 1 }} />
 
-      {/* Active Model */}
       {activeModel && (
         <div
           style={{
@@ -83,12 +79,11 @@ const TopBar: React.FC = () => {
             color: theme.colors.accent.teal,
           }}
         >
-          <span style={{ fontSize: "14px" }}>🤖</span>
-          {activeModel}
+          <span style={{ fontSize: "14px" }}>AI</span>
+          {activeModel.name}
         </div>
       )}
 
-      {/* Runtime Status */}
       {runtimeStatus && (
         <div
           style={{
@@ -100,16 +95,16 @@ const TopBar: React.FC = () => {
               runtimeStatus.status === "healthy"
                 ? theme.colors.background.success
                 : runtimeStatus.status === "degraded"
-                ? theme.colors.background.warning
-                : theme.colors.background.error,
+                  ? theme.colors.background.warning
+                  : theme.colors.background.error,
             borderRadius: theme.borderRadius.md,
             fontSize: theme.typography.sizes.sm,
             color:
               runtimeStatus.status === "healthy"
                 ? theme.colors.status.success
                 : runtimeStatus.status === "degraded"
-                ? theme.colors.status.warning
-                : theme.colors.status.error,
+                  ? theme.colors.status.warning
+                  : theme.colors.status.error,
           }}
         >
           <span
@@ -121,8 +116,8 @@ const TopBar: React.FC = () => {
                 runtimeStatus.status === "healthy"
                   ? theme.colors.status.success
                   : runtimeStatus.status === "degraded"
-                  ? theme.colors.status.warning
-                  : theme.colors.status.error,
+                    ? theme.colors.status.warning
+                    : theme.colors.status.error,
             }}
           />
           {runtimeStatus.status.charAt(0).toUpperCase() + runtimeStatus.status.slice(1)}

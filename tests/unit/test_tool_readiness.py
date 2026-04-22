@@ -15,7 +15,7 @@ def test_tool_policy_fix_hint_prefers_readiness_next_step() -> None:
         },
     )
 
-    assert hint == "Verify the connector from App Mgmt. Fix in: Settings."
+    assert hint == "Verify the connector from Settings > Device & Accounts. Fix in: Settings."
 
 
 def test_tool_readiness_summary_and_debug_fields_use_payload() -> None:
@@ -67,9 +67,9 @@ def test_tool_settings_route_only_surfaces_settings_owned_connector_fixes() -> N
         "connector": "gmail",
         "tool": "send_email",
         "destination": "settings_device_accounts",
-        "button_label": "OPEN APP MGMT",
+        "button_label": "OPEN DEVICE & ACCOUNTS",
         "destination_label": "Settings > Device & Accounts",
-        "note": "App Mgmt: connect Gmail on this machine, then run Verify. Open Settings > Device & Accounts > Gmail to continue.",
-        "fix_target": "App Mgmt > Connector Inventory",
+        "note": "Settings > Device & Accounts: connect Gmail on this machine, then run Verify. Open Settings > Device & Accounts > Gmail to continue.",
+        "fix_target": "Settings > Device & Accounts",
     }
     assert workspace_only == {}

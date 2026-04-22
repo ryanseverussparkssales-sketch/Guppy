@@ -1,0 +1,2 @@
+{"event": "command_response", "ok": true, "chars": 2, "seq": 1, "idempotency_key": "launcher-9ca853f9f84e43eca0a2302c49201528"}
+{"event": "command_response", "ok": true, "chars": 2, "seq": 1, "idempotency_key": "launcher-0449d9b967b3445bb88250a5d6024356"}

@@ -270,6 +270,37 @@ class LibraryWorkflowControllerTests(unittest.TestCase):
         self.assertEqual(active_items[0]["source_label"], "Current Guppy repo")
         self.assertIn("docs/PROJECT_BRIEF.md", active_items[0]["detail"])
 
+    def test_handle_reply_saved_attach_next_refreshes_library_surface_before_home_handoff(self) -> None:
+        status_panel = _StatusPanel()
+        log_event = Mock()
+        refresh_library_surface = Mock()
+        active_items: list[dict[str, str]] = []
+        assistant_view = _AssistantView()
+        controller = LibraryWorkflowController(
+            assistant_view=assistant_view,
+            status_panel=status_panel,
+            get_active_items=lambda: active_items,
+            set_active_items=lambda items: active_items.clear() or active_items.extend(items),
+            get_active_instance_name=lambda: "guppy-primary",
+            get_library_view=lambda: None,
+            refresh_library_surface=refresh_library_surface,
+            on_tab_change=lambda _index: None,
+            set_daily_activity=lambda _text: None,
+            log_launcher_event=log_event,
+        )
+
+        with patch(
+            "src.guppy.launcher_application.library_workflow.save_workspace_library_item",
+            return_value={"title": "Sprint recap", "summary": "Reply body", "item_path": ""},
+        ):
+            controller.handle_reply_saved("Sprint recap\nReply body", attach_next=True)
+
+        refresh_library_surface.assert_called_once_with()
+        self.assertEqual(active_items[0]["title"], "Sprint recap")
+        self.assertEqual(active_items[0]["origin"], "assistant_reply")
+        self.assertIn("assistant reply attached: Sprint recap", status_panel.logs)
+        log_event.assert_called_with("assistant_reply_attached", title="Sprint recap")
+
     def test_save_and_load_workspace_defaults_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             defaults_path = Path(td) / "library_workspace_defaults.json"

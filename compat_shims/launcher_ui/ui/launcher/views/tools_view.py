@@ -164,7 +164,7 @@ class ToolsView(QWidget):
         layout.addWidget(self._context_lbl)
         layout.addWidget(self._limits_lbl)
         self._boundary_lbl = mono_label(
-            "Open Settings > Device & Accounts for connector setup, recovery, and logs. Stay here when you want task-level actions for the active workspace.",
+            "Open Settings > Device & Accounts to connect, verify, reconnect, remove, or disable connector access. Stay here when you want task-level actions for the active workspace.",
             T.DIM,
             T.FS_SMALL,
         )
@@ -322,7 +322,7 @@ class ToolsView(QWidget):
             limits_text += " | COLLABORATOR CAP REACHED"
         self._limits_lbl.setText(limits_text)
         self._boundary_lbl.setText(
-            f"Use the workspace drawer for fast moves in {name}. Open Settings > Device & Accounts for connector setup and Settings for recovery, diagnostics, and logs."
+            f"Use the workspace drawer for fast moves in {name}. Open Settings > Device & Accounts to connect, verify, reconnect, remove, or disable connector access."
         )
         self._tray_notice_lbl.setText(
             f"{name} can launch common actions from the workspace drawer or tray. This page keeps richer task context and optional access detail."
