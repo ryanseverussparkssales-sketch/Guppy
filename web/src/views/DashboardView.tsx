@@ -183,7 +183,7 @@ interface StatCardProps {
   trend?: "positive" | "negative" | "neutral"
 }
 
-function StatCard({ title, value, description, icon, trend }: StatCardProps) {
+function StatCard({ value, description, icon, trend }: StatCardProps) {
   return (
     <Card>
       <CardContent className="pt-6">

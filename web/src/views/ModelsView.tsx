@@ -16,12 +16,12 @@ import api from '../api/client'
  * - GET /api/models/pull/:jobId -> Check pull job status
  * - DELETE /api/models/:id -> Delete a local model
  */
-interface ModelEntry {
-  id: string
-  name: string
-  tier: string
-  provider: string
-  configured: boolean
+interface PullStatus {
+  status: string
+  progress: number
+  done: boolean
+  detail?: string
+  error?: string
 }
 
 interface ProviderInfo {
@@ -63,7 +63,7 @@ export default function ModelsView() {
   const [activeTab, setActiveTab] = useState<Tab>('local')
   const [pullName, setPullName] = useState('')
   const [pullJobId, setPullJobId] = useState<string | null>(null)
-  const [pullStatus, setPullStatus] = useState<Record<string, unknown> | null>(null)
+  const [pullStatus, setPullStatus] = useState<PullStatus | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -255,9 +255,9 @@ export default function ModelsView() {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">
-                          {String(pullStatus.status)} {pullStatus.detail && `- ${String(pullStatus.detail)}`}
+                          {pullStatus.status} {pullStatus.detail && `- ${pullStatus.detail}`}
                         </span>
-                        <span className="font-medium">{Number(pullStatus.progress || 0).toFixed(0)}%</span>
+                        <span className="font-medium">{pullStatus.progress.toFixed(0)}%</span>
                       </div>
                       <div className="h-2 bg-muted rounded-full overflow-hidden">
                         <div
@@ -268,7 +268,7 @@ export default function ModelsView() {
                     </div>
                   )}
                   {pullStatus?.done && pullStatus?.error && (
-                    <p className="text-sm text-destructive">Pull failed: {String(pullStatus.error)}</p>
+                    <p className="text-sm text-destructive">Pull failed: {pullStatus.error}</p>
                   )}
                   {pullStatus?.done && !pullStatus?.error && (
                     <p className="text-sm text-success">Pull complete!</p>

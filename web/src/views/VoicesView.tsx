@@ -20,7 +20,7 @@ import {
   Play, 
   Square,
   Check,
-  Waveform,
+  Activity,
   Headphones,
   RefreshCw
 } from 'lucide-react'
@@ -226,7 +226,7 @@ export default function VoicesView() {
                 </>
               )}
               {isTesting && (
-                <Waveform className="w-4 h-4 animate-pulse" />
+                <Activity className="w-4 h-4 animate-pulse" />
               )}
             </button>
           </section>
