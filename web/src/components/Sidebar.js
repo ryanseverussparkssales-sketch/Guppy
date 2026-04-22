@@ -2,7 +2,6 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { MessageCircle, Package, Library, Cpu, Wrench, Volume2, Palette, Shield, Activity, Menu, X, LogOut, } from 'lucide-react';
-import { useAppStore } from '../store';
 import './Sidebar.css';
 const navItems = [
     { path: '/', label: 'Assistant', icon: MessageCircle },
@@ -19,11 +18,9 @@ const adminItems = [
 ];
 export default function Sidebar() {
     const location = useLocation();
-    const { logout } = useAppStore();
     const [isMobileOpen, setIsMobileOpen] = useState(false);
     const handleLogout = () => {
         localStorage.removeItem('accessToken');
-        logout();
     };
     const isActive = (path) => {
         return location.pathname === path;
