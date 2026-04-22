@@ -131,6 +131,23 @@ Views no longer on the top-level nav rail: `instance_manager_view.py` (Workspace
 2. Hub and tray: `src/guppy/apps/hub_app.py`, launched from `guppy_hub.py`
 3. Daemon: `src/guppy/daemon/daemon.py`
 
+## Backend Boundary (Freeze)
+
+Boundary intent: preserve the current five-hub product ownership while freezing what counts as backend-owned versus launcher-entry compatibility surfaces.
+
+1. Backend-owned modules (authoritative runtime/business logic)
+   - `src/guppy/api/` (routers, auth, runtime/status services, telemetry/query surfaces)
+   - `src/guppy/runtime_application/`, `src/guppy/workspace_governance/`, `src/guppy/experience_config/`, `src/guppy/launcher_application/` seam contracts/services
+   - `src/guppy/daemon/` and backend service helpers under `src/guppy/api/services_*`
+2. Thin wrappers and entrypoints (launch-only, no domain ownership)
+   - root shims: `guppy_api.py`, `guppy_hub.py`, `app.py`
+   - API module shim: `src/guppy/api/server.py` forwarding to `src/guppy/api/server_runtime.py`
+   - CLI/app composition roots: `src/guppy/apps/*`, `src/guppy/cli/launch.py`
+3. Quarantined UI/legacy paths (compatibility only; no new feature ownership)
+   - `compat_shims/legacy_surfaces/` and other `compat_shims/` legacy facades
+   - historical specialist surfaces (Merlin/Council) and other legacy-only launch paths
+   - removed/legacy launcher view surfaces already folded into the five canonical hubs
+
 ---
 
 ## Current State Snapshot

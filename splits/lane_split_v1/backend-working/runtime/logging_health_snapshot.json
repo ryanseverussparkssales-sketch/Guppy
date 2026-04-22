@@ -1,0 +1,55 @@
+{
+  "timestamp_utc": "2026-04-17T22:01:05.060977+00:00",
+  "max_age_minutes": 120,
+  "files": {
+    "session_events.jsonl": {
+      "exists": true,
+      "size": 2089055,
+      "mtime_utc": "2026-04-17T22:01:05.060978+00:00",
+      "fresh": true
+    },
+    "integration_events.jsonl": {
+      "exists": true,
+      "size": 234551,
+      "mtime_utc": "2026-04-17T22:00:49.771705+00:00",
+      "fresh": true
+    },
+    "hub_patterns.jsonl": {
+      "exists": true,
+      "size": 78415,
+      "mtime_utc": "2026-04-17T21:42:11.807147+00:00",
+      "fresh": true
+    },
+    "reminder_events.jsonl": {
+      "exists": true,
+      "size": 4846893,
+      "mtime_utc": "2026-04-17T22:00:40.194639+00:00",
+      "fresh": true
+    },
+    "router_scorecard.jsonl": {
+      "exists": true,
+      "size": 4070917,
+      "mtime_utc": "2026-04-17T22:01:05.061978+00:00",
+      "fresh": true
+    },
+    "agent_performance.jsonl": {
+      "exists": true,
+      "size": 484,
+      "mtime_utc": "2026-04-17T22:01:05.061978+00:00",
+      "fresh": true
+    }
+  },
+  "sqlite": {
+    "exists": true,
+    "tables": {
+      "operational_events": 358797,
+      "sqlite_sequence": 1
+    }
+  },
+  "require_fresh_core": true,
+  "core_fresh_logs": [
+    "session_events.jsonl",
+    "router_scorecard.jsonl",
+    "agent_performance.jsonl"
+  ]
+}

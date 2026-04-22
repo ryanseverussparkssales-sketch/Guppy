@@ -1,3 +1,18 @@
+[project]
+name = "guppy-backend"
+version = "0.1.0"
+description = "Guppy backend API surfaces"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn>=0.32.0",
+  "python-jose>=3.3.0",
+  "httpx>=0.27.0",
+  "openai>=2.29.0",
+  "anthropic>=0.86.0",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

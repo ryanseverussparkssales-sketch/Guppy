@@ -72,6 +72,23 @@ Practical rule for the next tranche:
 2. If a launcher control needs an operational workflow, define it in `launcher_application/workflows.py` first.
 3. If behavior still has to reach into existing `utils/` or runtime modules, keep that import behind an application service instead of in a view.
 
+## Backend Boundary (Freeze)
+
+This boundary freeze keeps the current five-hub launcher reality intact while clarifying ownership lines for backend work.
+
+1. Backend-owned modules
+   - `src/guppy/api/` routes, auth, runtime services, telemetry, and status/readiness contracts
+   - domain seams and services under `src/guppy/runtime_application/`, `src/guppy/workspace_governance/`, `src/guppy/experience_config/`, and `src/guppy/launcher_application/` (service/presenter/contract layer)
+   - daemon/runtime backends under `src/guppy/daemon/` and backend helpers in `src/guppy/api/services_*`
+2. Thin wrappers and entrypoints
+   - root launch wrappers (`guppy_api.py`, `guppy_hub.py`, `app.py`) remain forwarding shims
+   - `src/guppy/api/server.py` remains a compatibility shim that forwards to `server_runtime`
+   - app composition roots under `src/guppy/apps/` and launch CLI routing in `src/guppy/cli/launch.py`
+3. Quarantined UI/legacy paths
+   - `compat_shims/legacy_surfaces/` stays compatibility-only and non-owning
+   - legacy specialist surfaces (Merlin/Council) remain quarantined from live product ownership
+   - no backend feature ownership should move into legacy UI or compatibility folders
+
 ## Active Live-Code Roots
 
 The build guardrails treat these as the live-code roots:

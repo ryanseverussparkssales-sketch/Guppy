@@ -1,0 +1,49 @@
+{
+  "timestamp": "2026-04-20T15:26:19.130067+00:00",
+  "release_stage": "package",
+  "action": "package_desktop",
+  "ok": true,
+  "phase": "completed",
+  "summary": "WINDOWS PACKAGE completed 1/1 packaging step(s).",
+  "changes": "Built the desktop package and refreshed packaging evidence for release validation.",
+  "event_id": "package-desktop-20260420152619",
+  "steps_completed": 1,
+  "steps_total": 1,
+  "commands": [
+    "bin\\build_executable.bat --no-clean --ci",
+    "bin\\validate_build.bat"
+  ],
+  "artifacts": [
+    {
+      "id": "package_output",
+      "label": "desktop package",
+      "path": "C:\\Users\\Ryan\\Guppy\\dist\\Guppy\\Guppy.exe",
+      "mtime": "",
+      "size": 105005975
+    }
+  ],
+  "operator_guidance": {
+    "next_step": "Packaging build passed. Run python tools/dev_workflow.py release-check next, or hand off dist/Guppy/Guppy.exe with the packaging summary.",
+    "fix_target": "dist\\Guppy\\Guppy.exe",
+    "docs_hint": "docs/PACKAGING.md",
+    "entry_point": "bin\\build_executable.bat --no-clean --ci"
+  },
+  "release_gate": {
+    "summary": "",
+    "detail": "",
+    "passed_checks": null,
+    "total_checks": null,
+    "failed_checks": [],
+    "missing_files": [],
+    "checks": [],
+    "required_files": [],
+    "recommendations": [],
+    "recommendation_details": []
+  },
+  "paths": {
+    "state_path": "C:\\Users\\Ryan\\Guppy\\runtime\\windows_ops_state.json",
+    "receipt_path": "C:\\Users\\Ryan\\Guppy\\runtime\\windows_release_receipt.json",
+    "summary_path": "C:\\Users\\Ryan\\Guppy\\runtime\\windows_release_summary.md"
+  },
+  "review_order": []
+}

@@ -43,6 +43,20 @@ Historical specialist surface code is quarantined for migration reference and is
 
 VS Code tasks in this workspace also cover the main launch flows.
 
+### Venv Bootstrap (Agent-Friendly)
+
+If an external coding agent cannot detect or use the local virtual environment, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1
+```
+
+Optional flags:
+
+- `-Recreate` rebuilds `.venv` from scratch
+- `-Dev` also installs `requirements-dev.txt`
+- `-Optional` also installs `requirements-optional.txt`
+
 ## Doc Ownership Contract
 
 `docs/PROJECT_BRIEF.md` is the single active status, roadmap, and handoff source.

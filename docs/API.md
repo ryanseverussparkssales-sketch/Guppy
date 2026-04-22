@@ -47,6 +47,67 @@ Auth helpers live in `src/guppy/api/auth.py`.
 - Returns startup readiness checks for key API dependencies
 - `checks.local_runtime` reports the currently selected local backend (`ollama` or `lemonade`)
 
+### Canonical Contract Baseline (BE-102)
+
+This section is the baseline contract for the core public endpoints as implemented in `src/guppy/api/routes_core.py` and `src/guppy/api/routes_realtime.py`.
+
+#### Core Endpoints
+
+1. `GET /`
+   - Auth: none
+   - Success payload:
+     - `message` (string)
+     - `status` (string, currently `healthy`)
+2. `GET /status`
+   - Auth: `Authorization: Bearer <jwt>`
+   - Success payload (normal path):
+     - `status` (string: `healthy | degraded | error`)
+     - `timestamp` (ISO datetime string)
+     - `context` (object)
+     - `memory_available` (bool)
+     - `voice_available` (bool)
+     - `voice_tts_backend` (string)
+     - `voice_stt_backend` (string)
+     - `voice_status` (object)
+     - `daemon_available` (bool)
+     - `daemon_runtime` (object)
+     - `startup_readiness` (object)
+     - `local_runtime` (object)
+     - `resource_envelope` (object)
+   - Runtime note: this route may also return `{ "status": "error", "message": "..." }` when status building fails.
+3. `GET /startup/check`
+   - Auth: `Authorization: Bearer <jwt>`
+   - Query: `deep` (optional bool)
+   - Success payload:
+     - `overall` (string)
+     - `checks` (object) including `auth`, `ollama`, `local_runtime`, `voice`, `daemon`, `memory`
+4. `POST /chat`
+   - Auth: `Authorization: Bearer <jwt>`
+   - Success payload (standard):
+     - `response` (string)
+     - `session_id` (string or null)
+   - Additional success fields (optional by path):
+     - `brief` (bool, morning-brief path)
+     - `cached` (bool, response-cache hit)
+5. `POST /chat/voice`
+   - Auth: `Authorization: Bearer <jwt>`
+   - Present in current runtime (`routes_realtime.py`)
+   - Success payload:
+     - `transcription` (string)
+     - `response` (string)
+     - `session_id` (string or null)
+
+#### Envelope Baseline
+
+1. Success envelope
+   - There is no global `{ ok, data }` wrapper in current runtime.
+   - Success responses are route-native JSON objects with top-level fields listed above.
+2. Error envelope
+   - Canonical API errors use FastAPI/HTTPException shape:
+     - `{ "detail": <string-or-object> }`
+   - Validation errors also return `detail` (typically a list of validation issue objects).
+   - Exception: `GET /status` may return HTTP 200 with `{ "status": "error", "message": "..." }` when internal status assembly fails.
+
 ## Instances
 
 ### `GET /instances`

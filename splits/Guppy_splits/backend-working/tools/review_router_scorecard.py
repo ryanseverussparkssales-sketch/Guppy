@@ -1,0 +1,180 @@
+import argparse
+import json
+from collections import Counter, defaultdict
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from statistics import mean
+
+_RUNTIME = Path(__file__).resolve().parent.parent / "runtime"
+LOG_PATH = _RUNTIME / "router_scorecard.jsonl"
+PATCH_PATH = _RUNTIME / "router_tuning_patch.env"
+
+
+def _parse_ts(ts: str):
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def load_events(days: int = 7):
+    if not LOG_PATH.exists():
+        return []
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, days))
+    events = []
+    with LOG_PATH.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ts = _parse_ts(obj.get("ts", ""))
+            if ts is not None and ts < cutoff:
+                continue
+            events.append(obj)
+    return events
+
+
+def p95(values):
+    if not values:
+        return 0.0
+    s = sorted(values)
+    idx = max(0, int(len(s) * 0.95) - 1)
+    return float(s[idx])
+
+
+def summarize(events):
+    if not events:
+        print("No router scorecard events found.")
+        return {}
+
+    lat = [e.get("latency_ms") for e in events if isinstance(e.get("latency_ms"), (int, float))]
+    first_tok = [e.get("first_token_ms") for e in events if isinstance(e.get("first_token_ms"), (int, float))]
+    slo_met = [e for e in events if e.get("slo_met") is True]
+    errors = [e for e in events if e.get("status") == "error"]
+    degraded = [e for e in events if e.get("status") == "degraded"]
+    budget_hits = [e for e in events if e.get("tool_budget_hit")]
+
+    routes = Counter(e.get("route", "unknown") for e in events)
+    tasks = Counter(e.get("task_type", "unknown") for e in events)
+    models = Counter(e.get("model_used", "unknown") for e in events)
+
+    by_task = defaultdict(list)
+    by_route = defaultdict(list)
+    for e in events:
+        if isinstance(e.get("latency_ms"), (int, float)):
+            by_task[e.get("task_type", "unknown")].append(float(e["latency_ms"]))
+            by_route[e.get("route", "unknown")].append(float(e["latency_ms"]))
+
+    print(f"Loaded {len(events)} router events")
+    print("-" * 68)
+    print(f"SLO met:      {len(slo_met)} / {len(events)} ({(100.0*len(slo_met)/max(1,len(events))):.1f}%)")
+    print(f"Errors:       {len(errors)}")
+    print(f"Degraded:     {len(degraded)}")
+    print(f"Budget hits:  {len(budget_hits)}")
+    if lat:
+        print(f"Latency avg:  {mean(lat):.0f} ms")
+        print(f"Latency p95:  {p95(lat):.0f} ms")
+    if first_tok:
+        print(f"First token avg: {mean(first_tok):.0f} ms")
+        print(f"First token p95: {p95(first_tok):.0f} ms")
+
+    print("-" * 68)
+    print(f"Top routes: {dict(routes)}")
+    print(f"Top tasks:  {dict(tasks)}")
+    print(f"Models:     {dict(models)}")
+
+    print("-" * 68)
+    print("Latency p95 by task:")
+    for task, vals in sorted(by_task.items(), key=lambda kv: p95(kv[1]), reverse=True):
+        print(f"  {task}: {p95(vals):.0f} ms (n={len(vals)})")
+
+    print("Latency p95 by route:")
+    for route, vals in sorted(by_route.items(), key=lambda kv: p95(kv[1]), reverse=True):
+        print(f"  {route}: {p95(vals):.0f} ms (n={len(vals)})")
+
+    return {
+        "count": len(events),
+        "slo_rate": (len(slo_met) / max(1, len(events))),
+        "error_count": len(errors),
+        "degraded_count": len(degraded),
+        "budget_hit_count": len(budget_hits),
+        "lat_p95": p95(lat) if lat else 0.0,
+        "first_token_p95": p95(first_tok) if first_tok else 0.0,
+        "task_counts": tasks,
+    }
+
+
+def propose_tuning(summary):
+    if not summary:
+        return {}
+
+    patch = {}
+    recs = []
+
+    # Conservative, bounded recommendations only.
+    if summary["budget_hit_count"] >= 5:
+        patch["GUPPY_TOOL_BUDGET"] = "6"
+        recs.append("Frequent tool-budget hits: lower tool budgets for tighter loops.")
+
+    if summary["first_token_p95"] and summary["first_token_p95"] > 3000:
+        patch["GUPPY_SLO_SIMPLE_MS"] = "3500"
+        recs.append("First-token p95 high: loosen simple SLO slightly to reduce false fails.")
+
+    if summary["lat_p95"] and summary["lat_p95"] > 45000:
+        patch["GUPPY_LOCAL_NUM_PREDICT"] = "256"
+        recs.append("High latency p95: cap local generation length more aggressively.")
+
+    if summary["slo_rate"] < 0.6:
+        patch["GUPPY_SLO_COMPLEX_MS"] = "12000"
+        recs.append("Low SLO hit rate: relax complex SLO target to realistic baseline.")
+
+    return {"patch": patch, "recommendations": recs}
+
+
+def write_patch(patch: dict):
+    if not patch:
+        return None
+    lines = ["# Auto-generated by runtime/review_router_scorecard.py", "# Review before applying to .env"]
+    for k in sorted(patch):
+        lines.append(f"{k}={patch[k]}")
+    PATCH_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return PATCH_PATH
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Review router scorecard and propose safe tuning patch")
+    parser.add_argument("--days", type=int, default=7, help="Days of data to include (default: 7)")
+    parser.add_argument("--write-patch", action="store_true", help="Write recommended env patch file")
+    args = parser.parse_args()
+
+    events = load_events(days=args.days)
+    summary = summarize(events)
+    out = propose_tuning(summary)
+
+    print("-" * 68)
+    if not out.get("recommendations"):
+        print("No tuning recommendations from current data window.")
+    else:
+        print("Recommendations:")
+        for r in out["recommendations"]:
+            print(f"- {r}")
+
+    if out.get("patch"):
+        print("Proposed env overrides:")
+        for k, v in sorted(out["patch"].items()):
+            print(f"  {k}={v}")
+        if args.write_patch:
+            path = write_patch(out["patch"])
+            if path is not None:
+                print(f"Wrote patch file: {path}")
+
+
+if __name__ == "__main__":
+    main()

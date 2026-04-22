@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "templates": [
+    {
+      "id": "unit_test_stub",
+      "title": "Generate unit test stub",
+      "description": "Create a low-risk pytest module under tests/unit for a target module or behavior.",
+      "target": "guppy-code",
+      "task_type": "write",
+      "requires_target": true,
+      "target_hint": "Target module or behavior, e.g. src/guppy/api/server.py or instance capabilities",
+      "default_target": "instance capabilities",
+      "output_path_template": "tests/unit/test_builder_{target_slug}.py",
+      "prompt_template": "You are preparing a low-risk pytest file for Guppy. Produce a complete Python file and return only one fenced code block. Target: {target_ref}. Output path: {output_path}. Constraints: stay self-contained, prefer smoke-safe assertions, avoid network calls, avoid destructive filesystem actions, and keep comments minimal."
+    },
+    {
+      "id": "smoke_test_stub",
+      "title": "Generate smoke test stub",
+      "description": "Create a low-risk smoke-style test scaffold under tests/smoke.",
+      "target": "guppy-code",
+      "task_type": "write",
+      "requires_target": true,
+      "target_hint": "Feature or UI path to smoke test",
+      "default_target": "builder workflow",
+      "output_path_template": "tests/smoke/test_builder_{target_slug}.py",
+      "prompt_template": "Create a safe smoke test scaffold for Guppy. Target: {target_ref}. Output path: {output_path}. Return one fenced Python code block only. Constraints: no external network, no long sleeps, no destructive commands, and keep the test resilient when dependencies are absent."
+    },
+    {
+      "id": "docs_followup",
+      "title": "Draft docs follow-up",
+      "description": "Write a focused markdown follow-up note under docs/generated.",
+      "target": "guppy-fast",
+      "task_type": "write",
+      "requires_target": true,
+      "target_hint": "Topic or feature area",
+      "default_target": "builder workflow",
+      "output_path_template": "docs/generated/{target_slug}_followup.md",
+      "prompt_template": "Draft a concise markdown follow-up note for Guppy about {target_ref}. Output path: {output_path}. Return one fenced markdown block only. Include summary, low-risk next actions, and validation notes."
+    },
+    {
+      "id": "config_example",
+      "title": "Generate config example",
+      "description": "Create a non-live example config file under config/generated.",
+      "target": "guppy-code",
+      "task_type": "write",
+      "requires_target": true,
+      "target_hint": "Config or policy topic",
+      "default_target": "builder task policy",
+      "output_path_template": "config/generated/{target_slug}.example.json",
+      "prompt_template": "Create a safe example JSON config for Guppy about {target_ref}. Output path: {output_path}. Return one fenced json block only. Do not include secrets, absolute paths, or production credentials."
+    },
+    {
+      "id": "prompt_refresh",
+      "title": "Draft prompt refresh",
+      "description": "Create a new low-risk prompt draft under config/offhours_prompts.",
+      "target": "guppy-fast",
+      "task_type": "write",
+      "requires_target": true,
+      "target_hint": "Prompt purpose or workflow",
+      "default_target": "low risk builder review",
+      "output_path_template": "config/offhours_prompts/{target_slug}.md",
+      "prompt_template": "Write a prompt draft for Guppy's low-risk automation about {target_ref}. Output path: {output_path}. Return one fenced markdown block only. Keep it explicit, bounded, and approval-first."
+    },
+    {
+      "id": "regression_checklist",
+      "title": "Draft regression checklist",
+      "description": "Create a focused regression checklist under docs/generated for a feature or release slice.",
+      "target": "guppy-fast",
+      "task_type": "write",
+      "requires_target": true,
+      "target_hint": "Feature area, release gate, or workflow to verify",
+      "default_target": "launcher builder flow",
+      "output_path_template": "docs/generated/{target_slug}_regression_checklist.md",
+      "prompt_template": "Draft a concise regression checklist for Guppy covering {target_ref}. Output path: {output_path}. Return one fenced markdown block only. Include critical paths, edge checks, and validation commands without destructive actions."
+    },
+    {
+      "id": "ui_input_audit",
+      "title": "Draft UI input audit",
+      "description": "Create a launcher input/button audit note under docs/generated.",
+      "target": "guppy-fast",
+      "task_type": "write",
+      "requires_target": true,
+      "target_hint": "Launcher view, tab, or workflow to audit",
+      "default_target": "unified launcher",
+      "output_path_template": "docs/generated/{target_slug}_input_audit.md",
+      "prompt_template": "Create a concise UI input and button audit for Guppy focused on {target_ref}. Output path: {output_path}. Return one fenced markdown block only. Separate live controls, disabled placeholders, and follow-up fixes."
+    },
+    {
+      "id": "fixture_example",
+      "title": "Generate fixture example",
+      "description": "Create a safe fixture/example payload under tests/fixtures for a bounded workflow.",
+      "target": "guppy-code",
+      "task_type": "write",
+      "requires_target": true,
+      "target_hint": "Workflow, API response, or UI state to model",
+      "default_target": "launcher status snapshot",
+      "output_path_template": "tests/fixtures/{target_slug}.json",
+      "prompt_template": "Create a safe JSON fixture example for Guppy about {target_ref}. Output path: {output_path}. Return one fenced json block only. Use representative fake data, no secrets, and keep the schema easy to read."
+    },
+    {
+      "id": "schema_example",
+      "title": "Generate schema example",
+      "description": "Create a non-live schema example under config/generated.",
+      "target": "guppy-code",
+      "task_type": "write",
+      "requires_target": true,
+      "target_hint": "Workflow or config domain needing a sample schema",
+      "default_target": "builder approval payload",
+      "output_path_template": "config/generated/{target_slug}.schema.example.json",
+      "prompt_template": "Create a safe example JSON schema-like document for Guppy about {target_ref}. Output path: {output_path}. Return one fenced json block only. Keep keys descriptive and avoid production-only fields."
+    }
+  ]
+}

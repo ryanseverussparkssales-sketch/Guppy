@@ -1,0 +1,1785 @@
+{
+  "generated_at": "2026-04-17T21:58:27.475203+00:00",
+  "active_workspace_name": "guppy-primary",
+  "preferred_builder_workspace": "guppy-primary",
+  "active_workspace": {
+    "name": "guppy-primary",
+    "description": "Primary foreground assistant instance",
+    "mode": "auto",
+    "persona": "guppy",
+    "voice": "default",
+    "type": "user_instance",
+    "created_at": "2026-04-14T00:00:00+00:00",
+    "enabled": true,
+    "status": "active",
+    "last_message": "",
+    "last_updated": "2026-04-16T10:15:29.894487+00:00",
+    "message_count": 0,
+    "model_currently_using": "auto",
+    "governance": {
+      "auth_mode": "runtime_default",
+      "auth_mode_label": "runtime default",
+      "tool_allow": [],
+      "tool_block": [],
+      "endpoint_allow": [],
+      "endpoint_block": [],
+      "policy_note": "Primary workspace can use the full trusted local tool surface, subject to runtime auth and global safety guards.",
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "execute": true,
+        "network": true
+      }
+    },
+    "connectors": [
+      {
+        "id": "gmail",
+        "label": "Gmail",
+        "category": "communication",
+        "auth_kind": "oauth_file_token",
+        "auth_state": "partial",
+        "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+        "source": "file",
+        "accounts": [
+          {
+            "id": "main",
+            "label": "ryanseverussparkssales@gmail.com",
+            "available": false,
+            "auth_state": "missing",
+            "auth_detail": "No cached browser token was found yet for Gmail account main.",
+            "source": "none",
+            "endpoint_prefixes": [
+              "connector://gmail/main",
+              "connector://gmail"
+            ],
+            "actions": [
+              "compose",
+              "send",
+              "scan",
+              "cleanup"
+            ]
+          },
+          {
+            "id": "sales",
+            "label": "trsparkssales@gmail.com",
+            "available": false,
+            "auth_state": "missing",
+            "auth_detail": "No cached browser token was found yet for Gmail account sales.",
+            "source": "none",
+            "endpoint_prefixes": [
+              "connector://gmail/sales",
+              "connector://gmail"
+            ],
+            "actions": [
+              "compose",
+              "send",
+              "scan",
+              "cleanup"
+            ]
+          },
+          {
+            "id": "personal",
+            "label": "ryanseverussparks@gmail.com",
+            "available": false,
+            "auth_state": "missing",
+            "auth_detail": "No cached browser token was found yet for Gmail account personal.",
+            "source": "none",
+            "endpoint_prefixes": [
+              "connector://gmail/personal",
+              "connector://gmail"
+            ],
+            "actions": [
+              "compose",
+              "send",
+              "scan",
+              "cleanup"
+            ]
+          }
+        ],
+        "providers": [],
+        "actions_supported": [
+          "verify",
+          "connect",
+          "reconnect",
+          "disconnect"
+        ],
+        "secret_fields": [],
+        "scope_telemetry": {
+          "endpoint_prefixes": [
+            "connector://gmail",
+            "connector://gmail/inbox",
+            "connector://gmail/labels"
+          ],
+          "action_ids": [
+            "compose",
+            "send",
+            "scan",
+            "cleanup",
+            "account_admin"
+          ],
+          "summary": "Workspace bindings can pin a Gmail account and narrow allowed mail actions."
+        },
+        "result_code": "account_selection_needed",
+        "next_step": "App Mgmt: choose which Gmail account you want to verify or bind before continuing.",
+        "fix_target": "App Mgmt > Connector Inventory",
+        "binding": {
+          "enabled": true,
+          "inherited": true,
+          "account_id": "",
+          "provider": "",
+          "action_allow": [],
+          "action_block": [],
+          "endpoint_allow": [],
+          "endpoint_block": [],
+          "note": ""
+        },
+        "history": {
+          "last_verified_at": "2026-04-17T21:46:18.214717+00:00",
+          "last_verify_ok": false,
+          "last_verify_summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+          "last_verify_event_id": "gmail-verify-28e6279392",
+          "last_action": "verify",
+          "last_action_at": "2026-04-17T21:46:18.214717+00:00",
+          "last_action_ok": false,
+          "last_result": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+          "last_event_id": "gmail-verify-28e6279392",
+          "last_action_record": {
+            "event_id": "gmail-verify-28e6279392",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "connector": "gmail",
+            "provider": "",
+            "account_id": "main",
+            "secret_key": "",
+            "ok": false,
+            "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T21:46:18.214717+00:00",
+            "auth_state": "partial",
+            "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+            "missing_fields": [],
+            "result_code": "host_auth_incomplete",
+            "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "provider_auth_state": "",
+            "verify_check_summary": ""
+          },
+          "last_verify_record": {
+            "event_id": "gmail-verify-28e6279392",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "connector": "gmail",
+            "provider": "",
+            "account_id": "main",
+            "secret_key": "",
+            "ok": false,
+            "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T21:46:18.214717+00:00",
+            "auth_state": "partial",
+            "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+            "missing_fields": [],
+            "result_code": "host_auth_incomplete",
+            "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "provider_auth_state": "",
+            "verify_check_summary": ""
+          },
+          "recent_events": [
+            {
+              "event_id": "gmail-verify-b538b86541",
+              "integration_event": "connector.verify",
+              "action": "verify",
+              "connector": "gmail",
+              "provider": "",
+              "account_id": "main",
+              "secret_key": "",
+              "ok": false,
+              "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+              "at": "2026-04-17T20:25:56.343172+00:00",
+              "auth_state": "partial",
+              "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+              "missing_fields": [],
+              "result_code": "host_auth_incomplete",
+              "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+              "fix_target": "App Mgmt > Connector Inventory",
+              "provider_auth_state": "",
+              "verify_check_summary": ""
+            },
+            {
+              "event_id": "gmail-verify-e936e0b708",
+              "integration_event": "connector.verify",
+              "action": "verify",
+              "connector": "gmail",
+              "provider": "",
+              "account_id": "main",
+              "secret_key": "",
+              "ok": false,
+              "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+              "at": "2026-04-17T20:38:34.342010+00:00",
+              "auth_state": "partial",
+              "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+              "missing_fields": [],
+              "result_code": "host_auth_incomplete",
+              "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+              "fix_target": "App Mgmt > Connector Inventory",
+              "provider_auth_state": "",
+              "verify_check_summary": ""
+            },
+            {
+              "event_id": "gmail-verify-71e7a01104",
+              "integration_event": "connector.verify",
+              "action": "verify",
+              "connector": "gmail",
+              "provider": "",
+              "account_id": "main",
+              "secret_key": "",
+              "ok": false,
+              "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+              "at": "2026-04-17T20:53:01.356660+00:00",
+              "auth_state": "partial",
+              "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+              "missing_fields": [],
+              "result_code": "host_auth_incomplete",
+              "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+              "fix_target": "App Mgmt > Connector Inventory",
+              "provider_auth_state": "",
+              "verify_check_summary": ""
+            },
+            {
+              "event_id": "gmail-verify-e36cfd1fc7",
+              "integration_event": "connector.verify",
+              "action": "verify",
+              "connector": "gmail",
+              "provider": "",
+              "account_id": "main",
+              "secret_key": "",
+              "ok": false,
+              "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+              "at": "2026-04-17T21:14:26.916465+00:00",
+              "auth_state": "partial",
+              "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+              "missing_fields": [],
+              "result_code": "host_auth_incomplete",
+              "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+              "fix_target": "App Mgmt > Connector Inventory",
+              "provider_auth_state": "",
+              "verify_check_summary": ""
+            },
+            {
+              "event_id": "gmail-verify-28e6279392",
+              "integration_event": "connector.verify",
+              "action": "verify",
+              "connector": "gmail",
+              "provider": "",
+              "account_id": "main",
+              "secret_key": "",
+              "ok": false,
+              "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+              "at": "2026-04-17T21:46:18.214717+00:00",
+              "auth_state": "partial",
+              "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+              "missing_fields": [],
+              "result_code": "host_auth_incomplete",
+              "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+              "fix_target": "App Mgmt > Connector Inventory",
+              "provider_auth_state": "",
+              "verify_check_summary": ""
+            }
+          ],
+          "timeline": [
+            {
+              "event_id": "gmail-verify-b538b86541",
+              "integration_event": "connector.verify",
+              "action": "verify",
+              "provider": "",
+              "account_id": "main",
+              "ok": false,
+              "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+              "at": "2026-04-17T20:25:56.343172+00:00",
+              "result_code": "host_auth_incomplete",
+              "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+              "fix_target": "App Mgmt > Connector Inventory"
+            },
+            {
+              "event_id": "gmail-verify-e936e0b708",
+              "integration_event": "connector.verify",
+              "action": "verify",
+              "provider": "",
+              "account_id": "main",
+              "ok": false,
+              "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+              "at": "2026-04-17T20:38:34.342010+00:00",
+              "result_code": "host_auth_incomplete",
+              "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+              "fix_target": "App Mgmt > Connector Inventory"
+            },
+            {
+              "event_id": "gmail-verify-71e7a01104",
+              "integration_event": "connector.verify",
+              "action": "verify",
+              "provider": "",
+              "account_id": "main",
+              "ok": false,
+              "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+              "at": "2026-04-17T20:53:01.356660+00:00",
+              "result_code": "host_auth_incomplete",
+              "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+              "fix_target": "App Mgmt > Connector Inventory"
+            },
+            {
+              "event_id": "gmail-verify-e36cfd1fc7",
+              "integration_event": "connector.verify",
+              "action": "verify",
+              "provider": "",
+              "account_id": "main",
+              "ok": false,
+              "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+              "at": "2026-04-17T21:14:26.916465+00:00",
+              "result_code": "host_auth_incomplete",
+              "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+              "fix_target": "App Mgmt > Connector Inventory"
+            },
+            {
+              "event_id": "gmail-verify-28e6279392",
+              "integration_event": "connector.verify",
+              "action": "verify",
+              "provider": "",
+              "account_id": "main",
+              "ok": false,
+              "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+              "at": "2026-04-17T21:46:18.214717+00:00",
+              "result_code": "host_auth_incomplete",
+              "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+              "fix_target": "App Mgmt > Connector Inventory"
+            }
+          ],
+          "recent_summary": "verify=FAIL ref=gmail-verify-71e7a01104 | verify=FAIL ref=gmail-verify-e36cfd1fc7 | verify=FAIL ref=gmail-verify-28e6279392"
+        },
+        "last_verified_at": "2026-04-17T21:46:18.214717+00:00",
+        "last_verify_ok": false,
+        "last_verify_summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+        "last_verify_event_id": "gmail-verify-28e6279392",
+        "last_action": "verify",
+        "last_action_at": "2026-04-17T21:46:18.214717+00:00",
+        "last_action_ok": false,
+        "last_result": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+        "last_event_id": "gmail-verify-28e6279392",
+        "last_action_record": {
+          "event_id": "gmail-verify-28e6279392",
+          "integration_event": "connector.verify",
+          "action": "verify",
+          "connector": "gmail",
+          "provider": "",
+          "account_id": "main",
+          "secret_key": "",
+          "ok": false,
+          "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+          "at": "2026-04-17T21:46:18.214717+00:00",
+          "auth_state": "partial",
+          "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+          "missing_fields": [],
+          "result_code": "host_auth_incomplete",
+          "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+          "fix_target": "App Mgmt > Connector Inventory",
+          "provider_auth_state": "",
+          "verify_check_summary": ""
+        },
+        "last_verify_record": {
+          "event_id": "gmail-verify-28e6279392",
+          "integration_event": "connector.verify",
+          "action": "verify",
+          "connector": "gmail",
+          "provider": "",
+          "account_id": "main",
+          "secret_key": "",
+          "ok": false,
+          "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+          "at": "2026-04-17T21:46:18.214717+00:00",
+          "auth_state": "partial",
+          "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+          "missing_fields": [],
+          "result_code": "host_auth_incomplete",
+          "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+          "fix_target": "App Mgmt > Connector Inventory",
+          "provider_auth_state": "",
+          "verify_check_summary": ""
+        },
+        "recent_events": [
+          {
+            "event_id": "gmail-verify-b538b86541",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "connector": "gmail",
+            "provider": "",
+            "account_id": "main",
+            "secret_key": "",
+            "ok": false,
+            "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T20:25:56.343172+00:00",
+            "auth_state": "partial",
+            "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+            "missing_fields": [],
+            "result_code": "host_auth_incomplete",
+            "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "provider_auth_state": "",
+            "verify_check_summary": ""
+          },
+          {
+            "event_id": "gmail-verify-e936e0b708",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "connector": "gmail",
+            "provider": "",
+            "account_id": "main",
+            "secret_key": "",
+            "ok": false,
+            "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T20:38:34.342010+00:00",
+            "auth_state": "partial",
+            "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+            "missing_fields": [],
+            "result_code": "host_auth_incomplete",
+            "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "provider_auth_state": "",
+            "verify_check_summary": ""
+          },
+          {
+            "event_id": "gmail-verify-71e7a01104",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "connector": "gmail",
+            "provider": "",
+            "account_id": "main",
+            "secret_key": "",
+            "ok": false,
+            "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T20:53:01.356660+00:00",
+            "auth_state": "partial",
+            "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+            "missing_fields": [],
+            "result_code": "host_auth_incomplete",
+            "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "provider_auth_state": "",
+            "verify_check_summary": ""
+          },
+          {
+            "event_id": "gmail-verify-e36cfd1fc7",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "connector": "gmail",
+            "provider": "",
+            "account_id": "main",
+            "secret_key": "",
+            "ok": false,
+            "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T21:14:26.916465+00:00",
+            "auth_state": "partial",
+            "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+            "missing_fields": [],
+            "result_code": "host_auth_incomplete",
+            "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "provider_auth_state": "",
+            "verify_check_summary": ""
+          },
+          {
+            "event_id": "gmail-verify-28e6279392",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "connector": "gmail",
+            "provider": "",
+            "account_id": "main",
+            "secret_key": "",
+            "ok": false,
+            "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T21:46:18.214717+00:00",
+            "auth_state": "partial",
+            "auth_detail": "Gmail credentials exist, but browser auth has not completed yet.",
+            "missing_fields": [],
+            "result_code": "host_auth_incomplete",
+            "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "provider_auth_state": "",
+            "verify_check_summary": ""
+          }
+        ],
+        "timeline": [
+          {
+            "event_id": "gmail-verify-b538b86541",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "provider": "",
+            "account_id": "main",
+            "ok": false,
+            "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T20:25:56.343172+00:00",
+            "result_code": "host_auth_incomplete",
+            "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory"
+          },
+          {
+            "event_id": "gmail-verify-e936e0b708",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "provider": "",
+            "account_id": "main",
+            "ok": false,
+            "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T20:38:34.342010+00:00",
+            "result_code": "host_auth_incomplete",
+            "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory"
+          },
+          {
+            "event_id": "gmail-verify-71e7a01104",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "provider": "",
+            "account_id": "main",
+            "ok": false,
+            "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T20:53:01.356660+00:00",
+            "result_code": "host_auth_incomplete",
+            "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory"
+          },
+          {
+            "event_id": "gmail-verify-e36cfd1fc7",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "provider": "",
+            "account_id": "main",
+            "ok": false,
+            "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T21:14:26.916465+00:00",
+            "result_code": "host_auth_incomplete",
+            "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory"
+          },
+          {
+            "event_id": "gmail-verify-28e6279392",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "provider": "",
+            "account_id": "main",
+            "ok": false,
+            "summary": "Gmail verify: partial | Gmail credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T21:46:18.214717+00:00",
+            "result_code": "host_auth_incomplete",
+            "next_step": "App Mgmt: reconnect Gmail to finish browser auth, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory"
+          }
+        ],
+        "recent_summary": "verify=FAIL ref=gmail-verify-71e7a01104 | verify=FAIL ref=gmail-verify-e36cfd1fc7 | verify=FAIL ref=gmail-verify-28e6279392",
+        "binding_validation": {
+          "state": "host_auth_missing",
+          "message": "Gmail credentials exist, but browser auth has not completed yet.",
+          "provider_valid": true,
+          "account_valid": true,
+          "host_ready": false
+        }
+      },
+      {
+        "id": "calendar",
+        "label": "Calendar",
+        "category": "productivity",
+        "auth_kind": "oauth_file_token",
+        "auth_state": "missing",
+        "auth_detail": "Calendar credentials file is missing for this host.",
+        "source": "none",
+        "accounts": [
+          {
+            "id": "primary",
+            "label": "Primary calendar",
+            "available": false,
+            "auth_state": "missing",
+            "auth_detail": "Calendar credentials file is missing for this host.",
+            "source": "none",
+            "endpoint_prefixes": [
+              "connector://calendar/primary",
+              "connector://calendar"
+            ],
+            "actions": [
+              "read"
+            ]
+          }
+        ],
+        "providers": [],
+        "actions_supported": [
+          "verify",
+          "connect",
+          "reconnect",
+          "disconnect"
+        ],
+        "secret_fields": [],
+        "scope_telemetry": {
+          "endpoint_prefixes": [
+            "connector://calendar",
+            "connector://calendar/primary"
+          ],
+          "action_ids": [
+            "read"
+          ],
+          "summary": "Calendar bindings currently scope reads to the selected calendar surface."
+        },
+        "result_code": "host_auth_incomplete",
+        "next_step": "App Mgmt: connect Calendar on this machine, then run Verify.",
+        "fix_target": "App Mgmt > Connector Inventory",
+        "binding": {
+          "enabled": true,
+          "inherited": true,
+          "account_id": "",
+          "provider": "",
+          "action_allow": [],
+          "action_block": [],
+          "endpoint_allow": [],
+          "endpoint_block": [],
+          "note": ""
+        },
+        "history": {
+          "last_verified_at": "",
+          "last_verify_ok": false,
+          "last_verify_summary": "",
+          "last_verify_event_id": "",
+          "last_action": "",
+          "last_action_at": "",
+          "last_action_ok": false,
+          "last_result": "",
+          "last_event_id": "",
+          "last_action_record": {},
+          "last_verify_record": {},
+          "recent_events": [],
+          "timeline": [],
+          "recent_summary": ""
+        },
+        "last_verified_at": "",
+        "last_verify_ok": false,
+        "last_verify_summary": "",
+        "last_verify_event_id": "",
+        "last_action": "",
+        "last_action_at": "",
+        "last_action_ok": false,
+        "last_result": "",
+        "last_event_id": "",
+        "last_action_record": {},
+        "last_verify_record": {},
+        "recent_events": [],
+        "timeline": [],
+        "recent_summary": "",
+        "binding_validation": {
+          "state": "host_auth_missing",
+          "message": "Calendar credentials file is missing for this host.",
+          "provider_valid": true,
+          "account_valid": true,
+          "host_ready": false
+        }
+      },
+      {
+        "id": "spotify",
+        "label": "Spotify",
+        "category": "media",
+        "auth_kind": "oauth_secret",
+        "auth_state": "partial",
+        "auth_detail": "Spotify credentials exist, but browser auth has not completed yet.",
+        "source": "env",
+        "accounts": [],
+        "providers": [],
+        "actions_supported": [
+          "verify",
+          "connect",
+          "reconnect",
+          "disconnect"
+        ],
+        "secret_fields": [
+          "SPOTIFY_CLIENT_ID",
+          "SPOTIFY_CLIENT_SECRET",
+          "SPOTIFY_REDIRECT_URI"
+        ],
+        "scope_telemetry": {
+          "endpoint_prefixes": [
+            "connector://spotify",
+            "connector://spotify/player"
+          ],
+          "action_ids": [
+            "read",
+            "play",
+            "control"
+          ],
+          "summary": "Spotify bindings control read/playback actions against the machine-authenticated player."
+        },
+        "result_code": "host_secret_incomplete",
+        "next_step": "App Mgmt: save Client ID for Spotify, then run Verify.",
+        "fix_target": "App Mgmt > Connector Inventory",
+        "binding": {
+          "enabled": true,
+          "inherited": true,
+          "account_id": "",
+          "provider": "",
+          "action_allow": [],
+          "action_block": [],
+          "endpoint_allow": [],
+          "endpoint_block": [],
+          "note": ""
+        },
+        "history": {
+          "last_verified_at": "2026-04-17T21:39:20.782002+00:00",
+          "last_verify_ok": false,
+          "last_verify_summary": "Spotify verify: partial | Spotify credentials exist, but browser auth has not completed yet.",
+          "last_verify_event_id": "spotify-verify-9d898ece95",
+          "last_action": "disconnect",
+          "last_action_at": "2026-04-17T21:39:21.284071+00:00",
+          "last_action_ok": true,
+          "last_result": "No cached Spotify token found.",
+          "last_event_id": "spotify-disconnect-da300e5b17",
+          "last_action_record": {
+            "event_id": "spotify-disconnect-da300e5b17",
+            "integration_event": "connector.disconnect",
+            "action": "disconnect",
+            "connector": "spotify",
+            "provider": "",
+            "account_id": "",
+            "secret_key": "",
+            "ok": true,
+            "summary": "No cached Spotify token found.",
+            "at": "2026-04-17T21:39:21.284071+00:00",
+            "auth_state": "partial",
+            "auth_detail": "Spotify credentials exist, but browser auth has not completed yet.",
+            "missing_fields": [],
+            "result_code": "host_secret_incomplete",
+            "next_step": "App Mgmt: save Client ID for Spotify, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "provider_auth_state": "",
+            "verify_check_summary": ""
+          },
+          "last_verify_record": {
+            "event_id": "spotify-verify-9d898ece95",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "connector": "spotify",
+            "provider": "",
+            "account_id": "",
+            "secret_key": "",
+            "ok": false,
+            "summary": "Spotify verify: partial | Spotify credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T21:39:20.782002+00:00",
+            "auth_state": "partial",
+            "auth_detail": "Spotify credentials exist, but browser auth has not completed yet.",
+            "missing_fields": [],
+            "result_code": "host_secret_incomplete",
+            "next_step": "App Mgmt: save Client ID for Spotify, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "provider_auth_state": "",
+            "verify_check_summary": ""
+          },
+          "recent_events": [
+            {
+              "event_id": "spotify-verify-9d898ece95",
+              "integration_event": "connector.verify",
+              "action": "verify",
+              "connector": "spotify",
+              "provider": "",
+              "account_id": "",
+              "secret_key": "",
+              "ok": false,
+              "summary": "Spotify verify: partial | Spotify credentials exist, but browser auth has not completed yet.",
+              "at": "2026-04-17T21:39:20.782002+00:00",
+              "auth_state": "partial",
+              "auth_detail": "Spotify credentials exist, but browser auth has not completed yet.",
+              "missing_fields": [],
+              "result_code": "host_secret_incomplete",
+              "next_step": "App Mgmt: save Client ID for Spotify, then run Verify.",
+              "fix_target": "App Mgmt > Connector Inventory",
+              "provider_auth_state": "",
+              "verify_check_summary": ""
+            },
+            {
+              "event_id": "spotify-disconnect-da300e5b17",
+              "integration_event": "connector.disconnect",
+              "action": "disconnect",
+              "connector": "spotify",
+              "provider": "",
+              "account_id": "",
+              "secret_key": "",
+              "ok": true,
+              "summary": "No cached Spotify token found.",
+              "at": "2026-04-17T21:39:21.284071+00:00",
+              "auth_state": "partial",
+              "auth_detail": "Spotify credentials exist, but browser auth has not completed yet.",
+              "missing_fields": [],
+              "result_code": "host_secret_incomplete",
+              "next_step": "App Mgmt: save Client ID for Spotify, then run Verify.",
+              "fix_target": "App Mgmt > Connector Inventory",
+              "provider_auth_state": "",
+              "verify_check_summary": ""
+            }
+          ],
+          "timeline": [
+            {
+              "event_id": "spotify-verify-9d898ece95",
+              "integration_event": "connector.verify",
+              "action": "verify",
+              "provider": "",
+              "account_id": "",
+              "ok": false,
+              "summary": "Spotify verify: partial | Spotify credentials exist, but browser auth has not completed yet.",
+              "at": "2026-04-17T21:39:20.782002+00:00",
+              "result_code": "host_secret_incomplete",
+              "next_step": "App Mgmt: save Client ID for Spotify, then run Verify.",
+              "fix_target": "App Mgmt > Connector Inventory"
+            },
+            {
+              "event_id": "spotify-disconnect-da300e5b17",
+              "integration_event": "connector.disconnect",
+              "action": "disconnect",
+              "provider": "",
+              "account_id": "",
+              "ok": true,
+              "summary": "No cached Spotify token found.",
+              "at": "2026-04-17T21:39:21.284071+00:00",
+              "result_code": "host_secret_incomplete",
+              "next_step": "App Mgmt: save Client ID for Spotify, then run Verify.",
+              "fix_target": "App Mgmt > Connector Inventory"
+            }
+          ],
+          "recent_summary": "verify=FAIL ref=spotify-verify-9d898ece95 | disconnect=OK ref=spotify-disconnect-da300e5b17"
+        },
+        "last_verified_at": "2026-04-17T21:39:20.782002+00:00",
+        "last_verify_ok": false,
+        "last_verify_summary": "Spotify verify: partial | Spotify credentials exist, but browser auth has not completed yet.",
+        "last_verify_event_id": "spotify-verify-9d898ece95",
+        "last_action": "disconnect",
+        "last_action_at": "2026-04-17T21:39:21.284071+00:00",
+        "last_action_ok": true,
+        "last_result": "No cached Spotify token found.",
+        "last_event_id": "spotify-disconnect-da300e5b17",
+        "last_action_record": {
+          "event_id": "spotify-disconnect-da300e5b17",
+          "integration_event": "connector.disconnect",
+          "action": "disconnect",
+          "connector": "spotify",
+          "provider": "",
+          "account_id": "",
+          "secret_key": "",
+          "ok": true,
+          "summary": "No cached Spotify token found.",
+          "at": "2026-04-17T21:39:21.284071+00:00",
+          "auth_state": "partial",
+          "auth_detail": "Spotify credentials exist, but browser auth has not completed yet.",
+          "missing_fields": [],
+          "result_code": "host_secret_incomplete",
+          "next_step": "App Mgmt: save Client ID for Spotify, then run Verify.",
+          "fix_target": "App Mgmt > Connector Inventory",
+          "provider_auth_state": "",
+          "verify_check_summary": ""
+        },
+        "last_verify_record": {
+          "event_id": "spotify-verify-9d898ece95",
+          "integration_event": "connector.verify",
+          "action": "verify",
+          "connector": "spotify",
+          "provider": "",
+          "account_id": "",
+          "secret_key": "",
+          "ok": false,
+          "summary": "Spotify verify: partial | Spotify credentials exist, but browser auth has not completed yet.",
+          "at": "2026-04-17T21:39:20.782002+00:00",
+          "auth_state": "partial",
+          "auth_detail": "Spotify credentials exist, but browser auth has not completed yet.",
+          "missing_fields": [],
+          "result_code": "host_secret_incomplete",
+          "next_step": "App Mgmt: save Client ID for Spotify, then run Verify.",
+          "fix_target": "App Mgmt > Connector Inventory",
+          "provider_auth_state": "",
+          "verify_check_summary": ""
+        },
+        "recent_events": [
+          {
+            "event_id": "spotify-verify-9d898ece95",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "connector": "spotify",
+            "provider": "",
+            "account_id": "",
+            "secret_key": "",
+            "ok": false,
+            "summary": "Spotify verify: partial | Spotify credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T21:39:20.782002+00:00",
+            "auth_state": "partial",
+            "auth_detail": "Spotify credentials exist, but browser auth has not completed yet.",
+            "missing_fields": [],
+            "result_code": "host_secret_incomplete",
+            "next_step": "App Mgmt: save Client ID for Spotify, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "provider_auth_state": "",
+            "verify_check_summary": ""
+          },
+          {
+            "event_id": "spotify-disconnect-da300e5b17",
+            "integration_event": "connector.disconnect",
+            "action": "disconnect",
+            "connector": "spotify",
+            "provider": "",
+            "account_id": "",
+            "secret_key": "",
+            "ok": true,
+            "summary": "No cached Spotify token found.",
+            "at": "2026-04-17T21:39:21.284071+00:00",
+            "auth_state": "partial",
+            "auth_detail": "Spotify credentials exist, but browser auth has not completed yet.",
+            "missing_fields": [],
+            "result_code": "host_secret_incomplete",
+            "next_step": "App Mgmt: save Client ID for Spotify, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "provider_auth_state": "",
+            "verify_check_summary": ""
+          }
+        ],
+        "timeline": [
+          {
+            "event_id": "spotify-verify-9d898ece95",
+            "integration_event": "connector.verify",
+            "action": "verify",
+            "provider": "",
+            "account_id": "",
+            "ok": false,
+            "summary": "Spotify verify: partial | Spotify credentials exist, but browser auth has not completed yet.",
+            "at": "2026-04-17T21:39:20.782002+00:00",
+            "result_code": "host_secret_incomplete",
+            "next_step": "App Mgmt: save Client ID for Spotify, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory"
+          },
+          {
+            "event_id": "spotify-disconnect-da300e5b17",
+            "integration_event": "connector.disconnect",
+            "action": "disconnect",
+            "provider": "",
+            "account_id": "",
+            "ok": true,
+            "summary": "No cached Spotify token found.",
+            "at": "2026-04-17T21:39:21.284071+00:00",
+            "result_code": "host_secret_incomplete",
+            "next_step": "App Mgmt: save Client ID for Spotify, then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory"
+          }
+        ],
+        "recent_summary": "verify=FAIL ref=spotify-verify-9d898ece95 | disconnect=OK ref=spotify-disconnect-da300e5b17",
+        "binding_validation": {
+          "state": "host_auth_missing",
+          "message": "Spotify credentials exist, but browser auth has not completed yet.",
+          "provider_valid": true,
+          "account_valid": true,
+          "host_ready": false
+        }
+      },
+      {
+        "id": "youtube",
+        "label": "YouTube",
+        "category": "media",
+        "auth_kind": "api_key",
+        "auth_state": "optional",
+        "auth_detail": "YouTube API key is missing; fallback scraping may still work.",
+        "source": "none",
+        "accounts": [],
+        "providers": [],
+        "actions_supported": [
+          "verify",
+          "connect",
+          "disconnect"
+        ],
+        "secret_fields": [
+          "YOUTUBE_API_KEY"
+        ],
+        "scope_telemetry": {
+          "endpoint_prefixes": [
+            "connector://youtube",
+            "connector://youtube/search",
+            "connector://youtube/play"
+          ],
+          "action_ids": [
+            "search",
+            "play"
+          ],
+          "summary": "YouTube can work in fallback mode, but an API key improves quota stability and predictable search access."
+        },
+        "result_code": "ready",
+        "next_step": "Machine auth is ready for YouTube. Use Workspaces to bind access or narrow workspace policy.",
+        "fix_target": "Workspaces > Connector Bindings",
+        "binding": {
+          "enabled": true,
+          "inherited": true,
+          "account_id": "",
+          "provider": "",
+          "action_allow": [],
+          "action_block": [],
+          "endpoint_allow": [],
+          "endpoint_block": [],
+          "note": ""
+        },
+        "history": {
+          "last_verified_at": "",
+          "last_verify_ok": false,
+          "last_verify_summary": "",
+          "last_verify_event_id": "",
+          "last_action": "",
+          "last_action_at": "",
+          "last_action_ok": false,
+          "last_result": "",
+          "last_event_id": "",
+          "last_action_record": {},
+          "last_verify_record": {},
+          "recent_events": [],
+          "timeline": [],
+          "recent_summary": ""
+        },
+        "last_verified_at": "",
+        "last_verify_ok": false,
+        "last_verify_summary": "",
+        "last_verify_event_id": "",
+        "last_action": "",
+        "last_action_at": "",
+        "last_action_ok": false,
+        "last_result": "",
+        "last_event_id": "",
+        "last_action_record": {},
+        "last_verify_record": {},
+        "recent_events": [],
+        "timeline": [],
+        "recent_summary": "",
+        "binding_validation": {
+          "state": "ready",
+          "message": "Workspace binding matches the current machine inventory.",
+          "provider_valid": true,
+          "account_valid": true,
+          "host_ready": true
+        }
+      },
+      {
+        "id": "crm",
+        "label": "CRM",
+        "category": "business",
+        "auth_kind": "provider_secret",
+        "auth_state": "missing",
+        "auth_detail": "HubSpot still needs HUBSPOT_API_KEY.",
+        "source": "none",
+        "accounts": [],
+        "providers": [
+          {
+            "id": "hubspot",
+            "label": "HubSpot",
+            "ready": false,
+            "auth_state": "missing",
+            "auth_detail": "HubSpot still needs HUBSPOT_API_KEY.",
+            "required_fields": [
+              "HUBSPOT_API_KEY"
+            ],
+            "present_fields": [],
+            "missing_fields": [
+              "HUBSPOT_API_KEY"
+            ],
+            "field_sources": {
+              "HUBSPOT_API_KEY": "none"
+            },
+            "field_details": [
+              {
+                "key": "HUBSPOT_API_KEY",
+                "label": "Private App Token",
+                "placeholder": "pat-...",
+                "input_hint": "Paste the HubSpot private app token for this machine.",
+                "validation_hint": "HubSpot private app tokens usually start with pat- or use a long legacy API-key value.",
+                "kind": "token",
+                "masked": true,
+                "present": false,
+                "missing": true,
+                "source": "none",
+                "step": 1,
+                "total_steps": 1
+              }
+            ],
+            "setup_state": "missing",
+            "setup_summary": "Step 1/1: add Private App Token.",
+            "next_field": {
+              "key": "HUBSPOT_API_KEY",
+              "label": "Private App Token",
+              "placeholder": "pat-...",
+              "input_hint": "Paste the HubSpot private app token for this machine.",
+              "validation_hint": "HubSpot private app tokens usually start with pat- or use a long legacy API-key value.",
+              "kind": "token",
+              "masked": true,
+              "present": false,
+              "missing": true,
+              "source": "none",
+              "step": 1,
+              "total_steps": 1
+            },
+            "verify_summary": "HubSpot verify found missing or weak private app token readiness.",
+            "verify_checks": [
+              {
+                "id": "hubspot_api_key_present",
+                "label": "Private app token present",
+                "state": "fail",
+                "passed": false,
+                "detail": "Missing HUBSPOT_API_KEY."
+              },
+              {
+                "id": "hubspot_api_key_shape",
+                "label": "Token format looks plausible",
+                "state": "fail",
+                "passed": false,
+                "detail": "Token is present but does not look like a modern HubSpot private app token."
+              }
+            ],
+            "scope_detail": "Expected scope: contacts + opportunities via a machine-level HubSpot private app token.",
+            "source": "none",
+            "scope_label": "contacts + opportunities",
+            "endpoint_prefixes": [
+              "connector://crm/hubspot",
+              "connector://crm/hubspot/contacts",
+              "connector://crm/hubspot/opportunities"
+            ],
+            "actions": [
+              "contact_write",
+              "opportunity_write"
+            ],
+            "connector": "crm",
+            "result_code": "provider_setup_incomplete",
+            "next_step": "App Mgmt: save Private App Token for HubSpot (HubSpot private app tokens usually start with pat- or use a long legacy API-key value.), then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "verify_check_summary": "Private app token present=MISS, Token format looks plausible=MISS"
+          },
+          {
+            "id": "salesforce",
+            "label": "Salesforce",
+            "ready": false,
+            "auth_state": "missing",
+            "auth_detail": "Salesforce still needs SALESFORCE_ACCESS_TOKEN, SALESFORCE_INSTANCE_URL.",
+            "required_fields": [
+              "SALESFORCE_ACCESS_TOKEN",
+              "SALESFORCE_INSTANCE_URL"
+            ],
+            "present_fields": [],
+            "missing_fields": [
+              "SALESFORCE_ACCESS_TOKEN",
+              "SALESFORCE_INSTANCE_URL"
+            ],
+            "field_sources": {
+              "SALESFORCE_ACCESS_TOKEN": "none",
+              "SALESFORCE_INSTANCE_URL": "none"
+            },
+            "field_details": [
+              {
+                "key": "SALESFORCE_ACCESS_TOKEN",
+                "label": "Access Token",
+                "placeholder": "00D...!....",
+                "input_hint": "Paste the Salesforce access token issued for this org.",
+                "validation_hint": "Use the access token string, not the instance URL.",
+                "kind": "token",
+                "masked": true,
+                "present": false,
+                "missing": true,
+                "source": "none",
+                "step": 1,
+                "total_steps": 2
+              },
+              {
+                "key": "SALESFORCE_INSTANCE_URL",
+                "label": "Instance URL",
+                "placeholder": "https://your-domain.my.salesforce.com",
+                "input_hint": "Paste the Salesforce org or My Domain base URL.",
+                "validation_hint": "Use an https URL that points at the Salesforce org host.",
+                "kind": "url",
+                "masked": false,
+                "present": false,
+                "missing": true,
+                "source": "none",
+                "step": 2,
+                "total_steps": 2
+              }
+            ],
+            "setup_state": "missing",
+            "setup_summary": "Step 1/2: add Access Token.",
+            "next_field": {
+              "key": "SALESFORCE_ACCESS_TOKEN",
+              "label": "Access Token",
+              "placeholder": "00D...!....",
+              "input_hint": "Paste the Salesforce access token issued for this org.",
+              "validation_hint": "Use the access token string, not the instance URL.",
+              "kind": "token",
+              "masked": true,
+              "present": false,
+              "missing": true,
+              "source": "none",
+              "step": 1,
+              "total_steps": 2
+            },
+            "verify_summary": "Salesforce verify found missing token or invalid org URL readiness.",
+            "verify_checks": [
+              {
+                "id": "salesforce_access_token_present",
+                "label": "Access token present",
+                "state": "fail",
+                "passed": false,
+                "detail": "Missing SALESFORCE_ACCESS_TOKEN."
+              },
+              {
+                "id": "salesforce_instance_url_present",
+                "label": "Instance URL present",
+                "state": "fail",
+                "passed": false,
+                "detail": "Missing SALESFORCE_INSTANCE_URL."
+              },
+              {
+                "id": "salesforce_instance_url_valid",
+                "label": "Instance URL looks valid",
+                "state": "fail",
+                "passed": false,
+                "detail": "Instance URL must be an https Salesforce org host."
+              }
+            ],
+            "scope_detail": "Expected scope: contacts + opportunities against the configured Salesforce org host.",
+            "source": "none",
+            "scope_label": "contacts + opportunities",
+            "endpoint_prefixes": [
+              "connector://crm/salesforce",
+              "connector://crm/salesforce/contacts",
+              "connector://crm/salesforce/opportunities"
+            ],
+            "actions": [
+              "contact_write",
+              "opportunity_write"
+            ],
+            "connector": "crm",
+            "result_code": "provider_setup_incomplete",
+            "next_step": "App Mgmt: save Access Token for Salesforce (Use the access token string, not the instance URL.), then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "verify_check_summary": "Access token present=MISS, Instance URL present=MISS, Instance URL looks valid=MISS"
+          },
+          {
+            "id": "gohighlevel",
+            "label": "GoHighLevel",
+            "ready": false,
+            "auth_state": "missing",
+            "auth_detail": "GoHighLevel still needs GOHIGHLEVEL_API_KEY.",
+            "required_fields": [
+              "GOHIGHLEVEL_API_KEY"
+            ],
+            "present_fields": [],
+            "missing_fields": [
+              "GOHIGHLEVEL_API_KEY"
+            ],
+            "field_sources": {
+              "GOHIGHLEVEL_API_KEY": "none"
+            },
+            "field_details": [
+              {
+                "key": "GOHIGHLEVEL_API_KEY",
+                "label": "API Key",
+                "placeholder": "ghl_...",
+                "input_hint": "Paste the GoHighLevel API key.",
+                "validation_hint": "Use the raw API key string from the provider dashboard.",
+                "kind": "token",
+                "masked": true,
+                "present": false,
+                "missing": true,
+                "source": "none",
+                "step": 1,
+                "total_steps": 1
+              }
+            ],
+            "setup_state": "missing",
+            "setup_summary": "Step 1/1: add API Key.",
+            "next_field": {
+              "key": "GOHIGHLEVEL_API_KEY",
+              "label": "API Key",
+              "placeholder": "ghl_...",
+              "input_hint": "Paste the GoHighLevel API key.",
+              "validation_hint": "Use the raw API key string from the provider dashboard.",
+              "kind": "token",
+              "masked": true,
+              "present": false,
+              "missing": true,
+              "source": "none",
+              "step": 1,
+              "total_steps": 1
+            },
+            "verify_summary": "GoHighLevel verify found missing or weak API-key readiness.",
+            "verify_checks": [
+              {
+                "id": "gohighlevel_api_key_present",
+                "label": "API key present",
+                "state": "fail",
+                "passed": false,
+                "detail": "Missing GOHIGHLEVEL_API_KEY."
+              },
+              {
+                "id": "gohighlevel_api_key_shape",
+                "label": "API key length looks plausible",
+                "state": "fail",
+                "passed": false,
+                "detail": "API key is present but unusually short."
+              }
+            ],
+            "scope_detail": "Expected scope: contacts + pipelines via a machine-level GoHighLevel API key.",
+            "source": "none",
+            "scope_label": "contacts + pipelines",
+            "endpoint_prefixes": [
+              "connector://crm/gohighlevel",
+              "connector://crm/gohighlevel/contacts",
+              "connector://crm/gohighlevel/opportunities"
+            ],
+            "actions": [
+              "contact_write",
+              "opportunity_write"
+            ],
+            "connector": "crm",
+            "result_code": "provider_setup_incomplete",
+            "next_step": "App Mgmt: save API Key for GoHighLevel (Use the raw API key string from the provider dashboard.), then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "verify_check_summary": "API key present=MISS, API key length looks plausible=MISS"
+          },
+          {
+            "id": "zoho",
+            "label": "Zoho",
+            "ready": false,
+            "auth_state": "missing",
+            "auth_detail": "Zoho still needs ZOHO_ACCESS_TOKEN.",
+            "required_fields": [
+              "ZOHO_ACCESS_TOKEN"
+            ],
+            "present_fields": [],
+            "missing_fields": [
+              "ZOHO_ACCESS_TOKEN"
+            ],
+            "field_sources": {
+              "ZOHO_ACCESS_TOKEN": "none"
+            },
+            "field_details": [
+              {
+                "key": "ZOHO_ACCESS_TOKEN",
+                "label": "Access Token",
+                "placeholder": "1000....",
+                "input_hint": "Paste the Zoho OAuth access token for this machine.",
+                "validation_hint": "Zoho access tokens are long opaque strings and should not be URLs.",
+                "kind": "token",
+                "masked": true,
+                "present": false,
+                "missing": true,
+                "source": "none",
+                "step": 1,
+                "total_steps": 1
+              }
+            ],
+            "setup_state": "missing",
+            "setup_summary": "Step 1/1: add Access Token.",
+            "next_field": {
+              "key": "ZOHO_ACCESS_TOKEN",
+              "label": "Access Token",
+              "placeholder": "1000....",
+              "input_hint": "Paste the Zoho OAuth access token for this machine.",
+              "validation_hint": "Zoho access tokens are long opaque strings and should not be URLs.",
+              "kind": "token",
+              "masked": true,
+              "present": false,
+              "missing": true,
+              "source": "none",
+              "step": 1,
+              "total_steps": 1
+            },
+            "verify_summary": "Zoho verify found missing or weak access-token readiness.",
+            "verify_checks": [
+              {
+                "id": "zoho_access_token_present",
+                "label": "Access token present",
+                "state": "fail",
+                "passed": false,
+                "detail": "Missing ZOHO_ACCESS_TOKEN."
+              },
+              {
+                "id": "zoho_access_token_shape",
+                "label": "Token format looks plausible",
+                "state": "fail",
+                "passed": false,
+                "detail": "Access token is present but does not look like a Zoho access token."
+              }
+            ],
+            "scope_detail": "Expected scope: contacts + deals via a machine-level Zoho access token.",
+            "source": "none",
+            "scope_label": "contacts + deals",
+            "endpoint_prefixes": [
+              "connector://crm/zoho",
+              "connector://crm/zoho/contacts",
+              "connector://crm/zoho/opportunities"
+            ],
+            "actions": [
+              "contact_write",
+              "opportunity_write"
+            ],
+            "connector": "crm",
+            "result_code": "provider_setup_incomplete",
+            "next_step": "App Mgmt: save Access Token for Zoho (Zoho access tokens are long opaque strings and should not be URLs.), then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "verify_check_summary": "Access token present=MISS, Token format looks plausible=MISS"
+          }
+        ],
+        "actions_supported": [
+          "verify",
+          "connect",
+          "disconnect"
+        ],
+        "secret_fields": [
+          "HUBSPOT_API_KEY",
+          "SALESFORCE_ACCESS_TOKEN",
+          "SALESFORCE_INSTANCE_URL",
+          "GOHIGHLEVEL_API_KEY",
+          "ZOHO_ACCESS_TOKEN"
+        ],
+        "scope_telemetry": {
+          "endpoint_prefixes": [
+            "connector://crm/hubspot",
+            "connector://crm/hubspot/contacts",
+            "connector://crm/hubspot/opportunities",
+            "connector://crm/salesforce",
+            "connector://crm/salesforce/contacts",
+            "connector://crm/salesforce/opportunities",
+            "connector://crm/gohighlevel",
+            "connector://crm/gohighlevel/contacts",
+            "connector://crm/gohighlevel/opportunities",
+            "connector://crm/zoho",
+            "connector://crm/zoho/contacts",
+            "connector://crm/zoho/opportunities"
+          ],
+          "action_ids": [
+            "contact_write",
+            "opportunity_write"
+          ],
+          "summary": "CRM bindings can pin a provider and narrow contact/opportunity actions plus endpoint scope."
+        },
+        "result_code": "provider_setup_incomplete",
+        "next_step": "App Mgmt: save Private App Token for HubSpot (HubSpot private app tokens usually start with pat- or use a long legacy API-key value.), then run Verify.",
+        "fix_target": "App Mgmt > Connector Inventory",
+        "binding": {
+          "enabled": true,
+          "inherited": true,
+          "account_id": "",
+          "provider": "",
+          "action_allow": [],
+          "action_block": [],
+          "endpoint_allow": [],
+          "endpoint_block": [],
+          "note": ""
+        },
+        "history": {
+          "last_verified_at": "",
+          "last_verify_ok": false,
+          "last_verify_summary": "",
+          "last_verify_event_id": "",
+          "last_action": "",
+          "last_action_at": "",
+          "last_action_ok": false,
+          "last_result": "",
+          "last_event_id": "",
+          "last_action_record": {},
+          "last_verify_record": {},
+          "recent_events": [],
+          "timeline": [],
+          "recent_summary": ""
+        },
+        "last_verified_at": "",
+        "last_verify_ok": false,
+        "last_verify_summary": "",
+        "last_verify_event_id": "",
+        "last_action": "",
+        "last_action_at": "",
+        "last_action_ok": false,
+        "last_result": "",
+        "last_event_id": "",
+        "last_action_record": {},
+        "last_verify_record": {},
+        "recent_events": [],
+        "timeline": [],
+        "recent_summary": "",
+        "binding_validation": {
+          "state": "provider_required",
+          "message": "Choose a provider from the machine inventory before you save this binding.",
+          "provider_valid": true,
+          "account_valid": true,
+          "host_ready": false
+        }
+      },
+      {
+        "id": "voip",
+        "label": "VoIP",
+        "category": "business",
+        "auth_kind": "provider_secret",
+        "auth_state": "missing",
+        "auth_detail": "Twilio still needs TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN.",
+        "source": "none",
+        "accounts": [],
+        "providers": [
+          {
+            "id": "twilio",
+            "label": "Twilio",
+            "ready": false,
+            "auth_state": "missing",
+            "auth_detail": "Twilio still needs TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN.",
+            "required_fields": [
+              "TWILIO_ACCOUNT_SID",
+              "TWILIO_AUTH_TOKEN"
+            ],
+            "present_fields": [],
+            "missing_fields": [
+              "TWILIO_ACCOUNT_SID",
+              "TWILIO_AUTH_TOKEN"
+            ],
+            "field_sources": {
+              "TWILIO_ACCOUNT_SID": "none",
+              "TWILIO_AUTH_TOKEN": "none"
+            },
+            "field_details": [
+              {
+                "key": "TWILIO_ACCOUNT_SID",
+                "label": "Account SID",
+                "placeholder": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "input_hint": "Paste the Twilio Account SID.",
+                "validation_hint": "Twilio Account SIDs start with AC.",
+                "kind": "account_id",
+                "masked": false,
+                "present": false,
+                "missing": true,
+                "source": "none",
+                "step": 1,
+                "total_steps": 2
+              },
+              {
+                "key": "TWILIO_AUTH_TOKEN",
+                "label": "Auth Token",
+                "placeholder": "twilio-auth-token",
+                "input_hint": "Paste the Twilio auth token paired with the selected Account SID.",
+                "validation_hint": "Use the auth token value from the Twilio console, not the Account SID.",
+                "kind": "token",
+                "masked": true,
+                "present": false,
+                "missing": true,
+                "source": "none",
+                "step": 2,
+                "total_steps": 2
+              }
+            ],
+            "setup_state": "missing",
+            "setup_summary": "Step 1/2: add Account SID.",
+            "next_field": {
+              "key": "TWILIO_ACCOUNT_SID",
+              "label": "Account SID",
+              "placeholder": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "input_hint": "Paste the Twilio Account SID.",
+              "validation_hint": "Twilio Account SIDs start with AC.",
+              "kind": "account_id",
+              "masked": false,
+              "present": false,
+              "missing": true,
+              "source": "none",
+              "step": 1,
+              "total_steps": 2
+            },
+            "verify_summary": "Twilio verify found missing SID/token readiness.",
+            "verify_checks": [
+              {
+                "id": "twilio_account_sid_present",
+                "label": "Account SID present",
+                "state": "fail",
+                "passed": false,
+                "detail": "Missing TWILIO_ACCOUNT_SID."
+              },
+              {
+                "id": "twilio_account_sid_shape",
+                "label": "Account SID format looks valid",
+                "state": "fail",
+                "passed": false,
+                "detail": "Twilio Account SID should start with AC."
+              },
+              {
+                "id": "twilio_auth_token_present",
+                "label": "Auth token present",
+                "state": "fail",
+                "passed": false,
+                "detail": "Missing TWILIO_AUTH_TOKEN."
+              },
+              {
+                "id": "twilio_auth_token_shape",
+                "label": "Auth token length looks plausible",
+                "state": "fail",
+                "passed": false,
+                "detail": "Twilio auth token is present but unusually short."
+              }
+            ],
+            "scope_detail": "Expected scope: outbound calling with a machine-level Twilio Account SID and auth token.",
+            "source": "none",
+            "scope_label": "outbound calling",
+            "endpoint_prefixes": [
+              "connector://voip/twilio",
+              "connector://voip/twilio/calls"
+            ],
+            "actions": [
+              "call"
+            ],
+            "connector": "voip",
+            "result_code": "provider_setup_incomplete",
+            "next_step": "App Mgmt: save Account SID for Twilio (Twilio Account SIDs start with AC.), then run Verify.",
+            "fix_target": "App Mgmt > Connector Inventory",
+            "verify_check_summary": "Account SID present=MISS, Account SID format looks valid=MISS, Auth token present=MISS, Auth token length looks plausible=MISS"
+          },
+          {
+            "id": "generic",
+            "label": "Generic SIP",
+            "ready": true,
+            "auth_state": "optional",
+            "auth_detail": "Generic SIP provider is not configured yet.",
+            "required_fields": [],
+            "present_fields": [],
+            "missing_fields": [],
+            "field_sources": {},
+            "field_details": [],
+            "setup_state": "not_required",
+            "setup_summary": "Generic SIP does not require stored secrets in this flow.",
+            "next_field": {},
+            "verify_summary": "Generic SIP verify is informational only in this pass.",
+            "verify_checks": [
+              {
+                "id": "generic_voip_manual_handoff",
+                "label": "Manual provider handoff",
+                "state": "pass",
+                "passed": true,
+                "detail": "Generic SIP remains operator-managed and does not require stored Guppy secrets in this pass."
+              }
+            ],
+            "scope_detail": "Expected scope: manual provider handoff for outbound calling.",
+            "source": "none",
+            "scope_label": "manual provider handoff",
+            "endpoint_prefixes": [
+              "connector://voip/generic",
+              "connector://voip/generic/calls"
+            ],
+            "actions": [
+              "call"
+            ],
+            "connector": "voip",
+            "result_code": "ready",
+            "next_step": "Machine auth is ready for Generic SIP. Use Workspaces to bind or narrow policy for this provider.",
+            "fix_target": "Workspaces > Connector Bindings",
+            "verify_check_summary": "Manual provider handoff=OK"
+          }
+        ],
+        "actions_supported": [
+          "verify",
+          "connect",
+          "disconnect"
+        ],
+        "secret_fields": [
+          "TWILIO_ACCOUNT_SID",
+          "TWILIO_AUTH_TOKEN"
+        ],
+        "scope_telemetry": {
+          "endpoint_prefixes": [
+            "connector://voip/twilio",
+            "connector://voip/twilio/calls",
+            "connector://voip/generic",
+            "connector://voip/generic/calls"
+          ],
+          "action_ids": [
+            "call"
+          ],
+          "summary": "VoIP bindings can pin a calling provider and restrict call endpoint scope."
+        },
+        "result_code": "provider_setup_incomplete",
+        "next_step": "App Mgmt: save Account SID for Twilio (Twilio Account SIDs start with AC.), then run Verify.",
+        "fix_target": "App Mgmt > Connector Inventory",
+        "binding": {
+          "enabled": true,
+          "inherited": true,
+          "account_id": "",
+          "provider": "",
+          "action_allow": [],
+          "action_block": [],
+          "endpoint_allow": [],
+          "endpoint_block": [],
+          "note": ""
+        },
+        "history": {
+          "last_verified_at": "",
+          "last_verify_ok": false,
+          "last_verify_summary": "",
+          "last_verify_event_id": "",
+          "last_action": "",
+          "last_action_at": "",
+          "last_action_ok": false,
+          "last_result": "",
+          "last_event_id": "",
+          "last_action_record": {},
+          "last_verify_record": {},
+          "recent_events": [],
+          "timeline": [],
+          "recent_summary": ""
+        },
+        "last_verified_at": "",
+        "last_verify_ok": false,
+        "last_verify_summary": "",
+        "last_verify_event_id": "",
+        "last_action": "",
+        "last_action_at": "",
+        "last_action_ok": false,
+        "last_result": "",
+        "last_event_id": "",
+        "last_action_record": {},
+        "last_verify_record": {},
+        "recent_events": [],
+        "timeline": [],
+        "recent_summary": "",
+        "binding_validation": {
+          "state": "provider_required",
+          "message": "Choose a provider from the machine inventory before you save this binding.",
+          "provider_valid": true,
+          "account_valid": true,
+          "host_ready": false
+        }
+      }
+    ]
+  },
+  "home": {
+    "background_event": "Latest activity: Automation validation queued in App Mgmt terminal",
+    "workspace_summary": "Active workspace: Daily assistant workspace. Primary foreground assistant instance Saved context: AUTO mode | GUPPY persona | DEFAULT voice. Next move: Ask one clear question first, then use MORNING BRIEF only if you want a head start. Recent context: no recent thread is pinned yet.",
+    "runtime_facts": "Ready now: Standard profile, GUPPY model, EDGE TTS from persona voice (ready) voice, last request: You did well! now do the same thing but for messeging and chat ui.",
+    "route_facts": "Next reply: Complex task, via SONNET, using CLAUDE-SONNET-4-6, backup CLAUDE-HAIKU-4-5-20251001. Why: complex task classification Evidence: cloud route configured",
+    "recovery_summary": "System health: Recovery audit_runtime: OK \u2014 diagnostics bundle written: diagnostics_bundle_20260417_215745.json"
+  },
+  "automation": {
+    "status": "Focused automation validation queued in the embedded terminal.",
+    "builder_report_path": "runtime/offhours_builder_report.json",
+    "validation_command": ".venv\\Scripts\\python.exe -m pytest tests/unit/test_offhours_builder.py tests/unit/test_instance_controls.py -q"
+  },
+  "windows_ops": {
+    "install": "Installed on this PC: Launcher python: C:\\Users\\Ryan\\Guppy\\.venv\\Scripts\\pythonw.exe | Repo python: present | Ollama CLI: found | Lemonade CLI: found | Supervisor script: ready | Packager: ready",
+    "runtime": "Local AI runtime: OLLAMA | Live backend: OLLAMA | Status: MISSING | Ollama model registry reachable",
+    "paths": "Data locations: runtime=C:\\Users\\Ryan\\Guppy\\runtime | config=C:\\Users\\Ryan\\Guppy\\config | settings=C:\\Users\\Ryan\\Guppy\\runtime\\app_settings.json",
+    "repair": "Repair help: keyring-backed first; file fallback not present | API relaunch: C:\\Users\\Ryan\\Guppy\\bin\\launch_api_supervised.bat",
+    "update": "Update steps: python -m pip install -r requirements.txt | optional extras: python -m pip install -r requirements-optional.txt | postflight: python tools/validate_build_checks.py + python tools/verify_ollama_runtime.py --prompt ok | daily launcher: python src/guppy/cli/launch.py launcher",
+    "diagnostics": "Diagnostics: launcher log=C:\\Users\\Ryan\\Guppy\\runtime\\launcher_events.jsonl | latest bundle=C:\\Users\\Ryan\\Guppy\\runtime\\diagnostics_bundle_20260417_215745.json | runtime check: python tools/verify_ollama_runtime.py --prompt ok",
+    "entry": "Useful entry points: launcher=python src/guppy/cli/launch.py launcher | package=bin/build_executable.bat --no-clean | supervisor=C:\\Users\\Ryan\\Guppy\\bin\\launch_api_supervised.bat",
+    "next": "Recommended next step: Watch the App Mgmt terminal for completion evidence and wait for the servicing ref to appear. | Fix in: App Mgmt > Windows Ops | Doc: docs/TROUBLESHOOTING.md | Command: python src/guppy/cli/launch.py launcher",
+    "service": "Recent service action: verify_runtime @ 2026-04-17T21:58:10.280761+00:00 | OK | Windows Verify queued in App Mgmt terminal | Phase: queued",
+    "changes": "Recent changes: Refresh local runtime readiness, challenger availability, and logging-health evidence.",
+    "gate": "Release check: no dry-run result recorded yet.",
+    "gate_fix": "Release follow-up: no release-check recommendations recorded yet.",
+    "handoff": "Files to share: run RELEASE DRY RUN first, then share the dry-run report, receipt, and summary in that order."
+  },
+  "latest_stress_report": "tests/runtime/stress_report_20260417_022711.json",
+  "recent_operator_notes": [
+    "INFO windows ops action: verify_runtime",
+    "INFO command response",
+    "INFO windows ops action: verify_runtime",
+    "ERROR command response",
+    "INFO recovery result: diagnostics bundle written: diagnostics_bundle_20260417_215745.json"
+  ],
+  "evidence_json_path": "runtime/user_test_evidence.json",
+  "evidence_summary_path": "runtime/user_test_evidence.md"
+}
