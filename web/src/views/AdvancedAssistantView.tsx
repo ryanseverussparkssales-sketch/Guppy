@@ -38,7 +38,6 @@ export default function AdvancedAssistantView() {
     sessions,
     setCurrentSession,
     createSession,
-    deleteSession,
     clearSession,
     addMessage,
   } = useChatHistory()
@@ -66,7 +65,7 @@ export default function AdvancedAssistantView() {
     }
 
     if (!currentSession) {
-      const session = await createSession(text.slice(0, 50) + '...')
+      await createSession(text.slice(0, 50) + '...')
       await addMessage(userMessage)
     } else {
       await addMessage(userMessage)

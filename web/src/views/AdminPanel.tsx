@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { BarChart, Users, Database, Settings, AlertCircle, CheckCircle } from 'lucide-react'
+import { BarChart, Users, Settings, CheckCircle } from 'lucide-react'
 import api from '../api/client'
 import './AdminPanel.css'
 
@@ -20,7 +20,6 @@ interface User {
 
 export default function AdminPanel() {
   const [stats, setStats] = useState<SystemStats | null>(null)
-  const [users, setUsers] = useState<User[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'settings'>('dashboard')
 
