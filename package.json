@@ -1,28 +1,14 @@
 {
-  "name": "guppy-web-ui",
+  "name": "guppy",
   "version": "1.0.0",
-  "description": "Web UI for Guppy AI Assistant",
+  "description": "Guppy AI Assistant - Web UI",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "npm run dev --prefix web",
+    "build": "npm run build --prefix web",
+    "preview": "npm run preview --prefix web",
+    "install:web": "npm install --prefix web"
   },
-  "dependencies": {
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "react-router-dom": "6.20.0",
-    "zustand": "4.4.6",
-    "axios": "1.6.2",
-    "lucide-react": "0.292.0",
-    "clsx": "2.0.0",
-    "recharts": "2.10.0"
-  },
-  "devDependencies": {
-    "@types/react": "18.2.43",
-    "@types/react-dom": "18.2.17",
-    "@vitejs/plugin-react": "4.2.1",
-    "typescript": "5.3.3",
-    "vite": "5.0.8"
-  }
+  "keywords": ["ai", "assistant", "guppy"],
+  "license": "MIT"
 }
