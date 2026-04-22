@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guppy Launcher</title>
+    <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+    <div class="launcher-container">
+        <!-- Header -->
+        <header class="launcher-header">
+            <div class="header-left">
+                <h1 class="launcher-title">Guppy Launcher</h1>
+                <div class="api-status" id="apiStatus">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span class="status-text" id="statusText">Checking...</span>
+                </div>
+            </div>
+            <nav class="header-nav">
+                <button class="nav-btn active" data-view="home">Home</button>
+                <button class="nav-btn" data-view="instances">Instances</button>
+                <button class="nav-btn" data-view="connectors">Connectors</button>
+                <button class="nav-btn" data-view="settings">Settings</button>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main class="launcher-main">
+            <!-- Home View -->
+            <section class="view-section active" id="homeView" data-view="home">
+                <div class="welcome-panel">
+                    <h2>Welcome to Guppy</h2>
+                    <p>Manage your workspace instances and connectors</p>
+                </div>
+                
+                <div class="dashboard-grid">
+                    <div class="stat-card">
+                        <h3>Instances</h3>
+                        <p class="stat-number" id="instanceCount">-</p>
+                        <button class="card-btn" data-action="view-instances">View All</button>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <h3>Connectors</h3>
+                        <p class="stat-number" id="connectorCount">-</p>
+                        <button class="card-btn" data-action="view-connectors">View All</button>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <h3>Status</h3>
+                        <p class="stat-text" id="overallStatus">Checking...</p>
+                        <button class="card-btn" data-action="refresh-status">Refresh</button>
+                    </div>
+                </div>
+
+                <div class="quick-actions">
+                    <h3>Quick Actions</h3>
+                    <button class="action-btn primary" id="createInstanceBtn">+ Create Instance</button>
+                    <button class="action-btn" id="manageConnectorsBtn">Manage Connectors</button>
+                </div>
+            </section>
+
+            <!-- Instances View -->
+            <section class="view-section" id="instancesView" data-view="instances">
+                <div class="view-header">
+                    <h2>Instances</h2>
+                    <button class="btn primary" id="newInstanceBtn">+ New Instance</button>
+                </div>
+
+                <div class="instances-list" id="instancesList">
+                    <div class="loading">Loading instances...</div>
+                </div>
+            </section>
+
+            <!-- Connectors View -->
+            <section class="view-section" id="connectorsView" data-view="connectors">
+                <div class="view-header">
+                    <h2>Connectors</h2>
+                    <button class="btn primary" id="newConnectorBtn">+ Add Connector</button>
+                </div>
+
+                <div class="connectors-list" id="connectorsList">
+                    <div class="loading">Loading connectors...</div>
+                </div>
+            </section>
+
+            <!-- Settings View -->
+            <section class="view-section" id="settingsView" data-view="settings">
+                <div class="view-header">
+                    <h2>Settings</h2>
+                </div>
+
+                <div class="settings-panel">
+                    <div class="settings-section">
+                        <h3>API Configuration</h3>
+                        <div class="setting-item">
+                            <label>API Base URL</label>
+                            <input type="text" id="apiBaseUrl" placeholder="http://localhost:8000" class="input-field">
+                            <button class="btn secondary" id="saveApiBtn">Save</button>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>System Information</h3>
+                        <div class="info-item">
+                            <label>API Status</label>
+                            <span id="apiInfo">Checking...</span>
+                        </div>
+                        <div class="info-item">
+                            <label>Version</label>
+                            <span id="versionInfo">-</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Modal for creating instance -->
+        <div class="modal" id="instanceModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Create New Instance</h3>
+                    <button class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Instance Name</label>
+                        <input type="text" id="instanceName" placeholder="e.g., dev-workspace" class="input-field">
+                    </div>
+                    <div class="form-group">
+                        <label>Workspace Type</label>
+                        <select id="workspaceType" class="input-field">
+                            <option value="">Select type...</option>
+                            <option value="guppy">Guppy</option>
+                            <option value="workspace">Workspace</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn secondary" data-action="cancel-modal">Cancel</button>
+                    <button class="btn primary" id="createInstanceSubmit">Create</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal for adding connector -->
+        <div class="modal" id="connectorModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Add Connector</h3>
+                    <button class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Connector Type</label>
+                        <select id="connectorType" class="input-field">
+                            <option value="">Select connector...</option>
+                            <option value="github">GitHub</option>
+                            <option value="slack">Slack</option>
+                            <option value="azure">Azure</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>API Key / Token</label>
+                        <input type="password" id="connectorToken" placeholder="Enter your API key" class="input-field">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn secondary" data-action="cancel-modal">Cancel</button>
+                    <button class="btn primary" id="addConnectorSubmit">Connect</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
