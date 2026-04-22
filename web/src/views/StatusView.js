@@ -1,8 +1,0 @@
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { Activity, Zap } from 'lucide-react';
-import { useAppStore } from '../store';
-import './StatusView.css';
-export default function StatusView() {
-    const { status } = useAppStore();
-    return (_jsxs("div", { className: "view-container", children: [_jsx("div", { className: "view-header", children: _jsx("h2", { children: "System Status" }) }), _jsxs("div", { className: "status-grid", children: [_jsxs("div", { className: "status-card healthy", children: [_jsx("div", { className: "status-icon", children: _jsx(Activity, { size: 32 }) }), _jsx("h3", { children: "API Status" }), _jsx("p", { children: "Healthy" }), _jsx("small", { children: "All systems operational" })] }), _jsxs("div", { className: "status-card healthy", children: [_jsx("div", { className: "status-icon", children: _jsx(Zap, { size: 32 }) }), _jsx("h3", { children: "Performance" }), _jsx("p", { children: "Excellent" }), _jsx("small", { children: "Response time: 45ms" })] }), _jsxs("div", { className: "status-card", children: [_jsx("div", { className: "status-icon", children: _jsx(Activity, { size: 32 }) }), _jsx("h3", { children: "Memory Usage" }), _jsx("p", { children: "2.3 GB / 8 GB" }), _jsx("small", { children: "28% utilized" })] }), _jsxs("div", { className: "status-card", children: [_jsx("div", { className: "status-icon", children: _jsx(Zap, { size: 32 }) }), _jsx("h3", { children: "Uptime" }), _jsx("p", { children: "42 days" }), _jsx("small", { children: "100% reliable" })] })] }), _jsxs("div", { className: "status-details", children: [_jsx("h3", { children: "Raw Status" }), _jsx("pre", { children: JSON.stringify(status, null, 2) })] })] }));
-}
