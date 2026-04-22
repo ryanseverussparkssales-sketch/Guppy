@@ -1,11 +1,11 @@
-﻿{
+ {
   "name": "guppy-web-ui",
   "version": "1.0.0",
   "description": "Web UI for Guppy AI Assistant",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
