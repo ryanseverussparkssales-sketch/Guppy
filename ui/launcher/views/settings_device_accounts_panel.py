@@ -284,10 +284,10 @@ class SettingsDeviceAccountsPanel(QWidget):
     def set_account_result(self, text: str, ok: bool | None = True) -> None:
         if ok is None:
             prefix = "Heads up: "
-            color = T.SECONDARY
+            color = T.ACCENT_ORANGE
         else:
             prefix = "Latest result: " if ok else "Needs attention: "
-            color = T.GREEN if ok else T.ERROR
+            color = T.STATUS_SUCCESS if ok else T.STATUS_ERROR
         self._account_step_lbl.setText(prefix + str(text or "").strip())
         self._account_step_lbl.setStyleSheet(
             f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"

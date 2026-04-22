@@ -106,8 +106,8 @@ def _build_assistant_actions(
     ):
         action_btn = _reply_action_button(
             icon_label,
-            color=T.TERTIARY,
-            hover_border="rgba(70,98,199,0.42)",
+            color=T.ACCENT_TEAL,
+            hover_border="rgba(0,106,106,0.42)",
             tooltip=hover_text,
         )
         action_btn.clicked.connect(
@@ -116,8 +116,8 @@ def _build_assistant_actions(
         actions.addWidget(action_btn)
     artifact_btn = _reply_action_button(
         "\u2B22",
-        color=T.PRIMARY,
-        hover_border="rgba(242,202,80,0.62)",
+        color=T.ACCENT_ORANGE,
+        hover_border="rgba(255,109,0,0.62)",
         tooltip="Save this reply as an artifact",
     )
     artifact_btn.clicked.connect(lambda _=False, content=text: on_reply_artifact(content))
@@ -142,8 +142,8 @@ def build_transcript_row(
 
     bubble = QFrame()
     bubble.setObjectName(f"bubble_{role}")
-    bubble_bg = T.TERTIARY if role == "user" else "rgba(255,255,255,0.84)"
-    bubble_fg = T.BG if role == "user" else T.TEXT
+    bubble_bg = T.ACCENT_TEAL if role == "user" else "rgba(255,255,255,0.84)"
+    bubble_fg = T.WHITE if role == "user" else T.TEXT
     border = "none" if role == "user" else "1px solid rgba(205,181,154,0.38)"
     bubble.setStyleSheet(
         f"QFrame#bubble_{role} {{ background-color: {bubble_bg}; border: {border}; border-top-left-radius: 24px; border-top-right-radius: 24px; border-bottom-left-radius: { '8px' if role == 'assistant' else '24px' }; border-bottom-right-radius: { '8px' if role == 'user' else '24px' }; }}"

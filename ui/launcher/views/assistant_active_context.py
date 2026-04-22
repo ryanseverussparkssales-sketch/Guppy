@@ -98,18 +98,18 @@ def populate_active_context_row(
 
         if title != primary_title:
             focus_btn = _action_button(
-                "MAKE PRIMARY",
-                color=T.TERTIARY,
-                hover_border="rgba(70,98,199,0.42)",
-            )
+            "MAKE PRIMARY",
+            color=T.ACCENT_TEAL,
+            hover_border="rgba(0,106,106,0.42)",
+        )
             focus_btn.clicked.connect(lambda _=False, current=title: on_focus(current))
             top.addWidget(focus_btn)
 
         if title == primary_title:
             library_btn = _action_button(
                 "OPEN IN LIBRARY",
-                color=T.TERTIARY,
-                hover_border="rgba(70,98,199,0.42)",
+                color=T.ACCENT_TEAL,
+                hover_border="rgba(0,106,106,0.42)",
             )
             library_btn.clicked.connect(lambda _=False, current=title: on_open_library(current))
             top.addWidget(library_btn)
@@ -117,8 +117,8 @@ def populate_active_context_row(
         remove_btn = _action_button(
             "REMOVE",
             color=T.DIM,
-            hover_border="rgba(200,75,68,0.42)",
-            hover_color=T.ERROR,
+            hover_border="rgba(255,61,0,0.42)",
+            hover_color=T.STATUS_ERROR,
         )
         remove_btn.clicked.connect(lambda _=False, current=title: on_remove(current))
         top.addWidget(remove_btn)
@@ -128,7 +128,7 @@ def populate_active_context_row(
         title_lbl = QLabel(title)
         title_lbl.setWordWrap(True)
         title_lbl.setStyleSheet(
-            f"color: {T.INK}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; font-weight: 600;"
+            f"color: {T.TEXT}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; font-weight: 600;"
         )
         layout.addWidget(title_lbl)
 

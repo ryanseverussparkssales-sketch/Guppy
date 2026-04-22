@@ -274,7 +274,7 @@ class LibraryMediaPanel(QFrame):
         self._set_status(error_text or "Media playback failed.", is_error=True)
 
     def _set_status(self, text: str, *, is_error: bool) -> None:
-        color = T.ERROR if is_error else T.DIM
+        color = T.STATUS_ERROR if is_error else T.DIM
         self._status_lbl.setText(str(text or "").strip())
         self._status_lbl.setStyleSheet(
             f"color: {color}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"

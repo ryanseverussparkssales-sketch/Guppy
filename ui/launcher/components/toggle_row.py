@@ -38,7 +38,7 @@ class ToggleSwitch(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        track = QColor(T.PRIMARY if self._checked else T.BG3)
+        track = QColor(T.ACCENT_TEAL if self._checked else T.BG3)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(track)
         p.drawRoundedRect(QRect(0, 4, 36, 12), 6, 6)

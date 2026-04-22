@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from collections.abc import Callable
 
@@ -59,7 +59,7 @@ def build_assistant_shell(
     owner._identity_details_btn.setStyleSheet(
         f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
         f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-        f"QPushButton:hover {{ border-color: rgba(70,98,199,0.46); color: {T.TERTIARY}; background: #ffffff; }}"
+        f"QPushButton:hover {{ border-color: rgba(0,106,106,0.46); color: {T.ACCENT_TEAL}; background: #ffffff; }}"
     )
     owner._identity_details_btn.clicked.connect(owner._toggle_workspace_details)
     identity_row.addWidget(owner._identity_workspace_chip)
@@ -121,7 +121,7 @@ def build_assistant_shell(
     owner._context_details_btn.setStyleSheet(
         f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
         f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-        f"QPushButton:hover {{ border-color: rgba(70,98,199,0.46); color: {T.TERTIARY}; background: #ffffff; }}"
+        f"QPushButton:hover {{ border-color: rgba(0,106,106,0.46); color: {T.ACCENT_TEAL}; background: #ffffff; }}"
     )
     owner._context_details_btn.clicked.connect(owner._toggle_context_details)
     owner._context_details_btn.setVisible(False)
@@ -197,13 +197,13 @@ def build_assistant_shell(
     chip_row = QHBoxLayout()
     chip_row.setSpacing(8)
     for chip, bg, fg in (
-        (owner._rec_chip, "rgba(70,98,199,0.10)", T.TERTIARY),
-        (owner._instance_chip, "rgba(47,111,122,0.10)", T.SECONDARY),
-        (owner._background_chip, "rgba(44,123,89,0.10)", T.GREEN),
+        (owner._rec_chip, "rgba(0,106,106,0.10)", T.ACCENT_TEAL),
+        (owner._instance_chip, "rgba(255,109,0,0.10)", T.ACCENT_ORANGE),
+        (owner._background_chip, "rgba(0,200,83,0.10)", T.STATUS_SUCCESS),
     ):
         chip.setStyleSheet(
-            f"color: {fg}; background: {bg}; border: 1px solid rgba(214,197,174,0.40);"
-            f" border-radius: 14px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+            f"color: {fg}; background: {bg}; border: 1px solid {T.BORDER_SOFT};"
+            f" border-radius: 4px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
         chip_row.addWidget(chip)
     owner._rec_chip.hide()
@@ -213,7 +213,7 @@ def build_assistant_shell(
 
     owner._entry_hint.setWordWrap(True)
     owner._entry_hint.setStyleSheet(
-        f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        f"color: {T.ACCENT_TEAL}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
     )
     hero_layout.addWidget(owner._entry_hint)
     hero_layout.addWidget(owner._context_bar)
@@ -238,7 +238,7 @@ def build_assistant_shell(
     owner._workspace_details_btn.setStyleSheet(
         f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
         f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-        f"QPushButton:hover {{ border-color: rgba(70,98,199,0.46); color: {T.TERTIARY}; background: #ffffff; }}"
+        f"QPushButton:hover {{ border-color: rgba(0,106,106,0.46); color: {T.ACCENT_TEAL}; background: #ffffff; }}"
     )
     owner._workspace_details_btn.clicked.connect(owner._toggle_workspace_details)
     details_strip_layout.addWidget(owner._workspace_details_summary, stretch=1)
@@ -464,7 +464,7 @@ def build_assistant_shell(
     owner._starters_btn.setStyleSheet(
         f"QPushButton {{ background: rgba(255,255,255,0.92); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.54);"
         f" border-radius: 12px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-        f"QPushButton:hover {{ border-color: rgba(70,98,199,0.46); color: {T.TERTIARY}; background: #ffffff; }}"
+        f"QPushButton:hover {{ border-color: rgba(0,106,106,0.46); color: {T.ACCENT_TEAL}; background: #ffffff; }}"
     )
     owner._starters_btn.clicked.connect(owner._toggle_starters)
     starter_summary_row.addWidget(owner._starters_btn)
@@ -588,7 +588,3 @@ def build_assistant_shell(
     owner._identity_details_btn.setVisible(False)
     owner._workspace_details_strip.setVisible(False)
     owner._workspace_details_host.setVisible(False)
-
-
-
-

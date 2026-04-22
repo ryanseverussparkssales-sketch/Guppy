@@ -189,11 +189,11 @@ class ModelsView(QWidget):
         tb.setContentsMargins(28, 0, 28, 0)
         self._title_lbl = QLabel("MODELS")
         self._title_lbl.setStyleSheet(
-            f"color: {T.PRIMARY}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_TITLE}pt; font-weight: bold; letter-spacing: 2px;"
+            f"color: {T.ACCENT_TEAL}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_TITLE}pt; font-weight: bold; letter-spacing: 2px;"
         )
         self._active_lbl = QLabel(build_models_active_identity_text(self._active_model))
         self._active_lbl.setStyleSheet(
-            f"color: {T.PRIMARY_DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;"
+            f"color: {T.ACCENT_ORANGE}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;"
         )
         self._active_runtime_lbl = QLabel(build_models_runtime_identity_text(self._local_runtime_backend))
         self._active_runtime_lbl.setStyleSheet(
@@ -334,15 +334,15 @@ class ModelsView(QWidget):
     @staticmethod
     def _tone_color(tone: str, *, default: str = T.TEXT) -> str:
         return {
-            "success": T.GREEN,
-            "warning": T.PRIMARY,
-            "error": T.ERROR,
+            "success": T.STATUS_SUCCESS,
+            "warning": T.STATUS_WARNING,
+            "error": T.STATUS_ERROR,
             "muted": T.DIM,
             "info": default,
         }.get(str(tone or "").strip().lower(), default)
 
     def _set_runtime_status(self, text: str, ok: bool = True) -> None:
-        color = T.GREEN if ok else T.ERROR
+        color = T.STATUS_SUCCESS if ok else T.STATUS_ERROR
         self._runtime_status_lbl.setText(text)
         self._runtime_status_lbl.setStyleSheet(f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
 

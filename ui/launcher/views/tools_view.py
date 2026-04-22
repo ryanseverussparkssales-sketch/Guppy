@@ -139,7 +139,7 @@ class ToolsView(QWidget):
         self._details_btn.setStyleSheet(
             f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER};"
             f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; }}"
+            f"QPushButton:hover {{ border-color: {T.ACCENT_TEAL}; color: {T.ACCENT_TEAL}; }}"
         )
         self._details_btn.clicked.connect(self._toggle_details)
         title_row.addWidget(self._details_btn)
@@ -159,7 +159,7 @@ class ToolsView(QWidget):
             )
         )
 
-        self._context_lbl = mono_label("WORKSPACE: GUPPY-PRIMARY | DAILY", T.PRIMARY, T.FS_TINY, True)
+        self._context_lbl = mono_label("WORKSPACE: GUPPY-PRIMARY | DAILY", T.ACCENT_TEAL, T.FS_TINY, True)
         self._limits_lbl = mono_label("Slots in use: 1 / 5 | Live now: 1 / 2", T.DIM, T.FS_TINY)
         layout.addWidget(self._context_lbl)
         layout.addWidget(self._limits_lbl)
@@ -182,10 +182,10 @@ class ToolsView(QWidget):
         self._sections = QTabWidget()
         self._sections.setDocumentMode(True)
         self._sections.setStyleSheet(
-            f"QTabWidget::pane {{ border: 1px solid {T.BORDER}; background: rgba(255,255,255,0.42); }}"
-            f"QTabBar::tab {{ background: rgba(255,255,255,0.86); color: {T.DIM}; border: 1px solid {T.BORDER};"
+            f"QTabWidget::pane {{ border: 1px solid {T.BORDER_SOFT}; background: rgba(255,255,255,0.42); }}"
+            f"QTabBar::tab {{ background: rgba(255,255,255,0.86); color: {T.DIM}; border: 1px solid {T.BORDER_SOFT}; border-radius: 3px;"
             f" padding: 4px 8px; margin-right: 4px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QTabBar::tab:selected {{ color: {T.INK}; border-color: {T.PRIMARY}; background: rgba(242,202,80,0.14); }}"
+            f"QTabBar::tab:selected {{ color: {T.TEXT}; border-color: {T.ACCENT_ORANGE}; background: rgba(255,109,0,0.12); }}"
         )
         self._quick_tab = QWidget()
         self._quick_layout = QVBoxLayout(self._quick_tab)
@@ -206,9 +206,9 @@ class ToolsView(QWidget):
         self._search.setToolTip("Type a keyword to filter workspace tools by name or description")
         self._search.setMinimumHeight(36)
         self._search.setStyleSheet(
-            f"QLineEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
+            f"QLineEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER_SOFT}; border-radius: 4px; color: {T.TEXT};"
             f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
-            f"QLineEdit:focus {{ border-color: {T.PRIMARY}; }}"
+            f"QLineEdit:focus {{ border-color: {T.ACCENT_TEAL}; }}"
         )
         self._search.textChanged.connect(self._apply_filters)
 
@@ -225,7 +225,7 @@ class ToolsView(QWidget):
             f"QTabWidget::pane {{ border: none; }}"
             f"QTabBar::tab {{ background: rgba(255,255,255,0.86); color: {T.DIM}; border: 1px solid {T.BORDER};"
             f" padding: 3px 8px; margin-right: 4px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QTabBar::tab:selected {{ color: {T.INK}; border-color: {T.PRIMARY}; background: rgba(242,202,80,0.14); }}"
+            f"QTabBar::tab:selected {{ color: {T.INK}; border-color: {T.ACCENT_ORANGE}; background: rgba(255,109,0,0.12); }}"
         )
         for label in ("All", "Read", "Write", "Code", "Connect", "Restricted"):
             self._type_tabs.addTab(QWidget(), label)
@@ -241,7 +241,7 @@ class ToolsView(QWidget):
         banner_layout = QVBoxLayout(banner)
         banner_layout.setContentsMargins(16, 14, 16, 14)
         banner_layout.setSpacing(8)
-        banner_layout.addWidget(mono_label("BOUNDARY", T.PRIMARY, T.FS_TINY, True))
+        banner_layout.addWidget(mono_label("BOUNDARY", T.ACCENT_ORANGE, T.FS_TINY, True))
         banner_layout.addWidget(
             mono_label(
                 "The workspace drawer is the fast path. This page stays useful when you want richer task context, workspace-safe file actions, or deeper access notes.",

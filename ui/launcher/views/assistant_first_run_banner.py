@@ -120,15 +120,15 @@ class FirstRunBanner(QFrame):
             bg = "rgba(44,123,89,0.12)"
             text = "READY"
         elif normalized in {"failed", "skipped"}:
-            color = T.ERROR if normalized == "failed" else T.PRIMARY
-            bg = "rgba(183,73,66,0.12)" if normalized == "failed" else "rgba(201,106,43,0.12)"
+            color = T.STATUS_ERROR if normalized == "failed" else T.ACCENT_ORANGE
+            bg = "rgba(255,61,0,0.10)" if normalized == "failed" else "rgba(255,109,0,0.10)"
             text = normalized.upper()
         else:
-            color = T.TERTIARY
-            bg = "rgba(70,98,199,0.10)"
+            color = T.ACCENT_TEAL
+            bg = "rgba(0,106,106,0.10)"
             text = "PENDING"
         chip.setText(f"{label} · {text}")
         chip.setStyleSheet(
-            f"color: {color}; background: {bg}; border: 1px solid rgba(214,197,174,0.42);"
-            f" border-radius: 12px; padding: 5px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
+            f"color: {color}; background: {bg}; border: 1px solid {T.BORDER_SOFT};"
+            f" border-radius: 4px; padding: 5px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
         )

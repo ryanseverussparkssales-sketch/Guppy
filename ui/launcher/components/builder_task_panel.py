@@ -104,11 +104,11 @@ class BuilderTaskPanel(QFrame):
         else:
             self._status_lbl.setText("Builder queue blocked for read-only instances")
             self._status_lbl.setStyleSheet(
-                f"color: {T.ERROR}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+                f"color: {T.STATUS_ERROR}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
             )
 
     def set_status(self, text: str, ok: bool = True) -> None:
-        color = T.GREEN if ok else T.ERROR
+        color = T.STATUS_SUCCESS if ok else T.STATUS_ERROR
         self._status_lbl.setText(text)
         self._status_lbl.setStyleSheet(
             f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"

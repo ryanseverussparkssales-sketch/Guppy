@@ -291,7 +291,7 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         # ── Divider ──────────────────────────────────────────────────────────
         div = QFrame()
         div.setFixedHeight(1)
-        div.setStyleSheet(f"background: {T.BORDER};")
+        div.setStyleSheet(f"background: {T.BORDER_SOFT};")
         root.addWidget(div)
 
         # ── Body row: Sidebar | Content | StatusPanel ────────────────────────
@@ -305,7 +305,7 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         # Thin vertical divider
         sdiv = QFrame()
         sdiv.setFixedWidth(1)
-        sdiv.setStyleSheet(f"background: {T.BORDER};")
+        sdiv.setStyleSheet(f"background: {T.BORDER_SOFT};")
         body.addWidget(sdiv)
 
         # Content stack
@@ -349,7 +349,7 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         # Thin vertical divider
         self._status_divider = QFrame()
         self._status_divider.setFixedWidth(1)
-        self._status_divider.setStyleSheet(f"background: {T.BORDER};")
+        self._status_divider.setStyleSheet(f"background: {T.BORDER_SOFT};")
         body.addWidget(self._status_divider)
 
         self._status_panel = StatusPanel(self)

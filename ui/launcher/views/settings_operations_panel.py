@@ -134,7 +134,7 @@ class SettingsOperationsPanel(QWidget):
         title_row = QHBoxLayout()
         title = QLabel("Settings & System")
         title.setStyleSheet(
-            f"color: {T.INK}; font-family: '{T.FF_HEAD}';"
+            f"color: {T.TEXT}; font-family: '{T.FF_HEAD}';"
             f"font-size: 28pt; font-weight: 700; letter-spacing: -1px;"
         )
         title_row.addWidget(title)
@@ -144,9 +144,9 @@ class SettingsOperationsPanel(QWidget):
         self._details_btn.setAccessibleName("Advanced details")
         self._details_btn.setAccessibleDescription("Shows or hides advanced operational controls")
         self._details_btn.setStyleSheet(
-            f"QPushButton {{ background: rgba(255,255,255,0.88); color: {T.DIM}; border: 1px solid rgba(214,197,174,0.62);"
+            f"QPushButton {{ background: rgba(255,255,255,0.88); color: {T.DIM}; border: 1px solid {T.BORDER_SOFT}; border-radius: 4px;"
             f" padding: 5px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: {T.TERTIARY}; color: {T.TERTIARY}; }}"
+            f"QPushButton:hover {{ border-color: {T.ACCENT_TEAL}; color: {T.ACCENT_TEAL}; }}"
         )
         self._details_btn.clicked.connect(self._toggle_details)
         title_row.addWidget(self._details_btn)
@@ -156,7 +156,7 @@ class SettingsOperationsPanel(QWidget):
         info_row = QHBoxLayout()
         info_row.setSpacing(8)
         dot = QLabel("•")
-        dot.setStyleSheet(f"color: {T.PRIMARY}; font-size: {T.FS_TINY}pt;")
+        dot.setStyleSheet(f"color: {T.ACCENT_ORANGE}; font-size: {T.FS_TINY}pt;")
         info_row.addWidget(dot)
         info_row.addWidget(_mono("SETTINGS + RECOVERY", T.PRIMARY, T.FS_TINY, True))
         info_row.addSpacing(12)
