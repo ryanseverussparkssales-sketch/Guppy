@@ -54,12 +54,20 @@ export default function AssistantView() {
       }
 
       setMessages((prev) => [...prev, assistantMessage])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to send message:', error)
+      let errorContent = 'Sorry, I encountered an error processing your request.'
+
+      if (error.response?.status === 503) {
+        errorContent = 'Guppy core is not available. Please ensure all services are properly configured.'
+      } else if (error.response?.data?.detail) {
+        errorContent = `Error: ${error.response.data.detail}`
+      }
+
       const errorMessage: ChatMessage = {
         id: (Date.now() + 2).toString(),
         role: 'assistant',
-        content: 'Sorry, I encountered an error processing your request.',
+        content: errorContent,
         timestamp: new Date(),
       }
       setMessages((prev) => [...prev, errorMessage])
