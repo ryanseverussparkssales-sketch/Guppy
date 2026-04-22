@@ -1,0 +1,41 @@
+@import './InstancesView.css';
+
+.voice-config {
+  max-width: 600px;
+}
+
+.config-section {
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.config-section h3 {
+  margin: 0 0 16px 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.config-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.config-item label {
+  min-width: 120px;
+  font-weight: 500;
+}
+
+.config-item select {
+  flex: 1;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  padding: 8px 12px;
+  cursor: pointer;
+}
