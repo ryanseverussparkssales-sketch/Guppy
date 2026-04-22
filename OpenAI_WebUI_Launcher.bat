@@ -1,13 +1,14 @@
 @echo off
 title OpenAI WebUI Launcher
-cd /d "C:\Users\Ryan\Guppy"
+set "SCRIPT_DIR=%~dp0"
+cd /d "%SCRIPT_DIR%"
 
 echo ========================================
 echo Starting OpenAI WebUI (Docker)
 echo ========================================
 echo.
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\Ryan\Guppy\launch_openai_webui.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%launch_openai_webui.ps1"
 set EXIT_CODE=%ERRORLEVEL%
 
 if not %EXIT_CODE%==0 (

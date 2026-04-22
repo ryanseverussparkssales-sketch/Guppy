@@ -29,6 +29,10 @@ bin\\launch_api_supervised.bat
 
 # Guided automation-test entrypoint
 bin\\launch_automation_test.bat
+
+# Explicit launcher paths
+bin\\Guppy.bat            # Desktop launcher path
+bin\\launch_web_ui.bat    # Local Web UI launcher path (one click)
 ```
 
 Supported desktop shortcut path:
