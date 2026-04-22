@@ -1,7 +1,6 @@
 import {
   Brain,
   TrendingDown,
-  ArrowRight,
   Download,
   Link2,
   Archive,
@@ -60,8 +59,8 @@ export default function DashboardView() {
               <p className="text-xs text-on-surface-variant font-bold mb-1 uppercase tracking-wider">VRAM Occupancy</p>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-body font-bold text-on-surface">
-                  {status?.resources?.gpuMemoryUsage 
-                    ? `${Math.round(status.resources.gpuMemoryUsage / status.resources.gpuMemoryTotal * 100)}%`
+                  {status?.resources?.gpuMemory 
+                    ? `${Math.round(status.resources.gpuMemory)}%`
                     : "62.8%"}
                 </span>
                 <span className="text-xs text-on-surface-variant/50 font-bold">OF 48GB</span>
