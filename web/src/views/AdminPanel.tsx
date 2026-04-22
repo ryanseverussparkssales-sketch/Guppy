@@ -5,9 +5,19 @@ import {
   Play, Eye,
 } from 'lucide-react'
 import api from '../api/client'
-import './AdminPanel.css'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 
-// ── types ─────────────────────────────────────────────────────────────────────
+/**
+ * BACKEND INTEGRATION:
+ * - GET /metrics - System metrics and request statistics
+ * - GET /status - Service health and readiness checks
+ * - GET /logs/recent - Recent log events
+ * - GET /telemetry/report - Telemetry summary
+ * - GET /repair-token/refresh - Get repair authorization token
+ * - POST /repair - Execute repair actions (requires X-Repair-Token header)
+ */
 
 interface Metrics {
   started_at: string
@@ -71,8 +81,6 @@ interface TelemetryReport {
 
 type Tab = 'dashboard' | 'activity' | 'recovery' | 'system'
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
 function formatUptime(startedAt: string): string {
   const diffMs = Date.now() - new Date(startedAt).getTime()
   const s = Math.floor(diffMs / 1000)
@@ -84,18 +92,11 @@ function formatUptime(startedAt: string): string {
   return `${m}m ${s % 60}s`
 }
 
-function stateColor(state: string): string {
-  const s = (state || '').toUpperCase()
-  if (s === 'READY') return 'check-ok'
-  if (s === 'PARTIAL' || s === 'OPTIONAL') return 'check-warn'
-  return 'check-err'
-}
-
 function StateIcon({ state }: { state: string }) {
   const s = (state || '').toUpperCase()
-  if (s === 'READY') return <CheckCircle size={16} className="check-ok" />
-  if (s === 'PARTIAL' || s === 'OPTIONAL' || s === 'SKIPPED') return <AlertCircle size={16} className="check-warn" />
-  return <XCircle size={16} className="check-err" />
+  if (s === 'READY') return <CheckCircle size={16} className="text-success" />
+  if (s === 'PARTIAL' || s === 'OPTIONAL' || s === 'SKIPPED') return <AlertCircle size={16} className="text-warning" />
+  return <XCircle size={16} className="text-coral" />
 }
 
 function relativeTime(ts: string | undefined): string {
@@ -106,8 +107,6 @@ function relativeTime(ts: string | undefined): string {
   if (s < 3600) return `${Math.floor(s / 60)}m ago`
   return `${Math.floor(s / 3600)}h ago`
 }
-
-// ── component ─────────────────────────────────────────────────────────────────
 
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
@@ -194,330 +193,338 @@ export default function AdminPanel() {
   const checks = status?.startup_readiness?.checks ?? {}
 
   return (
-    <div className="admin-container">
-      <div className="admin-header">
-        <h2>Admin Panel</h2>
-        <p>System management and monitoring</p>
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="font-headline text-3xl text-on-surface">Admin Panel</h1>
+        <p className="text-on-surface-variant mt-1">System management and monitoring</p>
       </div>
 
-      <div className="admin-tabs">
+      {/* Tabs */}
+      <div className="flex items-center gap-2 border-b border-outline-variant pb-2">
         {tabs.map((t) => (
           <button
             type="button"
             key={t.id}
-            className={`tab-btn ${activeTab === t.id ? 'active' : ''}`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+              activeTab === t.id 
+                ? 'bg-primary text-on-primary' 
+                : 'text-on-surface-variant hover:bg-surface-container'
+            }`}
             onClick={() => setActiveTab(t.id)}
           >
             {t.icon}
             {t.label}
           </button>
         ))}
-        <button type="button" className="tab-btn refresh-btn" onClick={fetchDashboard} title="Refresh">
+        <button 
+          type="button" 
+          className="ml-auto p-2 rounded-lg text-on-surface-variant hover:bg-surface-container"
+          onClick={fetchDashboard} 
+          title="Refresh"
+        >
           <RefreshCw size={16} />
         </button>
       </div>
 
-      {/* ── DASHBOARD ── */}
+      {/* Dashboard Tab */}
       {activeTab === 'dashboard' && (
-        <div className="admin-dashboard">
+        <div className="space-y-6">
           {loading ? (
-            <div className="loading">Loading...</div>
+            <div className="text-center py-12 text-on-surface-variant">Loading...</div>
           ) : (
             <>
-              <div className="stats-grid">
-                <div className={`stat-card ${status?.status === 'healthy' ? 'healthy' : 'warn'}`}>
-                  <div className="stat-icon">
-                    {status?.status === 'healthy'
-                      ? <CheckCircle size={28} />
-                      : <AlertCircle size={28} />}
-                  </div>
-                  <h3>System Status</h3>
-                  <p className={status?.status === 'healthy' ? '' : 'warning'}>
-                    {(status?.status ?? 'unknown').toUpperCase()}
-                  </p>
-                </div>
-
-                <div className="stat-card">
-                  <div className="stat-value">
-                    {metrics?.started_at ? formatUptime(metrics.started_at) : '—'}
-                  </div>
-                  <h3>Uptime</h3>
-                  <p>Since {metrics?.started_at ? new Date(metrics.started_at).toLocaleTimeString() : '—'}</p>
-                </div>
-
-                <div className="stat-card">
-                  <div className="stat-value">{(metrics?.requests_total ?? 0).toLocaleString()}</div>
-                  <h3>Total Requests</h3>
-                  <p>{metrics?.slow_requests ?? 0} slow</p>
-                </div>
-
-                <div className="stat-card">
-                  <div className={`stat-value ${(metrics?.errors_total ?? 0) > 0 ? 'err' : ''}`}>
-                    {metrics?.errors_total ?? 0}
-                  </div>
-                  <h3>Errors</h3>
-                  <p className={(metrics?.errors_total ?? 0) > 0 ? 'warning' : ''}>
-                    {(metrics?.errors_total ?? 0) > 0 ? 'Detected' : 'None'}
-                  </p>
-                </div>
-
-                <div className="stat-card">
-                  <div className="stat-value">{(metrics?.average_latency_ms ?? 0).toFixed(0)}ms</div>
-                  <h3>Avg Latency</h3>
-                  <p>API response time</p>
-                </div>
-
-                <div className="stat-card">
-                  <div className="stat-value">
-                    {Object.values(checks).filter((c) => c.state === 'READY').length}
-                    /{Object.keys(checks).length || '—'}
-                  </div>
-                  <h3>Services Ready</h3>
-                  <p>{status?.startup_readiness?.overall ?? '—'}</p>
-                </div>
-              </div>
-
-              <div className="checks-section">
-                <h3>Service Readiness</h3>
-                <div className="checks-grid">
-                  {Object.entries(checks).map(([name, check]) => (
-                    <div key={name} className={`check-card ${stateColor(check.state)}-border`}>
-                      <div className="check-header">
-                        <StateIcon state={check.state} />
-                        <span className="check-name">{name}</span>
-                        <span className={`check-state ${stateColor(check.state)}`}>{check.state}</span>
-                      </div>
-                      <p className="check-detail">{check.detail}</p>
+              {/* Stats Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                <Card className={status?.status === 'healthy' ? 'border-success' : 'border-warning'}>
+                  <CardContent className="pt-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      {status?.status === 'healthy' 
+                        ? <CheckCircle className="text-success" size={20} />
+                        : <AlertCircle className="text-warning" size={20} />
+                      }
                     </div>
-                  ))}
-                </div>
+                    <p className="text-sm text-on-surface-variant">System Status</p>
+                    <p className="font-semibold text-on-surface">
+                      {(status?.status ?? 'unknown').toUpperCase()}
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-2xl font-bold text-primary">
+                      {metrics?.started_at ? formatUptime(metrics.started_at) : '—'}
+                    </p>
+                    <p className="text-sm text-on-surface-variant">Uptime</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-2xl font-bold text-on-surface">
+                      {(metrics?.requests_total ?? 0).toLocaleString()}
+                    </p>
+                    <p className="text-sm text-on-surface-variant">Total Requests</p>
+                  </CardContent>
+                </Card>
+
+                <Card className={metrics?.errors_total ? 'border-coral' : ''}>
+                  <CardContent className="pt-4">
+                    <p className={`text-2xl font-bold ${metrics?.errors_total ? 'text-coral' : 'text-on-surface'}`}>
+                      {metrics?.errors_total ?? 0}
+                    </p>
+                    <p className="text-sm text-on-surface-variant">Errors</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-2xl font-bold text-on-surface">
+                      {(metrics?.average_latency_ms ?? 0).toFixed(0)}ms
+                    </p>
+                    <p className="text-sm text-on-surface-variant">Avg Latency</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-2xl font-bold text-primary">
+                      {Object.values(checks).filter((c) => c.state === 'READY').length}
+                      /{Object.keys(checks).length || '—'}
+                    </p>
+                    <p className="text-sm text-on-surface-variant">Services Ready</p>
+                  </CardContent>
+                </Card>
               </div>
 
-              {metrics && Object.keys(metrics.path_counts ?? {}).length > 0 && (
-                <div className="top-paths">
-                  <h3>Top Endpoints</h3>
-                  <div className="path-list">
-                    {Object.entries(metrics.path_counts)
-                      .sort(([, a], [, b]) => b - a)
-                      .slice(0, 8)
-                      .map(([path, count]) => (
-                        <div key={path} className="path-row">
-                          <code className="path-name">{path}</code>
-                          <span className="path-count">{count}</span>
+              {/* Service Readiness */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Service Readiness</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {Object.entries(checks).map(([name, check]) => (
+                      <div key={name} className="flex items-start gap-3 p-3 rounded-lg bg-surface-container">
+                        <StateIcon state={check.state} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-on-surface">{name}</span>
+                            <Badge variant={check.state === 'READY' ? 'success' : check.state === 'PARTIAL' ? 'warning' : 'destructive'}>
+                              {check.state}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-on-surface-variant truncate">{check.detail}</p>
                         </div>
-                      ))}
+                      </div>
+                    ))}
                   </div>
-                </div>
+                </CardContent>
+              </Card>
+
+              {/* Top Endpoints */}
+              {metrics && Object.keys(metrics.path_counts ?? {}).length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Top Endpoints</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {Object.entries(metrics.path_counts)
+                        .sort(([, a], [, b]) => b - a)
+                        .slice(0, 8)
+                        .map(([path, count]) => (
+                          <div key={path} className="flex items-center justify-between py-2 border-b border-outline-variant last:border-0">
+                            <code className="text-sm font-mono text-on-surface">{path}</code>
+                            <Badge variant="secondary">{count}</Badge>
+                          </div>
+                        ))}
+                    </div>
+                  </CardContent>
+                </Card>
               )}
             </>
           )}
         </div>
       )}
 
-      {/* ── ACTIVITY ── */}
+      {/* Activity Tab */}
       {activeTab === 'activity' && (
-        <div className="admin-activity">
-          <div className="activity-header">
-            <h3>Last 60 Minutes</h3>
-            <button type="button" className="btn-icon" onClick={fetchActivity} title="Refresh">
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="font-headline text-xl text-on-surface">Last 60 Minutes</h3>
+            <Button variant="ghost" size="sm" onClick={fetchActivity}>
               <RefreshCw size={16} />
-            </button>
+            </Button>
           </div>
 
           {telemetry && (
-            <div className="telemetry-summary">
-              <div className="tel-stat">
-                <span className="tel-value">{telemetry.report.total_events}</span>
-                <span className="tel-label">Events</span>
-              </div>
-              <div className="tel-stat">
-                <span className="tel-value">{telemetry.report.active_sessions}</span>
-                <span className="tel-label">Sessions</span>
-              </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Card>
+                <CardContent className="pt-4">
+                  <p className="text-2xl font-bold text-primary">{telemetry.report.total_events}</p>
+                  <p className="text-sm text-on-surface-variant">Events</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4">
+                  <p className="text-2xl font-bold text-on-surface">{telemetry.report.active_sessions}</p>
+                  <p className="text-sm text-on-surface-variant">Sessions</p>
+                </CardContent>
+              </Card>
               {telemetry.report.latency_ms && (
-                <div className="tel-stat">
-                  <span className="tel-value">{telemetry.report.latency_ms.avg.toFixed(0)}ms</span>
-                  <span className="tel-label">Avg Latency</span>
-                </div>
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-2xl font-bold text-on-surface">{telemetry.report.latency_ms.avg.toFixed(0)}ms</p>
+                    <p className="text-sm text-on-surface-variant">Avg Latency</p>
+                  </CardContent>
+                </Card>
               )}
-              {Object.entries(telemetry.report.levels).map(([lvl, n]) => (
-                <div key={lvl} className="tel-stat">
-                  <span className={`tel-value tel-${lvl}`}>{n}</span>
-                  <span className="tel-label">{lvl}</span>
-                </div>
-              ))}
             </div>
           )}
 
-          {telemetry && telemetry.report.top_events.length > 0 && (
-            <div className="top-events">
-              <h4>Top Events</h4>
-              {telemetry.report.top_events.slice(0, 6).map((e) => (
-                <div key={e.event} className="event-row">
-                  <span className="event-name">{e.event}</span>
-                  <span className="event-count">{e.count}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="log-section">
-            <h4>Recent Session Events</h4>
-            <div className="log-list">
-              {(logs?.session_events ?? []).slice(0, 20).map((ev, i) => (
-                <div key={i} className={`log-item ${ev.level === 'warning' ? 'warn' : ev.level === 'error' ? 'err' : ''}`}>
-                  <span className="log-stream">{ev.stream ?? ev.event ?? '—'}</span>
-                  <span className="log-msg">
-                    {typeof ev.payload === 'object' && ev.payload
-                      ? JSON.stringify(ev.payload).slice(0, 100)
-                      : String(ev.event ?? '')}
-                  </span>
-                  <small className="log-time">{relativeTime(ev.ts)}</small>
-                </div>
-              ))}
-              {!logs?.session_events?.length && (
-                <div className="log-empty">No session events yet</div>
-              )}
-            </div>
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Session Events</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {(logs?.session_events ?? []).slice(0, 20).map((ev, i) => (
+                  <div 
+                    key={i} 
+                    className={`flex items-center justify-between p-2 rounded-lg ${
+                      ev.level === 'error' ? 'bg-coral/10' : ev.level === 'warning' ? 'bg-warning/10' : 'bg-surface-container'
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-on-surface">{ev.stream ?? ev.event ?? '—'}</span>
+                      <p className="text-xs text-on-surface-variant truncate">
+                        {typeof ev.payload === 'object' && ev.payload
+                          ? JSON.stringify(ev.payload).slice(0, 100)
+                          : String(ev.event ?? '')}
+                      </p>
+                    </div>
+                    <span className="text-xs text-on-surface-variant ml-2">{relativeTime(ev.ts)}</span>
+                  </div>
+                ))}
+                {!logs?.session_events?.length && (
+                  <p className="text-center py-4 text-on-surface-variant">No session events yet</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 
-      {/* ── RECOVERY ── */}
+      {/* Recovery Tab */}
       {activeTab === 'recovery' && (
-        <div className="admin-recovery">
-          <div className="recovery-token-bar">
-            {repairToken
-              ? <><CheckCircle size={14} className="check-ok" /> Repair token acquired</>
-              : <><XCircle size={14} className="check-err" /> No repair token (localhost only)</>}
+        <div className="space-y-6">
+          <div className={`flex items-center gap-2 p-3 rounded-lg ${repairToken ? 'bg-success/10' : 'bg-coral/10'}`}>
+            {repairToken 
+              ? <><CheckCircle size={16} className="text-success" /> Repair token acquired</>
+              : <><XCircle size={16} className="text-coral" /> No repair token (localhost only)</>
+            }
           </div>
 
-          <div className="repair-actions">
+          <div className="grid gap-4">
             {[
-              {
-                action: 'warmup',
-                label: 'Warmup',
-                desc: 'Refresh startup readiness checks and clear status cache',
-              },
-              {
-                action: 'restart_daemon',
-                label: 'Restart Daemon',
-                desc: 'Stop then restart the background daemon manager',
-              },
-              {
-                action: 'audit_runtime',
-                label: 'Audit Runtime',
-                desc: 'Write a diagnostics bundle JSON to the runtime directory',
-              },
+              { action: 'warmup', label: 'Warmup', desc: 'Refresh startup readiness checks and clear status cache' },
+              { action: 'restart_daemon', label: 'Restart Daemon', desc: 'Stop then restart the background daemon manager' },
+              { action: 'audit_runtime', label: 'Audit Runtime', desc: 'Write a diagnostics bundle JSON to the runtime directory' },
             ].map(({ action, label, desc }) => (
-              <div key={action} className="repair-card">
-                <div className="repair-info">
-                  <strong>{label}</strong>
-                  <p>{desc}</p>
-                </div>
-                <div className="repair-btns">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    disabled={!repairToken || repairRunning}
-                    onClick={() => runRepair(action, true)}
-                    title="Dry run — preview only"
-                  >
-                    <Eye size={14} />
-                    Preview
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={!repairToken || repairRunning}
-                    onClick={() => runRepair(action, false)}
-                  >
-                    <Play size={14} />
-                    {repairRunning ? 'Running…' : 'Run'}
-                  </button>
-                </div>
-              </div>
+              <Card key={action}>
+                <CardContent className="pt-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-semibold text-on-surface">{label}</h4>
+                      <p className="text-sm text-on-surface-variant">{desc}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!repairToken || repairRunning}
+                        onClick={() => runRepair(action, true)}
+                      >
+                        <Eye size={14} className="mr-1" />
+                        Preview
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={!repairToken || repairRunning}
+                        onClick={() => runRepair(action, false)}
+                      >
+                        <Play size={14} className="mr-1" />
+                        {repairRunning ? 'Running...' : 'Run'}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
 
           {repairResults && (
-            <div className={`repair-result ${repairResults.ok ? 'ok' : 'fail'}`}>
-              <strong>{repairResults.ok ? '✓ Success' : '✗ Failed'}</strong>
-              <pre>{JSON.stringify(repairResults, null, 2)}</pre>
-            </div>
+            <Card className={repairResults.ok ? 'border-success' : 'border-coral'}>
+              <CardContent className="pt-4">
+                <p className={`font-semibold ${repairResults.ok ? 'text-success' : 'text-coral'}`}>
+                  {repairResults.ok ? 'Success' : 'Failed'}
+                </p>
+                <pre className="mt-2 text-xs bg-surface-container p-2 rounded overflow-auto max-h-48">
+                  {JSON.stringify(repairResults, null, 2)}
+                </pre>
+              </CardContent>
+            </Card>
           )}
         </div>
       )}
 
-      {/* ── SYSTEM ── */}
+      {/* System Tab */}
       {activeTab === 'system' && (
-        <div className="admin-system">
-          <div className="system-section">
-            <h3>Runtime Configuration</h3>
-            <div className="info-grid">
-              <div className="info-row">
-                <span className="info-key">Local Backend</span>
-                <span className="info-val">{status?.local_runtime?.backend ?? '—'}</span>
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Runtime Configuration</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  { label: 'Local Backend', value: status?.local_runtime?.backend ?? '—' },
+                  { label: 'Runtime State', value: status?.local_runtime?.state ?? '—' },
+                  { label: 'Chat Ready', value: status?.local_runtime?.chat_ready ? 'Yes' : 'No' },
+                  { label: 'Memory', value: status?.memory_available ? 'Available' : 'Unavailable' },
+                  { label: 'Voice', value: status?.voice_available ? 'Available' : 'Unavailable' },
+                  { label: 'Daemon', value: status?.daemon_available ? 'Running' : 'Not Running' },
+                ].map(({ label, value }) => (
+                  <div key={label} className="flex justify-between py-2 border-b border-outline-variant">
+                    <span className="text-on-surface-variant">{label}</span>
+                    <span className="font-medium text-on-surface">{value}</span>
+                  </div>
+                ))}
               </div>
-              <div className="info-row">
-                <span className="info-key">Local Runtime State</span>
-                <span className={`info-val ${stateColor(status?.local_runtime?.state ?? '')}`}>
-                  {status?.local_runtime?.state ?? '—'}
-                </span>
-              </div>
-              <div className="info-row">
-                <span className="info-key">Chat Ready</span>
-                <span className="info-val">
-                  {status?.local_runtime?.chat_ready ? 'Yes' : 'No'}
-                </span>
-              </div>
-              <div className="info-row">
-                <span className="info-key">Memory</span>
-                <span className="info-val">
-                  {status?.memory_available ? 'Available' : 'Unavailable'}
-                </span>
-              </div>
-              <div className="info-row">
-                <span className="info-key">Voice</span>
-                <span className="info-val">
-                  {status?.voice_available ? 'Available' : 'Unavailable'}
-                </span>
-              </div>
-              <div className="info-row">
-                <span className="info-key">Daemon</span>
-                <span className="info-val">
-                  {status?.daemon_available ? 'Running' : 'Not Running'}
-                </span>
-              </div>
-              <div className="info-row">
-                <span className="info-key">API Started</span>
-                <span className="info-val">
-                  {metrics?.started_at ? new Date(metrics.started_at).toLocaleString() : '—'}
-                </span>
-              </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          {status?.resource_envelope && Object.keys(status.resource_envelope).length > 0 && (
-            <div className="system-section">
-              <h3>Resource Envelope</h3>
-              <pre className="system-json">
-                {JSON.stringify(status.resource_envelope, null, 2)}
-              </pre>
-            </div>
-          )}
-
-          <div className="system-section">
-            <h3>Request Distribution</h3>
-            <div className="status-codes">
-              {Object.entries(metrics?.status_counts ?? {}).map(([code, n]) => (
-                <div key={code} className={`code-pill code-${code[0]}xx`}>
-                  <span>{code}</span>
-                  <span>{n}</span>
+          {metrics && Object.keys(metrics.status_counts ?? {}).length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Request Distribution</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(metrics.status_counts).map(([code, n]) => (
+                    <Badge 
+                      key={code} 
+                      variant={code.startsWith('2') ? 'success' : code.startsWith('4') ? 'warning' : 'destructive'}
+                    >
+                      {code}: {n}
+                    </Badge>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
     </div>

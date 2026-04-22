@@ -6,25 +6,15 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(__dirname, './web/src'),
     },
   },
   server: {
     port: 3000,
-    strictPort: false,
     host: true,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8081',
-        changeOrigin: true,
-      },
-    },
   },
   build: {
-    outDir: '../static',
+    outDir: 'static',
     emptyOutDir: true,
-    rollupOptions: {
-      input: 'index.html',
-    },
   },
 })
