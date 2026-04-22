@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import { useState, useEffect } from "react"
 import { cn } from "@/lib/utils"
 import { Sidebar } from "./Sidebar"
 import { TopBar } from "./TopBar"
@@ -43,24 +43,27 @@ export function AppShell({ children }: AppShellProps) {
   }, [])
 
   return (
-    <div className="flex h-screen bg-background text-foreground overflow-hidden">
+    <div className="flex h-screen bg-surface text-on-surface overflow-hidden">
+      {/* Sidebar */}
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
       />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <TopBar
-          onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-        />
-        <main
-          className={cn(
-            "flex-1 overflow-auto p-6 transition-all duration-300",
-            sidebarCollapsed ? "ml-0" : "ml-0"
-          )}
-        >
+
+      {/* Main Content Area */}
+      <div 
+        className={cn(
+          "flex flex-1 flex-col overflow-hidden transition-all duration-300 ease-viscous",
+          sidebarCollapsed ? "ml-20" : "ml-72"
+        )}
+      >
+        <TopBar onOpenCommandPalette={() => setCommandPaletteOpen(true)} />
+        <main className="flex-1 overflow-auto custom-scrollbar">
           {children}
         </main>
       </div>
+
+      {/* Command Palette Modal */}
       <CommandPalette
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}

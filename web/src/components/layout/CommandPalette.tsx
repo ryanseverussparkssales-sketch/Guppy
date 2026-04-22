@@ -1,15 +1,16 @@
-import React, { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef } from "react"
 import { cn } from "@/lib/utils"
 import {
-  MessageSquare,
-  Server,
+  Sparkles,
+  Search,
   Brain,
   Settings,
-  Search,
-  LayoutDashboard,
+  LayoutGrid,
   Plus,
   Play,
   StopCircle,
+  FileText,
+  BookOpen,
 } from "lucide-react"
 
 interface CommandPaletteProps {
@@ -44,49 +45,75 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const navigate = (view: string) => {
+    window.dispatchEvent(new CustomEvent("guppy:navigate", { detail: { view } }))
+    onClose()
+  }
+
   const commands: Command[] = [
     // Navigation
     {
-      id: "nav-dashboard",
-      label: "Go to Dashboard",
-      icon: <LayoutDashboard size={16} />,
+      id: "nav-intelligence",
+      label: "Intelligence",
+      description: "View system dashboard",
+      icon: <Sparkles size={16} />,
       category: "Navigation",
       action: () => navigate("dashboard"),
     },
     {
-      id: "nav-assistant",
-      label: "Go to Assistant",
-      icon: <MessageSquare size={16} />,
+      id: "nav-research",
+      label: "Research",
+      description: "Start a new conversation",
+      icon: <Search size={16} />,
       category: "Navigation",
       action: () => navigate("assistant"),
     },
     {
-      id: "nav-instances",
-      label: "Go to Instances",
-      icon: <Server size={16} />,
+      id: "nav-workspace",
+      label: "Workspace",
+      description: "Manage running instances",
+      icon: <LayoutGrid size={16} />,
       category: "Navigation",
       action: () => navigate("instances"),
     },
     {
-      id: "nav-models",
-      label: "Go to Models",
-      icon: <Brain size={16} />,
+      id: "nav-briefings",
+      label: "Briefings",
+      description: "Configure neural architectures",
+      icon: <FileText size={16} />,
       category: "Navigation",
       action: () => navigate("models"),
     },
     {
+      id: "nav-library",
+      label: "Library",
+      description: "Browse knowledge base",
+      icon: <BookOpen size={16} />,
+      category: "Navigation",
+      action: () => navigate("library"),
+    },
+    {
       id: "nav-settings",
-      label: "Go to Settings",
+      label: "Settings",
+      description: "Configure system preferences",
       icon: <Settings size={16} />,
       category: "Navigation",
       action: () => navigate("settings"),
     },
     // Actions
     {
-      id: "action-new-instance",
-      label: "New Instance",
-      description: "Create a new Guppy instance",
+      id: "action-new-briefing",
+      label: "New Briefing",
+      description: "Start a fresh research session",
       icon: <Plus size={16} />,
+      category: "Actions",
+      action: () => navigate("assistant"),
+    },
+    {
+      id: "action-new-instance",
+      label: "Initialize Node",
+      description: "Create a new neural instance",
+      icon: <Brain size={16} />,
       category: "Actions",
       action: () => {
         // BACKEND: POST /api/instances
@@ -95,8 +122,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     },
     {
       id: "action-start-instance",
-      label: "Start Instance",
-      description: "Start a stopped instance",
+      label: "Start Node",
+      description: "Activate a dormant instance",
       icon: <Play size={16} />,
       category: "Actions",
       action: () => {
@@ -106,7 +133,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     },
     {
       id: "action-stop-all",
-      label: "Stop All Instances",
+      label: "Halt All Nodes",
       description: "Stop all running instances",
       icon: <StopCircle size={16} />,
       category: "Actions",
@@ -130,11 +157,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   }, {} as Record<string, Command[]>)
 
   const flatCommands = Object.values(groupedCommands).flat()
-
-  const navigate = (view: string) => {
-    window.dispatchEvent(new CustomEvent("guppy:navigate", { detail: { view } }))
-    onClose()
-  }
 
   const executeCommand = (command: Command) => {
     command.action()
@@ -182,15 +204,15 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+        className="absolute inset-0 bg-surface/80 backdrop-blur-sm"
         onClick={onClose}
       />
 
       {/* Palette */}
-      <div className="relative w-full max-w-lg bg-popover border border-border rounded-xl shadow-2xl overflow-hidden animate-in fade-in-0 zoom-in-95">
+      <div className="relative w-full max-w-lg bg-surface-container-lowest border border-outline-variant/10 rounded-xl shadow-soft-lg overflow-hidden animate-in fade-in-0 zoom-in-95">
         {/* Search Input */}
-        <div className="flex items-center gap-3 px-4 border-b border-border">
-          <Search size={18} className="text-muted-foreground" />
+        <div className="flex items-center gap-3 px-4 border-b border-outline-variant/10">
+          <Search size={18} className="text-on-surface-variant" />
           <input
             ref={inputRef}
             type="text"
@@ -199,16 +221,16 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               setQuery(e.target.value)
               setSelectedIndex(0)
             }}
-            placeholder="Type a command or search..."
-            className="flex-1 h-12 bg-transparent text-foreground placeholder:text-muted-foreground outline-none"
+            placeholder="Search commands..."
+            className="flex-1 h-14 bg-transparent text-on-surface font-headline italic placeholder:text-on-surface-variant/50 outline-none"
           />
         </div>
 
         {/* Commands List */}
-        <div className="max-h-80 overflow-y-auto p-2">
+        <div className="max-h-80 overflow-y-auto p-2 custom-scrollbar">
           {Object.entries(groupedCommands).map(([category, cmds]) => (
-            <div key={category} className="mb-2">
-              <div className="px-2 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <div key={category} className="mb-3">
+              <div className="px-3 py-2 text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-widest">
                 {category}
               </div>
               {cmds.map((cmd) => {
@@ -218,17 +240,22 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                     key={cmd.id}
                     onClick={() => executeCommand(cmd)}
                     className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors",
+                      "w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all duration-200",
                       index === selectedIndex
-                        ? "bg-accent text-accent-foreground"
-                        : "text-foreground hover:bg-accent/50"
+                        ? "bg-primary text-white"
+                        : "text-on-surface hover:bg-surface-container"
                     )}
                   >
-                    <span className="text-muted-foreground">{cmd.icon}</span>
+                    <span className={index === selectedIndex ? "text-white/70" : "text-on-surface-variant"}>
+                      {cmd.icon}
+                    </span>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium">{cmd.label}</div>
+                      <div className="text-sm font-bold">{cmd.label}</div>
                       {cmd.description && (
-                        <div className="text-xs text-muted-foreground truncate">
+                        <div className={cn(
+                          "text-xs truncate",
+                          index === selectedIndex ? "text-white/70" : "text-on-surface-variant/70"
+                        )}>
                           {cmd.description}
                         </div>
                       )}
@@ -240,19 +267,19 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           ))}
 
           {flatCommands.length === 0 && (
-            <div className="px-3 py-8 text-center text-muted-foreground">
-              No commands found for "{query}"
+            <div className="px-3 py-8 text-center text-on-surface-variant font-headline italic">
+              No commands found for &ldquo;{query}&rdquo;
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-2 border-t border-border text-xs text-muted-foreground">
+        <div className="flex items-center justify-between px-4 py-3 border-t border-outline-variant/10 text-xs text-on-surface-variant/60">
           <div className="flex items-center gap-4">
-            <span><kbd className="px-1.5 py-0.5 bg-muted rounded">↑↓</kbd> Navigate</span>
-            <span><kbd className="px-1.5 py-0.5 bg-muted rounded">↵</kbd> Select</span>
+            <span><kbd className="px-1.5 py-0.5 bg-surface-container rounded text-[10px]">↑↓</kbd> Navigate</span>
+            <span><kbd className="px-1.5 py-0.5 bg-surface-container rounded text-[10px]">↵</kbd> Select</span>
           </div>
-          <span><kbd className="px-1.5 py-0.5 bg-muted rounded">Esc</kbd> Close</span>
+          <span><kbd className="px-1.5 py-0.5 bg-surface-container rounded text-[10px]">Esc</kbd> Close</span>
         </div>
       </div>
     </div>

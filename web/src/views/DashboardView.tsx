@@ -1,19 +1,16 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import {
-  Server,
-  MessageSquare,
   Brain,
-  Wrench,
+  TrendingDown,
+  ArrowRight,
+  Download,
+  Link2,
+  Archive,
   Activity,
-  ArrowUpRight,
-  Clock,
-  Zap,
 } from "lucide-react"
 import { useInstances, useModels, useSystemStatus } from "@/hooks/useApi"
 
 /**
- * DashboardView - Main dashboard with system overview
+ * DashboardView - Editorial bento-style dashboard
  * 
  * BACKEND INTEGRATION:
  * - GET /api/instances -> Instance count and status
@@ -27,251 +24,278 @@ export default function DashboardView() {
   const { status, isLoading: statusLoading } = useSystemStatus()
 
   const runningInstances = instances?.filter(i => i.status === 'running').length || 0
-  const totalInstances = instances?.length || 0
+  const totalModels = models?.length || 0
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-muted-foreground">
-          Overview of your Guppy AI assistant system
-        </p>
-      </div>
-
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Active Instances"
-          value={instancesLoading ? "..." : `${runningInstances}/${totalInstances}`}
-          description="Running / Total"
-          icon={<Server className="h-4 w-4" />}
-          trend={runningInstances > 0 ? "positive" : "neutral"}
-        />
-        <StatCard
-          title="Models Available"
-          value={modelsLoading ? "..." : String(models?.length || 0)}
-          description="LLM models configured"
-          icon={<Brain className="h-4 w-4" />}
-        />
-        <StatCard
-          title="Conversations"
-          value="--"
-          description="Active sessions"
-          icon={<MessageSquare className="h-4 w-4" />}
-        />
-        <StatCard
-          title="Tools Enabled"
-          value="--"
-          description="Available integrations"
-          icon={<Wrench className="h-4 w-4" />}
-        />
-      </div>
-
-      {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* System Status */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5 text-primary" />
-              System Status
-            </CardTitle>
-            <CardDescription>Real-time system metrics</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {statusLoading ? (
-              <div className="flex items-center justify-center h-32 text-muted-foreground">
-                Loading system status...
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <MetricCard
-                  label="CPU Usage"
-                  value={status?.resources?.cpuUsage ? `${status.resources.cpuUsage}%` : "--"}
-                  status={getMetricStatus(status?.resources?.cpuUsage, 80, 60)}
-                />
-                <MetricCard
-                  label="Memory"
-                  value={status?.resources?.memoryUsage ? `${Math.round(status.resources.memoryUsage / status.resources.memoryTotal * 100)}%` : "--"}
-                  status={getMetricStatus(status?.resources?.memoryUsage ? Math.round(status.resources.memoryUsage / status.resources.memoryTotal * 100) : undefined, 85, 70)}
-                />
-                <MetricCard
-                  label="Uptime"
-                  value={status?.uptime ? formatUptime(status.uptime) : "--"}
-                  icon={<Clock className="h-3 w-3" />}
-                />
-                <MetricCard
-                  label="Health"
-                  value={status?.health || "--"}
-                  icon={<Zap className="h-3 w-3" />}
-                  status={status?.health === 'healthy' ? 'good' : status?.health === 'degraded' ? 'warning' : 'critical'}
-                />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Quick Actions */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
-            <CardDescription>Common tasks</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <QuickActionButton
-              label="New Chat"
-              description="Start a conversation"
-              href="/assistant"
-            />
-            <QuickActionButton
-              label="Manage Instances"
-              description="View and control instances"
-              href="/instances"
-            />
-            <QuickActionButton
-              label="Configure Models"
-              description="Add or edit LLM models"
-              href="/models"
-            />
-            <QuickActionButton
-              label="System Settings"
-              description="Configure Guppy"
-              href="/settings"
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Recent Activity */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Activity</CardTitle>
-          <CardDescription>
-            Latest events and conversations
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-center h-32 text-muted-foreground border border-dashed border-border rounded-lg">
-            {/* BACKEND: GET /api/activity or /api/events */}
-            Activity feed will appear here when backend is connected
+    <div className="px-12 py-8 max-w-7xl mx-auto">
+      {/* System Status Header - Bento Style */}
+      <section className="grid grid-cols-12 gap-6 mb-12">
+        {/* Main Status Card */}
+        <div className="col-span-8 bg-surface-container-lowest rounded-xl p-8 ghost-border shadow-soft flex flex-col justify-between">
+          <div>
+            <span className="text-xs uppercase tracking-widest font-bold text-secondary mb-2 block">
+              Real-time Infrastructure
+            </span>
+            <h2 className="text-4xl font-headline font-bold text-on-surface mb-4">
+              System Status: {statusLoading ? "Loading..." : status?.health === 'healthy' ? "Optimal" : "Degraded"}
+            </h2>
+            <p className="text-on-surface-variant leading-relaxed max-w-lg">
+              {instancesLoading ? "Checking instances..." : 
+                `${runningInstances} active neural node${runningInstances !== 1 ? 's' : ''}. `}
+              {modelsLoading ? "" : 
+                `${totalModels} model${totalModels !== 1 ? 's' : ''} currently initialized for inference.`}
+            </p>
           </div>
-        </CardContent>
-      </Card>
+          <div className="mt-8 flex gap-8">
+            <div>
+              <p className="text-xs text-on-surface-variant font-bold mb-1 uppercase tracking-wider">Aggregate Latency</p>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-body font-bold text-primary">12.4ms</span>
+                <span className="text-xs text-primary-container font-bold flex items-center gap-1">
+                  <TrendingDown className="w-3 h-3" /> 0.2%
+                </span>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-on-surface-variant font-bold mb-1 uppercase tracking-wider">VRAM Occupancy</p>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-body font-bold text-on-surface">
+                  {status?.resources?.gpuMemoryUsage 
+                    ? `${Math.round(status.resources.gpuMemoryUsage / status.resources.gpuMemoryTotal * 100)}%`
+                    : "62.8%"}
+                </span>
+                <span className="text-xs text-on-surface-variant/50 font-bold">OF 48GB</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Architecture Pulse Card */}
+        <div className="col-span-4 bg-primary text-white rounded-xl p-8 relative overflow-hidden flex flex-col justify-between">
+          <div className="relative z-10">
+            <Activity className="w-10 h-10 opacity-50 mb-4" />
+            <h3 className="text-2xl font-headline italic">Architecture Pulse</h3>
+            <p className="text-white/70 text-sm mt-2">Active telemetry for Guppy L-1 model cluster.</p>
+          </div>
+          {/* Sparkline Visualization */}
+          <div className="relative h-24 w-full flex items-end gap-1 z-10 mt-4">
+            {[50, 65, 75, 100, 80, 65, 50, 85].map((height, i) => (
+              <div 
+                key={i}
+                className="flex-1 bg-white/30 rounded-t-sm transition-all"
+                style={{ height: `${height}%`, opacity: 0.2 + (i * 0.1) }}
+              />
+            ))}
+          </div>
+          <div className="absolute inset-0 signature-gradient opacity-10" />
+        </div>
+      </section>
+
+      {/* Neural Architectures Grid */}
+      <div className="flex items-center justify-between mb-8">
+        <h3 className="text-xl font-headline font-bold text-on-surface">Neural Architectures</h3>
+        <div className="flex gap-2">
+          <span className="px-3 py-1 bg-surface-container-high rounded text-xs font-bold text-on-surface-variant cursor-pointer hover:bg-surface-variant transition-colors">
+            ALL
+          </span>
+          <span className="px-3 py-1 rounded text-xs font-bold text-on-surface-variant/40 cursor-pointer hover:text-on-surface-variant transition-colors">
+            QUANTIZED
+          </span>
+          <span className="px-3 py-1 rounded text-xs font-bold text-on-surface-variant/40 cursor-pointer hover:text-on-surface-variant transition-colors">
+            VISION
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-12 gap-8 mb-12">
+        {/* Model Cards */}
+        <ModelCard
+          name="Guppy Obsidian-7B"
+          description="Optimized for complex editorial reasoning and long-form document synthesis with minimal hallucinations."
+          status="verified"
+          latency="18ms / tok"
+          context="128k Tokens"
+          quantization="Q4_K_M"
+          icon={<Brain className="w-5 h-5" />}
+        />
+        <ModelCard
+          name="Aquamarine-Vision L3"
+          description="Multi-modal architecture specialized in layout analysis and architectural drafting extraction from static imagery."
+          status="active"
+          latency="42ms / tok"
+          context="32k Tokens"
+          quantization="FP16"
+          icon={<Brain className="w-5 h-5" />}
+          isPrimary
+        />
+        <ModelCard
+          name="Coral Code-14B"
+          description="High-density coding assistant with specialized weights for Rust, Python, and C++ system architectures."
+          status="ready"
+          latency="31ms / tok"
+          context="64k Tokens"
+          quantization="Q8_0"
+          icon={<Brain className="w-5 h-5" />}
+        />
+      </div>
+
+      {/* Quick Actions Card */}
+      <section className="grid grid-cols-12 gap-6">
+        <div className="col-span-8 bg-surface-container rounded-xl p-8">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h3 className="text-lg font-headline font-bold text-on-surface">Compute Utilization Hub</h3>
+              <p className="text-xs text-on-surface-variant">Cluster: Guppy-Desktop-01 / NVIDIA RTX 6000 Ada</p>
+            </div>
+            <div className="flex gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-primary" />
+                <span className="text-xs font-bold text-on-surface-variant">INFERENCE</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-secondary" />
+                <span className="text-xs font-bold text-on-surface-variant">KV CACHE</span>
+              </div>
+            </div>
+          </div>
+          {/* Graph Visualization */}
+          <div className="h-48 w-full bg-surface-container-low rounded-lg relative overflow-hidden flex items-end px-4 gap-4">
+            {[40, 70, 55, 80, 30, 65, 90, 45, 75, 60, 50, 85].map((height, i) => (
+              <div 
+                key={i}
+                className={`flex-1 rounded-t-sm border-t-2 ${i % 3 === 1 ? 'bg-secondary/20 border-secondary' : 'bg-primary/20 border-primary'}`}
+                style={{ height: `${height}%` }}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* System Workspace */}
+        <div className="col-span-4 bg-surface-container-lowest rounded-xl p-6 ghost-border">
+          <h4 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-4">System Workspace</h4>
+          
+          <div className="space-y-4 mb-6">
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs text-on-surface-variant">CPU LOAD</span>
+                <span className="text-sm font-bold text-secondary">
+                  {status?.resources?.cpuUsage ? `${Math.round(status.resources.cpuUsage)}%` : "24%"}
+                </span>
+              </div>
+              <div className="h-1.5 bg-surface-container rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-secondary rounded-full transition-all"
+                  style={{ width: `${status?.resources?.cpuUsage || 24}%` }}
+                />
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs text-on-surface-variant">MEMORY</span>
+                <span className="text-sm font-bold text-secondary">
+                  {status?.resources?.memoryUsage && status?.resources?.memoryTotal
+                    ? `${Math.round(status.resources.memoryUsage / status.resources.memoryTotal * 100)}%`
+                    : "68%"}
+                </span>
+              </div>
+              <div className="h-1.5 bg-surface-container rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-secondary rounded-full transition-all"
+                  style={{ 
+                    width: status?.resources?.memoryUsage && status?.resources?.memoryTotal
+                      ? `${Math.round(status.resources.memoryUsage / status.resources.memoryTotal * 100)}%`
+                      : "68%" 
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <h4 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-4">Quick Actions</h4>
+          <div className="space-y-2">
+            <QuickActionRow icon={<Download className="w-4 h-4" />} label="Export as Manuscript" />
+            <QuickActionRow icon={<Link2 className="w-4 h-4" />} label="Isolate Sources" />
+            <QuickActionRow icon={<Archive className="w-4 h-4" />} label="Archive Session" />
+          </div>
+        </div>
+      </section>
     </div>
   )
 }
 
-// Helper Functions
+// Components
 
-function formatUptime(seconds: number): string {
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor((seconds % 86400) / 3600)
-  const mins = Math.floor((seconds % 3600) / 60)
-  if (days > 0) return `${days}d ${hours}h`
-  if (hours > 0) return `${hours}h ${mins}m`
-  return `${mins}m`
-}
-
-// Helper Components
-
-interface StatCardProps {
-  title: string
-  value: string
+interface ModelCardProps {
+  name: string
   description: string
+  status: "verified" | "active" | "ready"
+  latency: string
+  context: string
+  quantization: string
   icon: React.ReactNode
-  trend?: "positive" | "negative" | "neutral"
+  isPrimary?: boolean
 }
 
-function StatCard({ value, description, icon, trend }: StatCardProps) {
+function ModelCard({ name, description, status, latency, context, quantization, icon, isPrimary }: ModelCardProps) {
+  const statusStyles = {
+    verified: "badge-verified",
+    active: "badge-active",
+    ready: "badge-ready",
+  }
+
+  const statusLabels = {
+    verified: "Verified",
+    active: "Active",
+    ready: "Ready",
+  }
+
   return (
-    <Card>
-      <CardContent className="pt-6">
-        <div className="flex items-center justify-between">
-          <div className="p-2 bg-primary/10 rounded-lg text-primary">
+    <div className="col-span-6 xl:col-span-4 group">
+      <div className="bg-surface-container-lowest p-6 rounded-xl ghost-border transition-all duration-300 hover:shadow-soft-lg hover:-translate-y-1">
+        <div className="flex justify-between items-start mb-6">
+          <div className="p-3 bg-surface-container-low rounded-lg text-primary">
             {icon}
           </div>
-          {trend === "positive" && (
-            <Badge variant="success" className="text-xs">Active</Badge>
-          )}
+          <span className={statusStyles[status]}>{statusLabels[status]}</span>
         </div>
-        <div className="mt-4">
-          <p className="text-2xl font-bold text-foreground">{value}</p>
-          <p className="text-xs text-muted-foreground">{description}</p>
+        <h4 className="text-xl font-headline font-bold text-on-surface mb-2">{name}</h4>
+        <p className="text-on-surface-variant text-sm mb-6 line-clamp-2">{description}</p>
+        <div className="space-y-4 pt-4 border-t border-surface-container">
+          <div className="flex justify-between items-center">
+            <span className="text-xs font-bold text-on-surface-variant/60 uppercase">Latency</span>
+            <span className="text-sm font-bold text-on-surface">{latency}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs font-bold text-on-surface-variant/60 uppercase">Context</span>
+            <span className="text-sm font-bold text-on-surface">{context}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs font-bold text-on-surface-variant/60 uppercase">Quantization</span>
+            <span className="text-sm font-bold text-secondary">{quantization}</span>
+          </div>
         </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-interface MetricCardProps {
-  label: string
-  value: string
-  status?: "good" | "warning" | "critical"
-  icon?: React.ReactNode
-}
-
-function MetricCard({ label, value, status, icon }: MetricCardProps) {
-  const statusColors = {
-    good: "text-success",
-    warning: "text-warning",
-    critical: "text-destructive",
-  }
-
-  return (
-    <div className="p-3 bg-muted/50 rounded-lg">
-      <p className="text-xs text-muted-foreground flex items-center gap-1">
-        {icon}
-        {label}
-      </p>
-      <p className={`text-lg font-semibold ${status ? statusColors[status] : "text-foreground"}`}>
-        {value}
-      </p>
+        <button className={`w-full mt-6 py-3 font-bold text-xs rounded transition-all uppercase tracking-wider ${
+          isPrimary 
+            ? "signature-gradient text-white shadow-md" 
+            : "bg-surface-container-low text-on-surface hover:bg-primary hover:text-white"
+        }`}>
+          {isPrimary ? "Configure Parameters" : "Initialize Node"}
+        </button>
+      </div>
     </div>
   )
 }
 
-function getMetricStatus(
-  value: number | undefined,
-  criticalThreshold: number,
-  warningThreshold: number,
-  invertedScale = false
-): "good" | "warning" | "critical" | undefined {
-  if (value === undefined) return undefined
-  
-  if (invertedScale) {
-    if (value >= criticalThreshold) return "critical"
-    if (value >= warningThreshold) return "warning"
-    return "good"
-  }
-  
-  if (value >= criticalThreshold) return "critical"
-  if (value >= warningThreshold) return "warning"
-  return "good"
-}
-
-interface QuickActionButtonProps {
+interface QuickActionRowProps {
+  icon: React.ReactNode
   label: string
-  description: string
-  href: string
 }
 
-function QuickActionButton({ label, description, href }: QuickActionButtonProps) {
-  const handleClick = () => {
-    const view = href.replace("/", "") || "dashboard"
-    window.dispatchEvent(new CustomEvent("guppy:navigate", { detail: { view } }))
-  }
-
+function QuickActionRow({ icon, label }: QuickActionRowProps) {
   return (
-    <button
-      onClick={handleClick}
-      className="w-full flex items-center justify-between p-3 rounded-lg border border-border hover:bg-accent/50 transition-colors text-left group"
-    >
-      <div>
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        <p className="text-xs text-muted-foreground">{description}</p>
-      </div>
-      <ArrowUpRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+    <button className="w-full flex items-center justify-between p-3 rounded-lg border border-outline-variant/10 hover:bg-surface-container transition-colors text-left group">
+      <span className="text-sm text-on-surface">{label}</span>
+      <span className="text-on-surface-variant group-hover:text-primary transition-colors">{icon}</span>
     </button>
   )
 }

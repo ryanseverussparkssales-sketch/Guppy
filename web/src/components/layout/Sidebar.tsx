@@ -1,195 +1,170 @@
-import React from "react"
+import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { Tooltip } from "@/components/ui/tooltip"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
-  MessageSquare,
-  Server,
-  Library,
+  Sparkles,
+  Search,
+  LayoutGrid,
+  FileText,
+  BookOpen,
+  Plus,
+  HelpCircle,
+  LogOut,
   Brain,
   Wrench,
   Mic,
-  Settings,
-  LayoutDashboard,
-  ChevronLeft,
-  ChevronRight,
-  Shield,
   Activity,
+  Settings,
 } from "lucide-react"
+
+/**
+ * BACKEND INTEGRATION:
+ * - User profile data from GET /api/user/profile
+ * - Navigation state can sync with backend for workspace persistence
+ */
+
+interface NavItem {
+  id: string
+  label: string
+  icon: React.ReactNode
+  view: string
+}
+
+const primaryNavItems: NavItem[] = [
+  { id: "intelligence", label: "Intelligence", icon: <Sparkles className="w-5 h-5" />, view: "dashboard" },
+  { id: "research", label: "Research", icon: <Search className="w-5 h-5" />, view: "assistant" },
+  { id: "workspace", label: "Workspace", icon: <LayoutGrid className="w-5 h-5" />, view: "instances" },
+  { id: "briefings", label: "Briefings", icon: <FileText className="w-5 h-5" />, view: "models" },
+  { id: "library", label: "Library", icon: <BookOpen className="w-5 h-5" />, view: "library" },
+]
+
+const secondaryNavItems: NavItem[] = [
+  { id: "tools", label: "Tools", icon: <Wrench className="w-5 h-5" />, view: "tools" },
+  { id: "voices", label: "Voices", icon: <Mic className="w-5 h-5" />, view: "voices" },
+  { id: "status", label: "Status", icon: <Activity className="w-5 h-5" />, view: "status" },
+  { id: "settings", label: "Settings", icon: <Settings className="w-5 h-5" />, view: "settings" },
+]
 
 interface SidebarProps {
   collapsed: boolean
   onToggleCollapse: () => void
 }
 
-interface NavItem {
-  id: string
-  label: string
-  icon: React.ReactNode
-  /** 
-   * BACKEND: View ID that maps to route/view
-   * Used by App.tsx to render the correct view
-   */
-  view: string
-}
-
-const mainNavItems: NavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={20} />, view: "dashboard" },
-  { id: "assistant", label: "Assistant", icon: <MessageSquare size={20} />, view: "assistant" },
-  { id: "instances", label: "Instances", icon: <Server size={20} />, view: "instances" },
-  { id: "library", label: "Library", icon: <Library size={20} />, view: "library" },
-]
-
-const configNavItems: NavItem[] = [
-  { id: "models", label: "Models", icon: <Brain size={20} />, view: "models" },
-  { id: "tools", label: "Tools", icon: <Wrench size={20} />, view: "tools" },
-  { id: "voices", label: "Voices", icon: <Mic size={20} />, view: "voices" },
-]
-
-const systemNavItems: NavItem[] = [
-  { id: "status", label: "Status", icon: <Activity size={20} />, view: "status" },
-  { id: "admin", label: "Admin", icon: <Shield size={20} />, view: "admin" },
-  { id: "settings", label: "Settings", icon: <Settings size={20} />, view: "settings" },
-]
-
-/**
- * Sidebar - Main navigation component
- * 
- * BACKEND INTEGRATION:
- * - Navigation items map to views via the `view` property
- * - The active view is stored in the global store (useStore)
- * - Collapsed state is persisted to localStorage
- */
-export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
-  // TODO: Connect to global store for active view
-  const [activeView, setActiveView] = React.useState("dashboard")
+export function Sidebar({ collapsed }: SidebarProps) {
+  const [activeView, setActiveView] = useState("dashboard")
+  const [hoveredItem, setHoveredItem] = useState<string | null>(null)
 
   const handleNavClick = (view: string) => {
     setActiveView(view)
-    // BACKEND: This should update the global store
-    // store.setActiveView(view)
     window.dispatchEvent(new CustomEvent("guppy:navigate", { detail: { view } }))
+  }
+
+  const renderNavItem = (item: NavItem) => {
+    const isActive = activeView === item.view
+    const isHovered = hoveredItem === item.id
+
+    const button = (
+      <button
+        key={item.id}
+        onClick={() => handleNavClick(item.view)}
+        onMouseEnter={() => setHoveredItem(item.id)}
+        onMouseLeave={() => setHoveredItem(null)}
+        className={cn(
+          "w-full flex items-center font-body text-sm font-semibold tracking-tight transition-all duration-200 ease-viscous",
+          collapsed ? "justify-center px-4 py-3" : "py-3",
+          isActive
+            ? "text-primary bg-white shadow-sm rounded-r-full pl-6 pr-4"
+            : "text-on-surface/70 hover:text-primary px-6",
+          !isActive && isHovered && !collapsed && "translate-x-1"
+        )}
+      >
+        <span className={cn(collapsed ? "" : "mr-4")}>{item.icon}</span>
+        {!collapsed && item.label}
+      </button>
+    )
+
+    if (collapsed) {
+      return (
+        <Tooltip key={item.id} content={item.label} side="right">
+          {button}
+        </Tooltip>
+      )
+    }
+
+    return button
   }
 
   return (
     <aside
       className={cn(
-        "flex flex-col h-full bg-sidebar border-r border-sidebar-border transition-all duration-300 ease-in-out",
-        collapsed ? "w-16" : "w-64"
+        "bg-surface-container-low flex flex-col h-full py-8 gap-y-2 overflow-y-auto custom-scrollbar transition-all duration-300 ease-viscous",
+        collapsed ? "w-20" : "w-72"
       )}
     >
-      {/* Logo */}
-      <div className="flex items-center h-14 px-4 border-b border-sidebar-border">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-sm">G</span>
-          </div>
-          {!collapsed && (
-            <span className="font-semibold text-sidebar-foreground">Guppy</span>
-          )}
+      {/* Header - Curator Identity */}
+      <div className={cn("px-8 mb-10 flex items-center gap-4", collapsed && "px-4 justify-center")}>
+        <div className="w-10 h-10 rounded-lg overflow-hidden bg-primary-container flex items-center justify-center flex-shrink-0">
+          <Brain className="w-6 h-6 text-white" />
         </div>
+        {!collapsed && (
+          <div>
+            <h2 className="font-body text-sm font-semibold tracking-tight text-primary">Guppy</h2>
+            <p className="text-xs text-on-surface-variant/70 uppercase tracking-wider">Technical Intelligence</p>
+          </div>
+        )}
       </div>
 
-      {/* Navigation */}
-      <ScrollArea className="flex-1 py-4">
-        <nav className="space-y-6 px-2">
-          <NavSection
-            title="Main"
-            items={mainNavItems}
-            collapsed={collapsed}
-            activeView={activeView}
-            onNavigate={handleNavClick}
-          />
-          <NavSection
-            title="Configuration"
-            items={configNavItems}
-            collapsed={collapsed}
-            activeView={activeView}
-            onNavigate={handleNavClick}
-          />
-          <NavSection
-            title="System"
-            items={systemNavItems}
-            collapsed={collapsed}
-            activeView={activeView}
-            onNavigate={handleNavClick}
-          />
-        </nav>
-      </ScrollArea>
+      {/* Primary Navigation */}
+      <nav className="flex-1 space-y-1">
+        {primaryNavItems.map(renderNavItem)}
+      </nav>
 
-      {/* Collapse Toggle */}
-      <div className="p-2 border-t border-sidebar-border">
+      {/* Secondary Navigation */}
+      <div className="space-y-1 border-t border-outline-variant/10 pt-4 mt-4">
+        {secondaryNavItems.map(renderNavItem)}
+      </div>
+
+      {/* New Briefing Button */}
+      <div className={cn("px-6 my-6", collapsed && "px-3")}>
         <button
-          onClick={onToggleCollapse}
-          className="w-full flex items-center justify-center h-10 rounded-lg text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          onClick={() => handleNavClick("assistant")}
+          className={cn(
+            "w-full signature-gradient text-white py-3 rounded-lg font-bold text-sm shadow-md flex items-center justify-center gap-2 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5",
+            collapsed && "px-2"
+          )}
         >
-          {collapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
+          <Plus className="w-4 h-4" />
+          {!collapsed && "New Briefing"}
         </button>
       </div>
+
+      {/* Footer */}
+      <footer className="mt-auto space-y-1">
+        <button
+          onMouseEnter={() => setHoveredItem("help")}
+          onMouseLeave={() => setHoveredItem(null)}
+          className={cn(
+            "w-full flex items-center text-on-surface/70 font-body text-sm font-semibold tracking-tight hover:text-primary transition-all duration-200",
+            collapsed ? "justify-center px-4 py-3" : "px-6 py-3",
+            hoveredItem === "help" && !collapsed && "translate-x-1"
+          )}
+        >
+          <span className={cn(collapsed ? "" : "mr-4")}><HelpCircle className="w-5 h-5" /></span>
+          {!collapsed && "Help Center"}
+        </button>
+        <button
+          onMouseEnter={() => setHoveredItem("logout")}
+          onMouseLeave={() => setHoveredItem(null)}
+          className={cn(
+            "w-full flex items-center text-on-surface/70 font-body text-sm font-semibold tracking-tight hover:text-primary transition-all duration-200",
+            collapsed ? "justify-center px-4 py-3" : "px-6 py-3",
+            hoveredItem === "logout" && !collapsed && "translate-x-1"
+          )}
+        >
+          <span className={cn(collapsed ? "" : "mr-4")}><LogOut className="w-5 h-5" /></span>
+          {!collapsed && "Log Out"}
+        </button>
+      </footer>
     </aside>
   )
-}
-
-interface NavSectionProps {
-  title: string
-  items: NavItem[]
-  collapsed: boolean
-  activeView: string
-  onNavigate: (view: string) => void
-}
-
-function NavSection({ title, items, collapsed, activeView, onNavigate }: NavSectionProps) {
-  return (
-    <div className="space-y-1">
-      {!collapsed && (
-        <h3 className="px-3 mb-2 text-xs font-medium uppercase tracking-wider text-sidebar-foreground/50">
-          {title}
-        </h3>
-      )}
-      {items.map((item) => (
-        <NavButton
-          key={item.id}
-          item={item}
-          collapsed={collapsed}
-          isActive={activeView === item.view}
-          onClick={() => onNavigate(item.view)}
-        />
-      ))}
-    </div>
-  )
-}
-
-interface NavButtonProps {
-  item: NavItem
-  collapsed: boolean
-  isActive: boolean
-  onClick: () => void
-}
-
-function NavButton({ item, collapsed, isActive, onClick }: NavButtonProps) {
-  const button = (
-    <button
-      onClick={onClick}
-      className={cn(
-        "w-full flex items-center gap-3 px-3 h-10 rounded-lg transition-colors",
-        isActive
-          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-          : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
-      )}
-    >
-      <span className="flex-shrink-0">{item.icon}</span>
-      {!collapsed && <span className="text-sm font-medium">{item.label}</span>}
-    </button>
-  )
-
-  if (collapsed) {
-    return (
-      <Tooltip content={item.label} side="right">
-        {button}
-      </Tooltip>
-    )
-  }
-
-  return button
 }

@@ -8,58 +8,101 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Primary brand colors
+        // Atoll Editorial Design System
+        // Base surfaces - "White Sand" foundation
+        surface: {
+          DEFAULT: '#fbf9f4',
+          container: {
+            DEFAULT: '#f0eee9',
+            low: '#f5f3ee',
+            high: '#eae8e3',
+            highest: '#e4e2dd',
+            lowest: '#ffffff',
+          },
+          variant: '#e4e2dd',
+          dim: '#dbdad5',
+          bright: '#fbf9f4',
+        },
+        // Primary - Atoll Turquoise
         primary: {
-          DEFAULT: 'hsl(var(--primary))',
-          foreground: 'hsl(var(--primary-foreground))',
+          DEFAULT: '#006a6a',
+          container: '#08bdbd',
+          fixed: '#6af7f7',
+          'fixed-dim': '#47dada',
         },
-        // Semantic colors
-        background: 'hsl(var(--background))',
-        foreground: 'hsl(var(--foreground))',
-        card: {
-          DEFAULT: 'hsl(var(--card))',
-          foreground: 'hsl(var(--card-foreground))',
+        // Secondary - Sunset Orange
+        secondary: {
+          DEFAULT: '#ab3500',
+          container: '#fe6a34',
+          fixed: '#ffdbd0',
+          'fixed-dim': '#ffb59d',
         },
-        muted: {
-          DEFAULT: 'hsl(var(--muted))',
-          foreground: 'hsl(var(--muted-foreground))',
+        // Tertiary - Coral
+        tertiary: {
+          DEFAULT: '#994615',
+          container: '#f78f58',
+          fixed: '#ffdbcb',
+          'fixed-dim': '#ffb692',
         },
-        accent: {
-          DEFAULT: 'hsl(var(--accent))',
-          foreground: 'hsl(var(--accent-foreground))',
+        // Text colors
+        'on-surface': '#1b1c19',
+        'on-surface-variant': '#3c4949',
+        'on-primary': '#ffffff',
+        'on-primary-container': '#004646',
+        'on-secondary': '#ffffff',
+        'on-secondary-container': '#5d1900',
+        'on-tertiary': '#ffffff',
+        'on-tertiary-container': '#6c2a00',
+        // Outline
+        outline: {
+          DEFAULT: '#6c7a79',
+          variant: '#bbc9c9',
         },
-        border: 'hsl(var(--border))',
-        ring: 'hsl(var(--ring))',
-        // Status colors for trading/system status
+        // Inverse
+        'inverse-surface': '#30312e',
+        'inverse-on-surface': '#f2f1ec',
+        'inverse-primary': '#47dada',
+        // Error
+        error: '#ba1a1a',
+        'error-container': '#ffdad6',
+        'on-error': '#ffffff',
+        'on-error-container': '#93000a',
+        // Background (same as surface for consistency)
+        background: '#fbf9f4',
+        'on-background': '#1b1c19',
+        // Semantic status colors
         success: {
-          DEFAULT: 'hsl(var(--success))',
-          foreground: 'hsl(var(--success-foreground))',
+          DEFAULT: '#00c853',
+          foreground: '#ffffff',
         },
         warning: {
-          DEFAULT: 'hsl(var(--warning))',
-          foreground: 'hsl(var(--warning-foreground))',
+          DEFAULT: '#ffd600',
+          foreground: '#1b1c19',
         },
         destructive: {
-          DEFAULT: 'hsl(var(--destructive))',
-          foreground: 'hsl(var(--destructive-foreground))',
-        },
-        // Sidebar specific
-        sidebar: {
-          DEFAULT: 'hsl(var(--sidebar))',
-          foreground: 'hsl(var(--sidebar-foreground))',
-          accent: 'hsl(var(--sidebar-accent))',
-          'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
-          border: 'hsl(var(--sidebar-border))',
+          DEFAULT: '#ff3d00',
+          foreground: '#ffffff',
         },
       },
       borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
+        DEFAULT: '0.125rem',
+        sm: '0.125rem',
+        md: '0.25rem',
+        lg: '0.5rem',
+        xl: '0.75rem',
+        '2xl': '1rem',
+        full: '9999px',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        headline: ['Noto Serif', 'Georgia', 'serif'],
+        body: ['Manrope', 'system-ui', 'sans-serif'],
+        label: ['Manrope', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'Menlo', 'monospace'],
+      },
+      boxShadow: {
+        'soft': '0 4px 30px rgba(27, 28, 25, 0.06)',
+        'soft-lg': '0 10px 60px rgba(27, 28, 25, 0.08)',
+        'ghost': '0 0 0 1px rgba(187, 201, 201, 0.15)',
       },
       keyframes: {
         'fade-in': {
@@ -76,9 +119,12 @@ export default {
         },
       },
       animation: {
-        'fade-in': 'fade-in 0.2s ease-out',
-        'slide-in': 'slide-in 0.3s ease-out',
+        'fade-in': 'fade-in 0.3s cubic-bezier(0.23, 1, 0.32, 1)',
+        'slide-in': 'slide-in 0.4s cubic-bezier(0.23, 1, 0.32, 1)',
         'pulse-soft': 'pulse-soft 2s ease-in-out infinite',
+      },
+      transitionTimingFunction: {
+        'viscous': 'cubic-bezier(0.23, 1, 0.32, 1)',
       },
     },
   },

@@ -1,63 +1,75 @@
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 import {
   Search,
-  Sun,
-  Moon,
+  Bell,
+  Settings,
   Wifi,
   WifiOff,
-  Bell,
-  Command,
 } from "lucide-react"
-import { useTheme } from "@/hooks/useTheme"
 import { useConnectionStatus } from "@/hooks/useApi"
 
 interface TopBarProps {
+  title?: string
   onOpenCommandPalette: () => void
 }
 
 /**
- * TopBar - Application header with search, status, and controls
+ * TopBar - Editorial-style application header
  * 
  * BACKEND INTEGRATION:
  * - Connection status indicator shows WebSocket/API connectivity
  * - Uses useConnectionStatus() hook to get real-time status
- * - Theme toggle persists preference to localStorage
+ * - Navigation tabs can link to different workspace modes
  */
-export function TopBar({ onOpenCommandPalette }: TopBarProps) {
-  const { theme, toggleTheme } = useTheme()
+export function TopBar({ title = "Editorial Intelligence", onOpenCommandPalette }: TopBarProps) {
   const { isConnected } = useConnectionStatus()
 
   return (
-    <header className="flex items-center justify-between h-14 px-6 bg-background border-b border-border">
-      {/* Search / Command Palette Trigger */}
-      <button
-        onClick={onOpenCommandPalette}
-        className="flex items-center gap-3 h-9 px-3 w-72 rounded-lg border border-border bg-muted/50 text-muted-foreground hover:bg-muted transition-colors"
-      >
-        <Search size={16} />
-        <span className="text-sm">Search or run command...</span>
-        <kbd className="ml-auto flex items-center gap-1 text-xs bg-background px-1.5 py-0.5 rounded border border-border">
-          <Command size={12} />K
-        </kbd>
-      </button>
+    <header className="bg-surface flex justify-between items-center w-full px-12 py-4 sticky top-0 z-10 transition-all duration-300 ease-viscous">
+      {/* Left: Brand + Navigation */}
+      <div className="flex items-center gap-12">
+        <h1 className="font-headline text-2xl italic text-primary">{title}</h1>
+        <nav className="flex items-center gap-8">
+          <a href="#" className="font-headline text-on-surface/60 hover:text-on-surface transition-colors">
+            Drafts
+          </a>
+          <a href="#" className="font-headline text-on-surface/60 hover:text-on-surface transition-colors">
+            Archive
+          </a>
+          <a href="#" className="font-headline text-primary font-bold border-b-2 border-primary pb-1">
+            Curation
+          </a>
+        </nav>
+      </div>
 
-      {/* Right Side Controls */}
-      <div className="flex items-center gap-4">
+      {/* Right: Search + Controls */}
+      <div className="flex items-center gap-6">
+        {/* Search Input */}
+        <button
+          onClick={onOpenCommandPalette}
+          className="flex items-center gap-2 bg-surface-container-low px-4 py-2 rounded-md hover:bg-surface-container transition-all"
+        >
+          <Search className="w-4 h-4 text-on-surface-variant/60" />
+          <span className="text-sm text-on-surface-variant/60 w-40">Search models...</span>
+        </button>
+
         {/* Connection Status */}
         <ConnectionIndicator isConnected={isConnected} />
 
         {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell size={18} />
-          {/* Notification badge - show when there are unread notifications */}
-          {/* <span className="absolute top-1 right-1 w-2 h-2 bg-destructive rounded-full" /> */}
-        </Button>
+        <button className="text-on-surface-variant hover:bg-surface-container p-2 rounded-md transition-all">
+          <Bell className="w-5 h-5" />
+        </button>
 
-        {/* Theme Toggle */}
-        <Button variant="ghost" size="icon" onClick={toggleTheme}>
-          {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-        </Button>
+        {/* Settings */}
+        <button className="text-on-surface-variant hover:bg-surface-container p-2 rounded-md transition-all">
+          <Settings className="w-5 h-5" />
+        </button>
+
+        {/* User Avatar */}
+        <div className="w-8 h-8 rounded-full overflow-hidden ml-2 bg-primary-container flex items-center justify-center">
+          <span className="text-white text-sm font-bold">G</span>
+        </div>
       </div>
     </header>
   )
@@ -65,39 +77,30 @@ export function TopBar({ onOpenCommandPalette }: TopBarProps) {
 
 interface ConnectionIndicatorProps {
   isConnected: boolean
-  latency?: number
 }
 
 /**
  * ConnectionIndicator - Shows backend connection status
- * 
- * BACKEND INTEGRATION:
- * - Green: Connected to backend API/WebSocket
- * - Red: Disconnected or error state
- * - Shows latency when connected
  */
-function ConnectionIndicator({ isConnected, latency }: ConnectionIndicatorProps) {
+function ConnectionIndicator({ isConnected }: ConnectionIndicatorProps) {
   return (
     <div
       className={cn(
         "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium",
         isConnected
-          ? "bg-success/10 text-success"
-          : "bg-destructive/10 text-destructive"
+          ? "bg-primary/10 text-primary"
+          : "bg-secondary/10 text-secondary"
       )}
     >
       {isConnected ? (
         <>
           <Wifi size={14} />
           <span>Connected</span>
-          {latency !== undefined && (
-            <span className="text-success/70">{latency}ms</span>
-          )}
         </>
       ) : (
         <>
           <WifiOff size={14} />
-          <span>Disconnected</span>
+          <span>Offline</span>
         </>
       )}
     </div>

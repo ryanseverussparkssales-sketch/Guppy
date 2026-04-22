@@ -1,116 +1,92 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&family=Manrope:wght@400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  :root {
-    /* Dark theme (default) - Trading terminal aesthetic */
-    --background: 222 47% 6%;
-    --foreground: 210 40% 98%;
-    
-    --card: 222 47% 8%;
-    --card-foreground: 210 40% 98%;
-    
-    --muted: 217 33% 12%;
-    --muted-foreground: 215 20% 55%;
-    
-    --accent: 217 33% 15%;
-    --accent-foreground: 210 40% 98%;
-    
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 6%;
-    
-    --border: 217 33% 15%;
-    --ring: 217 91% 60%;
-    
-    /* Status colors */
-    --success: 142 76% 45%;
-    --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 0%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    
-    /* Sidebar */
-    --sidebar: 222 47% 5%;
-    --sidebar-foreground: 215 20% 65%;
-    --sidebar-accent: 217 33% 12%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 217 33% 12%;
-    
-    --radius: 0.5rem;
-  }
-
-  .light {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
-    
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    
-    --primary: 217 91% 55%;
-    --primary-foreground: 0 0% 100%;
-    
-    --border: 214 32% 91%;
-    --ring: 217 91% 55%;
-    
-    /* Status colors - slightly adjusted for light mode */
-    --success: 142 76% 36%;
-    --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 0%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    
-    /* Sidebar */
-    --sidebar: 210 40% 98%;
-    --sidebar-foreground: 215 16% 47%;
-    --sidebar-accent: 210 40% 96%;
-    --sidebar-accent-foreground: 222 47% 11%;
-    --sidebar-border: 214 32% 91%;
-  }
-
   * {
-    @apply border-border;
+    @apply border-outline-variant/20;
+  }
+
+  html {
+    @apply bg-surface text-on-surface antialiased;
+    font-family: 'Manrope', system-ui, sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1;
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    @apply bg-surface text-on-surface min-h-screen;
   }
 
   html, body, #root {
     @apply h-full w-full;
   }
+
+  /* Headlines use Noto Serif */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Noto Serif', Georgia, serif;
+  }
 }
 
 @layer components {
+  /* Signature gradient - Primary teal gradient */
+  .signature-gradient {
+    background: linear-gradient(135deg, #006a6a 0%, #08bdbd 100%);
+  }
+
+  /* Signature gradient for buttons */
+  .signature-gradient-orange {
+    background: linear-gradient(135deg, #ab3500 0%, #fe6a34 100%);
+  }
+
+  /* Ghost border - subtle container outline */
+  .ghost-border {
+    box-shadow: 0 0 0 1px rgba(187, 201, 201, 0.15);
+  }
+
+  /* Glass morphism effect */
+  .glass {
+    @apply bg-surface/70 backdrop-blur-xl;
+  }
+
+  /* Sidebar navigation item - active state */
+  .nav-item-active {
+    @apply bg-white shadow-sm rounded-r-full -ml-4 pl-10 text-primary font-semibold;
+  }
+
+  /* Sidebar navigation item - default */
+  .nav-item {
+    @apply text-on-surface/70 px-6 py-3 font-body text-sm font-semibold tracking-tight;
+    @apply hover:text-primary hover:translate-x-1 transition-all duration-200;
+  }
+
+  /* Card with subtle elevation */
+  .card-elevated {
+    @apply bg-surface-container-lowest rounded-xl shadow-ghost;
+    @apply transition-all duration-300 hover:shadow-soft-lg hover:-translate-y-1;
+  }
+
   /* Scrollbar styling */
   .custom-scrollbar::-webkit-scrollbar {
     @apply w-2 h-2;
   }
 
   .custom-scrollbar::-webkit-scrollbar-track {
-    @apply bg-muted/50;
+    @apply bg-surface-container;
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    @apply bg-muted-foreground/30 rounded-full;
+    @apply bg-on-surface-variant/20 rounded-full;
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    @apply bg-muted-foreground/50;
+    @apply bg-on-surface-variant/40;
   }
 
   /* Focus ring utility */
   .focus-ring {
-    @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background;
+    @apply focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface;
   }
 
   /* Status indicator dots */
@@ -131,7 +107,24 @@
   }
 
   .status-dot-idle {
-    @apply bg-muted-foreground;
+    @apply bg-on-surface-variant/40;
+  }
+
+  /* Badge styles */
+  .badge-verified {
+    @apply px-2 py-1 bg-primary-container/10 text-primary-container text-[10px] font-bold rounded uppercase;
+  }
+
+  .badge-active {
+    @apply px-2 py-1 bg-tertiary-container/10 text-tertiary-container text-[10px] font-bold rounded uppercase;
+  }
+
+  .badge-ready {
+    @apply px-2 py-1 bg-surface-variant text-on-surface-variant/60 text-[10px] font-bold rounded uppercase;
+  }
+
+  .badge-in-progress {
+    @apply px-2 py-1 bg-secondary-container/10 text-secondary text-[10px] font-bold rounded uppercase;
   }
 }
 
@@ -141,13 +134,23 @@
     text-wrap: balance;
   }
 
-  /* Gradient text */
-  .gradient-text {
-    @apply bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent;
+  /* Line clamp utilities */
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
-  /* Glass effect */
-  .glass {
-    @apply bg-card/80 backdrop-blur-sm;
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* Editorial italic style for brand */
+  .brand-italic {
+    @apply font-headline italic text-primary;
   }
 }

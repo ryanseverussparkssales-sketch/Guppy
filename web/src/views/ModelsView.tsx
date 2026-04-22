@@ -1,9 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Download, Trash2, RefreshCw, CheckCircle, XCircle, Brain, Cloud, Cpu } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
+import { Download, Trash2, RefreshCw, CheckCircle, XCircle, Brain, Cloud, Cpu, Activity, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '../api/client'
 
@@ -127,39 +123,47 @@ export default function ModelsView() {
     }
   }
 
-  const getTierColor = (tier: string) => {
-    switch (tier.toLowerCase()) {
-      case 'premium': return 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-      case 'standard': return 'bg-blue-500/10 text-blue-500 border-blue-500/20'
-      case 'basic': return 'bg-slate-500/10 text-slate-400 border-slate-500/20'
-      default: return 'bg-muted text-muted-foreground'
+  const getStatusBadge = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'verified':
+      case 'active':
+        return 'badge-verified'
+      case 'premium':
+        return 'badge-active'
+      case 'ready':
+      default:
+        return 'badge-ready'
     }
   }
 
   return (
-    <div className="space-y-6">
+    <div className="px-12 py-8 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Models</h1>
-          <p className="text-muted-foreground">
-            Manage LLM providers and available models
-          </p>
+          <span className="text-xs uppercase tracking-widest font-bold text-secondary mb-2 block">
+            Neural Architecture Registry
+          </span>
+          <h1 className="text-3xl font-headline font-bold text-on-surface">Model Fleet</h1>
         </div>
-        <Button variant="outline" onClick={fetchProviders} disabled={loading}>
-          <RefreshCw className={cn("w-4 h-4 mr-2", loading && "animate-spin")} />
+        <button 
+          onClick={fetchProviders} 
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 bg-surface-container-lowest rounded-lg ghost-border text-on-surface hover:shadow-soft transition-all"
+        >
+          <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
           Refresh
-        </Button>
+        </button>
       </div>
 
       {error && (
-        <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive">
+        <div className="p-4 rounded-lg bg-error/10 border border-error/20 text-error mb-6">
           {error}
         </div>
       )}
 
       {/* Provider Tabs */}
-      <div className="flex items-center gap-2 p-1 bg-muted/50 rounded-lg w-fit">
+      <div className="flex items-center gap-1 mb-8">
         {TABS.map((tab) => {
           const info = providers?.[tab.id]
           return (
@@ -167,23 +171,26 @@ export default function ModelsView() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors",
+                "flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all duration-200",
                 activeTab === tab.id
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-primary text-white shadow-md"
+                  : "text-on-surface-variant hover:bg-surface-container"
               )}
             >
               {info && (
                 info.configured
-                  ? <CheckCircle className="w-4 h-4 text-success" />
-                  : <XCircle className="w-4 h-4 text-muted-foreground" />
+                  ? <CheckCircle className="w-4 h-4" />
+                  : <XCircle className="w-4 h-4 opacity-50" />
               )}
               {tab.icon}
               {tab.label}
               {info && (
-                <Badge variant="secondary" className="ml-1 text-xs">
+                <span className={cn(
+                  "px-2 py-0.5 rounded text-xs ml-1",
+                  activeTab === tab.id ? "bg-white/20" : "bg-surface-container-high"
+                )}>
                   {info.models.length}
-                </Badge>
+                </span>
               )}
             </button>
           )
@@ -193,110 +200,118 @@ export default function ModelsView() {
       {/* Content */}
       {loading && !providers ? (
         <div className="flex items-center justify-center h-64">
-          <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <div className="flex flex-col items-center gap-3 text-on-surface-variant">
             <RefreshCw className="w-8 h-8 animate-spin" />
-            <p>Loading providers...</p>
+            <p className="font-headline italic">Loading neural architectures...</p>
           </div>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-8">
           {/* Local Tab */}
           {activeTab === 'local' && providers && (
             <>
               {/* Backend Status */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Local Backend Status</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm text-muted-foreground">
-                      Active: <span className="font-medium text-foreground">{providers.local.backend}</span>
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {Object.entries(providers.local.backends || {}).map(([name, b]) => (
-                        <Badge
-                          key={name}
-                          variant={b.alive ? "success" : "secondary"}
-                          className="text-xs"
-                        >
-                          {name}
-                        </Badge>
-                      ))}
+              <div className="grid grid-cols-12 gap-6">
+                <div className="col-span-8 bg-surface-container-lowest rounded-xl p-6 ghost-border">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <Activity className="w-5 h-5 text-primary" />
+                      <h3 className="font-headline font-bold text-on-surface">Local Backend Status</h3>
                     </div>
+                    <span className="text-sm text-on-surface-variant">
+                      Active: <span className="font-bold text-secondary">{providers.local.backend}</span>
+                    </span>
                   </div>
-                </CardContent>
-              </Card>
+                  <div className="flex items-center gap-3">
+                    {Object.entries(providers.local.backends || {}).map(([name, b]) => (
+                      <span
+                        key={name}
+                        className={cn(
+                          "px-3 py-1.5 rounded-full text-xs font-bold",
+                          b.alive 
+                            ? "bg-primary/10 text-primary" 
+                            : "bg-surface-container text-on-surface-variant/50"
+                        )}
+                      >
+                        {b.alive && <span className="inline-block w-2 h-2 rounded-full bg-primary mr-2 animate-pulse" />}
+                        {name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
 
-              {/* Pull Model */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Pull New Model</CardTitle>
-                  <CardDescription>
-                    Download a model from Ollama registry (e.g., llama3.2:3b)
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Model name (e.g., llama3.2:3b)"
+                {/* Pull Model Card */}
+                <div className="col-span-4 bg-surface-container-lowest rounded-xl p-6 ghost-border">
+                  <h4 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-4">
+                    Pull New Model
+                  </h4>
+                  <div className="flex gap-2 mb-4">
+                    <input
+                      placeholder="e.g., llama3.2:3b"
                       value={pullName}
                       onChange={(e) => setPullName(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handlePull()}
-                      className="flex-1"
+                      className="flex-1 bg-surface-container px-4 py-2.5 rounded-lg text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary"
                     />
-                    <Button onClick={handlePull} disabled={!pullName.trim()}>
-                      <Download className="w-4 h-4 mr-2" />
-                      Pull
-                    </Button>
+                    <button 
+                      onClick={handlePull} 
+                      disabled={!pullName.trim()}
+                      className={cn(
+                        "px-4 py-2.5 rounded-lg font-bold text-sm transition-all",
+                        pullName.trim()
+                          ? "signature-gradient text-white shadow-md"
+                          : "bg-surface-container text-on-surface-variant"
+                      )}
+                    >
+                      <Download className="w-4 h-4" />
+                    </button>
                   </div>
 
                   {pullStatus && !pullStatus.done && (
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">
-                          {pullStatus.status} {pullStatus.detail && `- ${pullStatus.detail}`}
-                        </span>
-                        <span className="font-medium">{pullStatus.progress.toFixed(0)}%</span>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-on-surface-variant">{pullStatus.status}</span>
+                        <span className="font-bold text-secondary">{pullStatus.progress.toFixed(0)}%</span>
                       </div>
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div className="h-1.5 bg-surface-container rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-primary transition-all duration-300"
+                          className="h-full bg-secondary rounded-full transition-all duration-300"
                           style={{ width: `${pullStatus.progress}%` }}
                         />
                       </div>
                     </div>
                   )}
                   {pullStatus?.done && pullStatus?.error && (
-                    <p className="text-sm text-destructive">Pull failed: {pullStatus.error}</p>
+                    <p className="text-xs text-error">Pull failed: {pullStatus.error}</p>
                   )}
                   {pullStatus?.done && !pullStatus?.error && (
-                    <p className="text-sm text-success">Pull complete!</p>
+                    <p className="text-xs text-primary font-bold">Pull complete!</p>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              </div>
 
               {/* Local Models Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {providers.local.models.map((model) => (
-                  <ModelCard
-                    key={model.id}
-                    model={model}
-                    isActive={providers.local.active_model === model.id}
-                    onDelete={() => handleDelete(model.id)}
-                    deleting={deleting === model.id}
-                    tierColor={getTierColor(model.tier)}
-                    showDelete
-                  />
-                ))}
-                {providers.local.models.length === 0 && (
-                  <Card className="col-span-full">
-                    <CardContent className="flex flex-col items-center justify-center h-32 text-center">
-                      <Brain className="w-8 h-8 text-muted-foreground mb-2" />
-                      <p className="text-muted-foreground">No local models found. Pull one above.</p>
-                    </CardContent>
-                  </Card>
-                )}
+              <div>
+                <h3 className="text-xl font-headline font-bold text-on-surface mb-6">Available Architectures</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                  {providers.local.models.map((model) => (
+                    <ModelCard
+                      key={model.id}
+                      model={model}
+                      isActive={providers.local.active_model === model.id}
+                      onDelete={() => handleDelete(model.id)}
+                      deleting={deleting === model.id}
+                      statusBadge={getStatusBadge(model.tier)}
+                      showDelete
+                    />
+                  ))}
+                  {providers.local.models.length === 0 && (
+                    <div className="col-span-full bg-surface-container-lowest rounded-xl p-12 ghost-border text-center">
+                      <Brain className="w-12 h-12 text-on-surface-variant/40 mx-auto mb-4" />
+                      <p className="font-headline italic text-on-surface-variant">No local models found. Pull one above.</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </>
           )}
@@ -305,41 +320,37 @@ export default function ModelsView() {
           {activeTab !== 'local' && providers && (
             <>
               {!providers[activeTab].configured && (
-                <Card className="border-warning/20 bg-warning/5">
-                  <CardContent className="flex items-center gap-4 py-4">
-                    <XCircle className="w-6 h-6 text-warning" />
-                    <div>
-                      <p className="font-medium text-foreground">Not configured</p>
-                      <p className="text-sm text-muted-foreground">
-                        Add{' '}
-                        <code className="px-1 py-0.5 bg-muted rounded text-xs">
-                          {activeTab === 'anthropic' && 'ANTHROPIC_API_KEY'}
-                          {activeTab === 'openai' && 'OPENAI_API_KEY'}
-                          {activeTab === 'google' && 'GOOGLE_API_KEY'}
-                        </code>{' '}
-                        to your <code className="px-1 py-0.5 bg-muted rounded text-xs">.env</code> and restart the server.
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
+                <div className="bg-secondary/10 border border-secondary/20 rounded-xl p-6 flex items-center gap-4">
+                  <Info className="w-8 h-8 text-secondary flex-shrink-0" />
+                  <div>
+                    <p className="font-headline font-bold text-on-surface">Provider Not Configured</p>
+                    <p className="text-sm text-on-surface-variant mt-1">
+                      Add{' '}
+                      <code className="px-2 py-0.5 bg-surface-container rounded text-xs font-mono">
+                        {activeTab === 'anthropic' && 'ANTHROPIC_API_KEY'}
+                        {activeTab === 'openai' && 'OPENAI_API_KEY'}
+                        {activeTab === 'google' && 'GOOGLE_API_KEY'}
+                      </code>{' '}
+                      to your environment and restart the server.
+                    </p>
+                  </div>
+                </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {providers[activeTab].models.map((model) => (
                   <ModelCard
                     key={model.id}
                     model={model}
                     isActive={providers[activeTab].active_model === model.id}
-                    tierColor={getTierColor(model.tier)}
+                    statusBadge={getStatusBadge(model.tier)}
                   />
                 ))}
                 {providers[activeTab].models.length === 0 && providers[activeTab].configured && (
-                  <Card className="col-span-full">
-                    <CardContent className="flex flex-col items-center justify-center h-32 text-center">
-                      <Cloud className="w-8 h-8 text-muted-foreground mb-2" />
-                      <p className="text-muted-foreground">No models available.</p>
-                    </CardContent>
-                  </Card>
+                  <div className="col-span-full bg-surface-container-lowest rounded-xl p-12 ghost-border text-center">
+                    <Cloud className="w-12 h-12 text-on-surface-variant/40 mx-auto mb-4" />
+                    <p className="font-headline italic text-on-surface-variant">No models available.</p>
+                  </div>
                 )}
               </div>
             </>
@@ -355,50 +366,44 @@ interface ModelCardProps {
   isActive: boolean
   onDelete?: () => void
   deleting?: boolean
-  tierColor: string
+  statusBadge: string
   showDelete?: boolean
 }
 
-function ModelCard({ model, isActive, onDelete, deleting, tierColor, showDelete }: ModelCardProps) {
+function ModelCard({ model, isActive, onDelete, deleting, statusBadge, showDelete }: ModelCardProps) {
   return (
-    <Card className={cn(
-      "transition-colors",
-      isActive && "border-primary"
+    <div className={cn(
+      "bg-surface-container-lowest rounded-xl p-6 ghost-border transition-all duration-300 hover:shadow-soft-lg hover:-translate-y-1",
+      isActive && "ring-2 ring-primary"
     )}>
-      <CardContent className="pt-6">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Brain className={cn(
-              "w-5 h-5",
-              isActive ? "text-primary" : "text-muted-foreground"
-            )} />
-            <span className="font-medium text-foreground">{model.name || model.id}</span>
-          </div>
-          <Badge className={cn("text-xs border", tierColor)}>
-            {model.tier}
-          </Badge>
+      <div className="flex items-start justify-between mb-4">
+        <div className="p-3 bg-surface-container-low rounded-lg text-primary">
+          <Brain className="w-5 h-5" />
         </div>
+        <span className={statusBadge}>{model.tier}</span>
+      </div>
 
-        <p className="text-xs text-muted-foreground font-mono mb-3">{model.id}</p>
+      <h4 className="text-xl font-headline font-bold text-on-surface mb-2">{model.name || model.id}</h4>
+      <p className="text-xs text-on-surface-variant font-mono mb-4 truncate">{model.id}</p>
 
-        <div className="flex items-center justify-between">
-          {isActive && (
-            <Badge variant="success" className="text-xs">Active</Badge>
-          )}
-          {showDelete && onDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onDelete}
-              disabled={deleting}
-              className="ml-auto text-muted-foreground hover:text-destructive"
-            >
-              <Trash2 className="w-4 h-4 mr-1" />
-              {deleting ? 'Deleting...' : 'Remove'}
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+      <div className="flex items-center justify-between pt-4 border-t border-surface-container">
+        {isActive ? (
+          <span className="badge-verified">Active</span>
+        ) : (
+          <span className="text-xs text-on-surface-variant/60">Inactive</span>
+        )}
+        
+        {showDelete && onDelete && (
+          <button
+            onClick={onDelete}
+            disabled={deleting}
+            className="flex items-center gap-1 text-xs text-on-surface-variant hover:text-error transition-colors"
+          >
+            <Trash2 className="w-3 h-3" />
+            {deleting ? 'Deleting...' : 'Remove'}
+          </button>
+        )}
+      </div>
+    </div>
   )
 }
