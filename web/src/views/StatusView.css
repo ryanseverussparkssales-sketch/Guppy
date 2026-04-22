@@ -69,3 +69,63 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
 }
+
+.status-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-last-fetch {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.status-checks {
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.status-checks h3 { margin: 0 0 14px 0; font-size: var(--font-size-lg); }
+.status-checks-grid { display: flex; flex-direction: column; gap: 6px; }
+.status-check-row {
+  display: grid;
+  grid-template-columns: 20px 180px 90px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background-color: var(--color-bg-primary);
+  border-radius: var(--border-radius);
+  font-size: var(--font-size-sm);
+  border-left: 3px solid var(--color-border);
+}
+.status-check-row.ok   { border-left-color: var(--color-success); }
+.status-check-row.warn { border-left-color: var(--color-warning); }
+.status-check-row.err  { border-left-color: var(--color-error); }
+.status-ok-icon   { color: var(--color-success); }
+.status-warn-icon { color: var(--color-warning); }
+.status-err-icon  { color: var(--color-error); }
+.status-check-name   { font-weight: 600; }
+.status-check-state  { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--color-text-muted); }
+.status-check-detail { color: var(--color-text-secondary); }
+
+.status-runtime {
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.status-runtime h3 { margin: 0 0 14px 0; font-size: var(--font-size-lg); }
+.status-runtime-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+}
+.status-runtime-row:last-child { border-bottom: none; }
+.status-runtime-row span { color: var(--color-text-secondary); }

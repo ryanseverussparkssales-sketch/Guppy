@@ -60,35 +60,19 @@ export default function AssistantView() {
         timestamp: new Date(),
       }
       setMessages((prev) => [...prev, assistantMessage])
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to send message:', error)
-<<<<<<< HEAD
+      let errorContent = 'Sorry, I encountered an error processing your request.'
+      const axiosError = error as { response?: { status?: number; data?: { detail?: string } } }
+      if (axiosError.response?.status === 503) {
+        errorContent = 'Guppy core is not available. Please ensure all services are properly configured.'
+      } else if (axiosError.response?.data?.detail) {
+        errorContent = `Error: ${axiosError.response.data.detail}`
+      }
       setMessages((prev) => [
         ...prev,
-        {
-          id: (Date.now() + 2).toString(),
-          role: 'assistant',
-          content: 'Sorry, I encountered an error processing your request.',
-          timestamp: new Date(),
-        },
+        { id: (Date.now() + 2).toString(), role: 'assistant', content: errorContent, timestamp: new Date() },
       ])
-=======
-      let errorContent = 'Sorry, I encountered an error processing your request.'
-
-      if (error.response?.status === 503) {
-        errorContent = 'Guppy core is not available. Please ensure all services are properly configured.'
-      } else if (error.response?.data?.detail) {
-        errorContent = `Error: ${error.response.data.detail}`
-      }
-
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 2).toString(),
-        role: 'assistant',
-        content: errorContent,
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, errorMessage])
->>>>>>> 171e5c4c95d95e798ddb97f6ffcd89a93da5f76f
     } finally {
       setIsLoading(false)
     }

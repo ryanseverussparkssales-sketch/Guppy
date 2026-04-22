@@ -65,7 +65,11 @@
       "Bash(.venv/Scripts/python -c \"import google.generativeai; print\\('google-generativeai ok'\\)\")",
       "Bash(.venv/Scripts/python -c \"import google.generativeai; print\\('genai ok'\\)\")",
       "Bash(.venv/Scripts/pip show *)",
-      "Bash(PYTHONPATH=. GUPPY_DEV_MODE=1 GUPPY_JWT_SECRET=dev-secret .venv/Scripts/python -c \"from src.guppy.api.server_runtime import app; print\\('backend OK'\\)\")"
+      "Bash(PYTHONPATH=. GUPPY_DEV_MODE=1 GUPPY_JWT_SECRET=dev-secret .venv/Scripts/python -c \"from src.guppy.api.server_runtime import app; print\\('backend OK'\\)\")",
+      "Bash(npm run *)",
+      "Bash(npx vite *)",
+      "Bash(PYTHONPATH=. GUPPY_DEV_MODE=1 GUPPY_JWT_SECRET=dev-secret .venv/Scripts/python -m pytest tests/unit/test_inference_router_fallback.py -q)",
+      "Bash(npm install *)"
     ]
   }
 }
