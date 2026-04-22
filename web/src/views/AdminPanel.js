@@ -5,7 +5,6 @@ import api from '../api/client';
 import './AdminPanel.css';
 export default function AdminPanel() {
     const [stats, setStats] = useState(null);
-    const [users, setUsers] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('dashboard');
     useEffect(() => {

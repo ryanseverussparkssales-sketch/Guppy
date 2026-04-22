@@ -1,7 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState, useRef, useEffect } from 'react';
 import { Send, Mic, Plus } from 'lucide-react';
-import { useAppStore } from '../store';
 import api from '../api/client';
 import './AssistantView.css';
 export default function AssistantView() {
@@ -10,7 +9,6 @@ export default function AssistantView() {
     const [isLoading, setIsLoading] = useState(false);
     const [isListening, setIsListening] = useState(false);
     const messagesEndRef = useRef(null);
-    const { isLoading: globalLoading } = useAppStore();
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };

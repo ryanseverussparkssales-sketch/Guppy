@@ -31,7 +31,7 @@ export default function AdvancedAssistantView() {
         onError: () => console.error('WebSocket error'),
         reconnect: true,
     });
-    const { currentSession, sessions, setCurrentSession, createSession, deleteSession, clearSession, addMessage, } = useChatHistory();
+    const { currentSession, sessions, setCurrentSession, createSession, clearSession, addMessage, } = useChatHistory();
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
@@ -52,7 +52,7 @@ export default function AdvancedAssistantView() {
             },
         };
         if (!currentSession) {
-            const session = await createSession(text.slice(0, 50) + '...');
+            await createSession(text.slice(0, 50) + '...');
             await addMessage(userMessage);
         }
         else {

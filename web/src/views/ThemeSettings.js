@@ -4,7 +4,7 @@ import { Palette, Copy, Check } from 'lucide-react';
 import { useTheme, THEME_PRESETS } from '../hooks/useTheme';
 import './ThemeSettings.css';
 export default function ThemeSettings() {
-    const { theme, preset, customColors, resolvedTheme, setThemeMode, setThemePreset, setCustomTheme, availablePresets } = useTheme();
+    const { theme, preset, customColors, resolvedTheme, setThemeMode, setThemePreset, availablePresets } = useTheme();
     const [copiedColor, setCopiedColor] = useState(null);
     const [showColorPicker, setShowColorPicker] = useState(false);
     const handleColorCopy = (color) => {

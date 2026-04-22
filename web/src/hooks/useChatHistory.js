@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 const DB_NAME = 'GuppyDB';
 const STORE_NAME = 'chatSessions';
 const VERSION = 1;
@@ -30,7 +30,6 @@ export const useChatHistory = () => {
         })
             .catch((error) => console.error('Failed to initialize IndexedDB:', error));
     }, []);
-    const useRef = require('react').useRef;
     const loadSessions = useCallback(async () => {
         if (!dbRef.current)
             return;
