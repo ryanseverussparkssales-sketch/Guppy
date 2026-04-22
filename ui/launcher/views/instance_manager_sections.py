@@ -38,29 +38,29 @@ def _mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = Fa
 
 def _button_style() -> str:
     return (
-        f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER};"
+        f"QPushButton {{ background: {T.BG0}; color: {T.DIM}; border: 1px solid {T.BORDER_SOFT}; border-radius: 4px;"
         f" padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-        f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; }}"
+        f"QPushButton:hover {{ border-color: {T.ACCENT_TEAL}; color: {T.ACCENT_TEAL}; }}"
     )
 
 
 def _line_edit_style() -> str:
     return (
-        f"QLineEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
+        f"QLineEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER_SOFT}; border-radius: 4px; color: {T.TEXT};"
         f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
     )
 
 
 def _combo_style() -> str:
     return (
-        f"QComboBox {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
+        f"QComboBox {{ background: {T.BG0}; border: 1px solid {T.BORDER_SOFT}; border-radius: 4px; color: {T.TEXT};"
         f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
     )
 
 
 def _plain_text_style() -> str:
     return (
-        f"QPlainTextEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
+        f"QPlainTextEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER_SOFT}; border-radius: 4px; color: {T.TEXT};"
         f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
     )
 
@@ -74,8 +74,8 @@ class InstanceCard(QFrame):
         super().__init__(parent)
         self._name = str(payload.get("name", "")).strip()
         self.setObjectName("instance_card")
-        border = T.PRIMARY if active else T.BORDER
-        self.setStyleSheet(f"QFrame#instance_card {{ background-color: {T.BG1}; border: 1px solid {border}; }}")
+        border = T.ACCENT_ORANGE if active else T.BORDER_SOFT
+        self.setStyleSheet(f"QFrame#instance_card {{ background-color: {T.BG1}; border: 1px solid {border}; border-radius: 4px; }}")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 12, 14, 12)
@@ -93,10 +93,10 @@ class InstanceCard(QFrame):
         header.addWidget(_mono(workspace_copy.role_label.upper(), T.DIM, T.FS_TINY, True))
         header.addStretch()
         status = str(payload.get("status", "idle") or "idle").upper()
-        header.addWidget(_mono(status, T.GREEN if status in {"ACTIVE", "RUNNING"} else T.DIM, T.FS_TINY, True))
+        header.addWidget(_mono(status, T.STATUS_SUCCESS if status in {"ACTIVE", "RUNNING"} else T.DIM, T.FS_TINY, True))
         if active:
             header.addSpacing(8)
-            header.addWidget(_mono("ACTIVE", T.PRIMARY, T.FS_TINY, True))
+            header.addWidget(_mono("ACTIVE", T.ACCENT_ORANGE, T.FS_TINY, True))
         root.addLayout(header)
 
         details = [

@@ -39,9 +39,9 @@ class _VoiceRow(QFrame):
         self.setFixedHeight(52)
         self.setStyleSheet(
             f"QFrame#voice_row {{"
-            f"  background-color: {T.BG1}; border: 1px solid {T.BORDER};"
+            f"  background-color: {T.BG1}; border: 1px solid {T.BORDER_SOFT}; border-radius: 4px;"
             f"}}"
-            f"QFrame#voice_row:hover {{ background-color: {T.BG2}; }}"
+            f"QFrame#voice_row:hover {{ background-color: {T.BG2}; border-color: {T.ACCENT_TEAL}; }}"
         )
 
         row = QHBoxLayout(self)
@@ -73,10 +73,10 @@ class _VoiceRow(QFrame):
         row.addWidget(lang_lbl)
         row.addStretch()
 
-        gcolor = T.TERTIARY if gender == "Male" else T.SECONDARY
+        gcolor = T.ACCENT_TEAL if gender == "Male" else T.ACCENT_ORANGE
         g_lbl = QLabel(gender.upper())
         g_lbl.setStyleSheet(
-            f"color: {gcolor}; background: transparent; border: 1px solid {gcolor};"
+            f"color: {gcolor}; background: transparent; border: 1px solid {gcolor}; border-radius: 3px;"
             f"font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
             f"letter-spacing: 1px; padding: 1px 6px;"
         )
@@ -86,9 +86,9 @@ class _VoiceRow(QFrame):
         prev_btn.setFixedSize(70, 28)
         prev_btn.setToolTip("Play a short audio sample of this voice")
         prev_btn.setStyleSheet(
-            f"QPushButton {{ color: {T.DIM}; border: 1px solid {T.BORDER};"
+            f"QPushButton {{ color: {T.DIM}; border: 1px solid {T.BORDER_SOFT}; border-radius: 3px;"
             f"  font-family: '{T.FF_MONO}'; font-size: 7pt; }}"
-            f"QPushButton:hover {{ color: {T.TEXT}; border-color: {T.DIM}; }}"
+            f"QPushButton:hover {{ color: {T.ACCENT_TEAL}; border-color: {T.ACCENT_TEAL}; }}"
         )
         prev_btn.clicked.connect(self._on_preview_clicked)
         row.addWidget(prev_btn)
@@ -97,20 +97,20 @@ class _VoiceRow(QFrame):
         self._sel_btn.setFixedSize(70, 28)
         self._sel_btn.setToolTip("Set this voice as the active TTS voice for this workspace")
         self._sel_btn.setStyleSheet(
-            f"QPushButton {{ color: {T.PRIMARY}; border: 1px solid {T.PRIMARY};"
+            f"QPushButton {{ color: {T.ACCENT_ORANGE}; border: 1px solid {T.ACCENT_ORANGE}; border-radius: 3px;"
             f"  font-family: '{T.FF_MONO}'; font-size: 7pt; }}"
-            f"QPushButton:hover {{ background: rgba(242,202,80,0.12); }}"
+            f"QPushButton:hover {{ background: rgba(255,109,0,0.12); border-color: {T.ACCENT_ORANGE}; }}"
         )
         row.addWidget(self._sel_btn)
 
         self._active_bar = QFrame()
-        self._active_bar.setFixedSize(3, 52)
-        self._active_bar.setStyleSheet("background: transparent;")
+        self._active_bar.setFixedSize(4, 52)
+        self._active_bar.setStyleSheet("background: transparent; border-radius: 2px;")
         row.insertWidget(0, self._active_bar)
 
     def mark_active(self, active: bool) -> None:
-        c = T.PRIMARY if active else "transparent"
-        self._active_bar.setStyleSheet(f"background: {c};")
+        c = T.ACCENT_ORANGE if active else "transparent"
+        self._active_bar.setStyleSheet(f"background: {c}; border-radius: 2px;")
         self._sel_btn.setText("ACTIVE" if active else "SELECT")
         self._sel_btn.setEnabled(not active)
 
@@ -143,7 +143,7 @@ def build_voices_ui(owner, *, engines: dict[str, list[tuple[str, str, str]]], pe
     bar.setObjectName("voices_topbar")
     bar.setStyleSheet(
         f"QFrame#voices_topbar {{"
-        f"  background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER};"
+        f"  background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER_SOFT};"
         f"}}"
     )
     bl = QHBoxLayout(bar)
@@ -151,7 +151,7 @@ def build_voices_ui(owner, *, engines: dict[str, list[tuple[str, str, str]]], pe
     bl.setSpacing(20)
     title = QLabel("VOICE LIBRARY")
     title.setStyleSheet(
-        f"color: {T.PRIMARY}; font-family: '{T.FF_HEAD}';"
+        f"color: {T.ACCENT_TEAL}; font-family: '{T.FF_HEAD}';"
         f"font-size: {T.FS_TITLE}pt; font-weight: bold; letter-spacing: 2px;"
     )
     bl.addWidget(title)
@@ -183,7 +183,7 @@ def build_voices_ui(owner, *, engines: dict[str, list[tuple[str, str, str]]], pe
     bl.addSpacing(14)
     owner._active_lbl = QLabel(f"ACTIVE VOICE: {owner._describe_voice_choice(owner._active_engine, owner._active_voice)}")
     owner._active_lbl.setStyleSheet(
-        f"color: {T.PRIMARY_DIM}; font-family: '{T.FF_MONO}';"
+        f"color: {T.ACCENT_ORANGE}; font-family: '{T.FF_MONO}';"
         f"font-size: {T.FS_TINY}pt; letter-spacing: 2px;"
     )
     bl.addWidget(owner._active_lbl)
@@ -197,7 +197,7 @@ def build_voices_ui(owner, *, engines: dict[str, list[tuple[str, str, str]]], pe
     assign_bar = QFrame()
     assign_bar.setFixedHeight(62)
     assign_bar.setStyleSheet(
-        f"QFrame {{ background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER}; }}"
+        f"QFrame {{ background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER_SOFT}; }}"
     )
     ab = QHBoxLayout(assign_bar)
     ab.setContentsMargins(28, 0, 28, 0)
@@ -243,7 +243,7 @@ def build_voices_ui(owner, *, engines: dict[str, list[tuple[str, str, str]]], pe
 
     manage_bar = QFrame()
     manage_bar.setStyleSheet(
-        f"QFrame {{ background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER}; }}"
+        f"QFrame {{ background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER_SOFT}; }}"
     )
     mb = QVBoxLayout(manage_bar)
     mb.setContentsMargins(28, 10, 28, 10)
@@ -258,7 +258,7 @@ def build_voices_ui(owner, *, engines: dict[str, list[tuple[str, str, str]]], pe
     preview_row.addWidget(preview_lbl)
     owner._preview_phrase_input = QLineEdit(preview_phrase)
     owner._preview_phrase_input.setStyleSheet(
-        f"QLineEdit {{ background: {T.BG1}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
+        f"QLineEdit {{ background: {T.BG1}; border: 1px solid {T.BORDER_SOFT}; border-radius: 4px; color: {T.TEXT};"
         f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; padding: 4px 8px; }}"
     )
     preview_row.addWidget(owner._preview_phrase_input, stretch=1)
@@ -284,7 +284,7 @@ def build_voices_ui(owner, *, engines: dict[str, list[tuple[str, str, str]]], pe
     owner._import_label.setPlaceholderText("display label (optional)")
     for widget in (owner._import_voice_id, owner._import_label):
         widget.setStyleSheet(
-            f"QLineEdit {{ background: {T.BG1}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
+            f"QLineEdit {{ background: {T.BG1}; border: 1px solid {T.BORDER_SOFT}; border-radius: 4px; color: {T.TEXT};"
             f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; padding: 4px 8px; }}"
         )
     import_row.addWidget(owner._import_voice_id)
@@ -304,7 +304,7 @@ def build_voices_ui(owner, *, engines: dict[str, list[tuple[str, str, str]]], pe
     owner._voice_evidence_lbl = QLabel("Voice readiness appears here once Guppy loads bindings and engine status.")
     owner._voice_evidence_lbl.setWordWrap(True)
     owner._voice_evidence_lbl.setStyleSheet(
-        f"color: {T.PRIMARY_DIM}; font-family: '{T.FF_MONO}';"
+        f"color: {T.ACCENT_TEAL}; font-family: '{T.FF_MONO}';"
         f"font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
     )
     mb.addWidget(owner._voice_evidence_lbl)

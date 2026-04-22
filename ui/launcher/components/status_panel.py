@@ -86,7 +86,7 @@ class StatusPanel(QFrame):
         title_row = QHBoxLayout()
         title = QLabel("WORKSPACE")
         title.setStyleSheet(
-            f"color: {T.INK}; font-family: '{T.FF_HEAD}';"
+            f"color: {T.ACCENT_TEAL}; font-family: '{T.FF_HEAD}';"
             f"font-size: {T.FS_TITLE}pt; font-weight: bold;"
         )
         title_row.addWidget(title)
@@ -99,14 +99,14 @@ class StatusPanel(QFrame):
         self._extras_btn.setStyleSheet(
             f"QPushButton {{ background: {T.SURFACE_ELEVATED_92}; color: {T.DIM}; border: 1px solid {T.BORDER_SOFT_60};"
             f" border-radius: 14px; padding: 4px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ border-color: {T.HOVER_TERTIARY_MED}; color: {T.TERTIARY}; background: {T.WHITE}; }}"
+            f"QPushButton:hover {{ border-color: {T.ACCENT_TEAL}; color: {T.ACCENT_TEAL}; background: {T.WHITE}; }}"
         )
         self._extras_btn.clicked.connect(self._toggle_extras)
         title_row.addWidget(self._extras_btn)
         outer.addLayout(title_row)
 
         self._workspace_lbl = _mono("GUPPY-PRIMARY / DAILY", T.TEXT, T.FS_TINY, True)
-        self._tray_status_lbl = _mono("READY", T.GREEN, T.FS_TINY, True)
+        self._tray_status_lbl = _mono("READY", T.STATUS_SUCCESS, T.FS_TINY, True)
         self._activity_lbl = _mono("Latest: Workspace ready", T.DIM, T.FS_TINY)
         self._activity_lbl.setWordWrap(True)
         self._activity_lbl.setStyleSheet(
