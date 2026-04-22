@@ -1,8 +1,18 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Activity, Zap, Mic, Database, CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react'
+import { Activity, Zap, Mic, Database, CheckCircle, XCircle, AlertCircle, RefreshCw, Cpu, Server } from 'lucide-react'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 import api from '../api/client'
-import './StatusView.css'
 
+/**
+ * Status interfaces
+ * 
+ * BACKEND INTEGRATION:
+ * - GET /api/status -> Full system status
+ * - Returns health checks, service availability, and runtime info
+ */
 interface ReadinessCheck {
   state: string
   detail: string
@@ -27,14 +37,14 @@ interface StatusData {
   }
 }
 
-function StateIcon({ state }: { state: string }) {
-  const s = (state || '').toUpperCase()
-  if (s === 'READY')    return <CheckCircle size={16} className="status-ok-icon" />
-  if (s === 'PARTIAL' || s === 'OPTIONAL' || s === 'SKIPPED')
-                         return <AlertCircle size={16} className="status-warn-icon" />
-  return <XCircle size={16} className="status-err-icon" />
-}
-
+/**
+ * StatusView - System health and status monitoring
+ * 
+ * BACKEND INTEGRATION:
+ * - GET /api/status - Fetch current system status
+ * - Auto-refreshes every 30 seconds
+ * - Shows service availability, startup checks, and runtime info
+ */
 export default function StatusView() {
   const [statusData, setStatusData] = useState<StatusData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -66,7 +76,7 @@ export default function StatusView() {
   const serviceCards = [
     {
       key: 'api',
-      icon: <Activity size={28} />,
+      icon: <Activity className="w-6 h-6" />,
       title: 'API Status',
       available: isHealthy,
       label: isHealthy ? 'Healthy' : 'Unhealthy',
@@ -74,7 +84,7 @@ export default function StatusView() {
     },
     {
       key: 'core',
-      icon: <Zap size={28} />,
+      icon: <Zap className="w-6 h-6" />,
       title: 'Guppy Core',
       available: statusData?.guppy_core_available ?? false,
       label: statusData?.guppy_core_available ? 'Available' : 'Unavailable',
@@ -82,7 +92,7 @@ export default function StatusView() {
     },
     {
       key: 'memory',
-      icon: <Database size={28} />,
+      icon: <Database className="w-6 h-6" />,
       title: 'Memory',
       available: statusData?.memory_available ?? false,
       label: statusData?.memory_available ? 'Available' : 'Unavailable',
@@ -90,7 +100,7 @@ export default function StatusView() {
     },
     {
       key: 'voice',
-      icon: <Mic size={28} />,
+      icon: <Mic className="w-6 h-6" />,
       title: 'Voice System',
       available: statusData?.voice_available ?? false,
       label: statusData?.voice_available ? 'Available' : 'Not Available',
@@ -99,82 +109,168 @@ export default function StatusView() {
   ]
 
   return (
-    <div className="view-container">
-      <div className="view-header">
-        <h2>System Status</h2>
-        <div className="status-header-actions">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">System Status</h1>
+          <p className="text-muted-foreground">
+            Monitor your Guppy system health and services
+          </p>
+        </div>
+        <div className="flex items-center gap-4">
           {lastFetch && (
-            <span className="status-last-fetch">
+            <span className="text-sm text-muted-foreground">
               Updated {lastFetch.toLocaleTimeString()}
             </span>
           )}
-          <button type="button" className="btn btn-secondary" onClick={fetchStatus} disabled={loading}>
-            <RefreshCw size={16} className={loading ? 'spin' : ''} />
+          <Button variant="outline" onClick={fetchStatus} disabled={loading}>
+            <RefreshCw className={cn("w-4 h-4 mr-2", loading && "animate-spin")} />
             Refresh
-          </button>
+          </Button>
         </div>
       </div>
 
       {loading && !statusData ? (
-        <div style={{ padding: '40px', textAlign: 'center' }}>
-          <p>Loading system status...</p>
+        <div className="flex items-center justify-center h-64">
+          <div className="flex flex-col items-center gap-3 text-muted-foreground">
+            <RefreshCw className="w-8 h-8 animate-spin" />
+            <p>Loading system status...</p>
+          </div>
         </div>
       ) : (
         <>
-          <div className="status-grid">
+          {/* Service Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {serviceCards.map((card) => (
-              <div key={card.key} className={`status-card ${card.available ? 'healthy' : 'warning'}`}>
-                <div className="status-icon">
-                  {card.icon}
-                </div>
-                <h3>{card.title}</h3>
-                <p>{card.label}</p>
-                <small>{card.detail}</small>
-              </div>
+              <Card key={card.key} className={cn(
+                "transition-colors",
+                card.available ? "border-success/30" : "border-warning/30"
+              )}>
+                <CardContent className="pt-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className={cn(
+                      "p-3 rounded-xl",
+                      card.available ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
+                    )}>
+                      {card.icon}
+                    </div>
+                    <Badge variant={card.available ? "success" : "warning"}>
+                      {card.label}
+                    </Badge>
+                  </div>
+                  <h3 className="font-semibold text-foreground mb-1">{card.title}</h3>
+                  <p className="text-sm text-muted-foreground">{card.detail}</p>
+                </CardContent>
+              </Card>
             ))}
           </div>
 
+          {/* Startup Readiness Checks */}
           {Object.keys(checks).length > 0 && (
-            <div className="status-checks">
-              <h3>Startup Readiness — {statusData?.startup_readiness?.overall ?? '…'}</h3>
-              <div className="status-checks-grid">
-                {Object.entries(checks).map(([name, check]) => (
-                  <div key={name} className={`status-check-row ${check.state === 'READY' ? 'ok' : check.state === 'PARTIAL' || check.state === 'SKIPPED' ? 'warn' : 'err'}`}>
-                    <StateIcon state={check.state} />
-                    <span className="status-check-name">{name}</span>
-                    <span className="status-check-state">{check.state}</span>
-                    <span className="status-check-detail">{check.detail}</span>
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Server className="w-5 h-5 text-primary" />
+                      Startup Readiness
+                    </CardTitle>
+                    <CardDescription>Component initialization status</CardDescription>
                   </div>
-                ))}
-              </div>
-            </div>
+                  <Badge
+                    variant={
+                      statusData?.startup_readiness?.overall === 'READY'
+                        ? 'success'
+                        : statusData?.startup_readiness?.overall === 'PARTIAL'
+                        ? 'warning'
+                        : 'destructive'
+                    }
+                  >
+                    {statusData?.startup_readiness?.overall ?? 'Unknown'}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {Object.entries(checks).map(([name, check]) => (
+                    <div
+                      key={name}
+                      className={cn(
+                        "flex items-center gap-4 p-3 rounded-lg",
+                        check.state === 'READY' && "bg-success/5",
+                        (check.state === 'PARTIAL' || check.state === 'SKIPPED') && "bg-warning/5",
+                        check.state !== 'READY' && check.state !== 'PARTIAL' && check.state !== 'SKIPPED' && "bg-destructive/5"
+                      )}
+                    >
+                      <StateIcon state={check.state} />
+                      <span className="font-medium text-foreground min-w-[120px]">{name}</span>
+                      <Badge
+                        variant={
+                          check.state === 'READY' ? 'success'
+                            : check.state === 'PARTIAL' || check.state === 'SKIPPED' ? 'warning'
+                            : 'destructive'
+                        }
+                        className="text-xs"
+                      >
+                        {check.state}
+                      </Badge>
+                      <span className="text-sm text-muted-foreground flex-1">{check.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           )}
 
+          {/* Local Runtime */}
           {statusData?.local_runtime && (
-            <div className="status-runtime">
-              <h3>Local Runtime</h3>
-              <div className="status-runtime-row">
-                <span>Backend</span>
-                <strong>{statusData.local_runtime.backend}</strong>
-              </div>
-              <div className="status-runtime-row">
-                <span>State</span>
-                <strong>{statusData.local_runtime.state}</strong>
-              </div>
-              <div className="status-runtime-row">
-                <span>Chat Ready</span>
-                <strong>{statusData.local_runtime.chat_ready ? 'Yes' : 'No'}</strong>
-              </div>
-              {statusData.local_runtime.models && statusData.local_runtime.models.length > 0 && (
-                <div className="status-runtime-row">
-                  <span>Models</span>
-                  <strong>{statusData.local_runtime.models.join(', ')}</strong>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Cpu className="w-5 h-5 text-primary" />
+                  Local Runtime
+                </CardTitle>
+                <CardDescription>Local LLM backend status</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-4 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1">Backend</p>
+                    <p className="font-semibold text-foreground">{statusData.local_runtime.backend}</p>
+                  </div>
+                  <div className="p-4 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1">State</p>
+                    <p className="font-semibold text-foreground">{statusData.local_runtime.state}</p>
+                  </div>
+                  <div className="p-4 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground mb-1">Chat Ready</p>
+                    <Badge variant={statusData.local_runtime.chat_ready ? "success" : "secondary"}>
+                      {statusData.local_runtime.chat_ready ? 'Yes' : 'No'}
+                    </Badge>
+                  </div>
+                  {statusData.local_runtime.models && statusData.local_runtime.models.length > 0 && (
+                    <div className="p-4 bg-muted/50 rounded-lg">
+                      <p className="text-xs text-muted-foreground mb-1">Models</p>
+                      <p className="font-semibold text-foreground text-sm">
+                        {statusData.local_runtime.models.join(', ')}
+                      </p>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </CardContent>
+            </Card>
           )}
         </>
       )}
     </div>
   )
+}
+
+function StateIcon({ state }: { state: string }) {
+  const s = (state || '').toUpperCase()
+  if (s === 'READY') return <CheckCircle className="w-5 h-5 text-success" />
+  if (s === 'PARTIAL' || s === 'OPTIONAL' || s === 'SKIPPED')
+    return <AlertCircle className="w-5 h-5 text-warning" />
+  return <XCircle className="w-5 h-5 text-destructive" />
 }

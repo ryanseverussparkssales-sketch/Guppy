@@ -12,6 +12,13 @@ interface ThemeColors {
   border: string
 }
 
+/**
+ * BACKEND INTEGRATION:
+ * Theme preference is stored in localStorage.
+ * The resolved theme is applied to the document root as a class.
+ * This enables Tailwind's dark: variant to work correctly.
+ */
+
 export const THEME_PRESETS: Record<string, Record<'light' | 'dark', ThemeColors>> = {
   default: {
     light: {
@@ -164,6 +171,20 @@ export const useTheme = (initialTheme: Theme = 'auto', initialPreset: string = '
     return () => mediaQuery.removeEventListener('change', handleChange)
   }, [theme, preset, applyTheme])
 
+  // Toggle between light and dark
+  const toggleTheme = useCallback(() => {
+    const resolved = getResolvedTheme()
+    const newTheme = resolved === 'dark' ? 'light' : 'dark'
+    setThemeMode(newTheme)
+  }, [getResolvedTheme, setThemeMode])
+
+  // Apply class to document root for Tailwind dark mode
+  useEffect(() => {
+    const resolved = getResolvedTheme()
+    document.documentElement.classList.remove('light', 'dark')
+    document.documentElement.classList.add(resolved)
+  }, [theme, getResolvedTheme])
+
   return {
     theme,
     preset,
@@ -172,6 +193,7 @@ export const useTheme = (initialTheme: Theme = 'auto', initialPreset: string = '
     setThemeMode,
     setThemePreset,
     setCustomTheme,
+    toggleTheme,
     availablePresets: Object.keys(THEME_PRESETS),
     availableThemes: ['light', 'dark', 'auto'] as const,
   }
