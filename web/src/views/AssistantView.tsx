@@ -1,14 +1,17 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Paperclip, Sparkles, ArrowRight, LayoutGrid, FileText, Copy, Check } from 'lucide-react'
+import { Send, Paperclip, Sparkles, ArrowRight, LayoutGrid, FileText, Copy, Check, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '../api/client'
+import { useWorkspaces } from '@/hooks/useWorkspaces'
+import { useChatHistory } from '@/hooks/useChatHistory'
+import { ChatHistorySidebar } from '@/components/chat/ChatHistorySidebar'
 
 /**
  * Chat message interface
- * 
+ *
  * BACKEND INTEGRATION:
  * - Messages are sent via POST /api/chat
- * - Request: { message: string, mode: string }
+ * - Request: { message: string, mode: string, model?: string, workspace_id?: string }
  * - Response: { response: string, source?: string }
  */
 interface ChatMessage {
@@ -31,20 +34,70 @@ const MODES = [
 
 /**
  * AssistantView - Editorial-style chat interface
- * 
+ *
  * BACKEND INTEGRATION:
  * - POST /api/chat - Send messages and receive responses
+ * - GET /providers - Fetch available local models
  * - WebSocket /ws/chat - For streaming responses (TODO)
  * - The `mode` parameter controls which LLM backend to use
+ * - The `model` parameter selects a specific model (e.g., "fast", "code", "main")
  */
 export default function AssistantView() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [mode, setMode] = useState('auto')
+  const [localModels, setLocalModels] = useState<string[]>([])
+  const [selectedModel, setSelectedModel] = useState<string>('')
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  // Workspace context
+  const { activeWorkspaceId } = useWorkspaces()
+
+  // Chat history persistence
+  const {
+    conversations,
+    activeConversation,
+    loading: historyLoading,
+    createConversation,
+    loadConversation,
+    addMessage: saveMessage,
+    searchConversations,
+  } = useChatHistory(activeWorkspaceId)
+
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null)
+  const [showSidebar, setShowSidebar] = useState(true)
+
+  // Auto-create conversation for workspace
+  useEffect(() => {
+    if (activeWorkspaceId && !currentConversationId) {
+      createConversation(`Conversation ${new Date().toLocaleDateString()}`)
+        .then((conv) => {
+          if (conv) setCurrentConversationId(conv.id)
+        })
+        .catch(console.error)
+    }
+  }, [activeWorkspaceId])
+
+  // Fetch available local models on mount
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        const res = await api.get('/providers')
+        const models = res.data.local?.models?.map((m: { id: string }) => m.id) || []
+        setLocalModels(models)
+        if (models.length > 0 && !selectedModel) {
+          setSelectedModel(models[0])
+        }
+      } catch (err) {
+        console.error('Failed to fetch models:', err)
+      }
+    }
+    fetchModels()
+  }, [])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -73,7 +126,18 @@ export default function AssistantView() {
     setIsLoading(true)
 
     try {
-      const response = await api.post('/chat', { message: text, mode })
+      const chatPayload: { message: string; mode: string; model?: string; workspace_id?: string } = {
+        message: text,
+        mode,
+      }
+      if (selectedModel && mode === 'local') {
+        chatPayload.model = selectedModel
+      }
+      if (activeWorkspaceId) {
+        chatPayload.workspace_id = activeWorkspaceId
+      }
+
+      const response = await api.post('/chat', chatPayload)
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -83,6 +147,21 @@ export default function AssistantView() {
         observations: response.data.observations,
       }
       setMessages((prev) => [...prev, assistantMessage])
+
+      // Save messages to chat history if conversation exists
+      if (currentConversationId) {
+        try {
+          await saveMessage(currentConversationId, 'user', text, selectedModel || undefined)
+          await saveMessage(
+            currentConversationId,
+            'assistant',
+            assistantMessage.content,
+            selectedModel || undefined
+          )
+        } catch (err) {
+          console.error('Failed to save message to history:', err)
+        }
+      }
     } catch (error: unknown) {
       console.error('Failed to send message:', error)
       let errorContent = 'I encountered an issue processing your request. Please verify the backend services are running.'
@@ -109,6 +188,50 @@ export default function AssistantView() {
 
   return (
     <div className="flex h-[calc(100vh-80px)]">
+      {/* Chat History Sidebar */}
+      {showSidebar && (
+        <ChatHistorySidebar
+          conversations={conversations}
+          activeConversationId={currentConversationId}
+          loading={historyLoading}
+          onSelectConversation={(convId) => {
+            setCurrentConversationId(convId)
+            loadConversation(convId)
+              .then((conv) => {
+                if (conv?.messages) {
+                  setMessages(
+                    conv.messages.map((msg) => ({
+                      id: msg.id,
+                      role: msg.role,
+                      content: msg.content,
+                      timestamp: new Date(msg.created_at),
+                    }))
+                  )
+                }
+              })
+              .catch(console.error)
+          }}
+          onCreateNew={() => {
+            if (activeWorkspaceId) {
+              createConversation().then((conv) => {
+                if (conv) {
+                  setCurrentConversationId(conv.id)
+                  setMessages([])
+                }
+              })
+            }
+          }}
+          onDeleteConversation={(convId) => {
+            // Delete is already handled by useChatHistory
+            if (currentConversationId === convId) {
+              setCurrentConversationId(null)
+              setMessages([])
+            }
+          }}
+          onSearch={searchConversations}
+        />
+      )}
+
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col px-12 py-8">
         {messages.length === 0 ? (
@@ -276,7 +399,7 @@ export default function AssistantView() {
               </button>
             </div>
 
-            {/* Mode Selector */}
+            {/* Mode Selector & Model Dropdown */}
             <div className="flex items-center justify-center gap-2 mt-4">
               {MODES.map((m) => (
                 <button
@@ -293,63 +416,30 @@ export default function AssistantView() {
                   {m.label}
                 </button>
               ))}
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Right Sidebar - System Workspace */}
-      <aside className="w-80 bg-surface-container-lowest border-l border-outline-variant/10 p-6 hidden xl:block">
-        <h4 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-4">
-          System Workspace
-        </h4>
+              {/* Model Selector (shows when local mode active) */}
+              {mode === 'local' && localModels.length > 0 && (
+                <div className="relative ml-2">
+                  <button
+                    onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+                    disabled={isLoading}
+                    className="px-3 py-1.5 rounded-full text-xs font-bold transition-all bg-surface-container text-on-surface-variant/60 hover:text-on-surface-variant flex items-center gap-1"
+                  >
+                    {selectedModel || 'Select model'}
+                    <ChevronDown className={cn("w-3 h-3 transition-transform", modelDropdownOpen && "rotate-180")} />
+                  </button>
 
-        <div className="space-y-4 mb-8">
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <span className="text-xs text-on-surface-variant">CPU LOAD</span>
-              <span className="text-sm font-bold text-secondary">24%</span>
-            </div>
-            <div className="h-1.5 bg-surface-container rounded-full overflow-hidden">
-              <div className="h-full bg-secondary rounded-full w-[24%]" />
-            </div>
-          </div>
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <span className="text-xs text-on-surface-variant">MEMORY</span>
-              <span className="text-sm font-bold text-secondary">68%</span>
-            </div>
-            <div className="h-1.5 bg-surface-container rounded-full overflow-hidden">
-              <div className="h-full bg-secondary rounded-full w-[68%]" />
-            </div>
-          </div>
-        </div>
-
-        <h4 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-4">
-          Quick Actions
-        </h4>
-        <div className="space-y-2">
-          <ActionButton label="Export as Manuscript" />
-          <ActionButton label="Isolate Sources" />
-          <ActionButton label="Archive Session" />
-        </div>
-
-        {/* Decorative Image Placeholder */}
-        <div className="mt-8 rounded-xl overflow-hidden bg-surface-container aspect-[4/3] flex items-end p-4">
-          <p className="text-xs text-on-surface-variant italic">
-            "Intelligence is the ability to adapt to change."
-          </p>
-        </div>
-      </aside>
-    </div>
-  )
-}
-
-function ActionButton({ label }: { label: string }) {
-  return (
-    <button className="w-full flex items-center justify-between p-3 rounded-lg border border-outline-variant/10 hover:bg-surface-container transition-colors text-left group">
-      <span className="text-sm text-on-surface">{label}</span>
-      <ArrowRight className="w-4 h-4 text-on-surface-variant group-hover:text-primary transition-colors" />
-    </button>
-  )
-}
+                  {/* Dropdown Menu */}
+                  {modelDropdownOpen && (
+                    <div className="absolute top-full mt-1 right-0 bg-surface-container rounded-lg shadow-lg border border-outline-variant/20 z-50 min-w-48">
+                      {localModels.map((model) => (
+                        <button
+                          key={model}
+                          onClick={() => {
+                            setSelectedModel(model)
+                            setModelDropdownOpen(false)
+                          }}
+                          className={cn(
+                            "w-full text-left px-4 py-2 text-xs font-bold transition-colors",
+                            selectedModel === model
+                              ? "bg-primary/1

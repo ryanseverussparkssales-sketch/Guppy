@@ -44,7 +44,22 @@ def _provider_status() -> Dict[str, Any]:
     local_liveness = probe_backends(timeout=1.0)
     local_models_raw = list_local_models(local_backend, timeout=2.0) if local_liveness.get(local_backend) else []
 
-    local_models = [{"id": m, "name": m, "tier": "local"} for m in local_models_raw]
+    # Filter models: prioritize clean aliases (fast, code, main), hide old guppy-* names
+    # if both "fast:latest" and "guppy-fast:latest" exist, show only "fast:latest"
+    def _should_include_model(model_name: str) -> bool:
+        # Always exclude old guppy-* names if their clean alias exists
+        clean_names = {"fast:latest", "code:latest", "main:latest"}
+        if model_name in clean_names:
+            return True  # Include the clean aliases
+        if model_name.startswith("guppy-") or model_name == "guppy:latest":
+            # Exclude old names only if we have the clean versions
+            if any(cn in local_models_raw for cn in clean_names):
+                return False
+        # Include all other models
+        return True
+
+    local_models_filtered = [m for m in local_models_raw if _should_include_model(m)]
+    local_models = [{"id": m, "name": m, "tier": "local"} for m in local_models_filtered]
 
     return {
         "anthropic": {
