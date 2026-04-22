@@ -4,6 +4,7 @@ from src.guppy.launcher_application.provider_registry import (
     get_example_prompt,
     get_next_step,
     get_provider,
+    list_planned_providers,
     list_providers,
 )
 
@@ -43,3 +44,6 @@ def test_planned_local_adapters_are_lookupable_without_polluting_onboarding_list
     visible_ids = {entry.id for entry in list_providers()}
     assert "anythingllm_local" not in visible_ids
     assert "huggingface_local" not in visible_ids
+
+    planned_ids = {entry.id for entry in list_planned_providers()}
+    assert planned_ids == {"anythingllm_local", "huggingface_local"}

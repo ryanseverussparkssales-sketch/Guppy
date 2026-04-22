@@ -37,6 +37,7 @@ def set_active_instance(
     persona: str = "guppy",
     voice: str = "default",
     last_message: str = "",
+    continuity_snapshot: dict[str, object] | None = None,
 ) -> None:
     name = (instance or "guppy-primary").strip() or "guppy-primary"
     if name != view._workspace_name:
@@ -50,6 +51,7 @@ def set_active_instance(
         persona=persona,
         voice=voice,
         last_message=last_message,
+        continuity_snapshot=continuity_snapshot,
     )
     view._workspace_name = name
     view._workspace_type = (workspace_type or "user_instance").strip().lower() or "user_instance"

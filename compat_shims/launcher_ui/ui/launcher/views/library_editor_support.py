@@ -61,11 +61,18 @@ def choose_root_path(view) -> None:
 
 
 def choose_artifact_path(view) -> None:
-    current = view._artifact_path.text().strip() or view._root_path.text().strip()
+    current = (
+        view._artifact_path.text().strip()
+        or view._selected_root_path
+        or view._root_path.text().strip()
+    )
     chosen, _ = QFileDialog.getOpenFileName(view, "Select artifact file", current)
     chosen = str(chosen or "").strip()
     if chosen:
         view._artifact_path.setText(chosen)
+        if not view._artifact_title.text().strip():
+            view._artifact_title.setText(Path(chosen).stem.strip() or "Library artifact")
+        refresh_artifact_editor_state(view)
 
 
 def begin_note_edit(view, item_id: int, title: str, summary: str) -> None:
@@ -84,6 +91,7 @@ def begin_artifact_edit(view, item_id: int, title: str, item_path: str) -> None:
     view._artifact_path.setText(item_path)
     view._artifact_save_btn.setText("UPDATE ARTIFACT")
     view._artifact_cancel_btn.setVisible(True)
+    refresh_artifact_editor_state(view)
     if view.isVisible():
         apply_density_mode(view, view.width())
 
@@ -103,6 +111,7 @@ def reset_artifact_editor(view) -> None:
     view._artifact_path.clear()
     view._artifact_save_btn.setText("SAVE ARTIFACT")
     view._artifact_cancel_btn.setVisible(False)
+    refresh_artifact_editor_state(view)
     if view.isVisible():
         apply_density_mode(view, view.width())
 
@@ -179,3 +188,25 @@ def refresh_note_editor_state(view) -> None:
     else:
         hint = "Multiline notes stay in Library and can be reused in Home with USE IN CHAT."
     view._note_editor_hint.setText(hint)
+
+
+def refresh_artifact_editor_state(view) -> None:
+    editing = view._editing_artifact_id > 0
+    title = view._artifact_title.text().strip()
+    item_path = view._artifact_path.text().strip()
+    filename = Path(item_path).name if item_path else ""
+    view._artifact_save_btn.setEnabled(bool(title))
+    if editing:
+        hint = f"Editing saved artifact: {title or 'untitled artifact'}."
+        if item_path:
+            hint += f" Local reference: {filename or item_path}."
+        else:
+            hint += " Add or revise the local file reference before you update it."
+    elif item_path:
+        hint = (
+            f"Artifact draft ready: {title or filename or 'library artifact'}."
+            f" Local reference stays in Library until you send it back to Home with USE IN CHAT."
+        )
+    else:
+        hint = "Artifacts keep reusable local file references in Library and can be sent back to Home with USE IN CHAT."
+    view._artifact_editor_hint.setText(hint)

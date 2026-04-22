@@ -142,6 +142,28 @@ def test_tool_card_offers_settings_owned_management_route_for_blocked_connector(
     assert emitted[-1]["destination"] == "settings_device_accounts"
 
 
+def test_tool_card_marks_dry_run_tools_as_setup_first_when_workspace_allows_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tools_view_module,
+        "check_instance_tool_permission",
+        lambda *args, **kwargs: (True, "", {"_auth_mode": "runtime_default"}),
+    )
+    monkeypatch.setattr(tools_view_module, "required_capability_for_tool", lambda key: "code")
+    monkeypatch.setattr(tools_view_module, "auth_mode_label", lambda value: "runtime default")
+
+    tool = next(item for item in tools_view_module.INSTANCE_TOOL_CATALOG if item["key"] == "run_python")
+    card = tools_view_module.ToolCard(tool)
+    card.apply_context("builder-collab", "builder_instance")
+
+    assert card.state == "ready"
+    assert card.availability_bucket == "setup_first"
+    assert card._status_lbl.text() == "SET UP FIRST"
+    assert "setup-first in builder-collab" in card._scope_lbl.text().lower()
+    assert card._hint_btn.isEnabled()
+
+
 def test_settings_operations_panel_renders_recent_evidence_and_operator_notes() -> None:
     view = SettingsOperationsPanel()
 
@@ -252,6 +274,18 @@ def test_tools_view_renders_trace_panel_from_debug_snapshot(
     assert "capability: network" in view._trace_panel._detail_lbl.text().lower()
     assert "policy evidence" in view._trace_panel._events_box.toPlainText().lower()
     assert "tool hint blocked" in view._trace_panel._events_box.toPlainText().lower()
+
+
+def test_tools_view_surfaces_availability_and_planned_adapter_truth() -> None:
+    view = tools_page_module.ToolsView()
+    view.set_instance_context({"name": "builder-collab", "type": "builder_instance"}, {"limits": {}})
+
+    assert "available now:" in view._availability_lbl.text().lower()
+    assert "set up first:" in view._availability_lbl.text().lower()
+    assert "settings connects accounts" in view._ownership_lbl.text().lower()
+    assert "planned adapter lanes:" in view._planning_lbl.text().lower()
+    assert "anythingllm" in view._planning_lbl.text().lower()
+    assert "hugging face local" in view._planning_lbl.text().lower()
 
 
 def test_tools_view_reflows_cards_for_narrower_widths() -> None:

@@ -18,18 +18,16 @@ from src.guppy.launcher_application.models_route_support import parse_fallback_c
 from src.guppy.launcher_application.models_presenter import (
     build_models_active_identity_text,
     build_models_library_hint_text,
-    build_models_library_summary_text,
-    build_models_provider_readiness_state,
     build_models_route_preview_hint_text,
     build_models_runtime_identity_text,
-    build_models_runtime_evidence_state,
-    build_models_runtime_policy_state,
-    build_models_runtime_summary_text,
-    model_library_section,
-    normalize_models_policy,
 )
 from .. import tokens as T
 from .models_library_panel import build_models_library_panel
+from .models_library_refresh_support import (
+    on_local_runtime_result as library_refresh_on_local_result,
+    on_model_selected as library_refresh_on_model_selected,
+    refresh_local_runtime_library as library_refresh_local_runtime_library,
+)
 from .models_management_support import (
     apply_mixed_loadout as management_apply_mixed_loadout,
     apply_model_loadout as management_apply_model_loadout,
@@ -46,7 +44,15 @@ from .models_management_support import (
     spawn_loadout_models as management_spawn_loadout_models,
     sync_runtime_mapping_options as management_sync_runtime_mapping_options,
 )
-from .models_runtime_workers import LocalRuntimeFetchThread, ModelHealthCheckThread, ModelWarmSpawnThread, OllamaModelOpThread
+from .models_ops_support import (
+    check_model_health as ops_check_model_health,
+    on_health_checked as ops_on_health_checked,
+    on_model_op_finished as ops_on_model_op_finished,
+    run_model_op as ops_run_model_op,
+    set_ops_status as ops_set_ops_status,
+    toggle_model_ops_panel as ops_toggle_model_ops_panel,
+)
+from .models_runtime_workers import ModelWarmSpawnThread
 from .models_sections import _ModelCard, build_models_route_section, build_models_runtime_section
 from .models_runtime_support import (
     _DEFAULT_LEMONADE_BASE_URL,
@@ -65,6 +71,14 @@ from .models_runtime_support import (
     render_runtime_policy,
     runtime_endpoint_for_backend,
     store_runtime_endpoint_for_backend,
+)
+from .models_runtime_settings_support import (
+    load_runtime_settings as runtime_settings_load_runtime_settings,
+    on_runtime_backend_changed as runtime_settings_on_runtime_backend_changed,
+    save_runtime_settings as runtime_settings_save_runtime_settings,
+    set_runtime_status as runtime_settings_set_runtime_status,
+    runtime_settings_payload as build_runtime_settings_payload,
+    update_runtime_controls as runtime_settings_update_runtime_controls,
 )
 from .models_runtime_library import (
     assign_runtime_model as runtime_library_assign_runtime_model,
@@ -342,49 +356,24 @@ class ModelsView(QWidget):
         }.get(str(tone or "").strip().lower(), default)
 
     def _set_runtime_status(self, text: str, ok: bool = True) -> None:
-        color = T.STATUS_SUCCESS if ok else T.STATUS_ERROR
-        self._runtime_status_lbl.setText(text)
-        self._runtime_status_lbl.setStyleSheet(f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
+        runtime_settings_set_runtime_status(self, text, ok)
 
     def _runtime_settings_payload(self) -> dict[str, Any]:
-        return {
-            "local_runtime_backend": self._local_runtime_backend,
-            "lemonade_base_url": self._lemonade_base_url,
-            "lmstudio_base_url": self._lmstudio_base_url,
-            "local_harness_base_url": self._local_harness_base_url,
-            **{k: combo.currentText().strip() for k, combo in self._lemonade_role_inputs.items()},
-        }
+        return build_runtime_settings_payload(self)
 
     def _load_runtime_settings(self) -> None:
-        settings = load_app_settings() if _RUNTIME_SETTINGS_BACKEND else {}
-        self._local_runtime_backend = normalize_runtime_backend(str(settings.get("local_runtime_backend", os.environ.get("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama"))))
-        self._saved_runtime_backend = self._local_runtime_backend
-        self._runtime_backend_cb.blockSignals(True); self._runtime_backend_cb.setCurrentText(self._local_runtime_backend.upper()); self._runtime_backend_cb.blockSignals(False)
-        load_runtime_endpoint_settings(self, settings)
-        for field_name, _label in _LEMONADE_ROLE_FIELDS:
-            combo = self._lemonade_role_inputs[field_name]
-            value = str(settings.get(field_name, os.environ.get(f"GUPPY_{field_name.upper()}", "")) or "").strip()
-            combo.clear()
-            if value:
-                combo.addItem(value)
-                combo.setCurrentText(value)
-        for field_name, _label in _LOADOUT_FIELDS:
-            value = str(settings.get(field_name, self._model_loadout.get(field_name, "")) or "").strip()
-            if value:
-                self._model_loadout[field_name] = value
-        self._update_runtime_controls()
-        self._refresh_loadout_inputs()
-        self._refresh_loadout_help()
+        runtime_settings_load_runtime_settings(
+            self,
+            load_app_settings=load_app_settings,
+            runtime_settings_backend_available=_RUNTIME_SETTINGS_BACKEND,
+            normalize_runtime_backend=normalize_runtime_backend,
+            load_runtime_endpoint_settings=load_runtime_endpoint_settings,
+            role_fields=_LEMONADE_ROLE_FIELDS,
+            loadout_fields=_LOADOUT_FIELDS,
+        )
 
     def _update_runtime_controls(self) -> None:
-        self._active_runtime_lbl.setText(build_models_runtime_identity_text(self._local_runtime_backend))
-        self._refresh_runtime_endpoint_input()
-        self._lemonade_base_url_input.setEnabled(True)
-        for combo in self._lemonade_role_inputs.values():
-            combo.setEnabled(self._local_runtime_backend == "lemonade")
-        self._runtime_library_frame.setVisible(self._local_runtime_backend in {"lemonade", "lmstudio", "local_harness"})
-        self._refresh_runtime_summary()
-        self._refresh_runtime_library()
+        runtime_settings_update_runtime_controls(self)
 
     def _set_page_mode(self, mode: str) -> None:
         normalized = str(mode or "").strip().lower()
@@ -449,54 +438,22 @@ class ModelsView(QWidget):
         management_apply_mixed_loadout(self, provider_backend_available=_PROVIDER_BACKEND)
 
     def _toggle_model_ops_panel(self) -> None:
-        visible = not self._ops_panel.isVisible()
-        self._ops_panel.setVisible(visible)
-        self._ops_toggle_btn.setText("HIDE MODEL HEALTH + READINESS" if visible else "MODEL HEALTH + READINESS")
+        ops_toggle_model_ops_panel(self)
 
     def _set_ops_status(self, text: str, ok: bool = True, *, tone: str | None = None) -> None:
-        color = self._tone_color(tone or ("success" if ok else "error"), default=T.GREEN if ok else T.ERROR)
-        self._ops_status_lbl.setText(text)
-        self._ops_status_lbl.setStyleSheet(
-            f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
-        )
+        ops_set_ops_status(self, text, ok, tone=tone)
 
     def _check_model_health(self) -> None:
-        if self._health_thread is not None and self._health_thread.isRunning():
-            self._set_ops_status("Health check already running", ok=False)
-            return
-        self._set_ops_status("Checking provider and model health...", ok=True)
-        self._store_runtime_endpoint_for_backend(self._local_runtime_backend, self._lemonade_base_url_input.text().strip())
-        self._health_thread = ModelHealthCheckThread(self._runtime_endpoint_for_backend(self._local_runtime_backend), self)
-        self._health_thread.finished.connect(self._on_health_checked)
-        self._health_thread.start()
+        ops_check_model_health(self)
 
     def _on_health_checked(self, payload: dict[str, str]) -> None:
-        state = build_models_provider_readiness_state(
-            payload,
-            active_backend=self._local_runtime_backend,
-        )
-        self._set_ops_status(state.text, ok=state.tone != "error", tone=state.tone)
+        ops_on_health_checked(self, payload)
 
     def _run_ollama_model_op(self, operation: str) -> None:
-        if self._model_op_thread is not None and self._model_op_thread.isRunning():
-            self._set_ops_status("Model operation already running", ok=False)
-            return
-        model_name = self._ops_model_input.text().strip()
-        if not model_name:
-            self._set_ops_status("Enter a model id first", ok=False)
-            return
-        action = "download" if operation == "pull" else "uninstall"
-        self._set_ops_status(f"Running {action} for {model_name}...", ok=True)
-        self._model_op_thread = OllamaModelOpThread(operation, model_name, self)
-        self._model_op_thread.finished.connect(self._on_model_op_finished)
-        self._model_op_thread.start()
+        ops_run_model_op(self, operation)
 
     def _on_model_op_finished(self, payload: dict[str, Any]) -> None:
-        ok = bool(payload.get("ok", False))
-        summary = str(payload.get("summary", "") or "completed").strip()
-        self._set_ops_status(summary, ok=ok)
-        if ok:
-            self._refresh()
+        ops_on_model_op_finished(self, payload)
 
     def _refresh_loadout_inputs(self) -> None:
         management_refresh_loadout_inputs(self)
@@ -535,95 +492,28 @@ class ModelsView(QWidget):
         runtime_library_refresh_runtime_library(self)
 
     def _on_runtime_backend_changed(self, text: str) -> None:
-        self._store_runtime_endpoint_for_backend(self._local_runtime_backend, self._lemonade_base_url_input.text().strip())
-        self._local_runtime_backend = normalize_runtime_backend(text)
-        self._update_runtime_controls()
-        self._refresh()
+        runtime_settings_on_runtime_backend_changed(
+            self,
+            text,
+            normalize_runtime_backend=normalize_runtime_backend,
+        )
 
     def _save_runtime_settings(self) -> None:
-        if not _RUNTIME_SETTINGS_BACKEND:
-            self._set_runtime_status("Runtime settings backend unavailable", ok=False)
-            return
-        payload = self._runtime_settings_payload()
-        try:
-            self._store_runtime_endpoint_for_backend(self._local_runtime_backend, self._lemonade_base_url_input.text().strip())
-            payload = self._runtime_settings_payload()
-            save_app_settings(payload)
-            merged = apply_settings_to_env(payload)
-            self._local_runtime_backend = normalize_runtime_backend(str(merged.get("local_runtime_backend", self._local_runtime_backend)))
-            self._saved_runtime_backend = self._local_runtime_backend
-            self._update_runtime_controls()
-            self._set_runtime_status(f"Saved local runtime: {self._local_runtime_backend.upper()}", ok=True)
-            self.runtime_settings_saved.emit(dict(merged))
-        except Exception as exc:
-            self._set_runtime_status(f"Runtime save failed: {exc}", ok=False)
+        runtime_settings_save_runtime_settings(
+            self,
+            runtime_settings_backend_available=_RUNTIME_SETTINGS_BACKEND,
+            save_app_settings=save_app_settings,
+            normalize_runtime_backend=normalize_runtime_backend,
+        )
 
     def _refresh(self) -> None:
-        self._refresh_btn.setEnabled(False)
-        self._refresh_btn.setText("FETCHING...")
-        self._store_runtime_endpoint_for_backend(self._local_runtime_backend, self._lemonade_base_url_input.text().strip())
-        self._fetch_thread = LocalRuntimeFetchThread(self._local_runtime_backend, self._runtime_endpoint_for_backend(self._local_runtime_backend), self)
-        self._fetch_thread.finished.connect(self._on_local_result)
-        self._fetch_thread.start()
+        library_refresh_local_runtime_library(self)
 
     def _on_local_result(self, payload: dict[str, Any]) -> None:
-        self._refresh_btn.setEnabled(True)
-        self._refresh_btn.setText("REFRESH")
-        backend = normalize_runtime_backend(str(payload.get("backend", self._local_runtime_backend)))
-        models = payload.get("models", [])
-        error = str(payload.get("error", "") or "").strip()
-        for card in self._local_cards:
-            section = getattr(card, "_library_section", "installed")
-            section_layout = self._local_section_layouts.get(section)
-            if section_layout is not None:
-                section_layout.removeWidget(card)
-            card.deleteLater()
-        self._local_cards.clear()
-        for key in self._local_section_cards:
-            self._local_section_cards[key] = []
-        if self._local_placeholder:
-            self._local_placeholder.setVisible(False)
-        if not isinstance(models, list) or not models:
-            if backend == "lemonade":
-                hint = "Pull a Lemonade GGUF model and click REFRESH."
-            elif backend == "lmstudio":
-                hint = "Turn on the LM Studio local server and click REFRESH."
-            elif backend == "local_harness":
-                hint = "Start the local harness and click REFRESH."
-            else:
-                hint = "Start Ollama and click REFRESH."
-            text = "No local models found.\n" + hint
-            self._local_placeholder.setText(text)
-            self._local_placeholder.setVisible(True)
-            for section in self._local_sections.values():
-                section.setVisible(False)
-            self._set_runtime_status(f"{backend.upper()} library unavailable: {error}" if error else f"{backend.upper()} library is empty", ok=not bool(error))
-            self._sync_runtime_mapping_options()
-            self._apply_library_filter()
-            return
-        for i, item in enumerate(models):
-            if not isinstance(item, dict):
-                continue
-            card = _ModelCard(str(item.get("name", "unknown")), str(item.get("display", item.get("name", "unknown"))), "LOCAL", str(item.get("context", "-") or "-"), str(item.get("note", "") or ""), int(item.get("size", 0) or 0))
-            card.mark_active(card._model_name == self._active_model)
-            card.set_active.connect(self._on_model_selected)
-            self._local_cards.append(card)
-        self._local_placeholder.setVisible(False)
-        self._rebuild_local_sections()
-        self._sync_runtime_mapping_options()
-        self._set_runtime_status(f"{backend.upper()} library refreshed", ok=True)
-        self._apply_library_filter()
+        library_refresh_on_local_result(self, payload)
 
     def _on_model_selected(self, name: str) -> None:
-        self._active_model = name
-        self._active_lbl.setText(build_models_active_identity_text(name))
-        os.environ["GUPPY_LOCAL_MODEL"] = name
-        for card in self._local_cards:
-            card.mark_active(card._model_name == name)
-        self._rebuild_local_sections()
-        self._apply_library_filter()
-        self.model_selected.emit(name)
-        self._refresh_library_summary()
+        library_refresh_on_model_selected(self, name)
 
     def set_status_snapshot(self, payload: dict[str, Any]) -> None:
         self._status_snapshot = payload if isinstance(payload, dict) else {}

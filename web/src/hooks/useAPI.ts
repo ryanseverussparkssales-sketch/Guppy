@@ -177,6 +177,9 @@ function mapStatusToModels(statusPayload: Record<string, any>): Model[] {
 
 function mapStatusToRuntimeStatus(statusPayload: Record<string, any>): RuntimeStatus {
   const localRuntime = (statusPayload.local_runtime || {}) as Record<string, any>;
+  const startupReadiness = (statusPayload.startup_readiness || {}) as Record<string, any>;
+  const startupChecks = (startupReadiness.checks || {}) as Record<string, any>;
+  const daemonRuntime = (statusPayload.daemon_runtime || {}) as Record<string, any>;
   const resourceEnvelope = (statusPayload.resource_envelope || {}) as Record<string, any>;
   const metrics = (resourceEnvelope.metrics || {}) as Record<string, any>;
   const startedAt = String(resourceEnvelope.ts || "");
@@ -187,16 +190,33 @@ function mapStatusToRuntimeStatus(statusPayload: Record<string, any>): RuntimeSt
       ? "healthy"
       : rawStatus === "offline"
         ? "offline"
-        : rawStatus === "error"
+      : rawStatus === "error"
           ? "error"
           : "degraded";
+  const startupOverall = String(startupReadiness.overall || "").trim().toUpperCase();
+  const authState = String((startupChecks.auth || {}).state || "").trim().toUpperCase();
+  const backend = String(localRuntime.backend || "local");
+  const launcherLabel: RuntimeStatus["launcherLabel"] =
+    authState === "FAILED" || authState === "ERROR"
+      ? "AUTH"
+      : normalizedStatus === "offline" || normalizedStatus === "error"
+        ? "DOWN"
+        : startupOverall === "READY" || startupOverall === "HEALTHY"
+          ? "LIVE"
+          : startupOverall === "PARTIAL" || startupOverall === "DEGRADED"
+            ? "PARTIAL"
+            : "STARTING";
+  const daemonLabel = String(daemonRuntime.state || "").trim().toUpperCase() || "UNKNOWN";
 
   return {
     status: normalizedStatus,
     uptime,
     activeModel: String(localRuntime.chat_model || ""),
-    backend: String(localRuntime.backend || "local"),
+    backend,
     detail: String(localRuntime.detail || ""),
+    launcherLabel,
+    daemonLabel,
+    summary: `API ${launcherLabel} | backend ${backend.toUpperCase()} | daemon ${daemonLabel}`,
     availableModels: Array.isArray(localRuntime.models)
       ? localRuntime.models.map((item: unknown) => String(item))
       : [],

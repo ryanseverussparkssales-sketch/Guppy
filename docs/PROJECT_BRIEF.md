@@ -2029,6 +2029,26 @@ Primary acceptance direction:
 2. Local-runtime, voice, memory, library, and tool/plugin flows are honest, bounded, and validated on real machines.
 3. Guppy feels like one calm desktop assistant rather than a shell plus disconnected side surfaces.
 
+## Move-Everything-To-Strong Roadmap (April 22, 2026)
+
+Execution note:
+
+- The April 22 quarantine plus core audit pass confirmed that the live repo is healthy, quarantined trees do not contain must-restore product code, and the remaining work is mostly finish-quality rather than architecture rescue.
+- The new roadmap focuses on upgrading all non-strong surfaces to `strong` without reopening scope drift.
+
+Program artifact:
+
+1. `docs/generated/ROADMAP_MOVE_ALL_SURFACES_TO_STRONG_20260422.md`
+2. `docs/generated/CORE_INVENTORY_NORTH_STAR_AUDIT_20260422.md`
+
+Primary execution order:
+
+1. Continuity spine: Home, Workspaces, memory payoff
+2. Tool clarity and plugin truth
+3. Model, voice, and local runtime confidence
+4. Tray/runtime/web alignment
+5. Library polish and freeze-quality calmness cleanup
+
 ## Developer Rules
 
 1. Keep entrypoint wrappers thin and move product logic under `src/guppy/`.
@@ -2119,7 +2139,7 @@ Post-TR54 hotspot inventory:
 ## CI Guardrails
 
 1. `tools/dev_workflow.py` is the canonical command entrypoint for local and CI workflows: `dev-check`, `test-fast`, `test-default`, `test-smoke`, and `release-check`.
-2. `tools/check_new_module_line_cap.py` enforces the live-code line cap across `src/guppy/`, `ui/`, and `utils/`.
+2. `tools/check_new_module_line_cap.py` enforces the live-code line cap across `src/guppy/`, `ui/`, `compat_shims/launcher_ui/ui/launcher/`, and `utils/`, with baseline hardening tiers of ideal `<=250`, healthy `<=400`, review `<=600`, urgent `<=700`, and waiver-only above the cap.
 3. `tools/check_architecture_boundaries.py` blocks legacy-surface imports and new UI/runtime-governance coupling outside the narrow launcher transition waivers.
    The runtime-auth/UI waiver is now closed; remaining launcher transition pressure is tracked primarily through line-cap hotspot waivers.
 
@@ -2147,3 +2167,4 @@ Post-TR54 hotspot inventory:
 9. Daily operator runbook: `docs/DAILY_WORKFLOW.md`
 10. Local LLM plan: `docs/LOCAL_LLM_IMPLEMENTATION_PLAN.md`
 11. Historical roadmap log: `docs/archive/root-history/ROADMAP_2026-04-17.md`
+12. Move-everything-to-strong execution roadmap: `docs/generated/ROADMAP_MOVE_ALL_SURFACES_TO_STRONG_20260422.md`

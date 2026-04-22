@@ -35,12 +35,17 @@ def test_build_home_workspace_summary_surfaces_saved_and_recent_context() -> Non
         persona="guppy",
         voice="default",
         last_message="Finish the launcher framing pass and verify the workspace cues.",
+        continuity_snapshot={
+            "continuity_hint": "Continuity: 3 recent sessions are saved here.",
+            "continuity_summary": "Continuity: 3 recent sessions are saved here. Last saved thread: Finish the launcher framing pass and verify the workspace cues.",
+        },
     )
 
     assert "Active workspace: Builder collaborator workspace." in summary
     assert "Saved context: CODE mode | GUPPY persona | DEFAULT voice." in summary
     assert "Next move:" in summary
     assert "Recent context: Finish the launcher framing pass" in summary
+    assert "Continuity: 3 recent sessions are saved here." in summary
 
 
 def test_build_home_workspace_state_keeps_calm_start_copy_aligned() -> None:
@@ -52,13 +57,21 @@ def test_build_home_workspace_state_keeps_calm_start_copy_aligned() -> None:
         persona="guppy",
         voice="default",
         last_message="Compare the current brief with the source material.",
+        continuity_snapshot={
+            "continuity_hint": "Continuity: 2 recent sessions are saved here.",
+            "continuity_summary": "Continuity: 2 recent sessions are saved here. Last saved thread: Compare the current brief with the source material.",
+        },
     )
 
-    assert state.entry_hint == "Start here in reference-desk: start with SOURCE RESEARCH if you want evidence first."
+    assert state.entry_hint == (
+        "Start here in reference-desk: start with SOURCE RESEARCH if you want evidence first. "
+        "Continuity: 2 recent sessions are saved here."
+    )
     assert state.resume_hint == "Resume cue: Recent context: Compare the current brief with the source material."
     assert state.input_placeholder == "Ask one evidence or source-check question..."
     assert "Saved context: LOCAL mode | GUPPY persona | DEFAULT voice." in state.workspace_summary
     assert "Recent context: Compare the current brief" in state.workspace_summary
+    assert state.continuity_hint == "Continuity: 2 recent sessions are saved here."
     assert state.welcome_message == build_home_welcome_message(
         "read_only_instance",
         description="Safe research and source review.",
@@ -78,3 +91,13 @@ def test_build_home_starter_state_returns_role_specific_feedback() -> None:
 
 def test_build_home_resume_hint_is_blank_without_recent_message() -> None:
     assert build_home_resume_hint("") == ""
+
+
+def test_build_home_resume_hint_can_fall_back_to_continuity_snapshot() -> None:
+    assert (
+        build_home_resume_hint(
+            "",
+            {"latest_message": "Pick up the builder review from the saved patch notes."},
+        )
+        == "Resume cue: Recent context: Pick up the builder review from the saved patch notes."
+    )

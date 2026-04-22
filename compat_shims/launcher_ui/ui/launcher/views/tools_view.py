@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from .. import tokens as T
 from ..components import BuilderTaskPanel
+from src.guppy.launcher_application.tools_presenter import build_tools_surface_state
 from .tools_trace_panel import ToolsTracePanel
 from .tools_view_cards import (
     INSTANCE_TOOL_CATALOG,
@@ -163,6 +164,23 @@ class ToolsView(QWidget):
         self._limits_lbl = mono_label("Slots in use: 1 / 5 | Live now: 1 / 2", T.DIM, T.FS_TINY)
         layout.addWidget(self._context_lbl)
         layout.addWidget(self._limits_lbl)
+        self._availability_lbl = mono_label("Available now: 0 | Set up first: 0 | Restricted here: 0", T.PRIMARY_DIM, T.FS_SMALL, True)
+        self._availability_lbl.setWordWrap(True)
+        layout.addWidget(self._availability_lbl)
+        self._ownership_lbl = mono_label(
+            "Settings connects accounts. Workspaces decides bindings. Tools runs the action for the active workspace.",
+            T.DIM,
+            T.FS_SMALL,
+        )
+        self._ownership_lbl.setWordWrap(True)
+        layout.addWidget(self._ownership_lbl)
+        self._planning_lbl = mono_label(
+            "Planned adapter lanes stay in Models until a real local adapter ships.",
+            T.DIM,
+            T.FS_SMALL,
+        )
+        self._planning_lbl.setWordWrap(True)
+        layout.addWidget(self._planning_lbl)
         self._boundary_lbl = mono_label(
             "Open Settings > Device & Accounts to connect, verify, reconnect, remove, or disable connector access. Stay here when you want task-level actions for the active workspace.",
             T.DIM,
@@ -334,6 +352,7 @@ class ToolsView(QWidget):
         for card in self._tool_cards.values():
             card.apply_context(name, instance_type)
             card.set_details_visible(self._details_visible)
+        self._refresh_surface_summary()
         self._apply_filters()
         self.refresh_debug_surface()
 
@@ -445,6 +464,18 @@ class ToolsView(QWidget):
 
     def current_tool_states(self) -> dict[str, str]:
         return {key: card.state for key, card in self._tool_cards.items()}
+
+    def _refresh_surface_summary(self) -> None:
+        state = build_tools_surface_state(
+            INSTANCE_TOOL_CATALOG,
+            {key: card.state for key, card in self._tool_cards.items()},
+        )
+        self._availability_lbl.setText(state.summary_line)
+        self._ownership_lbl.setText(state.ownership_line)
+        self._planning_lbl.setText(state.planning_line)
+        self._execution_lbl.setText(
+            f"{state.guidance_line} Show details when you want the exact permission and sign-in evidence."
+        )
 
     def refresh_debug_surface(self) -> None:
         self._trace_panel.set_tool_options(self._tool_card_order)

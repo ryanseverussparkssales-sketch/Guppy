@@ -34,7 +34,21 @@ except Exception:
     _METRICS_PATH = _RUNTIME / "offhours_metrics.jsonl"
 
     def _build_builder_report(**_kwargs: Any) -> dict[str, Any]:  # type: ignore[misc]
-        return {}
+        return {
+            "generated_utc": "",
+            "queue_counts": {
+                "pending": 0,
+                "running": 0,
+                "awaiting_approval": 0,
+                "done": 0,
+                "failed": 0,
+            },
+            "pending_approvals": [],
+            "recent_results": [],
+            "recent_metrics": [],
+            "recent_activity": [],
+            "stress_validation": {},
+        }
 
     def _enqueue_builder_task(_task: dict[str, Any]) -> None:  # type: ignore[misc]
         pass

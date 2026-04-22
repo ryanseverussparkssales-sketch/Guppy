@@ -96,6 +96,56 @@ def test_build_connector_panel_state_calls_out_degraded_env_fallback_without_sec
     assert "salesforce_instance_url" not in state.detail_text.lower()
 
 
+def test_build_connector_panel_state_requires_account_pick_before_multi_account_sign_in() -> None:
+    state = build_connector_panel_state(
+        item={
+            "id": "gmail",
+            "label": "Gmail",
+            "auth_kind": "oauth_file_token",
+            "auth_state": "ready",
+            "actions_supported": ["connect", "verify", "disconnect"],
+        },
+        providers=[],
+        accounts=[
+            {"id": "work", "label": "Work inbox"},
+            {"id": "personal", "label": "Personal inbox"},
+        ],
+        fields=[],
+        selected_provider_id="",
+        selected_account_id="",
+    )
+
+    assert "2 accounts are available on this pc" in state.detail_text.lower()
+    assert "choose a gmail account" in state.connect_tooltip.lower()
+    assert state.connect_enabled is False
+    assert state.verify_enabled is False
+    assert state.disconnect_enabled is False
+
+
+def test_build_connector_panel_state_adds_keyring_migration_hint_for_ready_env_fallback() -> None:
+    state = build_connector_panel_state(
+        item={
+            "id": "crm",
+            "label": "CRM",
+            "auth_kind": "provider_secret",
+            "auth_state": "ready",
+            "actions_supported": ["verify", "disconnect"],
+        },
+        providers=[
+            {
+                "id": "salesforce",
+                "label": "Salesforce",
+                "storage_posture": "env_only",
+            }
+        ],
+        accounts=[],
+        fields=[{"key": "TOKEN", "label": "Access Token"}],
+        selected_provider_id="salesforce",
+    )
+
+    assert "move them into keyring-first storage" in state.next_step_hint.lower()
+
+
 def test_build_device_accounts_density_state_shortens_labels_for_tight_widths() -> None:
     density = build_device_accounts_density_state(860, "oauth_secret")
 

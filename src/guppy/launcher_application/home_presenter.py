@@ -43,6 +43,7 @@ class HomeWorkspaceState:
     primary_starter_label: str
     input_placeholder: str
     workspace_summary: str
+    continuity_hint: str
     welcome_message: str
 
 
@@ -238,6 +239,16 @@ def home_workspace_starter_templates(workspace_type: str) -> tuple[HomeStarterTe
     return mapping.get(key, mapping["user_instance"])
 
 
+def _continuity_hint(continuity_snapshot: dict[str, object] | None) -> str:
+    snapshot = continuity_snapshot if isinstance(continuity_snapshot, dict) else {}
+    return str(snapshot.get("continuity_hint", "") or "").strip()
+
+
+def _continuity_summary(continuity_snapshot: dict[str, object] | None) -> str:
+    snapshot = continuity_snapshot if isinstance(continuity_snapshot, dict) else {}
+    return str(snapshot.get("continuity_summary", "") or "").strip()
+
+
 def build_home_workspace_summary(
     instance_name: str,
     *,
@@ -247,23 +258,32 @@ def build_home_workspace_summary(
     persona: str,
     voice: str,
     last_message: str,
+    continuity_snapshot: dict[str, object] | None = None,
 ) -> str:
     copy = build_home_workspace_copy(workspace_type, description=description)
     mode_label = (mode or "auto").strip().upper() or "AUTO"
     persona_label = (persona or "guppy").strip().upper() or "GUPPY"
     voice_label = (voice or "default").strip().upper() or "DEFAULT"
     recent_text = workspace_recent_context({"last_message": last_message})
-    return (
+    continuity = _continuity_summary(continuity_snapshot)
+    summary = (
         f"Active workspace: {copy.role_label}. {copy.purpose} "
         f"Saved context: {mode_label} mode | {persona_label} persona | {voice_label} voice. "
         f"Next move: {copy.first_run_recipe} {recent_text}"
     )
+    if continuity:
+        summary = f"{summary} {continuity}"
+    return summary
 
 
-def build_home_resume_hint(last_message: str) -> str:
-    if not str(last_message or "").strip():
+def build_home_resume_hint(last_message: str, continuity_snapshot: dict[str, object] | None = None) -> str:
+    source = str(last_message or "").strip()
+    if not source:
+        snapshot = continuity_snapshot if isinstance(continuity_snapshot, dict) else {}
+        source = str(snapshot.get("latest_message", "") or "").strip()
+    if not source:
         return ""
-    recent_text = workspace_recent_context({"last_message": last_message}).strip()
+    recent_text = workspace_recent_context({"last_message": source}).strip()
     if not recent_text:
         return ""
     hint = recent_text
@@ -289,14 +309,22 @@ def build_home_workspace_state(
     persona: str,
     voice: str,
     last_message: str,
+    continuity_snapshot: dict[str, object] | None = None,
 ) -> HomeWorkspaceState:
     copy = build_home_workspace_copy(workspace_type, description=description)
     workspace_name = (instance_name or "guppy-primary").strip() or "guppy-primary"
     return HomeWorkspaceState(
         role_label=copy.role_label,
         purpose=copy.purpose,
-        entry_hint=f"Start here in {workspace_name}: {copy.entry_hint}",
-        resume_hint=build_home_resume_hint(last_message),
+        entry_hint=" ".join(
+            part
+            for part in (
+                f"Start here in {workspace_name}: {copy.entry_hint}",
+                _continuity_hint(continuity_snapshot),
+            )
+            if part
+        ),
+        resume_hint=build_home_resume_hint(last_message, continuity_snapshot),
         starter_summary=copy.starter_summary,
         onboarding_title=copy.onboarding_title,
         onboarding_subtitle=copy.onboarding_subtitle,
@@ -311,7 +339,9 @@ def build_home_workspace_state(
             persona=persona,
             voice=voice,
             last_message=last_message,
+            continuity_snapshot=continuity_snapshot,
         ),
+        continuity_hint=_continuity_hint(continuity_snapshot),
         welcome_message=build_home_welcome_message(workspace_type, description=copy.purpose),
     )
 

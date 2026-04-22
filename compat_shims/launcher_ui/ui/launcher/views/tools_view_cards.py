@@ -210,6 +210,7 @@ class ToolCard(QFrame):
         self._tool = dict(tool)
         self._state = "ready"
         self._reason = ""
+        self._is_setup_first = False
         self._debug_evidence: dict[str, object] = {}
         self._manage_payload: dict[str, str] = {}
         self._details_visible = False
@@ -230,6 +231,7 @@ class ToolCard(QFrame):
         _display_name = _reg_entry.label if _reg_entry is not None else str(tool.get("name", "TOOL"))
         _display_category = _reg_entry.category if _reg_entry is not None else str(tool.get("category", "READ"))
         _display_dry_run = _reg_entry.dry_run if _reg_entry is not None else bool(tool.get("dry_run", False))
+        self._is_setup_first = bool(_display_dry_run)
 
         header = QHBoxLayout()
         self._name_lbl = QLabel(_display_name)
@@ -462,11 +464,21 @@ class ToolCard(QFrame):
             **tool_readiness_debug_fields(readiness),
         }
         if allowed:
-            self._status_lbl.setText("READY")
-            self._status_lbl.setStyleSheet(
-                f"color: {T.GREEN}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
-            )
-            availability_text = f"Available in {instance_name} ({workspace_type_label(instance_type)}). {self._reason}"
+            if self._is_setup_first:
+                self._status_lbl.setText("SET UP FIRST")
+                self._status_lbl.setStyleSheet(
+                    f"color: {T.ACCENT_ORANGE}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
+                )
+                availability_text = (
+                    f"Setup-first in {instance_name} ({workspace_type_label(instance_type)}). {self._reason} "
+                    "You can prime this in Home now, but the real action still needs setup or approval."
+                )
+            else:
+                self._status_lbl.setText("READY")
+                self._status_lbl.setStyleSheet(
+                    f"color: {T.GREEN}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
+                )
+                availability_text = f"Available in {instance_name} ({workspace_type_label(instance_type)}). {self._reason}"
             if readiness_state in {"pending_verify", "verification_failed", "host_setup_incomplete"}:
                 availability_text += " " + str(readiness.get("label", "") or "").strip()
             self._scope_lbl.setText(availability_text)
@@ -531,6 +543,14 @@ class ToolCard(QFrame):
     @property
     def state(self) -> str:
         return self._state
+
+    @property
+    def availability_bucket(self) -> str:
+        if self._state == "restricted":
+            return "restricted"
+        if self._is_setup_first:
+            return "setup_first"
+        return "available_now"
 
     @property
     def debug_evidence(self) -> dict[str, object]:

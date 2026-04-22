@@ -155,6 +155,9 @@ from PySide6.QtWidgets import (
 )
 
 from . import tokens as T
+from . import launcher_window_action_methods as _action_methods
+from . import launcher_window_core_methods as _core_methods
+from . import launcher_window_delegate_methods as _delegate_methods
 from .stylesheet import SHEET
 from .launcher_runtime_control_mixin import LauncherRuntimeControlMixin
 from .launcher_windows_ops_mixin import LauncherWindowsOpsMixin
@@ -215,10 +218,6 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
     _MAX_DEFERRED_SYSLOG_PER_TICK = 24
     _MAX_ASSISTANT_EVENTS_PER_TICK = 12
     _MAX_RECOVERY_EVENTS_PER_TICK = 12
-
-    @staticmethod
-    def _event_level(item: dict[str, object]) -> str:
-        return event_level(item)
 
     def __init__(self) -> None:
         super().__init__()
@@ -397,615 +396,139 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
             self._log_launcher_event("startup_phase", phase="personalization_scaffold_thread_start")
             threading.Thread(target=self._bootstrap_personalization_scaffold_worker, daemon=True).start()
 
-    def _bootstrap_personalization_scaffold_worker(self) -> None:
-        _bootstrap_personalization_scaffold_worker_fn(self)
-
-    def _wire_signals(self) -> None:
-        _wire_signals_fn(self, settings_view_index=_SETTINGS_VIEW_INDEX)
-
-    def _wire_tools_trace_adapter(self) -> None:
-        adapter = LauncherToolsTraceAdapter(
-            _RUNTIME,
-            tool_state_path=self._tool_state_path(),
-            live_tool_states_getter=self._tools_view.get_states,
-            live_tool_statuses_getter=self._tools_view.current_tool_states,
-        )
-        self._tools_trace_adapter = adapter
-        self._tools_view.trace_adapter = adapter
-        self._tools_view.debug_backend = adapter
-        self._tools_view.read_debug_snapshot = adapter.read_debug_snapshot
-        self._tools_view.read_recent_tool_events = adapter.read_recent_tool_events
-        self._tools_view.read_recent_launcher_events = adapter.read_recent_launcher_events
-        self._refresh_tools_debug_surface()
-
-    def _refresh_tools_debug_surface(self) -> None:
-        refresh = getattr(self._tools_view, "refresh_debug_surface", None)
-        if callable(refresh):
-            refresh()
-
-    def _drain_deferred_syslog(self) -> None:
-        processed = 0
-        while processed < self._MAX_DEFERRED_SYSLOG_PER_TICK:
-            try:
-                line = self._deferred_syslog.get_nowait()
-            except Empty:
-                break
-            self._status_panel.append_syslog(line)
-            processed += 1
-
-    def _refresh_personalization_state(self, preferred_persona: str = "") -> None:
-        _refresh_personalization_state_fn(
-            self,
-            preferred_persona=preferred_persona,
-            personalization_available=_PERSONALIZATION_BOOTSTRAP_AVAILABLE,
-        )
-
-    def _update_route_preview(self, text: str = "") -> None:
-        update_route_preview(self, text)
-        self._sync_topbar_model_context()
-
-    def _set_daily_activity(self, text: str) -> None:
-        set_daily_activity(self, text)
-
-    def _sync_right_tray(self, active_payload: dict[str, object]) -> None:
-        sync_right_tray(self, active_payload)
-
-    # ── Bottom strip ──────────────────────────────────────────────────────────
-    def _build_sys_strip(self) -> QFrame:
-        return _build_sys_strip_fn(self, tokens=T)
-
-    def _update_sys_strip(self) -> None:
-        _update_sys_strip_fn(self, runtime_path=_RUNTIME, start_time=_START_TIME, tokens=T)
-
-    # ── Status polling ────────────────────────────────────────────────────────
-    def _start_status_poll(self) -> None:
-        self._status_poll_timer = QTimer(self)
-        self._status_poll_timer.timeout.connect(self._poll_status)
-        self._status_poll_timer.start(3000)
-        QTimer.singleShot(0, self._poll_status)
-
-    def _poll_status(self) -> None:
-        orchestrate_status_poll(
-            self,
-            runtime_path=_RUNTIME,
-            personalization_available=_PERSONALIZATION_BOOTSTRAP_AVAILABLE,
-            start_time=_START_TIME,
-        )
-
-    def _complete_startup_phase(self, phase: str, start_at: float | None = None) -> None:
-        _complete_startup_phase_fn(self, phase, start_at=start_at)
-
-    def _sync_recovery_outcome(self) -> None:
-        sync_recovery_outcome(self, runtime_path=_RUNTIME, read_jsonl_tail=read_jsonl_tail)
-
-    def _sync_topbar_model_context(
-        self,
-        *,
-        main_model: str = "",
-        support_model: str = "",
-    ) -> None:
-        _sync_topbar_model_context_fn(self, main_model=main_model, support_model=support_model)
-
-    @staticmethod
-    def _classify_recovery_summary(summary: str, ok: bool, default: str = "") -> str:
-        return classify_recovery_summary(summary, ok, default)
-
-    @staticmethod
-    def _format_recovery_summary(category: str, summary: str) -> str:
-        return format_recovery_summary(category, summary)
-
-    def _push_recovery_outcome(self, action: str, ok: bool, summary: str, category: str = "") -> str:
-        return push_recovery_outcome(self, action, ok, summary, category)
-
-    # ── Tab coordination ──────────────────────────────────────────────────────
-    @staticmethod
-    def _resolve_stack_index(index: int) -> int:
-        return _nav_handlers.resolve_stack_index(index)
-
-    @staticmethod
-    def _visible_nav_index(index: int) -> int:
-        return _nav_handlers.visible_nav_index(index)
-
-    @staticmethod
-    def _shell_model_loadout_summary(
-        *,
-        active_model: str = "",
-        runtime_backend: str = "",
-        settings_payload: dict[str, object] | None = None,
-        environment: dict[str, str] | None = None,
-    ) -> str:
-        return build_shell_model_loadout_summary(
-            active_model=active_model,
-            runtime_backend=runtime_backend,
-            settings_payload=settings_payload,
-            environment=environment,
-        )
-
-    def _sync_shell_model_summary(self, *, active_model: str = "", runtime_backend: str = "") -> None:
-        app_settings = read_json_dict(_RUNTIME / "app_settings.json")
-        summary = self._shell_model_loadout_summary(
-            active_model=active_model,
-            runtime_backend=runtime_backend,
-            settings_payload=app_settings if isinstance(app_settings, dict) else {},
-            environment=dict(os.environ),
-        )
-        self._topbar.set_launcher_summary(summary)
-        self._sync_topbar_model_context(main_model=active_model)
-
-    def _on_tab_change(self, index: int) -> None:
-        _nav_handlers.on_tab_change(self, index, runtime_path=_RUNTIME)
-
-    def _apply_start_destination(self) -> None:
-        _nav_handlers.apply_start_destination(self)
-
-    def _set_status_panel_visible(self, visible: bool) -> None:
-        _nav_handlers.set_status_panel_visible(self, visible)
-
-    def _toggle_status_panel(self) -> None:
-        _nav_handlers.toggle_status_panel(self)
-
-    def _toggle_sidebar(self) -> None:
-        _nav_handlers.toggle_sidebar(self)
-
-    def _build_quick_action_plan(self, action: str) -> QuickActionPlan:
-        return _nav_handlers.build_quick_action_plan_for_owner(self, action, runtime_parent=_RUNTIME.parent)
-
-    def _apply_quick_action_plan(self, plan: QuickActionPlan) -> bool:
-        return _apply_quick_action_plan_fn(self, plan)
-
-    def _instances_config_path(self) -> Path:
-        return instances_config_path(_CONFIG)
-
-    def _instance_state_path(self) -> Path:
-        return instance_state_path(_RUNTIME)
-
-    @staticmethod
-    def _default_governance_snapshot(instance_type: str) -> dict[str, object]:
-        return default_governance_snapshot(instance_type)
-
-    def _local_instance_snapshot(self, *, include_workspace_details: bool = True) -> dict:
-        return build_local_instance_snapshot(
-            config_path=self._instances_config_path(),
-            state_path=self._instance_state_path(),
-            include_workspace_details=include_workspace_details,
-        )
-
-    def _fetch_instance_snapshot(self, *, force: bool = False) -> dict:
-        return fetch_instance_snapshot(self, force=force)
-
-    def _fetch_connector_inventory(self, *, force: bool = False) -> list[dict]:
-        return fetch_connector_inventory_snapshot(self, force=force)
-
-    def _load_instance_history_from_logs(self, name: str) -> list[dict[str, str]]:
-        return load_instance_history_from_logs(
-            name,
-            instance_logger_available=_INSTANCE_LOGGER_AVAILABLE,
-            log_reader=read_instance_log_tail,
-        )
-
-    def _load_instance_catalog(self, snapshot: dict | None = None) -> tuple[list[str], str]:
-        return load_instance_catalog(self, snapshot=snapshot)
-
-    def _refresh_instance_views(self, *, load_logs: bool = False, force: bool = False) -> None:
-        refresh_workspace_instance_views(self, load_logs=load_logs, force=force)
-        LauncherWindow._refresh_first_run_banner(self)
-
-    def _refresh_first_run_banner(self) -> None:
-        _refresh_first_run_banner_fn(self, wizard_factory=FirstRunWizard)
-
-    def _on_first_run_action_requested(self, action: str) -> None:
-        _on_first_run_action_requested_fn(
-            self, action,
-            settings_view_index=_SETTINGS_VIEW_INDEX,
-            models_view_index=_MODELS_VIEW_INDEX,
-        )
-
-    def _build_launcher_state_snapshot(
-        self,
-        snapshot: dict,
-        typed_connector_inventory,
-        windows_snapshot: dict[str, str],
-        runtime_health: RuntimeHealthSnapshot | None = None,
-    ) -> LauncherStateSnapshot:
-        return build_launcher_state_snapshot(
-            snapshot,
-            typed_connector_inventory if _CONNECTOR_MANAGER_BACKEND else (),
-            windows_snapshot if isinstance(windows_snapshot, dict) else {},
-            active_view="home",
-            runtime_health=runtime_health,
-        )
-
-    def _sync_assistant_library_context(self, library_view) -> None:
-        _lib_handlers.sync_assistant_library_context(self, library_view)
-
-    def _ensure_library_workflow(self):
-        return _lib_handlers.ensure_library_workflow(self)
-
-    @staticmethod
-    def _compose_library_aware_message(cmd: str, active_items: list[dict[str, str]] | None) -> str:
-        return _lib_handlers.compose_library_aware_message(cmd, active_items)
-
-    def _on_library_context_requested(self, title: str, item_path: str, item_kind: str, prompt: str) -> None:
-        _lib_handlers.on_library_context_requested(self, title, item_path, item_kind, prompt)
-
-    def _on_library_context_cleared(self) -> None:
-        _lib_handlers.on_library_context_cleared(self)
-
-    def _on_library_context_focused(self, title: str) -> None:
-        _lib_handlers.on_library_context_focused(self, title)
-
-    def _on_library_context_default_requested(self, title: str) -> None:
-        _lib_handlers.on_library_context_default_requested(self, title)
-
-    def _on_library_context_opened(self, title: str) -> None:
-        _lib_handlers.on_library_context_opened(self, title)
-
-    def _on_library_context_removed(self, title: str) -> None:
-        _lib_handlers.on_library_context_removed(self, title)
-
-    def _refresh_library_surface(self) -> None:
-        _lib_handlers.refresh_library_surface(self)
-
-    def _on_library_root_requested(self, root_path: str, label: str) -> None:
-        _lib_handlers.on_library_root_requested(self, root_path, label)
-
-    def _on_library_note_requested(self, title: str, summary: str) -> None:
-        _lib_handlers.on_library_note_requested(self, title, summary)
-
-    def _on_library_note_updated(self, item_id: int, title: str, summary: str) -> None:
-        _lib_handlers.on_library_note_updated(self, item_id, title, summary)
-
-    def _on_library_artifact_requested(self, title: str, item_path: str, summary: str) -> None:
-        _lib_handlers.on_library_artifact_requested(self, title, item_path, summary)
-
-    def _on_library_artifact_updated(self, item_id: int, title: str, item_path: str, summary: str) -> None:
-        _lib_handlers.on_library_artifact_updated(self, item_id, title, item_path, summary)
-
-    def _on_library_item_deleted(self, item_id: int, title: str) -> None:
-        _lib_handlers.on_library_item_deleted(self, item_id, title)
-
-    def _on_assistant_reply_library_requested(self, content: str, attach_next: bool) -> None:
-        _lib_handlers.on_assistant_reply_library_requested(self, content, attach_next)
-
-    def _on_assistant_reply_artifact_requested(self, content: str) -> None:
-        _lib_handlers.on_assistant_reply_artifact_requested(self, content)
-
-    def _on_latest_saved_output_attached(self, title: str, summary: str) -> None:
-        _lib_handlers.on_latest_saved_output_attached(self, title, summary)
-
-    def _on_active_context_refresh_requested(self, content: str, as_artifact: bool) -> None:
-        _lib_handlers.on_active_context_refresh_requested(self, content, as_artifact)
-
-    def _apply_instance_switch(self, target: str, *, announce: bool = True) -> None:
-        _inst_handlers.apply_instance_switch(self, target, announce=announce)
-
-    def _bootstrap_instance_switcher(self) -> None:
-        _inst_handlers.bootstrap_instance_switcher(self)
-
-    def _complete_bootstrap_instance_switcher(self) -> None:
-        _inst_handlers.complete_bootstrap_instance_switcher(self)
-
-    def _snapshot_active_instance_history(self) -> None:
-        _inst_handlers.snapshot_active_instance_history(self)
-
-    def _on_instance_selected(self, name: str) -> None:
-        _inst_handlers.on_instance_selected(self, name)
-
-    def _on_instance_manager_refresh(self) -> None:
-        _inst_handlers.on_instance_manager_refresh(self)
-
-    def _on_instance_create_requested(self, payload: dict) -> None:
-        _inst_handlers.on_instance_create_requested(self, payload)
-
-    def _on_instance_governance_save_requested(self, payload: dict) -> None:
-        _inst_handlers.on_instance_governance_save_requested(self, payload)
-
-    def _on_instance_connector_binding_save_requested(self, payload: dict) -> None:
-        _conn_handlers.on_instance_connector_binding_save_requested(self, payload)
-
-    def _perform_connector_action_request(self, payload: dict) -> dict:
-        return _conn_handlers.perform_request(self, payload)
-
-    def _apply_connector_action_feedback(self, record: dict, *, refresh_after: bool = True) -> dict:
-        return _conn_handlers.apply_feedback(self, record, refresh_after=refresh_after)
-
-    def _run_connector_action_request(self, payload: dict, *, refresh_after: bool = True) -> dict:
-        return _conn_handlers.run_request(self, payload, refresh_after=refresh_after)
-
-    def _start_connector_action_async(self, payload: dict, *, refresh_after: bool = True) -> None:
-        _conn_handlers.start_async(self, payload, refresh_after=refresh_after)
-
-    def _start_connector_guided_link_async(self, payload: dict) -> None:
-        _conn_handlers.start_guided_link_async(self, payload)
-
-    def _drain_connector_action_events(self) -> None:
-        _conn_handlers.drain_events(self)
-
-    def _on_connector_action_requested(self, payload: dict) -> None:
-        _conn_handlers.on_action_requested(self, payload)
-
-    def _on_connector_guided_link_requested(self, payload: dict) -> None:
-        _conn_handlers.on_guided_link_requested(self, payload)
-
-    def _on_instance_delete_requested(self, name: str) -> None:
-        _inst_handlers.on_instance_delete_requested(self, name)
-
-    def _on_instance_logs_requested(self, name: str, quiet: bool = False) -> None:
-        _inst_handlers.on_instance_logs_requested(self, name, quiet=quiet)
-
-    # ── Event handlers ────────────────────────────────────────────────────────
-    def _on_settings_saved(self, settings: dict) -> None:
-        _on_settings_saved_fn(self, settings)
-
-    def _on_voice_bindings_changed(self, _bindings: dict) -> None:
-        _on_voice_bindings_changed_fn(self)
-
-    def _load_tool_states(self) -> None:
-        _load_tool_states_fn(self)
-
-    def _on_tool_state_changed(self, tool_key: str, enabled: bool) -> None:
-        _on_tool_state_changed_fn(self, tool_key, enabled)
-
-    def _log_launcher_event(self, event: str, **fields: object) -> None:
-        _log_launcher_event_fn(event, runtime_path=_RUNTIME, start_time=_START_TIME, **fields)
-
-    def _drain_assistant_events(self) -> None:
-        drain_assistant_events(self, timer_single_shot=QTimer.singleShot)
-
-    def _humanize_chat_error(self, raw: str) -> str:
-        return humanize_chat_error(raw)
-
-    @staticmethod
-    def _chat_timeout_for_request(mode: str, command: str = "") -> float:
-        return chat_timeout_for_request(mode, command)
-
-    @staticmethod
-    def _required_local_model_for_mode(mode: str) -> str | None:
-        return required_local_model_for_mode(mode)
-
-    @staticmethod
-    def _assistant_model_id(mode: str, active_model: str = "") -> str:
-        return _assistant_model_id_fn(mode, active_model)
-
-    def _validate_mode_ready(self, mode: str) -> tuple[bool, str]:
-        return _validate_mode_ready_fn(self, mode)
-
-    def _rotate_chat_session(
-        self,
-        reason: str,
-        mode: str = "",
-        persona: str = "",
-        instance: str = "",
-        clear_live_history: bool = False,
-    ) -> None:
-        _rotate_chat_session_fn(
-            self,
-            reason,
-            mode=mode,
-            persona=persona,
-            instance=instance,
-            clear_live_history=clear_live_history,
-        )
-
-    def _on_chat_context_changed(self, mode: str, persona: str) -> None:
-        _on_chat_context_changed_fn(self, mode, persona)
-
-    def _apply_chat_context(self, mode: str, persona: str) -> None:
-        _apply_chat_context_fn(self, mode, persona)
-
-    def _finish_request_ui(self) -> None:
-        _finish_request_ui_fn(self)
-
-    def _on_cancel_assistant_request(self) -> None:
-        _on_cancel_assistant_request_fn(self)
-
-    def _drain_recovery_events(self) -> None:
-        drain_recovery_events(self)
-
-    def _on_tool_hint_requested(self, tool_key: str) -> None:
-        _on_tool_hint_requested_fn(
-            self,
-            tool_key,
-            settings_view_index=_SETTINGS_VIEW_INDEX,
-            tool_prompt_fn=self._tool_prompt_for_home,
-        )
-
-    def _on_tool_management_requested(self, payload: dict) -> None:
-        _on_tool_management_requested_fn(self, payload, settings_view_index=_SETTINGS_VIEW_INDEX)
-
-    @staticmethod
-    def _tool_prompt_for_home(tool_key: str) -> str:
-        return _registry_tool_prompt(tool_key)
-
-    def _available_instance_names(self) -> set[str]:
-        snapshot = self._last_instance_snapshot if isinstance(self._last_instance_snapshot, dict) else {}
-        items = snapshot.get("instances", []) if isinstance(snapshot, dict) else []
-        return {
-            str(item.get("name", "")).strip()
-            for item in items
-            if isinstance(item, dict) and bool(item.get("enabled", True)) and str(item.get("name", "")).strip()
-        }
-
-    def _preferred_builder_instance_name(self) -> str:
-        snapshot = self._last_instance_snapshot if isinstance(self._last_instance_snapshot, dict) else {}
-        return preferred_builder_workspace_name(self._active_instance_name, snapshot)
-
-    def _user_test_evidence_path(self) -> Path:
-        return user_test_evidence_paths(_RUNTIME)[0]
-
-    def _user_test_evidence_summary_path(self) -> Path:
-        return user_test_evidence_paths(_RUNTIME)[1]
-
-    @staticmethod
-    def _display_repo_path(path: Path | str | None) -> str:
-        return display_repo_path(_RUNTIME.parent, path)
-
-    @staticmethod
-    def _latest_stress_report_path() -> Path | None:
-        return latest_stress_report_path(_RUNTIME)
-
-    def _recent_launcher_event_summaries(self, limit: int = 4) -> list[str]:
-        return recent_launcher_event_summaries(_RUNTIME, limit=limit)
-
-    @staticmethod
-    def _write_user_test_evidence_summary(summary_path: Path, payload: dict[str, object]) -> str:
-        return write_user_test_evidence_summary(summary_path, payload)
-
-    def _write_user_test_evidence_pack(
-        self,
-        *,
-        report_path: Path | None = None,
-        status: str = "",
-    ) -> dict[str, str]:
-        return write_launcher_user_test_evidence_pack(
-            self,
-            report_path=report_path,
-            status=status,
-            runtime_dir=_RUNTIME,
-            automation_report_path=_AUTOMATION_REPORT_PATH,
-            validation_command=_AUTOMATION_TEST_VALIDATION_COMMAND,
-        )
-
-    def _automation_test_snapshot(
-        self,
-        *,
-        report_path: Path | None = None,
-        status: str = "",
-        evidence_pack_path: str = "",
-        stress_report_path: str = "",
-        recent_events: str = "",
-    ) -> dict[str, str]:
-        return build_launcher_automation_test_snapshot(
-            self,
-            report_path=report_path,
-            status=status,
-            evidence_pack_path=evidence_pack_path,
-            stress_report_path=stress_report_path,
-            recent_events=recent_events,
-            runtime_dir=_RUNTIME,
-            automation_report_path=_AUTOMATION_REPORT_PATH,
-            validation_command=_AUTOMATION_TEST_VALIDATION_COMMAND,
-        )
-
-    def _sync_automation_test_state(
-        self,
-        *,
-        status: str = "",
-        ok: bool = True,
-        report_path: Path | None = None,
-        persist: bool = False,
-    ) -> None:
-        sync_launcher_automation_test_state(
-            self,
-            status=status,
-            ok=ok,
-            report_path=report_path,
-            persist=persist,
-            runtime_dir=_RUNTIME,
-            automation_report_path=_AUTOMATION_REPORT_PATH,
-            validation_command=_AUTOMATION_TEST_VALIDATION_COMMAND,
-        )
-
-    def _queue_builder_task(
-        self,
-        *,
-        template_id: str,
-        target_ref: str,
-        instance_name: str,
-        announce_text: str,
-    ) -> dict[str, object]:
-        return _queue_builder_task_fn(
-            self,
-            template_id=template_id,
-            target_ref=target_ref,
-            instance_name=instance_name,
-            announce_text=announce_text,
-            automation_report_path=_AUTOMATION_REPORT_PATH,
-        )
-
-    def _write_automation_report(self) -> Path:
-        return write_launcher_automation_report(
-            self,
-            automation_report_path=_AUTOMATION_REPORT_PATH,
-            validation_command=_AUTOMATION_TEST_VALIDATION_COMMAND,
-        )
-
-    def _approve_latest_builder_task(self) -> dict[str, object]:
-        return approve_latest_builder_task(self)
-
-    def _on_builder_task_requested(self, payload: dict[str, object]) -> None:
-        handle_builder_task_requested(
-            self,
-            payload,
-            automation_report_path=_AUTOMATION_REPORT_PATH,
-        )
-
-    def _on_automation_action_requested(self, action: str) -> None:
-        handle_automation_action_request(
-            self,
-            action,
-            automation_report_path=_AUTOMATION_REPORT_PATH,
-            validation_command=_AUTOMATION_TEST_VALIDATION_COMMAND,
-        )
-
-    def _initialize_embedded_agent(self, agent_id: str) -> tuple[bool, str]:
-        return _initialize_embedded_agent_fn(self, agent_id)
-
-    def _on_agent_init_requested(self, agent_id: str) -> None:
-        _on_agent_init_requested_fn(self, agent_id)
-
-    def _on_recovery_requested(self, action: str) -> None:
-        start_recovery_request(self, action, thread_factory=threading.Thread)
-
-    def _run_recovery_request(self, act: str) -> None:
-        run_recovery_request(self, act)
-
-    def _on_model_selected(self, model: str) -> None:
-        _on_model_selected_fn(self, model, models_view_index=_MODELS_VIEW_INDEX)
-
-    def _on_runtime_settings_saved(self, settings: dict) -> None:
-        _on_runtime_settings_saved_fn(self, settings, models_view_index=_MODELS_VIEW_INDEX)
-
-    def _on_search(self, query: str) -> None:
-        _nav_handlers.on_search(self, query)
-
-    @staticmethod
-    def _windows_ops_plan(action: str) -> dict[str, object]:
-        return build_windows_ops_plan(action)
-
-    @staticmethod
-    def _windows_ops_recipe(action: str) -> tuple[str, list[str]]:
-        plan = LauncherWindow._windows_ops_plan(action)
-        return str(plan.get("label", "") or ""), [str(item) for item in plan.get("commands", []) if str(item).strip()]
-
-    def _on_windows_ops_requested(self, action: str) -> None:
-        dispatch_windows_ops_request(self, action, delayed_scheduler=QTimer.singleShot)
-
-    def _on_home_starter_requested(self, starter_id: str, prompt: str) -> None:
-        _on_home_starter_requested_fn(self, starter_id, prompt)
-
-    def _on_assistant_command(self, command: str) -> None:
-        handle_assistant_command(
-            self,
-            command,
-            instance_logger_available=_INSTANCE_LOGGER_AVAILABLE,
-            instance_log_appender=append_instance_log,
-            library_chat_submission_builder=build_library_chat_submission,
-            thread_factory=threading.Thread,
-        )
-
-    def _on_quick_action(self, action: str) -> None:
-        _nav_handlers.on_quick_action(self, action)
-
-    def _refresh_notification_badge(self) -> None:
-        _nav_handlers.refresh_notification_badge(self, events_path=_RUNTIME / "launcher_events.jsonl")
-
-    def _ensure_voice_capture(self) -> tuple[bool, str]:
-        return _ensure_voice_capture_fn(
-            self,
-            voice_capture_available=_VOICE_CAPTURE_AVAILABLE,
-            voice_class=GuppyVoice,
-        )
-
-    def _on_mic_requested(self) -> None:
-        _on_mic_requested_fn(self, thread_factory=threading.Thread)
+    
+LauncherWindow._sync_assistant_library_context = _delegate_methods.sync_assistant_library_context
+LauncherWindow._wire_tools_trace_adapter = _delegate_methods.wire_tools_trace_adapter
+LauncherWindow._refresh_tools_debug_surface = _delegate_methods.refresh_tools_debug_surface
+LauncherWindow._drain_deferred_syslog = _delegate_methods.drain_deferred_syslog
+LauncherWindow._update_route_preview = _delegate_methods.update_route_preview_method
+LauncherWindow._set_daily_activity = _delegate_methods.set_daily_activity_method
+LauncherWindow._sync_right_tray = _delegate_methods.sync_right_tray_method
+LauncherWindow._build_sys_strip = _delegate_methods.build_sys_strip
+LauncherWindow._update_sys_strip = _delegate_methods.update_sys_strip
+LauncherWindow._start_status_poll = _delegate_methods.start_status_poll
+LauncherWindow._poll_status = _delegate_methods.poll_status
+LauncherWindow._sync_recovery_outcome = _delegate_methods.sync_recovery_outcome_method
+LauncherWindow._sync_shell_model_summary = _delegate_methods.sync_shell_model_summary
+LauncherWindow._on_tab_change = _delegate_methods.on_tab_change
+LauncherWindow._apply_start_destination = _delegate_methods.apply_start_destination
+LauncherWindow._set_status_panel_visible = _delegate_methods.set_status_panel_visible
+LauncherWindow._toggle_status_panel = _delegate_methods.toggle_status_panel
+LauncherWindow._toggle_sidebar = _delegate_methods.toggle_sidebar
+LauncherWindow._build_quick_action_plan = _delegate_methods.build_quick_action_plan
+LauncherWindow._apply_quick_action_plan = _delegate_methods.apply_quick_action_plan
+LauncherWindow._instances_config_path = _delegate_methods.instances_config_path_method
+LauncherWindow._instance_state_path = _delegate_methods.instance_state_path_method
+LauncherWindow._default_governance_snapshot = staticmethod(_delegate_methods.default_governance_snapshot_static)
+LauncherWindow._local_instance_snapshot = _delegate_methods.local_instance_snapshot
+LauncherWindow._fetch_instance_snapshot = _delegate_methods.fetch_instance_snapshot_method
+LauncherWindow._fetch_connector_inventory = _delegate_methods.fetch_connector_inventory_method
+LauncherWindow._load_instance_history_from_logs = _delegate_methods.load_instance_history_from_logs_method
+LauncherWindow._load_instance_catalog = _delegate_methods.load_instance_catalog_method
+LauncherWindow._refresh_instance_views = _delegate_methods.refresh_instance_views_method
+LauncherWindow._ensure_library_workflow = _delegate_methods.ensure_library_workflow
+LauncherWindow._compose_library_aware_message = staticmethod(_delegate_methods.compose_library_aware_message)
+LauncherWindow._on_library_context_requested = _delegate_methods.on_library_context_requested
+LauncherWindow._on_library_context_cleared = _delegate_methods.on_library_context_cleared
+LauncherWindow._on_library_context_focused = _delegate_methods.on_library_context_focused
+LauncherWindow._on_library_context_default_requested = _delegate_methods.on_library_context_default_requested
+LauncherWindow._on_library_context_opened = _delegate_methods.on_library_context_opened
+LauncherWindow._on_library_context_removed = _delegate_methods.on_library_context_removed
+LauncherWindow._refresh_library_surface = _delegate_methods.refresh_library_surface
+LauncherWindow._on_library_root_requested = _delegate_methods.on_library_root_requested
+LauncherWindow._on_library_note_requested = _delegate_methods.on_library_note_requested
+LauncherWindow._on_library_note_updated = _delegate_methods.on_library_note_updated
+LauncherWindow._on_library_artifact_requested = _delegate_methods.on_library_artifact_requested
+LauncherWindow._on_library_artifact_updated = _delegate_methods.on_library_artifact_updated
+LauncherWindow._on_library_item_deleted = _delegate_methods.on_library_item_deleted
+LauncherWindow._on_assistant_reply_library_requested = _delegate_methods.on_assistant_reply_library_requested
+LauncherWindow._on_assistant_reply_artifact_requested = _delegate_methods.on_assistant_reply_artifact_requested
+LauncherWindow._on_latest_saved_output_attached = _delegate_methods.on_latest_saved_output_attached
+LauncherWindow._on_active_context_refresh_requested = _delegate_methods.on_active_context_refresh_requested
+LauncherWindow._apply_instance_switch = _delegate_methods.apply_instance_switch
+LauncherWindow._bootstrap_instance_switcher = _delegate_methods.bootstrap_instance_switcher
+LauncherWindow._complete_bootstrap_instance_switcher = _delegate_methods.complete_bootstrap_instance_switcher
+LauncherWindow._snapshot_active_instance_history = _delegate_methods.snapshot_active_instance_history
+LauncherWindow._on_instance_selected = _delegate_methods.on_instance_selected
+LauncherWindow._on_instance_manager_refresh = _delegate_methods.on_instance_manager_refresh
+LauncherWindow._on_instance_create_requested = _delegate_methods.on_instance_create_requested
+LauncherWindow._on_instance_governance_save_requested = _delegate_methods.on_instance_governance_save_requested
+LauncherWindow._on_instance_connector_binding_save_requested = _delegate_methods.on_instance_connector_binding_save_requested
+LauncherWindow._perform_connector_action_request = _delegate_methods.perform_connector_action_request
+LauncherWindow._apply_connector_action_feedback = _delegate_methods.apply_connector_action_feedback
+LauncherWindow._run_connector_action_request = _delegate_methods.run_connector_action_request
+LauncherWindow._start_connector_action_async = _delegate_methods.start_connector_action_async
+LauncherWindow._start_connector_guided_link_async = _delegate_methods.start_connector_guided_link_async
+LauncherWindow._drain_connector_action_events = _delegate_methods.drain_connector_action_events
+LauncherWindow._on_connector_action_requested = _delegate_methods.on_connector_action_requested
+LauncherWindow._on_connector_guided_link_requested = _delegate_methods.on_connector_guided_link_requested
+LauncherWindow._on_instance_delete_requested = _delegate_methods.on_instance_delete_requested
+LauncherWindow._on_instance_logs_requested = _delegate_methods.on_instance_logs_requested
+LauncherWindow._log_launcher_event = _delegate_methods.log_launcher_event
+LauncherWindow._preferred_builder_instance_name = _delegate_methods.preferred_builder_instance_name
+LauncherWindow._display_repo_path = staticmethod(_delegate_methods.display_repo_path_static)
+LauncherWindow._event_level = staticmethod(_core_methods.event_level_static)
+LauncherWindow._bootstrap_personalization_scaffold_worker = _core_methods.bootstrap_personalization_scaffold_worker
+LauncherWindow._wire_signals = _core_methods.wire_signals
+LauncherWindow._refresh_personalization_state = _core_methods.refresh_personalization_state
+LauncherWindow._complete_startup_phase = _core_methods.complete_startup_phase
+LauncherWindow._sync_topbar_model_context = _core_methods.sync_topbar_model_context
+LauncherWindow._classify_recovery_summary = staticmethod(_core_methods.classify_recovery_summary_static)
+LauncherWindow._format_recovery_summary = staticmethod(_core_methods.format_recovery_summary_static)
+LauncherWindow._push_recovery_outcome = _core_methods.push_recovery_outcome_method
+LauncherWindow._resolve_stack_index = staticmethod(_core_methods.resolve_stack_index_static)
+LauncherWindow._visible_nav_index = staticmethod(_core_methods.visible_nav_index_static)
+LauncherWindow._refresh_first_run_banner = _core_methods.refresh_first_run_banner
+LauncherWindow._on_first_run_action_requested = _core_methods.on_first_run_action_requested
+LauncherWindow._build_launcher_state_snapshot = _core_methods.build_launcher_state_snapshot_method
+LauncherWindow._on_settings_saved = _core_methods.on_settings_saved
+LauncherWindow._on_voice_bindings_changed = _core_methods.on_voice_bindings_changed
+LauncherWindow._load_tool_states = _core_methods.load_tool_states
+LauncherWindow._on_tool_state_changed = _core_methods.on_tool_state_changed
+LauncherWindow._drain_assistant_events = _core_methods.drain_assistant_events_method
+LauncherWindow._humanize_chat_error = _core_methods.humanize_chat_error_method
+LauncherWindow._chat_timeout_for_request = staticmethod(_core_methods.chat_timeout_for_request_static)
+LauncherWindow._required_local_model_for_mode = staticmethod(_core_methods.required_local_model_for_mode_static)
+LauncherWindow._assistant_model_id = staticmethod(_core_methods.assistant_model_id_static)
+LauncherWindow._validate_mode_ready = _core_methods.validate_mode_ready
+LauncherWindow._rotate_chat_session = _core_methods.rotate_chat_session
+LauncherWindow._on_chat_context_changed = _core_methods.on_chat_context_changed
+LauncherWindow._apply_chat_context = _core_methods.apply_chat_context
+LauncherWindow._finish_request_ui = _core_methods.finish_request_ui
+LauncherWindow._on_cancel_assistant_request = _core_methods.on_cancel_assistant_request
+LauncherWindow._drain_recovery_events = _core_methods.drain_recovery_events_method
+LauncherWindow._on_tool_hint_requested = _core_methods.on_tool_hint_requested
+LauncherWindow._on_tool_management_requested = _core_methods.on_tool_management_requested
+LauncherWindow._initialize_embedded_agent = _core_methods.initialize_embedded_agent
+LauncherWindow._on_agent_init_requested = _core_methods.on_agent_init_requested
+LauncherWindow._on_model_selected = _core_methods.on_model_selected
+LauncherWindow._on_runtime_settings_saved = _core_methods.on_runtime_settings_saved
+LauncherWindow._shell_model_loadout_summary = staticmethod(build_shell_model_loadout_summary)
+LauncherWindow._tool_prompt_for_home = staticmethod(_core_methods.tool_prompt_for_home_static)
+LauncherWindow._available_instance_names = _action_methods.available_instance_names
+LauncherWindow._user_test_evidence_path = _action_methods.user_test_evidence_path
+LauncherWindow._user_test_evidence_summary_path = _action_methods.user_test_evidence_summary_path
+LauncherWindow._latest_stress_report_path = staticmethod(_action_methods.latest_stress_report_path_static)
+LauncherWindow._recent_launcher_event_summaries = _action_methods.recent_launcher_event_summaries_method
+LauncherWindow._write_user_test_evidence_summary = staticmethod(_action_methods.write_user_test_evidence_summary_static)
+LauncherWindow._write_user_test_evidence_pack = _action_methods.write_user_test_evidence_pack
+LauncherWindow._automation_test_snapshot = _action_methods.automation_test_snapshot
+LauncherWindow._sync_automation_test_state = _action_methods.sync_automation_test_state
+LauncherWindow._queue_builder_task = _action_methods.queue_builder_task
+LauncherWindow._write_automation_report = _action_methods.write_automation_report
+LauncherWindow._approve_latest_builder_task = _action_methods.approve_latest_builder_task_method
+LauncherWindow._on_builder_task_requested = _action_methods.on_builder_task_requested
+LauncherWindow._on_automation_action_requested = _action_methods.on_automation_action_requested
+LauncherWindow._on_recovery_requested = _action_methods.on_recovery_requested
+LauncherWindow._run_recovery_request = _action_methods.run_recovery_request_method
+LauncherWindow._on_search = _action_methods.on_search
+LauncherWindow._windows_ops_plan = staticmethod(_action_methods.windows_ops_plan_static)
+LauncherWindow._windows_ops_recipe = staticmethod(_action_methods.windows_ops_recipe_static)
+LauncherWindow._on_windows_ops_requested = _action_methods.on_windows_ops_requested
+LauncherWindow._on_home_starter_requested = _action_methods.on_home_starter_requested
+LauncherWindow._on_assistant_command = _action_methods.on_assistant_command
+LauncherWindow._on_quick_action = _action_methods.on_quick_action
+LauncherWindow._refresh_notification_badge = _action_methods.refresh_notification_badge
+LauncherWindow._ensure_voice_capture = _action_methods.ensure_voice_capture
+LauncherWindow._on_mic_requested = _action_methods.on_mic_requested
+LauncherWindow._launch_start_time = _START_TIME

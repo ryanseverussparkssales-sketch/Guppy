@@ -1,6 +1,6 @@
 """
 ui/launcher/components/topbar.py
-Premium top navigation / header bar.
+Editorial top navigation / header bar.
 """
 from __future__ import annotations
 
@@ -76,26 +76,26 @@ class TopBar(QFrame):
         self.setFixedHeight(T.TOPBAR_H)
         self.setObjectName("topbar")
         self.setStyleSheet(
-            f"QFrame#topbar {{ background: {T.GRADIENT_SAND};"
+            f"QFrame#topbar {{ background-color: {T.SURFACE_ELEVATED_92};"
             f" border-bottom: 1px solid {T.BORDER_SOFT_60}; }}"
         )
 
         row = QHBoxLayout(self)
         self._row = row
-        row.setContentsMargins(16, 8, 16, 8)
-        row.setSpacing(8)
+        row.setContentsMargins(18, 8, 18, 8)
+        row.setSpacing(10)
 
         brand_col = QVBoxLayout()
-        brand_col.setSpacing(1)
-        title = QLabel("Editorial\nIntelligence")
+        brand_col.setSpacing(0)
+        title = QLabel("Editorial Intelligence")
         title.setStyleSheet(
-            f"color: {T.ACCENT_TEAL}; font-family: '{T.FONT_SERIF}'; font-size: {T.FS_TITLE + 2}pt;"
-            " font-style: italic; font-weight: 600; letter-spacing: 0px;"
+            f"color: {T.ACCENT_TEAL_TEXT}; font-family: '{T.FONT_SERIF}'; font-size: {T.FS_TITLE + 2}pt;"
+            " font-style: italic; font-weight: 700; letter-spacing: 0px;"
         )
         self._brand_title = title
         self._session_lbl = _ElidedLabel("daily path for chat, files, and workspace context")
         self._session_lbl.setStyleSheet(
-            f"color: {T.TEXT_DIM_72}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
+            f"color: {T.TEXT_DIM_72}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; font-weight: 600;"
         )
         brand_col.addWidget(title)
         brand_col.addWidget(self._session_lbl)
@@ -108,7 +108,7 @@ class TopBar(QFrame):
         self._sidebar_btn.setToolTip("Toggle navigation")
         self._sidebar_btn.setAccessibleName("Toggle navigation")
         self._sidebar_btn.setAccessibleDescription("Shows or hides the left navigation rail")
-        self._sidebar_btn.setStyleSheet(self._icon_button_style(T.BG0, T.TEXT))
+        self._sidebar_btn.setStyleSheet(self._icon_button_style(T.SURFACE_BASE_90, T.TEXT))
         self._sidebar_btn.clicked.connect(lambda: self.quick_action.emit("toggle_sidebar"))
         row.addWidget(self._sidebar_btn)
 
@@ -133,12 +133,12 @@ class TopBar(QFrame):
         workspace_shell.setStyleSheet(
             f"background-color: {T.SURFACE_ELEVATED_92};"
             f" border: 1px solid {T.BORDER_SOFT_58};"
-            " border-radius: 18px;"
+            " border-radius: 22px;"
         )
         workspace_row = QHBoxLayout(workspace_shell)
-        workspace_row.setContentsMargins(8, 4, 8, 4)
-        workspace_row.setSpacing(4)
-        inst_lbl = QLabel("SESSION")
+        workspace_row.setContentsMargins(10, 6, 10, 6)
+        workspace_row.setSpacing(6)
+        inst_lbl = QLabel("WORKSPACE")
         inst_lbl.setStyleSheet(
             f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
@@ -147,6 +147,15 @@ class TopBar(QFrame):
         self._instance_cb.setMinimumWidth(128)
         self._instance_cb.setMaximumWidth(150)
         self._instance_cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContentsOnFirstShow)
+        self._instance_cb.setStyleSheet(
+            "QComboBox {"
+            f" background-color: {T.SURFACE_BASE_90}; color: {T.TEXT};"
+            f" border: 1px solid {T.BORDER_SOFT_64}; border-radius: 12px;"
+            f" padding: 4px 10px; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; font-weight: 600;"
+            "}"
+            "QComboBox::drop-down { border: none; width: 18px; }"
+            "QComboBox::down-arrow { image: none; }"
+        )
         self._instance_cb.currentTextChanged.connect(self._on_instance_selected)
         self._workspace_nav_btn = QPushButton("WORKSPACES")
         self._workspace_nav_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -155,7 +164,7 @@ class TopBar(QFrame):
         self._workspace_nav_btn.setAccessibleName("Open workspaces")
         self._workspace_nav_btn.setAccessibleDescription("Opens the Workspaces hub from the workspace controls area")
         self._workspace_nav_btn.clicked.connect(lambda: self._on_nav(1))
-        self._workspace_nav_btn.setStyleSheet(self._nav_style(False))
+        self._workspace_nav_btn.setStyleSheet(self._workspace_nav_style(False))
         workspace_row.addWidget(inst_lbl)
         workspace_row.addWidget(self._instance_cb)
         workspace_row.addWidget(self._workspace_nav_btn)
@@ -167,10 +176,10 @@ class TopBar(QFrame):
         summary_shell.setStyleSheet(
             f"background-color: {T.SURFACE_ELEVATED_92};"
             f" border: 1px solid {T.BORDER_SOFT_58};"
-            " border-radius: 18px;"
+            " border-radius: 22px;"
         )
         summary_row = QHBoxLayout(summary_shell)
-        summary_row.setContentsMargins(8, 4, 8, 4)
+        summary_row.setContentsMargins(10, 6, 10, 6)
         summary_row.setSpacing(6)
         summary_copy = QVBoxLayout()
         summary_copy.setContentsMargins(0, 0, 0, 0)
@@ -181,7 +190,7 @@ class TopBar(QFrame):
         )
         self._summary_secondary_lbl = _ElidedLabel("CHAT LANE: AUTO / LIGHT")
         self._summary_secondary_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
+            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; font-weight: 600;"
         )
         summary_copy.addWidget(self._summary_primary_lbl)
         summary_copy.addWidget(self._summary_secondary_lbl)
@@ -196,8 +205,8 @@ class TopBar(QFrame):
         self._launcher_summary_btn.setStyleSheet(
             f"QPushButton {{ background-color: {T.SURFACE_BASE_90}; color: {T.TEXT};"
             f" border: 1px solid {T.BORDER_SOFT_72}; border-radius: 14px; padding: 5px 10px;"
-            f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; text-align: center; }}"
-            f"QPushButton:hover {{ border-color: {T.TERTIARY}; color: {T.INK}; background-color: {T.WHITE}; }}"
+            f" font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; font-weight: 700; letter-spacing: 1px; text-align: center; }}"
+            f"QPushButton:hover {{ border-color: {T.ACCENT_TEAL}; color: {T.ACCENT_TEAL_TEXT}; background-color: {T.WHITE}; }}"
         )
         self._launcher_summary_btn.clicked.connect(self.launcher_context_requested.emit)
         summary_row.addWidget(self._launcher_summary_btn)
@@ -205,7 +214,7 @@ class TopBar(QFrame):
         row.addWidget(summary_shell)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Search knowledge library...")
+        self._search.setPlaceholderText("Search library, traces, and workspace context...")
         self._search.setToolTip("Search home context, files, and library items")
         self._search.setAccessibleName("Search launcher content")
         self._search.setAccessibleDescription("Searches home context, files, and library")
@@ -213,6 +222,14 @@ class TopBar(QFrame):
         self._search.setMaximumWidth(210)
         self._search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._search.setFixedHeight(34)
+        self._search.setStyleSheet(
+            "QLineEdit {"
+            f" background-color: {T.SURFACE_BASE_90}; color: {T.TEXT};"
+            f" border: 1px solid {T.BORDER_SOFT_64}; border-radius: 17px;"
+            f" padding: 0 12px; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; font-weight: 600;"
+            "}"
+            f"QLineEdit:focus {{ border-color: {T.ACCENT_TEAL}; background-color: {T.WHITE}; }}"
+        )
         self._search.returnPressed.connect(lambda: self.search_submitted.emit(self._search.text()))
         row.addWidget(self._search)
 
@@ -220,7 +237,7 @@ class TopBar(QFrame):
         system_shell.setObjectName("topbar_system_shell")
         system_shell.setStyleSheet(
             f"QFrame#topbar_system_shell {{ background-color: {T.SURFACE_ELEVATED_88};"
-            f" border: 1px solid {T.BORDER_SOFT_58}; border-radius: 18px; }}"
+            f" border: 1px solid {T.BORDER_SOFT_58}; border-radius: 22px; }}"
         )
         system_row = QHBoxLayout(system_shell)
         system_row.setContentsMargins(4, 3, 4, 3)
@@ -241,13 +258,13 @@ class TopBar(QFrame):
         notif_layout = QVBoxLayout(notif_wrap)
         notif_layout.setContentsMargins(0, 0, 0, 0)
         notif_layout.setSpacing(0)
-        self._notif_btn = QPushButton("\U0001f514")
+        self._notif_btn = QPushButton("🔔")
         self._notif_btn.setFixedSize(40, 32)
         self._notif_btn.setToolTip("Open launcher warnings and recovery events in Settings.")
         self._notif_btn.setAccessibleName("Notifications")
         self._notif_btn.setAccessibleDescription("Opens warnings and recovery events")
         self._notif_btn.clicked.connect(lambda: self.quick_action.emit("notifications"))
-        self._notif_btn.setStyleSheet(self._icon_button_style(T.BG0, T.TEXT))
+        self._notif_btn.setStyleSheet(self._icon_button_style(T.SURFACE_BASE_90, T.TEXT))
         notif_layout.addWidget(self._notif_btn)
         self._notif_badge = QLabel("")
         self._notif_badge.setParent(notif_wrap)
@@ -258,12 +275,12 @@ class TopBar(QFrame):
         self._notif_badge.hide()
         self._apply_notif_style()
 
-        self._term_btn = QPushButton("\u2328")
+        self._term_btn = QPushButton("⌨")
         self._term_btn.setFixedSize(40, 32)
         self._term_btn.setToolTip("Open logs and recent command activity in Settings.")
         self._term_btn.setAccessibleName("Open logs")
         self._term_btn.setAccessibleDescription("Opens logs and recent command activity")
-        self._term_btn.setStyleSheet(self._icon_button_style(T.BG0, T.TEXT))
+        self._term_btn.setStyleSheet(self._icon_button_style(T.SURFACE_BASE_90, T.TEXT))
         self._term_btn.clicked.connect(lambda: self.quick_action.emit("terminal"))
 
         self._drawer_btn = QPushButton(">")
@@ -271,7 +288,7 @@ class TopBar(QFrame):
         self._drawer_btn.setToolTip("Toggle workspace drawer")
         self._drawer_btn.setAccessibleName("Toggle workspace drawer")
         self._drawer_btn.setAccessibleDescription("Shows or hides the workspace drawer")
-        self._drawer_btn.setStyleSheet(self._icon_button_style(T.BG0, T.TEXT))
+        self._drawer_btn.setStyleSheet(self._icon_button_style(T.SURFACE_BASE_90, T.TEXT))
         self._drawer_btn.clicked.connect(lambda: self.quick_action.emit("toggle_drawer"))
 
         system_row.addWidget(notif_wrap)
@@ -302,23 +319,37 @@ class TopBar(QFrame):
     def _nav_style(active: bool) -> str:
         if active:
             return (
-                f"QPushButton {{ background-color: transparent; color: {T.ACCENT_TEAL}; border: none;"
-                f" border-bottom: 3px solid {T.ACCENT_TEAL}; border-radius: 0px;"
-                f" padding: 0 8px; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; font-weight: 600; }}"
+                f"QPushButton {{ background-color: transparent; color: {T.ACCENT_TEAL_TEXT}; border: none;"
+                f" border-bottom: 2px solid {T.ACCENT_TEAL_TEXT}; border-radius: 0px;"
+                f" padding: 0 6px; font-family: '{T.FONT_SERIF}'; font-size: {T.FS_SMALL + 1}pt; font-weight: 700; }}"
             )
         return (
             f"QPushButton {{ background-color: transparent; color: {T.DIM}; border: none;"
             f" border-bottom: 2px solid transparent; border-radius: 0px;"
-            f" padding: 0 8px; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; font-weight: 500; }}"
+            f" padding: 0 6px; font-family: '{T.FONT_SERIF}'; font-size: {T.FS_SMALL + 1}pt; font-weight: 600; }}"
             f"QPushButton:hover {{ color: {T.TEXT}; border-bottom-color: {T.ACCENT_TEAL}; }}"
         )
 
     @staticmethod
     def _icon_button_style(bg: str, color: str) -> str:
         return (
-            f"QPushButton {{ background-color: {bg}; color: {color}; border: 2px solid {T.BORDER_SOFT};"
-            f" border-radius: 4px; font-family: '{T.FF_BODY}'; font-size: {T.FS_TINY}pt; font-weight: 600; }}"
-            f"QPushButton:hover {{ border-color: {T.ACCENT_TEAL}; color: {T.ACCENT_TEAL}; background-color: rgba(0,0,0,0.03); }}"
+            f"QPushButton {{ background-color: {bg}; color: {color}; border: 1px solid {T.BORDER_SOFT_64};"
+            f" border-radius: 12px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; font-weight: 700; }}"
+            f"QPushButton:hover {{ border-color: {T.ACCENT_TEAL}; color: {T.ACCENT_TEAL_TEXT}; background-color: {T.WHITE}; }}"
+        )
+
+    @staticmethod
+    def _workspace_nav_style(active: bool) -> str:
+        if active:
+            return (
+                f"QPushButton {{ background-color: {T.SURFACE_BASE_90}; color: {T.ACCENT_TEAL_TEXT};"
+                f" border: 1px solid {T.BORDER_SOFT_68}; border-radius: 14px; padding: 0 8px;"
+                f" font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; font-weight: 700; }}"
+            )
+        return (
+            f"QPushButton {{ background-color: transparent; color: {T.DIM}; border: 1px solid transparent;"
+            f" border-radius: 14px; padding: 0 8px; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt; font-weight: 700; }}"
+            f"QPushButton:hover {{ color: {T.ACCENT_TEAL_TEXT}; background-color: {T.SURFACE_BASE_90}; border-color: {T.BORDER_SOFT_64}; }}"
         )
 
     def _on_nav(self, tab_index: int) -> None:
@@ -329,7 +360,7 @@ class TopBar(QFrame):
         self._active_tab_index = int(tab_index)
         for btn, (_, _idx, active_tabs, _visible) in zip(self._nav_btns, self._nav_specs):
             btn.setStyleSheet(self._nav_style(tab_index in active_tabs))
-        self._workspace_nav_btn.setStyleSheet(self._nav_style(tab_index == 1))
+        self._workspace_nav_btn.setStyleSheet(self._workspace_nav_style(tab_index == 1))
         if self.isVisible():
             self._apply_density_mode(self.width())
 
@@ -398,7 +429,7 @@ class TopBar(QFrame):
             btn_color = T.ACCENT_ORANGE
             badge_color = T.ACCENT_ORANGE
 
-        self._notif_btn.setStyleSheet(self._icon_button_style(T.BG0, btn_color))
+        self._notif_btn.setStyleSheet(self._icon_button_style(T.SURFACE_BASE_90, btn_color))
         if self._notif_count <= 0:
             self._notif_badge.hide()
             return
@@ -490,7 +521,9 @@ class TopBar(QFrame):
         self._launcher_summary_btn.setText("CONTEXT" if not compact else "CTX")
         self._search.setVisible(not tight and allow_search)
         self._search.setMaximumWidth(260 if not compact else 170)
-        self._search.setPlaceholderText("Search knowledge library..." if not compact else "Search")
+        self._search.setPlaceholderText(
+            "Search library, traces, and workspace context..." if not compact else "Search"
+        )
         self._runtime_chip.setMinimumWidth(72 if not tight else 58)
         self._runtime_chip.setVisible(not ultra)
         self._drawer_btn.setVisible(False)

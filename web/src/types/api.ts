@@ -69,6 +69,9 @@ export interface RuntimeStatus {
   activeModel?: string;
   backend?: string;
   detail?: string;
+  launcherLabel?: "LIVE" | "PARTIAL" | "STARTING" | "AUTH" | "DOWN";
+  daemonLabel?: string;
+  summary?: string;
   availableModels?: string[];
   memory?: {
     used: number;

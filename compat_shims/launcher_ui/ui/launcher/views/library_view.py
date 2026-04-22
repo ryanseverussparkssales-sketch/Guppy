@@ -21,12 +21,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.guppy.launcher_application.library_presenter import (
-    LibrarySurfaceState,
-    build_library_surface_state,
-)
+from src.guppy.launcher_application.library_presenter import build_library_surface_state
 from .. import tokens as T
 from . import library_editor_support as editor
+from . import library_state_support as state
 from .library_card_sections import (
     rebuild_browse_cards as render_browse_cards,
     rebuild_recent_cards as render_recent_cards,
@@ -117,6 +115,8 @@ class LibraryView(QWidget):
         )
         self._search.textChanged.connect(self._apply_search_query)
         header_layout.addWidget(self._search)
+        self._search_status_lbl = _body("", color=T.DIM, size=T.FS_TINY)
+        header_layout.addWidget(self._search_status_lbl)
         layout.addWidget(header)
 
         manager = QFrame()
@@ -236,6 +236,8 @@ class LibraryView(QWidget):
                 f" border-radius: 12px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
                 f"QPushButton:hover {{ border-color: {T.PRIMARY}; background: #ffffff; }}"
             )
+        self._artifact_title.textChanged.connect(self._refresh_artifact_editor_state)
+        self._artifact_path.textChanged.connect(self._refresh_artifact_editor_state)
         self._artifact_cancel_btn = QPushButton("CANCEL EDIT")
         self._artifact_cancel_btn.setToolTip("Discard changes and reset the artifact editor")
         self._artifact_cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -252,6 +254,8 @@ class LibraryView(QWidget):
         artifact_row.addWidget(self._artifact_save_btn)
         artifact_row.addWidget(self._artifact_cancel_btn)
         manager_layout.addLayout(artifact_row)
+        self._artifact_editor_hint = _body("", color=T.DIM, size=T.FS_TINY)
+        manager_layout.addWidget(self._artifact_editor_hint)
         layout.addWidget(manager)
 
         self._recent_lbl = _mono("", T.PRIMARY, T.FS_TINY, True)
@@ -364,6 +368,7 @@ class LibraryView(QWidget):
         outer.addWidget(scroll)
         self.set_instance_context({}, {})
         self._refresh_note_editor_state()
+        self._refresh_artifact_editor_state()
 
     def _apply_density_mode(self, width: int) -> None:
         editor.apply_density_mode(self, width)
@@ -397,27 +402,13 @@ class LibraryView(QWidget):
         editor.choose_artifact_path(self)
 
     def _rebuild_state(self) -> None:
-        self._state = build_library_surface_state(
-            str(self._instance_context.get("name", "guppy-primary") or "guppy-primary"),
-            workspace_type=str(self._instance_context.get("type", "user_instance") or "user_instance"),
-            description=str(self._instance_context.get("description", "") or ""),
-            mode=str(self._instance_context.get("mode", "auto") or "auto"),
-            last_message=str(self._instance_context.get("last_message", "") or ""),
-            selected_root_path=self._selected_root_path,
-        )
+        state.rebuild_state(self)
 
     def _browse_root(self, root_path: str) -> None:
-        self._selected_root_path = str(root_path or "").strip()
-        self._rebuild_state()
-        self._apply_state()
+        state.browse_root(self, root_path)
 
     def set_selected_root(self, root_path: str) -> None:
-        path = str(root_path or "").strip()
-        if not path:
-            return
-        self._selected_root_path = path
-        self._rebuild_state()
-        self._apply_state()
+        state.set_selected_root(self, root_path)
 
     def _begin_note_edit(self, item_id: int, title: str, summary: str) -> None:
         editor.begin_note_edit(self, item_id, title, summary)
@@ -441,18 +432,16 @@ class LibraryView(QWidget):
         self._set_root_feedback(message, is_error=is_error)
 
     def _on_root_picker_changed(self, index: int) -> None:
-        if index < 0:
-            return
-        root_path = str(self._root_picker.itemData(index) or "").strip()
-        if not root_path or root_path == self._selected_root_path:
-            return
-        self._browse_root(root_path)
+        state.on_root_picker_changed(self, index)
 
     def _sync_root_picker(self) -> None:
         editor.sync_root_picker(self)
 
     def _refresh_note_editor_state(self) -> None:
         editor.refresh_note_editor_state(self)
+
+    def _refresh_artifact_editor_state(self) -> None:
+        editor.refresh_artifact_editor_state(self)
 
     def _add_media_action(self, header: QHBoxLayout, card_state: dict[str, str]) -> None:
         if not bool(card_state.get("is_media")):
@@ -509,111 +498,34 @@ class LibraryView(QWidget):
         render_saved_cards(self)
 
     def _apply_state(self) -> None:
-        self._workspace_chip.setText(self._state.workspace_label.upper())
-        self._summary_lbl.setText(self._state.library_summary)
-        self._roots_lbl.setText(self._state.roots_summary)
-        self._recent_lbl.setText(self._state.recent_summary)
-        self._search.setPlaceholderText(self._state.search_hint)
-        self._files_copy.setText(self._state.files_summary)
-        self._study_copy.setText(self._state.study_summary)
-        self._coding_copy.setText(self._state.coding_summary)
-        self._artifact_copy.setText(self._state.artifact_summary)
-        self._sync_root_picker()
-        self._rebuild_roots()
-        self._rebuild_browse_cards()
-        self._rebuild_recent_cards()
-        self._rebuild_saved_cards()
-        self._root_label.setPlaceholderText(f"Label for {self._state.workspace_label.lower()} root")
-        if not self._selected_root_path and self._state.approved_roots:
-            self._selected_root_path = str(self._state.approved_roots[0].get("root_path", "") or "").strip()
-        if self.isVisible():
-            self._apply_density_mode(self.width())
+        state.apply_state(self)
 
     def set_instance_context(self, instance: dict[str, object], snapshot: dict[str, object] | None = None) -> None:
-        del snapshot
-        self._instance_context = dict(instance or {})
-        self._rebuild_state()
-        self._selected_root_path = self._state.approved_roots[0]["root_path"] if self._state.approved_roots and not self._selected_root_path else self._selected_root_path
-        self._rebuild_state()
-        self._apply_state()
+        state.set_instance_context(self, instance, snapshot)
 
     def _apply_search_query(self, text: str) -> None:
-        self._search_query = str(text or "").strip().lower()
-        self._apply_state()
+        state.apply_search_query(self, text)
 
     def focus_search_query(self, text: str) -> None:
-        query = str(text or "").strip()
-        self._search.setText(query)
-        self._search.setFocus(Qt.FocusReason.OtherFocusReason)
+        state.focus_search_query(self, text)
 
     def _matches_query(self, *parts: str) -> bool:
-        query = self._search_query
-        if not query:
-            return True
-        haystack = " ".join(str(part or "") for part in parts).lower()
-        return query in haystack
+        return state.matches_query(self, *parts)
+
+    def _matches_card_query(self, card: dict[str, str], *fallback_parts: str) -> bool:
+        return state.matches_card_query(self, card, *fallback_parts)
 
     def _filtered_root_file_cards(self) -> list[dict[str, str]]:
-        return [
-            card
-            for card in self._state.root_file_cards
-            if self._matches_query(str(card.get("title", "") or ""), str(card.get("detail", "") or ""), str(card.get("kind", "") or ""))
-        ]
+        return state.filtered_root_file_cards(self)
 
     def _filtered_recent_cards(self) -> list[dict[str, str]]:
-        return [
-            card
-            for card in self._state.recent_cards
-            if self._matches_query(str(card.get("title", "") or ""), str(card.get("detail", "") or ""), str(card.get("kind", "") or ""))
-        ]
+        return state.filtered_recent_cards(self)
 
     def _filtered_saved_item_cards(self) -> list[dict[str, str]]:
-        return [
-            card
-            for card in self._state.saved_item_cards
-            if self._matches_query(
-                str(card.get("title", "") or ""),
-                str(card.get("detail", "") or ""),
-                str(card.get("kind", "") or ""),
-                str(card.get("summary", "") or ""),
-            )
-        ]
+        return state.filtered_saved_item_cards(self)
 
     def _current_source_summary(self, lane: str, fallback: str) -> str:
-        kind_map = {
-            "files": {"file"},
-            "study": {"study", "note"},
-            "coding": {"coding", "artifact"},
-        }
-        target_kinds = kind_map.get(lane, {lane})
-        for origin, cards in (
-            ("saved", self._filtered_saved_item_cards()),
-            ("recent", self._filtered_recent_cards()),
-            ("root", self._filtered_root_file_cards()),
-        ):
-            for card in cards:
-                kind = str(card.get("kind", "") or "").strip().lower()
-                if kind not in target_kinds:
-                    continue
-                title = str(card.get("title", "") or "").strip()
-                if not title:
-                    continue
-                detail_bits: list[str] = []
-                if origin == "root" and self._state.selected_root_label:
-                    detail_bits.append(f"from {self._state.selected_root_label}")
-                elif origin == "saved":
-                    detail_bits.append("from saved Library items")
-                elif origin == "recent":
-                    detail_bits.append("from recent Library items")
-                if self._search_query:
-                    detail_bits.append(f'matching "{self._search_query}"')
-                suffix = f" ({'; '.join(detail_bits)})" if detail_bits else ""
-                return f"Current source: {title}{suffix}."
-        return fallback
+        return state.current_source_summary(self, lane, fallback)
 
     def chat_dock_context(self) -> dict[str, str]:
-        return {
-            "files": self._current_source_summary("files", self._state.files_summary),
-            "study": self._current_source_summary("study", self._state.study_summary),
-            "coding": self._current_source_summary("coding", self._state.coding_summary),
-        }
+        return state.chat_dock_context(self)

@@ -267,6 +267,20 @@ def _check_dist_layout_contract(repo_root: Path) -> PackagingAssumptionStatus:
             True,
             f"found canonical onefile package output at {_display_path(repo_root, one_file)}",
         )
+    quarantined_output = _find_quarantined_dist_output(repo_root)
+    if quarantined_output is not None:
+        size = int(quarantined_output.stat().st_size or 0)
+        if size < _MIN_EXECUTABLE_BYTES:
+            return PackagingAssumptionStatus(
+                "dist artifact layout",
+                False,
+                f"quarantined packaged output {_display_path(repo_root, quarantined_output)} is only {size // 1024 // 1024} MB; expected a real packaged build over 50 MB",
+            )
+        return PackagingAssumptionStatus(
+            "dist artifact layout",
+            True,
+            f"found quarantined package output at {_display_path(repo_root, quarantined_output)}",
+        )
     if dist_root.exists():
         return PackagingAssumptionStatus(
             "dist artifact layout",
@@ -278,6 +292,22 @@ def _check_dist_layout_contract(repo_root: Path) -> PackagingAssumptionStatus:
         False,
         "no built dist/ artifact present yet; expected dist/Guppy/Guppy.exe or dist/Guppy.exe before packaging can be marked GO",
     )
+
+
+def _find_quarantined_dist_output(repo_root: Path) -> Path | None:
+    quarantine_root = repo_root / ".quarantine"
+    if not quarantine_root.exists():
+        return None
+
+    candidates = sorted(
+        list(quarantine_root.glob("*/dist/Guppy/Guppy.exe"))
+        + list(quarantine_root.glob("*/dist/Guppy.exe")),
+        reverse=True,
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _validate_receipt_payload(payload: object) -> list[str]:

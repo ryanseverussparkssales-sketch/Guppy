@@ -26,7 +26,11 @@ def rebuild_root_cards(owner) -> None:
     roots = [
         root
         for root in owner._state.approved_roots
-        if owner._matches_query(str(root.get("label", "") or ""), str(root.get("detail", "") or ""))
+        if owner._matches_query(
+            str(root.get("search_text", "") or ""),
+            str(root.get("label", "") or ""),
+            str(root.get("detail", "") or ""),
+        )
     ]
     if not roots:
         owner._roots_layout.addWidget(
@@ -60,6 +64,9 @@ def rebuild_root_cards(owner) -> None:
         browse_btn.clicked.connect(lambda _=False, path=root_path: owner._browse_root(path))
         header.addWidget(browse_btn)
         layout.addLayout(header)
+        source_line = str(root.get("source_line", "") or "").strip()
+        if source_line:
+            layout.addWidget(_mono(source_line.upper(), T.ACCENT_TEAL, T.FS_TINY, True))
         layout.addWidget(_body(str(root.get("detail", "") or "")))
         if is_selected:
             layout.addWidget(_body("This is the current folder Guppy will browse for the file lane below.", color=T.ACCENT_TEAL))
@@ -102,6 +109,9 @@ def _rebuild_context_cards(owner, *, cards: list[dict[str, str]], target_layout,
             f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_LABEL}pt; font-weight: 700;"
         )
         layout.addWidget(title_lbl)
+        source_line = str(card_state.get("source_line", "") or "").strip()
+        if source_line:
+            layout.addWidget(_mono(source_line.upper(), T.ACCENT_TEAL, T.FS_TINY, True))
         layout.addWidget(_body(detail, color=T.DIM))
         layout.addWidget(_body(action_help, color=T.ACCENT_TEAL))
         target_layout.addWidget(card)
@@ -115,7 +125,12 @@ def rebuild_browse_cards(owner) -> None:
     cards = [
         card
         for card in owner._state.root_file_cards
-        if owner._matches_query(str(card.get("title", "") or ""), str(card.get("detail", "") or ""), str(card.get("kind", "") or ""))
+        if owner._matches_card_query(
+            card,
+            str(card.get("title", "") or ""),
+            str(card.get("detail", "") or ""),
+            str(card.get("kind", "") or ""),
+        )
     ]
     _rebuild_context_cards(
         owner,
@@ -130,7 +145,12 @@ def rebuild_recent_cards(owner) -> None:
     cards = [
         card
         for card in owner._state.recent_cards
-        if owner._matches_query(str(card.get("title", "") or ""), str(card.get("detail", "") or ""), str(card.get("kind", "") or ""))
+        if owner._matches_card_query(
+            card,
+            str(card.get("title", "") or ""),
+            str(card.get("detail", "") or ""),
+            str(card.get("kind", "") or ""),
+        )
     ]
     _rebuild_context_cards(
         owner,
@@ -146,7 +166,8 @@ def rebuild_saved_cards(owner) -> None:
     cards = [
         card
         for card in owner._state.saved_item_cards
-        if owner._matches_query(
+        if owner._matches_card_query(
+            card,
             str(card.get("title", "") or ""),
             str(card.get("detail", "") or ""),
             str(card.get("kind", "") or ""),
@@ -200,6 +221,9 @@ def rebuild_saved_cards(owner) -> None:
         top.addWidget(delete_btn)
         layout.addLayout(top)
         layout.addWidget(_body(title, color=T.INK, size=T.FS_LABEL))
+        source_line = str(card_state.get("source_line", "") or "").strip()
+        if source_line:
+            layout.addWidget(_mono(source_line.upper(), T.ACCENT_TEAL, T.FS_TINY, True))
         layout.addWidget(_body(detail, color=T.DIM))
         layout.addWidget(_body("USE IN CHAT makes this note or artifact available on Home without leaving the current session.", color=T.TERTIARY))
         owner._saved_layout.addWidget(card)

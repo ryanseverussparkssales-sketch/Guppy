@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
+from src.guppy.launcher_application.provider_registry import list_planned_providers
+
 
 @dataclass(frozen=True, slots=True)
 class ModelsTextState:
@@ -37,6 +39,25 @@ def build_models_library_hint_text(
         "Pick the model for this assistant session. "
         "Persona and assistant naming stay separate in Settings."
     )
+
+
+def build_models_runtime_lane_guide_text(*, selected_backend: str) -> str:
+    backend = _normalized_backend(selected_backend)
+    planned = ", ".join(entry.label for entry in list_planned_providers())
+    lane_text = [
+        "Default lane: Ollama.",
+        "Supported local lanes: LM Studio and Local Harness.",
+        "Opt-in challenger lane: Lemonade.",
+    ]
+    if planned:
+        lane_text.append(f"Planned adapters stay out of rotation until shipped: {planned}.")
+    if backend == "lemonade":
+        lane_text.append("Lemonade is selected now, so keep an eye on runtime evidence before treating it as the daily default.")
+    elif backend in {"lmstudio", "local_harness"}:
+        lane_text.append("This supported lane is fine to use when its local server is actually reachable.")
+    else:
+        lane_text.append("Keep Ollama as the calm default unless you are intentionally testing another local lane.")
+    return " ".join(lane_text)
 
 
 def _normalized_backend(value: str) -> str:
@@ -164,6 +185,7 @@ def build_models_runtime_summary_text(
     text += f"\nSaved local lane: {saved.upper()}"
     if pending_save:
         text += f" | editor selection pending save: {editor.upper()}"
+    text += "\n" + build_models_runtime_lane_guide_text(selected_backend=editor)
     return text
 
 
@@ -476,6 +498,9 @@ def build_models_provider_readiness_state(
         lines.append("Harness note: the local benchmark and OpenAI-compatible dev lane is not ready yet.")
     if not is_ready(lmstudio_local):
         lines.append("LM Studio setup: turn on the local server in LM Studio and refresh this panel.")
+    planned = ", ".join(entry.label for entry in list_planned_providers())
+    if planned:
+        lines.append(f"Planned adapters remain informational only in this build: {planned}.")
 
     tone = "success"
     if not active_ready:

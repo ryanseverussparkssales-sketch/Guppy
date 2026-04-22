@@ -22,6 +22,11 @@ from PySide6.QtWidgets import (
 from src.guppy.paths import MEMORY_DB_PATH
 
 from ._ui import CYAN, DIM, GREEN, RED, TEXT, YELLOW, apply_mono, make_button, make_label
+from ._voice_support import (
+    record_voice_objects as _record_voice_objects,
+    transcribe_voice_recording as _transcribe_voice_recording,
+    voice_objects as _voice_objects,
+)
 
 try:
     from utils.db_utils import open_db as _open_db
@@ -103,24 +108,6 @@ def _format_log_lines(entries: list[dict[str, object]]) -> str:
         result = entry.get("result", "")
         lines.append(f"[{timestamp}] {tool}({args})\n  -> {result}")
     return "\n\n".join(lines)
-
-
-def _voice_objects(parent_window) -> list[tuple[str, object]]:
-    pairs: list[tuple[str, object]] = []
-    for label, attr in (("Guppy Voice", "_voice"), ("Guppy Voice", "_g_voice"), ("Merlin Voice", "_m_voice")):
-        voice = getattr(parent_window, attr, None)
-        if voice:
-            pairs.append((label, voice))
-    return pairs
-
-
-def _record_voice_objects(parent_window) -> list[tuple[str, object]]:
-    pairs: list[tuple[str, object]] = []
-    for label, attr in (("Guppy", "_voice"), ("Guppy", "_g_voice"), ("Merlin", "_m_voice")):
-        voice = getattr(parent_window, attr, None)
-        if voice:
-            pairs.append((label, voice))
-    return pairs
 
 
 class StatusTab(QWidget):
@@ -543,56 +530,7 @@ class VoiceTab(QWidget):
         self._ptt_result.setPlainText("Recording... (3 s)")
 
         def _go():
-            import os
-            import queue as _queue
-            import tempfile
-            import threading as _threading
-            import time
-
-            import numpy as np
-            import soundfile as sf
-            import speech_recognition as sr
-
-            voice._listening.set()
-            recorder = _threading.Thread(target=voice._record_worker, daemon=True)
-            recorder.start()
-            time.sleep(3)
-            voice.stop_listening()
-
-            chunks = []
-            while not voice._record_q.empty():
-                try:
-                    chunks.append(voice._record_q.get_nowait())
-                except _queue.Empty:
-                    break
-                except Exception:
-                    break
-            if not chunks:
-                self._ptt_result.setPlainText("No audio captured.")
-                return
-
-            try:
-                audio = np.concatenate(chunks, axis=0)
-                temp_fd, temp_path = tempfile.mkstemp(suffix=".wav")
-                os.close(temp_fd)
-                sf.write(temp_path, audio, voice.cfg.samplerate)
-                recognizer = sr.Recognizer()
-                with sr.AudioFile(temp_path) as source:
-                    audio_data = recognizer.record(source)
-                try:
-                    text = recognizer.recognize_google(audio_data)
-                    self._ptt_result.setPlainText(f"Heard: {text}")
-                except sr.UnknownValueError:
-                    self._ptt_result.setPlainText("Could not understand audio.")
-                except Exception as exc:
-                    self._ptt_result.setPlainText(f"Error: {exc}")
-                finally:
-                    try:
-                        os.remove(temp_path)
-                    except Exception:
-                        pass
-            except Exception as exc:
-                self._ptt_result.setPlainText(f"Processing error: {exc}")
+            self._ptt_result.setPlainText(_transcribe_voice_recording(voice))
 
         threading.Thread(target=_go, daemon=True).start()
 

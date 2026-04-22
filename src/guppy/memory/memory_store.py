@@ -7,7 +7,15 @@ from pathlib import Path
 
 from utils.db_utils import open_db as _open_db
 
-from .memory_support import PIPELINE_STAGES, normalize_stage, normalize_text, safe_float, safe_int
+from .memory_pipeline_support import (
+    add_pipeline_item_record as _add_pipeline_item_record,
+    ensure_pipeline_schema,
+    get_pipeline_items_text as _get_pipeline_items_text,
+    get_revenue_dashboard_data_map as _get_revenue_dashboard_data_map,
+    log_pipeline_activity_record as _log_pipeline_activity_record,
+    update_pipeline_item_record as _update_pipeline_item_record,
+)
+from .memory_support import normalize_text
 
 
 def _normalize_workspace_name(workspace_name: str | None) -> str:
@@ -79,33 +87,7 @@ def open_memory_connection(db_path: Path) -> sqlite3.Connection:
         timestamp TEXT
     )"""
     )
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS pipeline_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT,
-        company TEXT,
-        contact_name TEXT,
-        stage TEXT DEFAULT 'new_lead',
-        value REAL DEFAULT 0,
-        confidence INTEGER DEFAULT 30,
-        next_action TEXT,
-        due_date TEXT,
-        status TEXT DEFAULT 'open',
-        source TEXT,
-        notes TEXT,
-        created TEXT,
-        updated TEXT
-    )"""
-    )
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS pipeline_activity (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        item_id INTEGER,
-        activity_type TEXT,
-        note TEXT,
-        timestamp TEXT
-    )"""
-    )
+    ensure_pipeline_schema(conn)
 
     ensure_column(conn, "facts", "normalized_key", "TEXT")
     ensure_column(conn, "facts", "normalized_value", "TEXT")
@@ -120,10 +102,6 @@ def open_memory_connection(db_path: Path) -> sqlite3.Connection:
         "CREATE INDEX IF NOT EXISTS idx_conv_workspace_session ON conversations(workspace_name, session_id, id DESC)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_ts ON memory_events(timestamp DESC)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_stage ON pipeline_items(stage, updated DESC)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_status ON pipeline_items(status, updated DESC)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_due ON pipeline_items(due_date)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_activity_item ON pipeline_activity(item_id, timestamp DESC)")
     conn.commit()
     return conn
 
@@ -414,39 +392,22 @@ def add_pipeline_item_record(
 ) -> str:
     conn = open_memory_connection(db_path)
     try:
-        now = datetime.now().isoformat()
-        stage_norm = normalize_stage(stage)
-        conf = max(0, min(100, safe_int(confidence, 30)))
-        item_value = max(0.0, safe_float(value, 0.0))
-        cur = conn.execute(
-            """
-            INSERT INTO pipeline_items
-            (title, company, contact_name, stage, value, confidence, next_action, due_date, source, notes, created, updated)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                title,
-                company,
-                contact_name,
-                stage_norm,
-                item_value,
-                conf,
-                next_action,
-                due_date,
-                source,
-                notes,
-                now,
-                now,
-            ),
-        )
-        item_id = cur.lastrowid
-        journal_event(conn, "pipeline.add", {"item_id": item_id, "title": title, "stage": stage_norm})
-        conn.execute(
-            "INSERT INTO pipeline_activity (item_id,activity_type,note,timestamp) VALUES (?,?,?,?)",
-            (item_id, "create", f"Created pipeline item at stage {stage_norm}", now),
+        result = _add_pipeline_item_record(
+            conn,
+            journal_event,
+            title,
+            company,
+            contact_name,
+            stage,
+            value,
+            confidence,
+            next_action,
+            due_date,
+            source,
+            notes,
         )
         conn.commit()
-        return f"Pipeline item added: [{item_id}] {title} ({stage_norm})"
+        return result
     finally:
         conn.close()
 
@@ -464,37 +425,20 @@ def update_pipeline_item_record(
 ) -> str:
     conn = open_memory_connection(db_path)
     try:
-        row = conn.execute(
-            "SELECT id, stage, value, confidence, status FROM pipeline_items WHERE id=?",
-            (item_id,),
-        ).fetchone()
-        if not row:
-            return f"Pipeline item not found: {item_id}"
-
-        stage_new = normalize_stage(stage) if stage else row[1]
-        value_new = max(0.0, safe_float(value, row[2])) if value is not None else row[2]
-        conf_new = max(0, min(100, safe_int(confidence, row[3]))) if confidence is not None else row[3]
-        status_new = (status or row[4] or "open").strip().lower()
-        if status_new not in {"open", "won", "lost", "archived"}:
-            status_new = "open"
-
-        now = datetime.now().isoformat()
-        conn.execute(
-            """
-            UPDATE pipeline_items
-            SET stage=?, value=?, confidence=?, next_action=COALESCE(?, next_action),
-                due_date=COALESCE(?, due_date), status=?, notes=COALESCE(?, notes), updated=?
-            WHERE id=?
-            """,
-            (stage_new, value_new, conf_new, next_action, due_date, status_new, notes, now, item_id),
-        )
-        journal_event(conn, "pipeline.update", {"item_id": item_id, "stage": stage_new, "status": status_new})
-        conn.execute(
-            "INSERT INTO pipeline_activity (item_id,activity_type,note,timestamp) VALUES (?,?,?,?)",
-            (item_id, "update", f"Stage={stage_new}, status={status_new}, confidence={conf_new}", now),
+        result = _update_pipeline_item_record(
+            conn,
+            journal_event,
+            item_id,
+            stage,
+            value,
+            confidence,
+            next_action,
+            due_date,
+            status,
+            notes,
         )
         conn.commit()
-        return f"Pipeline item updated: [{item_id}] stage={stage_new}, status={status_new}"
+        return result
     finally:
         conn.close()
 
@@ -502,18 +446,9 @@ def update_pipeline_item_record(
 def log_pipeline_activity_record(db_path: Path, item_id: int, note: str, activity_type: str = "note") -> str:
     conn = open_memory_connection(db_path)
     try:
-        exists = conn.execute("SELECT id FROM pipeline_items WHERE id=?", (item_id,)).fetchone()
-        if not exists:
-            return f"Pipeline item not found: {item_id}"
-        now = datetime.now().isoformat()
-        conn.execute(
-            "INSERT INTO pipeline_activity (item_id,activity_type,note,timestamp) VALUES (?,?,?,?)",
-            (item_id, activity_type or "note", note, now),
-        )
-        conn.execute("UPDATE pipeline_items SET updated=? WHERE id=?", (now, item_id))
-        journal_event(conn, "pipeline.activity", {"item_id": item_id, "activity_type": activity_type})
+        result = _log_pipeline_activity_record(conn, journal_event, item_id, note, activity_type)
         conn.commit()
-        return f"Pipeline activity logged for item {item_id}."
+        return result
     finally:
         conn.close()
 
@@ -521,33 +456,7 @@ def log_pipeline_activity_record(db_path: Path, item_id: int, note: str, activit
 def get_pipeline_items_text(db_path: Path, stage: str = "", status: str = "open", limit: int = 30) -> str:
     conn = open_memory_connection(db_path)
     try:
-        params = []
-        where = []
-        if stage:
-            where.append("stage=?")
-            params.append(normalize_stage(stage))
-        if status:
-            where.append("status=?")
-            params.append(status.strip().lower())
-
-        sql = "SELECT id,title,company,stage,value,confidence,next_action,due_date,status,updated FROM pipeline_items"
-        if where:
-            sql += " WHERE " + " AND ".join(where)
-        sql += " ORDER BY updated DESC LIMIT ?"
-        params.append(max(1, min(100, safe_int(limit, 30))))
-
-        rows = conn.execute(sql, tuple(params)).fetchall()
-        if not rows:
-            return "No pipeline items found."
-
-        lines = []
-        for row in rows:
-            lines.append(
-                f"[{row[0]}] {row[1]} | {row[2] or '-'} | {row[3]} | ${row[4]:,.0f} | conf {row[5]}%"
-                + (f" | next: {row[6]}" if row[6] else "")
-                + (f" | due: {row[7]}" if row[7] else "")
-            )
-        return "\n".join(lines)
+        return _get_pipeline_items_text(conn, stage, status, limit)
     finally:
         conn.close()
 
@@ -555,56 +464,7 @@ def get_pipeline_items_text(db_path: Path, stage: str = "", status: str = "open"
 def get_revenue_dashboard_data_map(db_path: Path) -> dict:
     conn = open_memory_connection(db_path)
     try:
-        open_items = conn.execute(
-            "SELECT id,title,stage,value,confidence,next_action,due_date,updated FROM pipeline_items WHERE status='open'"
-        ).fetchall()
-        all_rows = conn.execute("SELECT stage,status,value,confidence FROM pipeline_items").fetchall()
-
-        stage_counts = {stage: 0 for stage in PIPELINE_STAGES}
-        status_counts = {"open": 0, "won": 0, "lost": 0, "archived": 0}
-        total_pipeline = 0.0
-        weighted_pipeline = 0.0
-
-        for stage, status, value, confidence in all_rows:
-            if stage in stage_counts:
-                stage_counts[stage] += 1
-            status_counts[status if status in status_counts else "open"] += 1
-            if status == "open":
-                val = safe_float(value)
-                conf = max(0, min(100, safe_int(confidence, 0)))
-                total_pipeline += val
-                weighted_pipeline += val * (conf / 100.0)
-
-        top_open = sorted(
-            [
-                {
-                    "id": row[0],
-                    "title": row[1],
-                    "stage": row[2],
-                    "value": safe_float(row[3]),
-                    "confidence": safe_int(row[4], 0),
-                    "next_action": row[5] or "",
-                    "due_date": row[6] or "",
-                    "updated": row[7],
-                }
-                for row in open_items
-            ],
-            key=lambda item: (item["value"] * (item["confidence"] / 100.0), item["updated"]),
-            reverse=True,
-        )[:7]
-
-        return {
-            "generated_at": datetime.now().isoformat(),
-            "open_count": status_counts["open"],
-            "won_count": status_counts["won"],
-            "lost_count": status_counts["lost"],
-            "archived_count": status_counts["archived"],
-            "stage_counts": stage_counts,
-            "total_pipeline": round(total_pipeline, 2),
-            "weighted_pipeline": round(weighted_pipeline, 2),
-            "top_open": top_open,
-            "due_soon": [item for item in top_open if item["due_date"]],
-        }
+        return _get_revenue_dashboard_data_map(conn)
     finally:
         conn.close()
 
@@ -706,5 +566,58 @@ def get_recent_messages_text(
             snippet = content[:250] + "..." if len(content) > 250 else content
             lines.append(f"  {label}: {snippet}")
         return "\n".join(lines)
+    finally:
+        conn.close()
+
+
+def get_workspace_memory_snapshot(db_path: Path, workspace_name: str | None = None) -> dict[str, object]:
+    conn = open_memory_connection(db_path)
+    try:
+        normalized_workspace = _normalize_workspace_name(workspace_name)
+
+        def _snapshot_for_scope(scope: str) -> dict[str, object]:
+            row = conn.execute(
+                "SELECT COUNT(*), COUNT(DISTINCT session_id), MAX(timestamp) "
+                "FROM conversations WHERE COALESCE(workspace_name, '')=?",
+                (scope,),
+            ).fetchone()
+            message_count = int((row[0] if row else 0) or 0)
+            session_count = int((row[1] if row else 0) or 0)
+            latest_timestamp = str((row[2] if row else "") or "")
+            latest_row = conn.execute(
+                "SELECT session_id, role, content, timestamp "
+                "FROM conversations WHERE COALESCE(workspace_name, '')=? "
+                "ORDER BY id DESC LIMIT 1",
+                (scope,),
+            ).fetchone()
+            if latest_row:
+                latest_session_id = str(latest_row[0] or "")
+                latest_role = str(latest_row[1] or "")
+                latest_message = str(latest_row[2] or "")
+                latest_timestamp = str(latest_row[3] or latest_timestamp or "")
+            else:
+                latest_session_id = ""
+                latest_role = ""
+                latest_message = ""
+            return {
+                "workspace_name": normalized_workspace,
+                "message_count": message_count,
+                "session_count": session_count,
+                "latest_timestamp": latest_timestamp,
+                "latest_session_id": latest_session_id,
+                "latest_role": latest_role,
+                "latest_message": latest_message,
+                "used_legacy_fallback": False,
+            }
+
+        if normalized_workspace:
+            scoped = _snapshot_for_scope(normalized_workspace)
+            if int(scoped.get("message_count", 0) or 0) > 0:
+                return scoped
+            legacy = _snapshot_for_scope("")
+            legacy["workspace_name"] = normalized_workspace
+            legacy["used_legacy_fallback"] = bool(int(legacy.get("message_count", 0) or 0) > 0)
+            return legacy
+        return _snapshot_for_scope("")
     finally:
         conn.close()

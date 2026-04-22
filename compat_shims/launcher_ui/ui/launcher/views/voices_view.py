@@ -4,47 +4,35 @@ Voice panel used inside Models Hub for per-engine browsing, preview, and active-
 """
 from __future__ import annotations
 
-import logging
 import os
-import subprocess
-import sys
 import threading
-from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QComboBox,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QScrollArea,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QWidget
 
 from src.guppy.experience_config import (
-    ensure_personalization_scaffold,
-    list_model_ids,
-    list_persona_choices,
-    load_persona_config,
-    load_provider_registry,
-    load_voice_bindings,
     personalization_backend_available,
-    save_voice_bindings,
-    validate_voice_bindings,
 )
 from src.guppy.launcher_application.voice_catalog_support import (
-    build_bindings_summary_text,
     build_engine_capabilities,
     build_engine_status_summary,
     build_voice_evidence_text,
     engine_capability,
     engine_is_available,
 )
-from .. import tokens as T
+from .voices_bindings_support import (
+    assign_model_voice,
+    assign_persona_voice,
+    emit_bindings_changed,
+    import_voice,
+    load_assignment_options,
+    load_voice_bindings_state,
+    refresh_bindings_summary,
+    save_default_voice,
+    save_voice_bindings_state,
+    set_combo_options,
+)
 from .voices_sections import _VoiceRow, build_voices_ui
 
 try:
@@ -105,8 +93,6 @@ ENGINES: dict[str, list[tuple[str, str, str]]] = {
 }
 
 _PREVIEW_PHRASE = "Hey, I'm your AI assistant. How can I help you today?"
-
-_LOGGER = logging.getLogger(__name__)
 
 _PERSONA_OPTIONS = ["guppy"]
 _MODEL_OPTIONS = [
@@ -225,37 +211,16 @@ class VoicesView(QWidget):
 
     @staticmethod
     def _set_combo_options(combo: QComboBox, options: list[tuple[str, str]], *, selected: str = "") -> None:
-        target = str(selected or combo.currentData() or combo.currentText()).strip().lower()
-        combo.blockSignals(True)
-        combo.clear()
-        for label, value in options:
-            combo.addItem(label, value)
-        index = 0
-        for idx in range(combo.count()):
-            if str(combo.itemData(idx) or "").strip().lower() == target:
-                index = idx
-                break
-        combo.setCurrentIndex(index)
-        combo.blockSignals(False)
+        set_combo_options(combo, options, selected=selected)
 
     def _load_assignment_options(self) -> None:
-        personas = list_persona_choices(load_persona_config())
-        persona_options = [(item["name"], item["id"]) for item in personas]
-        self._set_combo_options(self._persona_cb, persona_options, selected=str(self._persona_cb.currentData() or "guppy"))
-
-        model_options = [(model_id, model_id) for model_id in list_model_ids(load_provider_registry())]
-        self._set_combo_options(self._model_cb, model_options, selected=str(self._model_cb.currentData() or self._model_cb.currentText()))
+        load_assignment_options(self)
 
     def _refresh_bindings_summary(self) -> None:
-        self._bindings_summary_lbl.setText(
-            build_bindings_summary_text(
-                self._voice_bindings,
-                default_choice=self._default_lbl.text().replace("DEFAULT VOICE: ", "").strip(),
-            )
-        )
+        refresh_bindings_summary(self)
 
     def _emit_bindings_changed(self) -> None:
-        self.bindings_changed.emit(dict(self._voice_bindings))
+        emit_bindings_changed(self)
 
     def _update_engine_status_summary(self) -> None:
         self._engine_status_lbl.setText(build_engine_status_summary(ENGINES, self._engine_capabilities))
@@ -453,134 +418,24 @@ class VoicesView(QWidget):
         self._refresh_voice_evidence()
 
     def _load_voice_bindings_state(self) -> None:
-        if not _VOICE_BINDINGS_BACKEND:
-            self._assign_status.setText("voice bindings backend unavailable")
-            return
-        try:
-            ensure_personalization_scaffold()
-            data = load_voice_bindings()
-            if isinstance(data, dict):
-                self._voice_bindings = data
-            defaults = self._voice_bindings.get("defaults", {})
-            if isinstance(defaults, dict):
-                self._active_engine = str(defaults.get("engine", self._active_engine))
-                self._active_voice = str(defaults.get("voice_id", self._active_voice))
-            idx = self._engine_cb.findText(self._active_engine)
-            if idx >= 0:
-                self._engine_cb.setCurrentIndex(idx)
-            self._assign_status.setText("Voice choices loaded.")
-            self._update_default_label()
-            self._active_lbl.setText(f"ACTIVE VOICE: {self._describe_voice_choice(self._active_engine, self._active_voice)}")
-            self._refresh_bindings_summary()
-            self._refresh_voice_evidence()
-        except Exception as e:
-            self._assign_status.setText(f"load failed: {e}")
+        load_voice_bindings_state(self, backend_available=_VOICE_BINDINGS_BACKEND)
 
     def _save_voice_bindings_state(self) -> bool:
-        if not _VOICE_BINDINGS_BACKEND:
-            self._assign_status.setText("voice bindings backend unavailable")
-            return False
-        try:
-            errors = validate_voice_bindings(self._voice_bindings)
-            if errors:
-                self._assign_status.setText(f"invalid bindings: {errors[0]}")
-                return False
-            save_voice_bindings(self._voice_bindings)
-            self._refresh_bindings_summary()
-            self._emit_bindings_changed()
-            return True
-        except Exception as e:
-            self._assign_status.setText(f"save failed: {e}")
-            return False
+        return save_voice_bindings_state(self, backend_available=_VOICE_BINDINGS_BACKEND)
 
     def _save_default_voice(self) -> None:
-        valid, reason = self._validate_engine_selection(self._active_engine, self._active_voice)
-        if not valid:
-            self._assign_status.setText(reason)
-            return
-        self._voice_bindings.setdefault("defaults", {})
-        self._voice_bindings["defaults"] = {
-            "engine": self._active_engine,
-            "voice_id": self._active_voice,
-        }
-        if self._save_voice_bindings_state():
+        if save_default_voice(self, backend_available=_VOICE_BINDINGS_BACKEND):
             os.environ["GUPPY_TTS_ENGINE"] = self._active_engine
             os.environ["GUPPY_TTS_VOICE"] = self._active_voice
-            self._assign_status.setText(
-                f"Default voice saved: {self._describe_voice_choice(self._active_engine, self._active_voice)}"
-            )
-            self._update_default_label()
 
     def _assign_persona_voice(self) -> None:
-        valid, reason = self._validate_engine_selection(self._active_engine, self._active_voice)
-        if not valid:
-            self._assign_status.setText(reason)
-            return
-        persona = str(self._persona_cb.currentData() or self._persona_cb.currentText()).strip().lower()
-        self._voice_bindings.setdefault("bindings", {})
-        self._voice_bindings["bindings"].setdefault("by_persona", {})
-        self._voice_bindings["bindings"]["by_persona"][persona] = {
-            "engine": self._active_engine,
-            "voice_id": self._active_voice,
-        }
-        if self._save_voice_bindings_state():
-            self._assign_status.setText(
-                f"Persona {persona} now uses {self._describe_voice_choice(self._active_engine, self._active_voice)}."
-            )
+        assign_persona_voice(self, backend_available=_VOICE_BINDINGS_BACKEND)
 
     def _assign_model_voice(self) -> None:
-        valid, reason = self._validate_engine_selection(self._active_engine, self._active_voice)
-        if not valid:
-            self._assign_status.setText(reason)
-            return
-        model = str(self._model_cb.currentData() or self._model_cb.currentText()).strip()
-        self._voice_bindings.setdefault("bindings", {})
-        self._voice_bindings["bindings"].setdefault("by_model", {})
-        self._voice_bindings["bindings"]["by_model"][model] = {
-            "engine": self._active_engine,
-            "voice_id": self._active_voice,
-        }
-        if self._save_voice_bindings_state():
-            self._assign_status.setText(
-                f"Model {model} now uses {self._describe_voice_choice(self._active_engine, self._active_voice)}."
-            )
+        assign_model_voice(self, backend_available=_VOICE_BINDINGS_BACKEND)
 
     def _import_voice(self) -> None:
-        engine = self._import_engine_cb.currentText().strip()
-        voice_id = self._import_voice_id.text().strip()
-        label = self._import_label.text().strip()
-        if not engine or not voice_id:
-            self._assign_status.setText("import requires engine and voice id")
-            return
-        imports = self._voice_bindings.setdefault("imports", [])
-        if not isinstance(imports, list):
-            imports = []
-            self._voice_bindings["imports"] = imports
-        imports = [
-            item
-            for item in imports
-            if not (
-                isinstance(item, dict)
-                and str(item.get("engine", "")).strip() == engine
-                and str(item.get("voice_id", "")).strip() == voice_id
-            )
-        ]
-        imports.append(
-            {
-                "engine": engine,
-                "voice_id": voice_id,
-                "label": label or voice_id,
-                "language": "Imported",
-                "gender": "Custom",
-            }
-        )
-        self._voice_bindings["imports"] = imports
-        if self._save_voice_bindings_state():
-            self._assign_status.setText(f"Imported {voice_id} into {engine}.")
-            self._import_voice_id.clear()
-            self._import_label.clear()
-            if self._active_engine == engine:
-                self._populate_voices(engine)
+        import_voice(self, backend_available=_VOICE_BINDINGS_BACKEND)
 
     @staticmethod
     def _describe_voice_choice(engine: str, voice_id: str) -> str:

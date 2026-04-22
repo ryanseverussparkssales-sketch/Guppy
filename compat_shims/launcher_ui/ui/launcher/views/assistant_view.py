@@ -9,30 +9,23 @@ from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
-    QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
 from src.guppy.launcher_application.home_presenter import (
     build_home_workspace_copy,
-    build_home_starter_state,
     build_home_welcome_message,
     build_home_workspace_state,
-    home_workspace_starter_templates,
 )
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
 from .. import tokens as T
 from . import assistant_behavior_support as behavior
+from . import assistant_starter_support as starters
 from .assistant_first_run_banner import FirstRunBanner
 from .assistant_context import (
-    active_context_titles as context_active_context_titles,
-    context_aware_starter_prompt as context_context_aware_starter_prompt,
-    context_aware_starter_title as context_context_aware_starter_title,
     refresh_resource_context as context_refresh_resource_context,
     set_background_event as context_set_background_event,
     set_background_status as context_set_background_status,
@@ -389,54 +382,25 @@ class AssistantView(QWidget):
         self._input.setFocus()
 
     def _starter_templates(self) -> list[tuple[str, str, str, str]]:
-        return [
-            (item.starter_id, item.title, item.mode, item.prompt)
-            for item in home_workspace_starter_templates(self._workspace_type)
-        ]
+        return starters.starter_templates(self._workspace_type)
 
     def _active_context_titles(self, limit: int = 2) -> list[str]:
-        return context_active_context_titles(self._active_context_items, limit)
+        return starters.active_context_titles(self._active_context_items, limit)
 
     def _context_aware_starter_title(self, starter_id: str, title: str) -> str:
-        return context_context_aware_starter_title(self._active_context_items, starter_id, title)
+        return starters.context_aware_starter_title(self._active_context_items, starter_id, title)
 
     def _context_aware_starter_prompt(self, prompt: str) -> str:
-        return context_context_aware_starter_prompt(self._active_context_items, prompt)
+        return starters.context_aware_starter_prompt(self._active_context_items, prompt)
 
     def _refresh_starter_buttons(self) -> None:
-        for index, (starter_id, title, mode, prompt) in enumerate(self._starter_templates()):
-            button = self._starter_buttons.get(starter_id)
-            if button is None:
-                continue
-            button.setText(self._context_aware_starter_title(starter_id, title))
-            button.setToolTip(self._context_aware_starter_prompt(prompt))
-            button.setStyleSheet(self._starter_button_style(primary=index == 0))
+        starters.refresh_starter_buttons(self)
 
     def _load_starter_by_id(self, starter_id: str) -> None:
-        starter = build_home_starter_state(self._workspace_type, starter_id)
-        titles = self._active_context_titles()
-        if titles:
-            starter = type(starter)(
-                starter_id=starter.starter_id,
-                label=self._context_aware_starter_title(starter.starter_id, starter.label),
-                mode=starter.mode,
-                prompt=self._context_aware_starter_prompt(starter.prompt),
-                background_event=f"{starter.background_event} Attached sources ready: {', '.join(titles)}.",
-                starter_summary=f"{starter.starter_summary} Attached sources: {', '.join(titles)}.",
-                status=starter.status,
-            )
-        self._load_starter(starter)
+        starters.load_starter_by_id(self, starter_id)
 
     def _load_starter(self, starter) -> None:
-        self.set_input_text(starter.prompt)
-        self.set_chat_context(starter.mode, self.selected_persona())
-        self.set_background_event(starter.background_event)
-        self._base_starter_summary = starter.starter_summary
-        self._refresh_composer_guidance()
-        self.set_status(starter.status)
-        self._starters_expanded = False
-        self._update_starter_visibility()
-        self.starter_requested.emit(starter.starter_id, starter.prompt)
+        starters.load_starter(self, starter)
 
     def set_status(self, text: str) -> None:
         behavior.set_status(self, text)
@@ -451,6 +415,7 @@ class AssistantView(QWidget):
         persona: str = "guppy",
         voice: str = "default",
         last_message: str = "",
+        continuity_snapshot: dict[str, object] | None = None,
     ) -> None:
         behavior.set_active_instance(
             self,
@@ -461,6 +426,7 @@ class AssistantView(QWidget):
             persona=persona,
             voice=voice,
             last_message=last_message,
+            continuity_snapshot=continuity_snapshot,
         )
 
     def set_background_status(self, text: str, healthy: bool = True) -> None:

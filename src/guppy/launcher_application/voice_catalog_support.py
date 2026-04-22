@@ -111,8 +111,14 @@ def build_voice_evidence_text(
     bindings = voice_bindings.get("bindings", {}) if isinstance(voice_bindings, Mapping) else {}
     by_persona = bindings.get("by_persona", {}) if isinstance(bindings.get("by_persona"), Mapping) else {}
     by_model = bindings.get("by_model", {}) if isinstance(bindings.get("by_model"), Mapping) else {}
+    cloud_note = (
+        " Cloud voice providers still depend on Settings > Device & Accounts for keys and sign-in."
+        if active_engine == "ELEVENLABS"
+        else " Local engines stay machine-local; cloud keys only matter when you choose a cloud voice provider."
+    )
     return (
         f"Ready now: selected voice {describe_voice_choice(active_engine, active_voice)} is {readiness}. "
         f"Default runtime voice stays {default_choice.strip() or 'unset'}. "
         f"Live bindings: {len(by_persona)} persona, {len(by_model)} model."
+        f"{cloud_note}"
     )

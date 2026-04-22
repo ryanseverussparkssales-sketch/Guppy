@@ -49,6 +49,9 @@ def test_instance_manager_state_builds_workspace_and_connector_targets() -> None
                     "voice": "default",
                     "description": "Builder review",
                     "last_message": "Review the next patch",
+                    "continuity": {
+                        "continuity_summary": "Continuity: 2 recent sessions are saved here. Last saved thread: Review the next patch",
+                    },
                     "governance": {"auth_mode": "local_only"},
                     "connectors": [{"id": "gmail"}],
                 },
@@ -62,7 +65,7 @@ def test_instance_manager_state_builds_workspace_and_connector_targets() -> None
     assert state.connector_ids == ("gmail",)
     assert "Warnings: 1" in state.summary_text
     assert "Builder collaborator" in state.collaboration_text
-    assert "Review the next patch" in state.recurring_text
+    assert "Continuity: 2 recent sessions are saved here." in state.recurring_text
 
 
 def test_governance_and_connector_editor_state_render_saved_policy() -> None:

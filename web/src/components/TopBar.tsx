@@ -120,7 +120,8 @@ const TopBar: React.FC = () => {
                     : theme.colors.status.error,
             }}
           />
-          {runtimeStatus.status.charAt(0).toUpperCase() + runtimeStatus.status.slice(1)}
+          {runtimeStatus.launcherLabel ||
+            (runtimeStatus.status.charAt(0).toUpperCase() + runtimeStatus.status.slice(1))}
         </div>
       )}
     </div>

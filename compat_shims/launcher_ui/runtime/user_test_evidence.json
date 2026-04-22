@@ -1,0 +1,43 @@
+{
+  "generated_at": "2026-04-22T07:04:26.834499+00:00",
+  "active_workspace_name": "builder-collab",
+  "preferred_builder_workspace": "builder-collab",
+  "active_workspace": {
+    "name": "builder-collab",
+    "type": "builder_instance",
+    "description": "Planning partner"
+  },
+  "home": {
+    "background_event": "Latest activity: Evidence pack refreshed",
+    "workspace_summary": "Active workspace: Builder collaborator workspace.",
+    "runtime_facts": "Ready now: Standard profile, GUPPY model.",
+    "route_facts": "Next reply: builder review.",
+    "recovery_summary": "System health: stable"
+  },
+  "automation": {
+    "status": "Evidence pack refreshed for the guided tester lane.",
+    "builder_report_path": "C:/Users/Ryan/Guppy/.tmp/test-scratch/security-hardening-root/1776841466827-c07a11763257413b8fef797128013307/offhours_builder_report.json",
+    "validation_command": ".venv\\Scripts\\python.exe -m pytest tests/unit/test_offhours_builder.py tests/unit/test_instance_controls.py -q",
+    "pending_approval_summary": "none queued",
+    "recent_activity": [
+      "offhours task processed | builder_docs_followup_1776146606_local-builder-workflow | awaiting_approval",
+      "offhours task approved | Draft docs follow-up | docs/generated/local-builder-workflow_followup.md",
+      "offhours task approved | Draft docs follow-up | docs/generated/local-builder-workflow_followup.md",
+      "builder task enqueued | unit_test_stub",
+      "builder task enqueued | regression_checklist"
+    ]
+  },
+  "windows_ops": {
+    "next": "Next step: run validation after review.",
+    "service": "Recent service action: verify_runtime | OK",
+    "gate": "Release check: clear"
+  },
+  "latest_stress_report": "runtime/stress_reports/stress_report_20260420_031254.json",
+  "recent_operator_notes": [
+    "INFO command response",
+    "INFO command response",
+    "INFO command response"
+  ],
+  "evidence_json_path": "runtime/user_test_evidence.json",
+  "evidence_summary_path": "runtime/user_test_evidence.md"
+}

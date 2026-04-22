@@ -25,3 +25,4 @@ def test_model_sourcing_tab_surfaces_readiness_but_defers_credentials_to_setting
 
     assert "backend readiness" in hub._sourcing_page._summary_lbl.text().lower()
     assert "settings > device & accounts" in hub._sourcing_page._status_lbl.text().lower()
+    assert "default lane: ollama" in hub._sourcing_page._lane_truth_lbl.text().lower()

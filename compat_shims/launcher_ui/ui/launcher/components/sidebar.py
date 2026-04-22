@@ -1,6 +1,6 @@
 """
 ui/launcher/components/sidebar.py
-Compact left navigation rail for the launcher.
+Editorial left navigation rail for the launcher shell.
 """
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
@@ -20,19 +21,23 @@ from PySide6.QtWidgets import (
 from .. import tokens as T
 
 _NAV: list[tuple[str, str, int, frozenset[int], bool]] = [
-    ("*", "HOME", 0, frozenset({0}), True),
-    ("R", "MODELS", 5, frozenset({5, 6, 7, 8, 9}), True),
-    ("W", "TOOLS", 3, frozenset({3}), True),
+    ("O", "HOME", 0, frozenset({0}), True),
+    ("M", "MODELS", 5, frozenset({5, 6, 7, 8, 9}), True),
+    ("T", "TOOLS", 3, frozenset({3}), True),
     ("L", "LIBRARY", 2, frozenset({2}), True),
-    ("B", "SETTINGS", 4, frozenset({4}), True),
-    ("S", "SPACES", 1, frozenset({1}), False),
+    ("S", "SETTINGS", 4, frozenset({4}), True),
+    ("W", "SPACES", 1, frozenset({1}), False),
     ("P", "MY PC", 5, frozenset({5}), False),
-    ("M", "LOCAL LLM", 6, frozenset({6}), False),
-    ("T", "RUNTIME", 8, frozenset({8}), False),
+    ("C", "LOCAL LLM", 6, frozenset({6}), False),
+    ("R", "RUNTIME", 8, frozenset({8}), False),
     ("V", "VOICE", 9, frozenset({9}), False),
 ]
 _ROOT = Path(__file__).resolve().parents[3]
 _DESKTOP_G_LOGO = _ROOT / "assets" / "desktop" / "guppy_launcher_icon.png"
+_SIDEBAR_W_EXPANDED = 296
+_SIDEBAR_W_COLLAPSED = 84
+_NAV_ITEM_W_EXPANDED = 248
+_NAV_ITEM_W_COLLAPSED = 52
 
 
 def _paint_guppy_fish(painter: QPainter, bounds) -> None:
@@ -99,19 +104,19 @@ def create_guppy_fish_icon(size: int = 64) -> QIcon:
 
 
 class _GuppyBadge(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, size: int = 48, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFixedSize(48, 48)
+        self.setFixedSize(size, size)
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         del event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(255, 253, 248, 232))
+        painter.setBrush(QColor(255, 253, 248, 236))
         painter.drawEllipse(self.rect().adjusted(1, 1, -1, -1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(255, 255, 255, 160), 1.2))
+        painter.setPen(QPen(QColor(255, 255, 255, 168), 1.2))
         painter.drawEllipse(self.rect().adjusted(1, 1, -1, -1))
         _paint_guppy_fish(painter, self.rect().adjusted(6, 6, -6, -6))
         painter.end()
@@ -131,72 +136,83 @@ class _NavItem(QWidget):
         super().__init__(parent)
         self._route_index = route_index
         self._active_routes = active_routes
-        self._active = False
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-
         self._icon = icon
         self._label_text = label
+        self._active = False
+        self._compact = False
+
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
         self._label = QLabel(label, self)
         self._label.hide()
-        self._btn = QPushButton(f"{icon}  {label}")
+
+        self._btn = QPushButton(self)
         self._btn.setFlat(True)
-        self._btn.setFixedSize(T.SIDEBAR_W_EXPANDED - 22, 44)
         self._btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._btn.setAccessibleName(label)
         self._btn.setAccessibleDescription(label)
-        self._btn.clicked.connect(lambda: self.clicked.emit(self._route_index))
         self._btn.setToolTip(label.title())
+        self._btn.clicked.connect(lambda: self.clicked.emit(self._route_index))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._btn)
-        self._apply_style(active=False)
         self.set_compact(False)
 
-    def _apply_style(self, active: bool) -> None:
-        if active:
-            self._btn.setStyleSheet(
-                f"QPushButton {{ background-color: rgba(0,0,0,0.03); color: {T.ACCENT_TEAL_TEXT};"
-                " border: none;"
-                f" border-left: 4px solid {T.ACCENT_TEAL_TEXT};"
-                " border-top-left-radius: 0px; border-bottom-left-radius: 0px;"
-                " border-top-right-radius: 0px; border-bottom-right-radius: 0px;"
-                f" padding: 0 16px; margin-left: 8px; text-align: left; font-family: '{T.FF_BODY}';"
-                f" font-size: {T.FS_SMALL + 1}pt; font-weight: 600; }}"
+    def _style_sheet(self) -> str:
+        if self._compact:
+            if self._active:
+                return (
+                    f"QPushButton {{ background-color: {T.WHITE}; color: {T.ACCENT_TEAL_TEXT};"
+                    f" border: 1px solid {T.BORDER_SOFT_72}; border-radius: 16px;"
+                    f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; font-weight: 700; }}"
+                )
+            return (
+                f"QPushButton {{ background-color: transparent; color: {T.DIM};"
+                " border: 1px solid transparent; border-radius: 16px;"
+                f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; font-weight: 700; }}"
+                f"QPushButton:hover {{ color: {T.ACCENT_TEAL_TEXT}; background-color: {T.SURFACE_ELEVATED_92};"
+                f" border-color: {T.BORDER_SOFT_68}; }}"
             )
-            return
-        self._btn.setStyleSheet(
-            f"QPushButton {{ background-color: transparent; color: {T.DIM}; border: none;"
-            " border-left: 4px solid transparent;"
-            " border-radius: 0px; margin-left: 8px;"
-            f" padding: 0 16px; text-align: left; font-family: '{T.FF_BODY}';"
-            f" font-size: {T.FS_SMALL + 1}pt; font-weight: 500; }}"
-            f"QPushButton:hover {{ color: {T.TEXT}; background-color: rgba(0,0,0,0.03); border-left-color: {T.ACCENT_TEAL}; }}"
+
+        if self._active:
+            return (
+                f"QPushButton {{ background-color: {T.WHITE}; color: {T.ACCENT_TEAL_TEXT};"
+                f" border: 1px solid {T.BORDER_SOFT_72}; border-left: 4px solid {T.ACCENT_TEAL_TEXT};"
+                " border-top-left-radius: 0px; border-bottom-left-radius: 0px;"
+                " border-top-right-radius: 22px; border-bottom-right-radius: 22px;"
+                f" padding: 0 18px; text-align: left; font-family: '{T.FF_BODY}';"
+                f" font-size: {T.FS_LABEL}pt; font-weight: 700; }}"
+            )
+        return (
+            f"QPushButton {{ background-color: transparent; color: {T.DIM};"
+            " border: 1px solid transparent; border-left: 4px solid transparent;"
+            " border-radius: 18px;"
+            f" padding: 0 18px; text-align: left; font-family: '{T.FF_BODY}';"
+            f" font-size: {T.FS_LABEL}pt; font-weight: 600; }}"
+            f"QPushButton:hover {{ color: {T.TEXT}; background-color: {T.SURFACE_ELEVATED_92};"
+            f" border-color: {T.BORDER_SOFT_68}; border-left-color: {T.ACCENT_TEAL}; }}"
         )
 
     def set_active(self, v: bool) -> None:
         self._active = bool(v)
-        self._apply_style(self._active)
+        self._btn.setStyleSheet(self._style_sheet())
 
     def matches_route(self, route_index: int) -> bool:
         return route_index in self._active_routes
 
     def set_compact(self, compact: bool) -> None:
-        if compact:
+        self._compact = bool(compact)
+        if self._compact:
             self._btn.setText(self._icon)
-            self._btn.setFixedSize(44, 40)
-            self._btn.setStyleSheet(
-                f"QPushButton {{ background-color: transparent; color: {T.DIM}; border: none; border-radius: 4px;"
-                f" font-family: '{T.FF_BODY}'; font-size: {T.FS_LABEL}pt; font-weight: 600; }}"
-                f"QPushButton:hover {{ color: {T.ACCENT_TEAL}; background-color: rgba(0,0,0,0.05); }}"
-            )
+            self._btn.setFixedSize(_NAV_ITEM_W_COLLAPSED, 48)
         else:
-            self._btn.setText(f"{self._icon}  {self._label_text}")
-            self._btn.setFixedSize(300 - 22, 44)  # Updated to match new sidebar width
-            self._apply_style(self._active)
+            self._btn.setText(f"{self._icon}   {self._label_text}")
+            self._btn.setFixedSize(_NAV_ITEM_W_EXPANDED, 48)
+        self._btn.setStyleSheet(self._style_sheet())
 
 
 class Sidebar(QFrame):
@@ -205,82 +221,105 @@ class Sidebar(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._collapsed = False
-        self.setFixedWidth(300)  # Atoll Editorial: persistent 300px sidebar
+        self.setFixedWidth(_SIDEBAR_W_EXPANDED)
         self.setObjectName("sidebar")
         self.setStyleSheet(
-            f"QFrame#sidebar {{ background-color: {T.SURFACE_BASE}; border-right: none; }}"
+            "QFrame#sidebar {"
+            f" background-color: {T.SURFACE_BASE};"
+            " border-right: none;"
+            "}"
         )
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 18, 0, 16)
-        root.setSpacing(2)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(0)
 
         self._art_card = QFrame()
         self._art_card.setStyleSheet(
-            f"background: {T.SURFACE_BASE};"
-            "border-radius: 12px; margin: 0 14px;"
+            f"background-color: {T.SURFACE_ELEVATED_92};"
+            f" border: 1px solid {T.BORDER_SOFT_68};"
+            " border-radius: 24px;"
         )
         art_layout = QVBoxLayout(self._art_card)
-        art_layout.setContentsMargins(8, 8, 8, 8)
-        art_layout.setSpacing(3)
-        art_layout.addWidget(_GuppyBadge(), alignment=Qt.AlignmentFlag.AlignHCenter)
+        art_layout.setContentsMargins(16, 14, 16, 14)
+        art_layout.setSpacing(10)
+
+        self._art_badge = _GuppyBadge()
+        art_layout.addWidget(self._art_badge, alignment=Qt.AlignmentFlag.AlignLeft)
+
+        identity_row = QHBoxLayout()
+        identity_row.setContentsMargins(0, 0, 0, 0)
+        identity_row.setSpacing(12)
+
+        identity_copy = QVBoxLayout()
+        identity_copy.setContentsMargins(0, 2, 0, 0)
+        identity_copy.setSpacing(2)
         self._deck = QLabel("The Curator")
-        self._deck.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self._deck.setStyleSheet(
-            f"color: {T.TEXT}; background-color: {T.SURFACE_ELEVATED_92};"
-            " border-radius: 10px;"
-            f" padding: 4px 8px; font-family: '{T.FF_BODY}';"
-            f" font-size: {T.FS_SMALL + 1}pt; font-weight: 700;"
+            f"color: {T.TEXT}; background-color: {T.SURFACE_BASE_90};"
+            " border-radius: 12px;"
+            f" padding: 4px 10px; font-family: '{T.FONT_SERIF}';"
+            f" font-size: {T.FS_SMALL + 2}pt; font-weight: 700;"
         )
-        art_layout.addWidget(self._deck)
         self._deck_sub = QLabel("TECHNICAL INTELLIGENCE")
-        self._deck_sub.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self._deck_sub.setStyleSheet(
             f"color: {T.TEXT_DIM_72}; font-family: '{T.FF_MONO}';"
-            f" font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+            f" font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: 700;"
         )
-        art_layout.addWidget(self._deck_sub)
+        identity_copy.addWidget(self._deck)
+        identity_copy.addWidget(self._deck_sub)
+        identity_copy.addStretch()
+        identity_row.addLayout(identity_copy, 1)
+        art_layout.addLayout(identity_row)
+
+        self._g_mark = QLabel("EDITORIAL SHELL")
+        self._g_mark.setStyleSheet(
+            f"color: {T.ACCENT_TEAL_TEXT}; font-family: '{T.FF_MONO}';"
+            f" font-size: {T.FS_TINY}pt; letter-spacing: 2px; font-weight: 700;"
+        )
+        art_layout.addWidget(self._g_mark)
+
+        self._brand_bar = QFrame()
+        self._brand_bar.setFixedHeight(2)
+        self._brand_bar.setStyleSheet(
+            f"background: {T.GRADIENT_SUNSET}; border-radius: 1px;"
+        )
+        art_layout.addWidget(self._brand_bar)
+
         root.addWidget(self._art_card)
 
-        self._compact_badge = _GuppyBadge()
+        self._compact_badge = _GuppyBadge(40)
         self._compact_badge.hide()
         root.addWidget(self._compact_badge, alignment=Qt.AlignmentFlag.AlignHCenter)
-
-        self._g_mark = QLabel("")
-        self._g_mark.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        self._g_mark.setStyleSheet(
-            f"color: {T.ACCENT_TEAL_TEXT}; font-family: '{T.FONT_SERIF}', '{T.FF_HEAD}', serif;"
-            " font-size: 12pt; font-weight: bold; padding: 0 0 0 0;"
-        )
-        root.addWidget(self._g_mark)
-
-        # Sunset gradient accent bar (2px) beneath the G mark
-        self._brand_bar = QFrame()
-        self._brand_bar.setFixedHeight(1)
-        self._brand_bar.setStyleSheet(
-            f"background: {T.GRADIENT_SUNSET}; margin: 0 16px;"
-        )
-        root.addWidget(self._brand_bar)
         root.addSpacing(12)
 
-        self._primary_lbl = QLabel("")
-        self._primary_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        nav_head = QHBoxLayout()
+        nav_head.setContentsMargins(4, 0, 4, 0)
+        nav_head.setSpacing(8)
+
+        self._primary_lbl = QLabel("PRIMARY NAV")
         self._primary_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 3px;"
+            f"color: {T.TEXT_DIM_72}; font-family: '{T.FF_MONO}';"
+            f" font-size: {T.FS_TINY}pt; letter-spacing: 2px; font-weight: 700;"
         )
-        root.addWidget(self._primary_lbl)
-        root.addSpacing(6)
+        nav_head.addWidget(self._primary_lbl)
+        nav_head.addStretch()
 
         self._collapse_btn = QPushButton("<")
         self._collapse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._collapse_btn.setFixedSize(34, 30)
+        self._collapse_btn.setToolTip("Collapse navigation")
         self._collapse_btn.setStyleSheet(
-            f"QPushButton {{ background-color: transparent; color: {T.DIM}; border: 1px solid {T.BORDER_SOFT_64};"
-            f" border-radius: 10px; padding: 4px 8px; font-family: '{T.FF_BODY}'; font-size: {T.FS_TINY}pt; }}"
-            f"QPushButton:hover {{ color: {T.PRIMARY}; border-color: {T.PRIMARY}; background-color: {T.WHITE}; }}"
+            f"QPushButton {{ background-color: {T.SURFACE_ELEVATED_92}; color: {T.DIM};"
+            f" border: 1px solid {T.BORDER_SOFT_64}; border-radius: 15px;"
+            f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; font-weight: 700; }}"
+            f"QPushButton:hover {{ color: {T.ACCENT_TEAL_TEXT}; border-color: {T.ACCENT_TEAL};"
+            f" background-color: {T.WHITE}; }}"
         )
         self._collapse_btn.clicked.connect(self.toggle_collapsed)
-        root.addWidget(self._collapse_btn, alignment=Qt.AlignmentFlag.AlignRight)
-        root.addSpacing(8)
+        nav_head.addWidget(self._collapse_btn)
+        root.addLayout(nav_head)
+        root.addSpacing(12)
 
         self._items: list[_NavItem] = []
         self._visible_items: list[_NavItem] = []
@@ -291,20 +330,34 @@ class Sidebar(QFrame):
             if visible:
                 self._visible_items.append(item)
                 root.addWidget(item, alignment=Qt.AlignmentFlag.AlignLeft)
-                root.addSpacing(2)
+                root.addSpacing(4)
             else:
                 item.hide()
 
-        root.addSpacing(10)
-
         root.addStretch()
 
+        footer_card = QFrame()
+        self._footer_card = footer_card
+        footer_card.setStyleSheet(
+            f"background-color: {T.SURFACE_ELEVATED_92};"
+            f" border: 1px solid {T.BORDER_SOFT_64};"
+            " border-radius: 20px;"
+        )
+        footer_layout = QVBoxLayout(footer_card)
+        footer_layout.setContentsMargins(14, 12, 14, 12)
+        footer_layout.setSpacing(4)
         self._sys_lbl = QLabel("HELP CENTER")
-        self._sys_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self._sys_lbl.setStyleSheet(
+            f"color: {T.TEXT}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL + 1}pt; font-weight: 700;"
+        )
+        footer_layout.addWidget(self._sys_lbl)
+        footer_hint = QLabel("Guides, recovery notes, and launcher support stay one tap away.")
+        footer_hint.setWordWrap(True)
+        footer_hint.setStyleSheet(
             f"color: {T.TEXT_DIM_72}; font-family: '{T.FF_BODY}'; font-size: {T.FS_SMALL}pt;"
         )
-        root.addWidget(self._sys_lbl)
+        footer_layout.addWidget(footer_hint)
+        root.addWidget(footer_card)
 
         self._items[0].set_active(True)
 
@@ -322,7 +375,7 @@ class Sidebar(QFrame):
 
     def set_collapsed(self, collapsed: bool) -> None:
         self._collapsed = bool(collapsed)
-        self.setFixedWidth(T.SIDEBAR_W_COLLAPSED if self._collapsed else T.SIDEBAR_W_EXPANDED)
+        self.setFixedWidth(_SIDEBAR_W_COLLAPSED if self._collapsed else _SIDEBAR_W_EXPANDED)
         self._art_card.setVisible(not self._collapsed)
         self._compact_badge.setVisible(self._collapsed)
         self._deck.setVisible(not self._collapsed)
@@ -330,6 +383,7 @@ class Sidebar(QFrame):
         self._g_mark.setVisible(not self._collapsed)
         self._brand_bar.setVisible(not self._collapsed)
         self._primary_lbl.setVisible(not self._collapsed)
+        self._footer_card.setVisible(not self._collapsed)
         self._sys_lbl.setVisible(not self._collapsed)
         self._collapse_btn.setText(">" if self._collapsed else "<")
         self._collapse_btn.setToolTip("Expand navigation" if self._collapsed else "Collapse navigation")

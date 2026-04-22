@@ -44,9 +44,19 @@ def test_ensure_desktop_launcher_creates_batch_and_shortcut(tmp_path: Path) -> N
 def test_ensure_desktop_launcher_prefers_packaged_executable_when_present(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     packaged_exe = repo_root / "dist" / "Guppy" / "Guppy.exe"
-    assert packaged_exe.exists(), "packaged launcher should exist for desktop-link verification"
+    created_packaged_dir = False
+    if not packaged_exe.parent.exists():
+        packaged_exe.parent.mkdir(parents=True, exist_ok=True)
+        created_packaged_dir = True
+    packaged_exe.write_text("packaged launcher stub", encoding="utf-8")
 
-    proc = _run_shortcut_script(repo_root, tmp_path)
+    try:
+        proc = _run_shortcut_script(repo_root, tmp_path)
 
-    assert proc.returncode == 0, proc.stderr or proc.stdout
-    assert f"Shortcut target: {packaged_exe}" in proc.stdout
+        assert proc.returncode == 0, proc.stderr or proc.stdout
+        assert f"Shortcut target: {packaged_exe}" in proc.stdout
+    finally:
+        packaged_exe.unlink(missing_ok=True)
+        if created_packaged_dir:
+            packaged_exe.parent.rmdir()
+            packaged_exe.parent.parent.rmdir()

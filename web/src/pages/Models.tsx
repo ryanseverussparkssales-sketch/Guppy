@@ -20,6 +20,8 @@ const ModelsPage: React.FC = () => {
         </h1>
         <p style={{ color: theme.colors.textSecondary, margin: 0 }}>
           Runtime: <strong>{runtimeStatus?.backend || "unknown"}</strong>
+          {runtimeStatus?.launcherLabel ? ` | API: ${runtimeStatus.launcherLabel}` : ""}
+          {runtimeStatus?.daemonLabel ? ` | Daemon: ${runtimeStatus.daemonLabel}` : ""}
           {runtimeStatus?.activeModel ? ` | Active chat model: ${runtimeStatus.activeModel}` : ""}
         </p>
       </div>
@@ -31,6 +33,7 @@ const ModelsPage: React.FC = () => {
         }}
       >
         <p style={{ margin: 0, color: theme.colors.textSecondary }}>
+          {runtimeStatus?.summary ? `${runtimeStatus.summary} | ` : ""}
           {runtimeStatus?.detail || "Runtime detail unavailable."}
         </p>
       </div>

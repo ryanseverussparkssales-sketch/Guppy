@@ -46,6 +46,7 @@ def test_refresh_voice_evidence_mentions_bindings_and_default_runtime_voice() ->
 
     assert "Ready now:" in view._voice_evidence_lbl.text()
     assert "Default runtime voice stays" in view._voice_evidence_lbl.text()
+    assert "Local engines stay machine-local" in view._voice_evidence_lbl.text()
     assert "Settings > Device & Accounts" in view._engine_status_lbl.toolTip()
 
 

@@ -34,6 +34,12 @@ from .settings_accounts_sections import (
     connector_grid_columns as _connector_grid_columns_fn,
     mono as _mono,
 )
+from .settings_device_accounts_form_support import (
+    apply_connector_action_state as _apply_connector_action_state,
+    apply_empty_connector_state as _apply_empty_connector_state,
+    apply_field_payloads as _apply_field_payloads,
+    ensure_field_row_count as _ensure_field_row_count_fn,
+)
 
 try:
     from utils import secret_store as _secret_store
@@ -269,24 +275,7 @@ class SettingsDeviceAccountsPanel(QWidget):
         self._sync_account_controls()
 
     def _ensure_field_row_count(self, count: int) -> None:
-        while len(self._field_rows) < max(0, count):
-            row = QWidget()
-            row_layout = QVBoxLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(4)
-            label = _mono("", T.TEXT, T.FS_TINY, True)
-            input_box = QLineEdit()
-            input_box.setStyleSheet(
-                f"QLineEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
-                f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
-            )
-            hint = _mono("", T.DIM, T.FS_TINY)
-            row_layout.addWidget(label)
-            row_layout.addWidget(input_box)
-            row_layout.addWidget(hint)
-            row.setVisible(False)
-            self._fields_host.addWidget(row)
-            self._field_rows.append((row, label, input_box, hint))
+        _ensure_field_row_count_fn(self, count)
 
     def set_account_result(self, text: str, ok: bool | None = True) -> None:
         if ok is None:
@@ -412,30 +401,7 @@ class SettingsDeviceAccountsPanel(QWidget):
     def _sync_account_controls(self) -> None:
         item = self._current_connector_payload()
         if not item:
-            self._provider_cb.clear()
-            self._account_cb.clear()
-            self._selector_row_widget.setVisible(False)
-            self._account_status_lbl.setText("No services are ready to link yet.")
-            self._account_detail_lbl.setText("Install or enable a connector, then come back here to sign in.")
-            self._account_step_lbl.setText("Next step: add a service first.")
-            self._account_step_lbl.setStyleSheet(
-                f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-            )
-            for row_widget, label, input_box, hint in self._field_rows:
-                row_widget.setVisible(False)
-                label.setText("")
-                input_box.clear()
-                hint.setText("")
-                input_box.setPlaceholderText("")
-                input_box.setEchoMode(QLineEdit.EchoMode.Normal)
-            self._next_step_hint_lbl.setText("")
-            self._next_step_hint_lbl.setVisible(False)
-            self._connect_btn.setVisible(False)
-            self._save_btn.setVisible(False)
-            self._verify_btn.setEnabled(False)
-            self._disconnect_btn.setEnabled(False)
-            self._disable_btn.setVisible(False)
-            self._refresh_connector_card_styles()
+            _apply_empty_connector_state(self)
             return
         providers = [row for row in item.get("providers", []) if isinstance(row, dict)] if isinstance(item.get("providers"), list) else []
         accounts = [row for row in item.get("accounts", []) if isinstance(row, dict)] if isinstance(item.get("accounts"), list) else []
@@ -450,24 +416,7 @@ class SettingsDeviceAccountsPanel(QWidget):
         self._refresh_connector_card_styles()
 
         field_payloads = self._current_field_payloads()
-        self._ensure_field_row_count(len(field_payloads))
-        for row_widget, label, input_box, hint in self._field_rows:
-            row_widget.setVisible(False)
-            label.setText("")
-            input_box.clear()
-            hint.setText("")
-            input_box.setPlaceholderText("")
-            input_box.setEchoMode(QLineEdit.EchoMode.Normal)
-
-        for idx, field in enumerate(field_payloads):
-            row_widget, label, input_box, hint = self._field_rows[idx]
-            label.setText(str(field.get("label", field.get("key", "Credential")) or "Credential"))
-            input_box.setPlaceholderText(str(field.get("placeholder", "") or ""))
-            input_box.setEchoMode(QLineEdit.EchoMode.Password if bool(field.get("masked", True)) else QLineEdit.EchoMode.Normal)
-            hint_text = str(field.get("input_hint", "") or field.get("validation_hint", "") or "").strip()
-            hint.setText(hint_text)
-            row_widget.setVisible(True)
-            row_widget.setProperty("secret_key", str(field.get("key", "") or ""))
+        _apply_field_payloads(self, field_payloads)
 
         panel_state = build_connector_panel_state(
             item=item,
@@ -475,6 +424,7 @@ class SettingsDeviceAccountsPanel(QWidget):
             accounts=accounts,
             fields=field_payloads,
             selected_provider_id=str(self._provider_cb.currentData() or "").strip(),
+            selected_account_id=str(self._account_cb.currentData() or "").strip(),
         )
         connector_label = str(item.get("label", "Connector") or "Connector")
         auth_kind = panel_state.current_auth_kind
@@ -505,53 +455,19 @@ class SettingsDeviceAccountsPanel(QWidget):
             self._next_step_hint_lbl.setVisible(False)
 
         supports = {str(item).strip().lower() for item in item.get("actions_supported", []) if str(item).strip()}
-        has_secret_flow = auth_kind in {"api_key", "provider_secret", "oauth_secret"}
-        if auth_kind == "api_key":
-            self._save_btn.setText("SAVE API KEY")
-            self._verify_btn.setText("VERIFY KEY")
-            self._disconnect_btn.setText("REMOVE KEY")
-        elif auth_kind == "provider_secret":
-            self._save_btn.setText("SAVE DETAILS")
-            self._verify_btn.setText("VERIFY SETUP")
-            self._disconnect_btn.setText("CLEAR DETAILS")
-        elif auth_kind == "oauth_file_token":
-            self._connect_btn.setText("RECONNECT" if auth_state == "partial" else "SIGN IN")
-            self._verify_btn.setText("VERIFY SIGN-IN")
-            self._disconnect_btn.setText("REMOVE SIGN-IN")
-        elif auth_kind == "oauth_secret":
-            self._connect_btn.setText("RECONNECT" if auth_state == "partial" else "OPEN SIGN-IN")
-            self._save_btn.setText("SAVE APP KEYS")
-            self._verify_btn.setText("VERIFY CONNECTION")
-            self._disconnect_btn.setText("REMOVE CONNECTION")
-        else:
-            self._connect_btn.setText("SIGN IN")
-            self._save_btn.setText("SAVE")
-            self._verify_btn.setText("VERIFY")
-            self._disconnect_btn.setText("REMOVE")
-
-        show_connect = (
-            "connect" in supports
-            and auth_kind not in {"api_key", "provider_secret"}
-            and not (auth_kind == "oauth_file_token" and auth_state == "missing")
-        )
-        self._connect_btn.setVisible(show_connect)
-        self._connect_btn.setEnabled(show_connect)
-        self._save_btn.setVisible(has_secret_flow)
-        self._save_btn.setEnabled(has_secret_flow)
-        self._verify_btn.setVisible("verify" in supports)
-        self._verify_btn.setEnabled("verify" in supports)
-        self._disconnect_btn.setVisible("disconnect" in supports)
-        self._disconnect_btn.setEnabled("disconnect" in supports)
-        self._disable_btn.setVisible(True)
-        self._disable_btn.setEnabled(False)
         connect_hint = (registry_entry.connect_hint if registry_entry else "").strip() or f"Connect {connector_label} on this PC."
-        self._connect_btn.setToolTip(connect_hint)
-        self._save_btn.setToolTip(f"Save the current {connector_label} details on this PC.")
         verify_hint = f"Verify {connector_label} on this PC."
         if example_prompt:
             verify_hint += f" {example_prompt}"
-        self._verify_btn.setToolTip(verify_hint)
-        self._disconnect_btn.setToolTip(f"Remove the current {connector_label} connection from this PC.")
+        _apply_connector_action_state(
+            self,
+            connector_label=connector_label,
+            auth_kind=auth_kind,
+            auth_state=auth_state,
+            supports=supports,
+            connect_hint=connect_hint,
+            verify_hint=verify_hint,
+        )
         if self.isVisible():
             self._apply_density_mode(self.width())
 

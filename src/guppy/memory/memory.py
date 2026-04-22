@@ -25,6 +25,7 @@ from .memory_store import (
     get_revenue_dashboard_data_map,
     get_session_summaries_text,
     get_recent_messages_text,
+    get_workspace_memory_snapshot as get_workspace_memory_snapshot_map,
 )
 from .memory_support import (
     PIPELINE_STAGES,
@@ -346,6 +347,10 @@ def get_startup_context(
         parts.append("\nNo previous sessions on record.")
 
     return "\n".join(parts)
+
+
+def get_workspace_memory_snapshot(workspace_name: str | None = None) -> dict[str, object]:
+    return get_workspace_memory_snapshot_map(DB_PATH, workspace_name)
 
 
 # Canonical workspace-aware overrides retained here so older compatibility blocks

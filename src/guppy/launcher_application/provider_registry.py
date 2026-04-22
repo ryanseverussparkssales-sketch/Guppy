@@ -130,6 +130,15 @@ def list_providers() -> list[ProviderEntry]:
     return [entry for entry in PROVIDER_REGISTRY.values() if entry.listed]
 
 
+def list_planned_providers() -> list[ProviderEntry]:
+    """Return planned-but-not-installed providers in stable insertion order."""
+    return [
+        entry
+        for entry in PROVIDER_REGISTRY.values()
+        if entry.availability_status == "planned"
+    ]
+
+
 def get_next_step(provider_id: str, *, is_connected: bool) -> str:
     """Return a plain-language next-step hint for the given provider.
 

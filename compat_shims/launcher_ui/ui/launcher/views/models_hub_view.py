@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import tokens as T
+from src.guppy.launcher_application.models_presenter import build_models_runtime_lane_guide_text
 
 
 _OUTER_MARGIN_X = 28
@@ -172,6 +173,8 @@ class _ModelSourcingTab(QWidget):
             T.FS_TINY,
         )
         summary_layout.addWidget(self._ownership_lbl)
+        self._lane_truth_lbl = _mono("", T.DIM, T.FS_TINY)
+        summary_layout.addWidget(self._lane_truth_lbl)
         layout.addWidget(summary)
 
         source_frame = QFrame()
@@ -249,6 +252,7 @@ class _ModelSourcingTab(QWidget):
             f"Current source: {options.get(backend, 'OLLAMA')}. "
             "Change endpoints here; keep keys and provider sign-in in Settings > Device & Accounts."
         )
+        self._lane_truth_lbl.setText(build_models_runtime_lane_guide_text(selected_backend=backend))
 
     def _save(self) -> None:
         backend = self._backend_combo.currentText().strip().lower().replace(" ", "_")
@@ -426,7 +430,7 @@ class ModelsHubView(QWidget):
             ),
             "sourcing": (
                 "Model Sourcing",
-                "Point Guppy at Ollama, LM Studio, the local harness, or Lemonade and save the endpoint cleanly.",
+                "Point Guppy at Ollama, LM Studio, the local harness, or Lemonade and save the endpoint cleanly. Planned adapters stay informational until they ship.",
                 self._sourcing_page,
             ),
             "voice": (

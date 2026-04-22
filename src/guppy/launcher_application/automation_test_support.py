@@ -81,6 +81,11 @@ def write_user_test_evidence_summary(summary_path: Path, payload: Mapping[str, o
         for item in payload.get("recent_operator_notes", [])
         if str(item).strip()
     ] if isinstance(payload.get("recent_operator_notes"), list) else []
+    recent_builder_activity = [
+        str(item).strip()
+        for item in automation.get("recent_activity", [])
+        if str(item).strip()
+    ] if isinstance(automation.get("recent_activity"), list) else []
     lines = [
         "# User Test Evidence Pack",
         "",
@@ -92,6 +97,7 @@ def write_user_test_evidence_summary(summary_path: Path, payload: Mapping[str, o
         f"Builder report: {automation.get('builder_report_path', '')}",
         f"Evidence JSON: {payload.get('evidence_json_path', '')}",
         f"Latest stress run: {payload.get('latest_stress_report', '') or 'not recorded'}",
+        f"Pending approvals: {automation.get('pending_approval_summary', 'none queued')}",
         "",
         "## Home",
         "",
@@ -106,9 +112,20 @@ def write_user_test_evidence_summary(summary_path: Path, payload: Mapping[str, o
         f"- Service status: {windows_ops.get('service', '')}",
         f"- Release check: {windows_ops.get('gate', '')}",
         "",
-        "## Recent Operator Notes",
+        "## Builder Activity",
         "",
     ]
+    if recent_builder_activity:
+        lines.extend([f"- {item}" for item in recent_builder_activity])
+    else:
+        lines.append("- No recent builder activity was recorded.")
+    lines.extend(
+        [
+            "",
+        "## Recent Operator Notes",
+        "",
+        ]
+    )
     if recent_events:
         lines.extend([f"- {item}" for item in recent_events])
     else:
@@ -144,8 +161,26 @@ def write_user_test_evidence_pack(
         ),
         {"name": active_instance_name or "guppy-primary", "type": "user_instance"},
     )
-    stress_report = latest_stress_report_path(runtime_dir)
     builder_report = Path(report_path) if isinstance(report_path, Path) else automation_report_path
+    report = build_builder_report(queue_path=queue_path(), results_path=results_path(), metrics_path=metrics_path())
+    pending_approvals = report.get("pending_approvals", []) if isinstance(report, dict) else []
+    latest_pending = pending_approvals[0] if isinstance(pending_approvals, list) and pending_approvals else {}
+    stress_validation = report.get("stress_validation", {}) if isinstance(report, dict) else {}
+    stress_report = latest_stress_report_path(runtime_dir)
+    stress_report_text = display_repo_path(repo_root, stress_report) if stress_report else ""
+    if not stress_report_text and isinstance(stress_validation, dict):
+        stress_report_text = str(stress_validation.get("path", "") or "").strip()
+    recent_builder_activity = [
+        str(item.get("summary", "")).strip()
+        for item in report.get("recent_activity", [])
+        if isinstance(item, dict) and str(item.get("summary", "")).strip()
+    ] if isinstance(report, dict) else []
+    pending_summary = "none queued"
+    if isinstance(latest_pending, dict) and latest_pending:
+        pending_summary = (
+            f"{len(pending_approvals)} queued; latest {latest_pending.get('title', 'builder task')}"
+            f" -> {latest_pending.get('output_file_path', '')}"
+        )
     payload: dict[str, object] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "active_workspace_name": active_instance_name,
@@ -162,9 +197,11 @@ def write_user_test_evidence_pack(
             "status": str(automation_status or "").strip(),
             "builder_report_path": display_repo_path(repo_root, builder_report),
             "validation_command": validation_command,
+            "pending_approval_summary": pending_summary,
+            "recent_activity": recent_builder_activity[:5],
         },
         "windows_ops": dict(windows_snapshot) if isinstance(windows_snapshot, Mapping) else {},
-        "latest_stress_report": display_repo_path(repo_root, stress_report) if stress_report else "",
+        "latest_stress_report": stress_report_text,
         "recent_operator_notes": recent_launcher_event_summaries(runtime_dir, limit=5),
     }
     payload["evidence_json_path"] = display_repo_path(repo_root, evidence_json_path)
@@ -180,7 +217,7 @@ def write_user_test_evidence_pack(
     return {
         "json_path": display_repo_path(repo_root, evidence_json_path),
         "summary_path": display_repo_path(repo_root, evidence_summary_path),
-        "stress_report_path": display_repo_path(repo_root, stress_report) if stress_report else "",
+        "stress_report_path": stress_report_text,
         "recent_events": recent_events,
     }
 
@@ -214,13 +251,9 @@ def build_automation_test_snapshot(
     awaiting = int(counts.get("awaiting_approval", 0) or 0)
     done = int(counts.get("done", 0) or 0)
     latest_pending = next(
-        (
-            item for item in reversed(tasks)
-            if str(item.get("status", "")).strip() == "awaiting_approval"
-            and isinstance(item.get("pending_approval"), dict)
-        ),
+        (item for item in report.get("pending_approvals", []) if isinstance(item, dict)),
         {},
-    )
+    ) if isinstance(report, dict) else {}
     latest_result = next(
         (
             item for item in reversed(report.get("recent_results", []))
@@ -228,9 +261,7 @@ def build_automation_test_snapshot(
         ),
         {},
     )
-    latest_staged_file = str(
-        (latest_pending.get("pending_approval", {}) if isinstance(latest_pending, dict) else {}).get("staged_file", "")
-    ).strip()
+    latest_staged_file = str(latest_pending.get("staged_file", "") if isinstance(latest_pending, dict) else "").strip()
     latest_result_path = str(latest_result.get("output_file", "") or "").strip()
     if not latest_result_path:
         latest_done_task = next(
@@ -252,9 +283,14 @@ def build_automation_test_snapshot(
             "builder-collab is unavailable, so automation stays in the current workspace."
         )
     if latest_pending:
+        pending_total = len(report.get("pending_approvals", [])) if isinstance(report, dict) else 1
+        requested_by = str(latest_pending.get("requested_by_instance", "") or "").strip()
         approval_state = (
             "Latest approval: awaiting approval for "
             f"{str(latest_pending.get('title', latest_pending.get('id', 'builder task')))}"
+            f" ({pending_total} queued"
+            + (f"; requested by {requested_by}" if requested_by else "")
+            + ")"
         )
     elif latest_result_path:
         approval_state = f"Latest approval: most recent approved output is {latest_result_path}"
@@ -265,8 +301,20 @@ def build_automation_test_snapshot(
     if not stress_report_path:
         latest_stress = latest_stress_report_path(runtime_dir)
         stress_report_path = display_repo_path(repo_root, latest_stress) if latest_stress else ""
+    if not stress_report_path:
+        stress_info = report.get("stress_validation", {}) if isinstance(report, dict) else {}
+        stress_report_path = str(stress_info.get("path", "") if isinstance(stress_info, dict) else "").strip()
+        if not stress_report_path:
+            stress_report_path = ""
     if not recent_events:
+        report_activity = [
+            str(item.get("summary", "")).strip()
+            for item in report.get("recent_activity", [])
+            if isinstance(item, dict) and str(item.get("summary", "")).strip()
+        ] if isinstance(report, dict) else []
         recent_items = recent_launcher_event_summaries(runtime_dir, limit=4)
+        if not recent_items:
+            recent_items = report_activity[:4]
         recent_events = (
             "Recent operator notes: " + " | ".join(recent_items)
             if recent_items else

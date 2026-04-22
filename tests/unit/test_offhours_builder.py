@@ -61,6 +61,8 @@ class OffhoursBuilderTests(unittest.TestCase):
             self.assertIn("unit_test_stub", ids)
             self.assertIn("ui_input_audit", ids)
             self.assertIn("schema_example", ids)
+            self.assertIn("approval_handoff", ids)
+            self.assertIn("stress_validation_note", ids)
 
     def test_approve_builder_task_writes_only_safe_outputs(self):
         old_root = offhours_builder.ROOT
@@ -122,3 +124,104 @@ class OffhoursBuilderTests(unittest.TestCase):
             offhours_builder.ROOT = old_root
             offhours_builder.RUNTIME = old_runtime
             offhours_builder.DRY_RUN_DIR = old_dry_run
+
+    def test_build_builder_report_normalizes_pending_paths_and_stress_evidence(self):
+        old_root = offhours_builder.ROOT
+        old_runtime = offhours_builder.RUNTIME
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                runtime = root / "runtime"
+                dry_run_dir = runtime / "offhours_results" / "dry_run"
+                stress_dir = runtime / "stress_reports"
+                dry_run_dir.mkdir(parents=True, exist_ok=True)
+                stress_dir.mkdir(parents=True, exist_ok=True)
+                staged_file = dry_run_dir / "sample.staged"
+                staged_file.write_text("# staged\n", encoding="utf-8")
+                stress_report = stress_dir / "stress_report_20260421_010101.json"
+                stress_report.write_text(
+                    json.dumps({"failure_count": 0, "profile": "bounded", "status": "pass"}),
+                    encoding="utf-8",
+                )
+                queue_path = runtime / "offhours_task_queue.json"
+                results_path = runtime / "offhours_task_results.jsonl"
+                metrics_path = runtime / "offhours_metrics.jsonl"
+                queue_path.write_text(
+                    json.dumps(
+                        {
+                            "version": 1,
+                            "tasks": [
+                                {
+                                    "id": "builder_pending",
+                                    "title": "Draft approval handoff",
+                                    "status": "awaiting_approval",
+                                    "requested_by_instance": "builder-collab",
+                                    "target_ref": "off-hours builder lane",
+                                    "output_file_path": "docs/generated/offhours_builder_approval_handoff.md",
+                                    "updated_utc": "2026-04-21T02:00:00+00:00",
+                                    "pending_approval": {
+                                        "staged_file": str(staged_file),
+                                        "workspace_file": "docs/generated/offhours_builder_approval_handoff.md",
+                                    },
+                                }
+                            ],
+                        },
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+                results_path.write_text(
+                    json.dumps(
+                        {
+                            "ts": "2026-04-21T02:05:00+00:00",
+                            "event": "offhours_task_complete",
+                            "title": "Draft approval handoff",
+                            "status": "awaiting_approval",
+                            "output_file": str(root / "runtime" / "offhours_results" / "builder_pending.md"),
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                metrics_path.write_text(
+                    json.dumps(
+                        {
+                            "ts": "2026-04-21T02:06:00+00:00",
+                            "event": "builder_task_enqueued",
+                            "template_id": "approval_handoff",
+                            "requested_by_instance": "builder-collab",
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+                offhours_builder.ROOT = root
+                offhours_builder.RUNTIME = runtime
+
+                report = offhours_builder.build_builder_report(
+                    queue_path=queue_path,
+                    results_path=results_path,
+                    metrics_path=metrics_path,
+                )
+
+                self.assertEqual(report["queue_counts"]["awaiting_approval"], 1)
+                self.assertEqual(
+                    report["pending_approvals"][0]["staged_file"],
+                    "runtime/offhours_results/dry_run/sample.staged",
+                )
+                self.assertEqual(
+                    report["stress_validation"]["path"],
+                    "runtime/stress_reports/stress_report_20260421_010101.json",
+                )
+                self.assertEqual(report["stress_validation"]["failure_count"], 0)
+                self.assertEqual(
+                    report["recent_results"][0]["output_file"],
+                    "runtime/offhours_results/builder_pending.md",
+                )
+                self.assertTrue(
+                    any("Draft approval handoff" in item["summary"] for item in report["recent_activity"])
+                )
+        finally:
+            offhours_builder.ROOT = old_root
+            offhours_builder.RUNTIME = old_runtime
