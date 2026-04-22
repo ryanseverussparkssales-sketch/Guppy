@@ -14,7 +14,6 @@ import {
   X,
   LogOut,
 } from 'lucide-react'
-import { useAppStore } from '../store'
 import './Sidebar.css'
 
 const navItems = [
@@ -34,12 +33,10 @@ const adminItems = [
 
 export default function Sidebar() {
   const location = useLocation()
-  const { logout } = useAppStore()
   const [isMobileOpen, setIsMobileOpen] = useState(false)
 
   const handleLogout = () => {
     localStorage.removeItem('accessToken')
-    logout()
   }
 
   const isActive = (path: string) => {

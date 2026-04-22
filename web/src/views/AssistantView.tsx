@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send, Mic, Plus } from 'lucide-react'
-import { useAppStore } from '../store'
 import api from '../api/client'
 import './AssistantView.css'
 

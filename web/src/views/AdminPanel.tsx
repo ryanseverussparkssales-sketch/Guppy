@@ -10,14 +10,6 @@ interface SystemStats {
   avgLatency: number
 }
 
-interface User {
-  id: string
-  email: string
-  createdAt: string
-  lastActive: string
-  role: 'admin' | 'user'
-}
-
 export default function AdminPanel() {
   const [stats, setStats] = useState<SystemStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
