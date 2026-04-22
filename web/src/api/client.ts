@@ -26,4 +26,6 @@ api.interceptors.response.use(
   }
 )
 
+// Named export for hooks, default for backwards compatibility
+export { api }
 export default api
