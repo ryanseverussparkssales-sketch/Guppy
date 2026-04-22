@@ -94,7 +94,7 @@ class SettingsView(QWidget):
         layout.setSpacing(16)
 
         title = QLabel("Settings")
-        title.setStyleSheet("font-size: 26pt; font-weight: 900;")
+        title.setStyleSheet(f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: 26pt; font-weight: 900;")
         self._title_lbl = title
         layout.addWidget(title)
         subtitle = QLabel("Runtime defaults plus assistant naming and persona behavior for launcher-local use.")

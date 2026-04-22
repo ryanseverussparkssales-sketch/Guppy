@@ -127,7 +127,7 @@ def set_root_feedback(view, message: str, *, is_error: bool) -> None:
         view._root_feedback_lbl.clear()
         view._root_feedback_lbl.setVisible(False)
         return
-    color = T.ERROR if is_error else T.GREEN
+    color = T.STATUS_ERROR if is_error else T.STATUS_SUCCESS
     view._root_feedback_lbl.setText(text)
     view._root_feedback_lbl.setStyleSheet(
         f"color: {color}; font-family: '{T.FF_BODY}'; font-size: {T.FS_TINY}pt;"
@@ -179,4 +179,3 @@ def refresh_note_editor_state(view) -> None:
     else:
         hint = "Multiline notes stay in Library and can be reused in Home with USE IN CHAT."
     view._note_editor_hint.setText(hint)
-

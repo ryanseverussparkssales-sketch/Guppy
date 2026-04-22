@@ -64,11 +64,11 @@ def refresh_runtime_library(owner) -> None:
     for index, model_name in enumerate(available):
         button = QPushButton(model_name)
         is_assigned = model_name in assigned
-        accent = T.PRIMARY if is_assigned else T.DIM
+        accent = T.ACCENT_ORANGE if is_assigned else T.DIM
         button.setStyleSheet(
-            f"QPushButton {{ background: {T.BG0}; color: {accent}; border: 1px solid {accent if is_assigned else T.BORDER};"
+            f"QPushButton {{ background: {T.BG0}; color: {accent}; border: 1px solid {accent if is_assigned else T.BORDER_SOFT}; border-radius: 4px;"
             f" padding: 5px 8px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; text-align: left; }}"
-            f"QPushButton:hover {{ border-color: {T.PRIMARY}; color: {T.PRIMARY}; }}"
+            f"QPushButton:hover {{ border-color: {T.ACCENT_ORANGE}; color: {T.ACCENT_ORANGE}; }}"
         )
         button.clicked.connect(lambda _=False, selected_model=model_name: owner._assign_runtime_model(selected_model))
         row = index // 3

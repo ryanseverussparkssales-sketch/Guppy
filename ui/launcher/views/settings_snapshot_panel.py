@@ -55,7 +55,7 @@ def apply_automation_snapshot(owner, payload: dict[str, object]) -> None:
 
 
 def set_automation_status(owner, text: str, ok: bool = True) -> None:
-    color = T.GREEN if ok else T.ERROR
+    color = T.STATUS_SUCCESS if ok else T.STATUS_ERROR
     message = (text or "Automation test lane ready").strip() or "Automation test lane ready"
     owner._automation_status_lbl.setText(message)
     owner._automation_status_lbl.setStyleSheet(

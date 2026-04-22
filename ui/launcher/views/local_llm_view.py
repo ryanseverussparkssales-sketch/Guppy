@@ -59,14 +59,14 @@ def _slug_label(value: str) -> str:
 class _MetricCard(QFrame):
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet(f"background-color: {T.BG0}; border: 1px solid {T.BORDER};")
+        self.setStyleSheet(f"background-color: {T.BG0}; border: 1px solid {T.BORDER_SOFT}; border-radius: 4px;")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(4)
 
         badge = QLabel(title)
         badge.setStyleSheet(
-            f"color: {T.PRIMARY}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px; font-weight: bold;"
+            f"color: {T.ACCENT_TEAL}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px; font-weight: bold;"
         )
         self._value = QLabel("-")
         self._value.setStyleSheet(

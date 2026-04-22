@@ -390,13 +390,13 @@ class TopBar(QFrame):
 
     def _apply_notif_style(self) -> None:
         btn_color = T.TEXT
-        badge_color = T.TERTIARY
+        badge_color = T.ACCENT_TEAL
         if self._notif_severity == "error":
-            btn_color = T.ERROR
-            badge_color = T.ERROR
+            btn_color = T.STATUS_ERROR
+            badge_color = T.STATUS_ERROR
         elif self._notif_severity == "warn":
-            btn_color = T.PRIMARY
-            badge_color = T.PRIMARY
+            btn_color = T.ACCENT_ORANGE
+            badge_color = T.ACCENT_ORANGE
 
         self._notif_btn.setStyleSheet(self._icon_button_style(T.BG0, btn_color))
         if self._notif_count <= 0:

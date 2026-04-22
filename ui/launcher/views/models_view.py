@@ -342,7 +342,7 @@ class ModelsView(QWidget):
         }.get(str(tone or "").strip().lower(), default)
 
     def _set_runtime_status(self, text: str, ok: bool = True) -> None:
-        color = T.GREEN if ok else T.ERROR
+        color = T.STATUS_SUCCESS if ok else T.STATUS_ERROR
         self._runtime_status_lbl.setText(text)
         self._runtime_status_lbl.setStyleSheet(f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;")
 

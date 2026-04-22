@@ -50,7 +50,7 @@ QComboBox::down-arrow {{
     width: 0; height: 0;
     border-left: 4px solid transparent;
     border-right: 4px solid transparent;
-    border-top: 6px solid {T.PRIMARY};
+    border-top: 6px solid {T.ACCENT_TEAL};
     margin-right: 8px;
 }}
 QComboBox QAbstractItemView {{
@@ -114,8 +114,8 @@ QPushButton:pressed {{
     border-color: {T.ACCENT_TEAL};
 }}
 QPushButton:disabled {{
-    color: {T.BORDER};
-    border-color: {T.BORDER};
+    color: {T.BORDER_SOFT};
+    border-color: {T.BORDER_SOFT};
     background-color: {T.SURFACE_ELEVATED_45};
 }}
 QCheckBox {{

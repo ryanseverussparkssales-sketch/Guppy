@@ -61,7 +61,7 @@ def load_mix_from_routes(owner) -> None:
 
 
 def set_mix_status(owner, text: str, ok: bool) -> None:
-    color = T.GREEN if ok else T.ERROR
+    color = T.STATUS_SUCCESS if ok else T.STATUS_ERROR
     owner._mix_status_lbl.setText(text)
     owner._mix_status_lbl.setStyleSheet(
         f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"
@@ -200,7 +200,7 @@ def apply_model_loadout(owner, *, runtime_settings_backend_available: bool, load
 
 
 def set_loadout_status(owner, text: str, ok: bool) -> None:
-    color = T.GREEN if ok else T.ERROR
+    color = T.STATUS_SUCCESS if ok else T.STATUS_ERROR
     owner._loadout_status_lbl.setText(text)
     owner._loadout_status_lbl.setStyleSheet(
         f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt;"

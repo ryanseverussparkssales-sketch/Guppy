@@ -192,7 +192,7 @@ class AssistantView(QWidget):
         self._empty_state_title_lbl = QLabel(self._empty_state_title_text)
         self._empty_state_title_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self._empty_state_title_lbl.setStyleSheet(
-            f"color: {T.INK}; font-family: '{T.FF_HEAD}'; font-size: 25pt; font-weight: 700;"
+            f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: 25pt; font-weight: 700;"
         )
         layout.addWidget(self._empty_state_title_lbl)
 

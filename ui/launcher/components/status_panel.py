@@ -240,16 +240,16 @@ class StatusPanel(QFrame):
         art_layout = QVBoxLayout(artwork)
         art_layout.setContentsMargins(14, 10, 14, 10)
         art_layout.setSpacing(5)
-        optional_lbl = _mono("OPTIONAL", T.INK, T.FS_TINY, True)
+        optional_lbl = _mono("OPTIONAL", T.ACCENT_TEAL, T.FS_TINY, True)
         optional_lbl.setStyleSheet(
-            f"color: {T.INK}; background-color: {T.SURFACE_ELEVATED_92};"
+            f"color: {T.ACCENT_TEAL}; background-color: {T.SURFACE_ELEVATED_92};"
             f" border-radius: 9px; padding: 2px 8px; font-family: '{T.FF_MONO}';"
             f" font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
         )
         art_layout.addWidget(optional_lbl)
         self._media_title_lbl = QLabel("Keep the daily path light")
         self._media_title_lbl.setStyleSheet(
-            f"color: {T.INK}; background-color: {T.SURFACE_ELEVATED_92};"
+            f"color: {T.ACCENT_TEAL}; background-color: {T.SURFACE_ELEVATED_92};"
             f" border-radius: 12px; padding: 3px 8px; font-family: '{T.FF_HEAD}';"
             " font-size: 15pt; font-weight: bold;"
         )
@@ -268,7 +268,7 @@ class StatusPanel(QFrame):
         art_layout.addWidget(self._media_subtitle_lbl)
         art_gesture = QLabel("// calm / focus / context")
         art_gesture.setStyleSheet(
-            f"color: {T.INK}; background-color: {T.SURFACE_ELEVATED_88};"
+            f"color: {T.ACCENT_TEAL}; background-color: {T.SURFACE_ELEVATED_88};"
             f" border-radius: 9px; padding: 2px 8px; font-family: '{T.FF_MONO}'; font-size: 9pt; letter-spacing: 2px;"
         )
         art_layout.addWidget(art_gesture)
@@ -372,7 +372,7 @@ class StatusPanel(QFrame):
 
     def set_recovery_outcome(self, action: str, ok: bool, summary: str) -> None:
         state = "OK" if ok else "ERROR"
-        color = T.GREEN if ok else T.ERROR
+        color = T.STATUS_SUCCESS if ok else T.STATUS_ERROR
         message = f"Latest: {action.upper()} {state}"
         if summary:
             message = f"{message} / {summary}"

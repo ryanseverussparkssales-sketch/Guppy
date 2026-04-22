@@ -182,10 +182,10 @@ class ToolsView(QWidget):
         self._sections = QTabWidget()
         self._sections.setDocumentMode(True)
         self._sections.setStyleSheet(
-            f"QTabWidget::pane {{ border: 1px solid {T.BORDER}; background: rgba(255,255,255,0.42); }}"
-            f"QTabBar::tab {{ background: rgba(255,255,255,0.86); color: {T.DIM}; border: 1px solid {T.BORDER};"
+            f"QTabWidget::pane {{ border: 1px solid {T.BORDER_SOFT}; background: rgba(255,255,255,0.42); }}"
+            f"QTabBar::tab {{ background: rgba(255,255,255,0.86); color: {T.DIM}; border: 1px solid {T.BORDER_SOFT}; border-radius: 3px;"
             f" padding: 4px 8px; margin-right: 4px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
-            f"QTabBar::tab:selected {{ color: {T.INK}; border-color: {T.ACCENT_ORANGE}; background: rgba(255,109,0,0.12); }}"
+            f"QTabBar::tab:selected {{ color: {T.TEXT}; border-color: {T.ACCENT_ORANGE}; background: rgba(255,109,0,0.12); }}"
         )
         self._quick_tab = QWidget()
         self._quick_layout = QVBoxLayout(self._quick_tab)
@@ -206,7 +206,7 @@ class ToolsView(QWidget):
         self._search.setToolTip("Type a keyword to filter workspace tools by name or description")
         self._search.setMinimumHeight(36)
         self._search.setStyleSheet(
-            f"QLineEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER}; color: {T.TEXT};"
+            f"QLineEdit {{ background: {T.BG0}; border: 1px solid {T.BORDER_SOFT}; border-radius: 4px; color: {T.TEXT};"
             f" font-family: '{T.FF_MONO}'; font-size: {T.FS_SMALL}pt; padding: 4px 8px; }}"
             f"QLineEdit:focus {{ border-color: {T.ACCENT_TEAL}; }}"
         )
