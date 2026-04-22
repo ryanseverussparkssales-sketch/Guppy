@@ -120,6 +120,7 @@ export default function ModelsView() {
         </button>
       </div>
 
+<<<<<<< HEAD
       {error && <div className="models-error">{error}</div>}
 
       <div className="models-tabs">
@@ -253,6 +254,53 @@ export default function ModelsView() {
               </div>
             </div>
           )}
+=======
+      {loading ? (
+        <div className="empty-state">
+          <p>Loading models...</p>
+        </div>
+      ) : error ? (
+        <div className="empty-state">
+          <h3>Models Configuration</h3>
+          <p>{error}</p>
+          <p style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '12px' }}>
+            Make sure all backend services are properly configured and running.
+          </p>
+        </div>
+      ) : models.length === 0 ? (
+        <div className="empty-state">
+          <h3>No models configured</h3>
+          <p>Set up your preferred AI models (local or cloud)</p>
+          <button className="btn btn-primary">Add Model</button>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+          {models.map((model) => (
+            <div key={model.id} style={{
+              backgroundColor: 'var(--color-bg-secondary)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--border-radius)',
+              padding: '16px',
+            }}>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: '600' }}>
+                {model.name}
+              </h3>
+              <p style={{ margin: '0 0 8px 0', fontSize: '14px', color: 'var(--color-text-secondary)' }}>
+                Type: {model.type}
+              </p>
+              {model.provider && (
+                <p style={{ margin: '0 0 8px 0', fontSize: '14px', color: 'var(--color-text-secondary)' }}>
+                  Provider: {model.provider}
+                </p>
+              )}
+              {model.status && (
+                <p style={{ margin: '0', fontSize: '12px', color: 'var(--color-text-muted)' }}>
+                  Status: {model.status}
+                </p>
+              )}
+            </div>
+          ))}
+>>>>>>> 171e5c4c95d95e798ddb97f6ffcd89a93da5f76f
         </div>
       )}
     </div>
