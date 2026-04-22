@@ -89,7 +89,7 @@ class LibraryView(QWidget):
         title_row.addStretch()
         self._workspace_chip = QLabel("DAILY WORKSPACE")
         self._workspace_chip.setStyleSheet(
-            f"color: {T.SECONDARY}; background: rgba(47,111,122,0.10); border: 1px solid rgba(214,197,174,0.40);"
+            f"color: {T.ACCENT_TEAL}; background: rgba(0,106,106,0.10); border: 1px solid rgba(0,106,106,0.30);"
             f" border-radius: 14px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
         )
         title_row.addWidget(self._workspace_chip)
@@ -617,4 +617,3 @@ class LibraryView(QWidget):
             "study": self._current_source_summary("study", self._state.study_summary),
             "coding": self._current_source_summary("coding", self._state.coding_summary),
         }
-
