@@ -1,9 +1,0 @@
-# Guppy optional feature dependencies
-# Install with: python -m pip install -r requirements-optional.txt
-
-# Wake-word fast path. Without this, wake-word detection falls back to transcription mode.
-openwakeword
-
-# Optional semantic-memory backend. Default backend uses SQLite.
-chromadb
-onnxruntime

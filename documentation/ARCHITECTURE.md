@@ -1,6 +1,6 @@
 # Architecture
 
-Last verified: 2026-04-17
+Last verified: 2026-04-22
 
 ## 1) Runtime Entry Points
 
@@ -8,6 +8,7 @@ Last verified: 2026-04-17
 - Canonical hub app: `src/guppy/apps/hub_app.py`
 - Canonical launch CLI: `src/guppy/cli/launch.py`
 - Canonical API server: `src/guppy/api/server.py`
+- Root web compatibility API shell: `api/app.py`
 - Canonical API auth: `src/guppy/api/auth.py`
 - Canonical inference router: `src/guppy/inference/router.py`
 - Canonical daemon: `src/guppy/daemon/daemon.py`
@@ -17,6 +18,12 @@ Thin root compatibility wrappers now remain only for stable front-door launch pa
 - `guppy_launcher.py`, `guppy_hub.py`, `guppy_api.py`
 - historical specialist desktop material now lives under `compat_shims/legacy_surfaces/`
 
+Desktop launch verification:
+
+- root launcher wrapper `guppy_launcher.py` delegates into `src/guppy/apps/launcher_app.py`
+- repo-local desktop batch entrypoint `bin/Guppy.bat` resolves packaged binaries first, then falls back to `src/guppy/cli/launch.py launcher`
+- desktop shortcut/bootstrap helper `tools/ensure_desktop_launcher.ps1` writes `Desktop\Applications\Guppy Launcher.bat` plus a Desktop `.lnk` that targets the packaged binary when present, else the repo launcher batch
+
 ## 2) UI Architecture
 
 ### Primary daily UI
@@ -24,6 +31,28 @@ Thin root compatibility wrappers now remain only for stable front-door launch pa
 - Shell: `ui/launcher/launcher_window.py`
 - Views: `ui/launcher/views/`
 - Components: `ui/launcher/components/`
+
+### Root web UI
+
+- SPA source: `web/src/`
+- Vite build/config entry: `vite.config.ts`
+- HTTP client: `web/src/api/client.ts`
+- Compatibility inventory routes: `api/routes/catalog.py`
+
+The root web UI now relies on the same inventory ownership used elsewhere in the repo instead of a separate web-only registry:
+
+- model/provider inventory is derived from local-runtime probes plus configured cloud-provider environment keys
+- tool inventory is derived from `guppy_core/tool_registry.py`
+- workspace snapshots come from `config/instances.json` plus `runtime/instance_state.json` through `src/guppy/launcher_application/workspace_snapshot_support.py`
+- connector inventory comes from `utils/connector_manager.py` backed by `src/guppy/workspace_governance/`
+
+Dual-surface non-conflict rule:
+
+- the desktop launcher and root web UI are both supported clients
+- neither client owns independent runtime truth
+- active model, workspace snapshot, connector inventory, tool inventory, and provider readiness must resolve through shared backend/runtime seams
+- if one client needs a compatibility route or projection, that route must still be built from canonical sources rather than client-local placeholders
+- desktop remains the richer Windows-native surface; the root web UI may be slimmer, but it must not contradict the desktop client about chat state, model state, workspace state, or inventories
 
 ### Background collaboration and historical compatibility
 
@@ -60,6 +89,12 @@ The current refactor path is organized around four live seam domains:
 - `src/guppy/runtime_application/` for startup readiness, runtime health, repair-token lifecycle, and launcher-facing runtime summaries
 - `src/guppy/workspace_governance/` for workspace config, permissions, connector bindings, machine auth, and denial reasons
 - `src/guppy/experience_config/` for persona, provider, voice, and runtime-profile presentation helpers
+
+Root web/API compatibility seams:
+
+- `api/app.py` remains the lightweight FastAPI shell used by the root web surface
+- `api/routes/catalog.py` is the compatibility layer that exposes `/`, `/status`, `/providers`, `/instances`, `/connectors`, `/api/models`, `/api/tools`, and `/api/instances`
+- this compatibility layer should reuse canonical registries and snapshot builders rather than duplicating launcher/web inventories
 
 Current launcher-facing presenters now include:
 

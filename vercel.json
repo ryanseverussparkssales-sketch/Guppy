@@ -1,17 +1,12 @@
 {
+  "buildCommand": "cd web && npm install && npm run build",
+  "outputDirectory": "web/dist",
+  "framework": "vite",
+  "env": {
+    "VITE_API_URL": "@vite_api_url"
+  },
   "builds": [
     {
       "src": "api/index.py",
       "use": "@vercel/python",
-      "config": {
-        "runtime": "python3.12"
-      }
-    }
-  ],
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/api/index.py"
-    }
-  ]
-}
+      "config"

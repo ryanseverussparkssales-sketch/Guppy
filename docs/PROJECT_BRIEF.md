@@ -176,7 +176,30 @@ Boundary intent: preserve the current five-hub product ownership while freezing 
 | P3 | Settings Hub Consolidation | complete | Merge `my_pc_view.py`, `advanced_view.py`, `connector_panel.py`, `advanced_terminal_panel.py` into `settings_view.py` | Settings Hub owns all credentials, diagnostics, recovery, and daemon controls in one destination | Completed April 19, 2026 |
 | P4 | Library Hub Completion | complete | Promote Library to a first-class hub with media player, richer note editing, and broader source reuse | Library Hub is the single destination for files, notes, media, and artifact reuse in chat | Completed April 19, 2026 |
 | P5 | Tools Hub Hardening | complete | Tools Hub gains live tool debugging, execution traces, and per-command permission controls | Tools Hub is the complete operational view of every agent capability | Completed April 19, 2026 |
-| P6 | Platform Hardening + Packaging Readiness | active | Reduce architectural hotspot risk, harden launcher/model/tool flows, and align stable interfaces for downstream packaging work | Release remains repeatable; hotspot seams are reduced; packaging work can land on stable hub interfaces | April 20 - June 12, 2026 |
+| P6 | Platform Hardening + Packaging Readiness | active | Reduce architectural hotspot risk while explicitly stabilizing local/cloud chat, model switching, stats fidelity, guarded PC-control flows, and dual web/desktop surface parity | Release remains repeatable; chat/runtime switching is stable; stats stop drifting from runtime truth; PC-control stays powerful but bounded; web and desktop remain parallel clients over shared contracts | April 20 - June 12, 2026 |
+
+### P6 Goal Contract (April 22, 2026)
+
+P6 is now judged against the following concrete product goals rather than generic hardening language:
+
+1. Stable local and cloud chat.
+   - Chat must stay reliable whether the active route is local-runtime or cloud-provider backed.
+   - Route changes, provider availability changes, and auth refresh must not break the daily chat path.
+2. Stable model switching.
+   - Model/provider switching must update one shared runtime truth and must not leave launcher, web, and API surfaces showing different active models.
+   - Switching must be safe across MAIN / SUB lanes and across local/cloud fallback behavior.
+3. Accurate statistics.
+   - User-visible counts, health labels, runtime readiness, and model/tool inventories must come from canonical runtime/state sources rather than placeholder or duplicated UI-only data.
+   - If a metric is not trustworthy yet, it should be demoted or hidden instead of invented.
+4. Total local PC control as a guarded advanced capability.
+   - Local PC control remains a real capability goal, but it is not allowed to become a conflicting primary product surface.
+   - The daily path stays calm; powerful machine-control flows remain bounded under Tools or Settings with clear policy and permission ownership.
+5. North-star completion without surface conflict.
+   - Chat, Workspaces behavior, Library, and Settings remain the primary product truths.
+   - Models and Tools stay subordinate implementation hubs, not competing product centers.
+6. Dual web UI and desktop launcher options that do not conflict.
+   - Desktop launcher and root web UI must behave as parallel clients over shared inventories, shared workspace/config truth, and shared route contracts.
+   - No surface may invent its own model list, tool list, connector registry, or workspace state contract.
 
 ---
 
@@ -191,7 +214,7 @@ Apply `docs/PRODUCT_FEATURE_FILTER.md` to every tranche before expanding scope.
 | P3 Settings Hub | API keys, credentials, diagnostics, recovery, daemon, connectors | Advanced power-user metadata | New top-level operator destinations |
 | P4 Library Hub | Approved roots, recent files, pinned notes, media player, use-in-chat | Power-user file metadata | Whole-PC crawling, connector-heavy file surfaces |
 | P5 Tools Hub | Tool list, permissions, add/remove, execution traces | Detailed per-invocation audit beyond recent history | Autonomous tool builder, tool marketplace |
-| P6 Platform Hardening | Hotspot reduction, stable seams, packaging-facing interfaces | speculative downstream integration planning beyond interface-level | Large packaging or integration work before the hardening lane lands cleanly |
+| P6 Platform Hardening | Hotspot reduction, stable seams, stable local/cloud chat, stable model switching, stats truth, bounded PC-control, dual-surface parity | speculative downstream integration planning beyond interface-level, placeholder dashboard metrics, duplicate per-surface inventories | Large packaging or integration work before the hardening lane lands cleanly |
 
 ---
 
@@ -203,6 +226,7 @@ Apply `docs/PRODUCT_FEATURE_FILTER.md` to every tranche before expanding scope.
 4. April 19, 2026 - Completed: Library Hub has a local media player, multiline note workflows, and smoother source reuse into Home Chat.
 5. April 19, 2026 - Completed: Tools Hub now has recent execution traces, per-command debug evidence, and a split Tools surface that keeps the Builder path and Settings boundary intact.
 6. June 12, 2026 - Target: Platform hardening and packaging-readiness work are stable enough for downstream merge, real-machine runtime validation, and packaging work on the five-hub shell.
+7. June 12, 2026 - Target: desktop launcher and root web UI both operate from the same runtime/config truth without route, inventory, or active-model drift.
 
 ---
 
@@ -242,6 +266,11 @@ All three guardrail blockers from the April 18 audit have been resolved:
 5. Tools Hub ownership is complete; remaining Tools work is polish rather than missing trace/debug foundations.
 6. Voice lifecycle needs broader real-device validation across engines.
 7. Builder and off-hours flows need output-cleanup polish and repeated stress validation.
+8. Stable local/cloud chat is not yet called out as a first-class acceptance lane in the active brief; P6 now treats that as explicit release-facing scope.
+9. Stable model switching still needs parity checks across launcher, web, runtime route state, and local/cloud provider transitions.
+10. User-visible statistics are still uneven in fidelity across surfaces; placeholder or synthetic dashboard numbers must not outrun runtime truth.
+11. Local PC control exists as tool capability, but its ownership and calm-surface boundaries must stay explicit so it does not regress the north-star into an automation dashboard.
+12. Dual web and desktop support is now real, but route contracts and shared inventory ownership still need continued enforcement so the two clients do not drift again.
 
 ---
 

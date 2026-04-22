@@ -1,7 +1,0 @@
-{"timestamp": "2026-04-13T22:10:24.552596+00:00", "event_type": "integration_heartbeat", "payload": {"state": "idle", "reason": "api_request"}}
-{"timestamp": "2026-04-13T22:10:50.662658+00:00", "event_type": "integration_heartbeat", "payload": {"state": "idle", "reason": "api_request"}}
-{"timestamp": "2026-04-13T22:11:42.370582+00:00", "event_type": "integration_heartbeat", "payload": {"state": "idle", "reason": "api_request"}}
-{"timestamp": "2026-04-13T22:12:09.934057+00:00", "event_type": "integration_heartbeat", "payload": {"state": "idle", "reason": "api_request"}}
-{"timestamp": "2026-04-13T22:12:53.617215+00:00", "event_type": "integration_heartbeat", "payload": {"state": "idle", "reason": "api_request"}}
-{"timestamp": "2026-04-13T22:13:20.163284+00:00", "event_type": "integration_heartbeat", "payload": {"state": "idle", "reason": "api_request"}}
-{"timestamp": "2026-04-13T22:13:55.414082+00:00", "event_type": "integration_heartbeat", "payload": {"state": "idle", "reason": "api_request"}}
