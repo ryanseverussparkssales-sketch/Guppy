@@ -134,7 +134,7 @@ class InferenceRouter:
         self.haiku_model_override = (os.environ.get("ANTHROPIC_HAIKU_MODEL", "").strip() or self.HAIKU_MODEL)
         self.sonnet_model_override = (os.environ.get("ANTHROPIC_MODEL", "").strip() or self.SONNET_MODEL)
 
-        # Try to import Anthropic
+        # Anthropic
         try:
             import anthropic
             self.anthropic_client = anthropic.Anthropic(
@@ -144,6 +144,28 @@ class InferenceRouter:
         except ImportError:
             self.anthropic_client = None
             self.anthropic_available = False
+
+        # OpenAI
+        self.openai_model = (os.environ.get("OPENAI_MODEL", "").strip() or "gpt-4o-mini")
+        try:
+            from openai import OpenAI
+            _openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+            self.openai_client = OpenAI(api_key=_openai_key) if _openai_key else None
+            self.openai_available = bool(_openai_key)
+        except ImportError:
+            self.openai_client = None
+            self.openai_available = False
+
+        # Google Gemini
+        self.google_model = (os.environ.get("GOOGLE_MODEL", "").strip() or "gemini-2.0-flash")
+        try:
+            from google import genai as _genai  # noqa: F401
+            _google_key = os.environ.get("GOOGLE_API_KEY", "").strip()
+            self.google_available = bool(_google_key)
+            self._google_api_key = _google_key
+        except ImportError:
+            self.google_available = False
+            self._google_api_key = ""
 
     def _should_use_haiku_boost(self, api_available: bool) -> bool:
         """Check if haiku boost should be used."""

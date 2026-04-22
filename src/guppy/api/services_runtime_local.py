@@ -7,9 +7,22 @@ import urllib.request
 from typing import Any, Optional
 
 
+_VALID_BACKENDS = {"ollama", "lmstudio", "lemonade", "auto"}
+_LMSTUDIO_DEFAULT_URL = "http://127.0.0.1:1234"
+
+
 def selected_local_runtime_backend(owner: Any) -> str:
-    backend = str(owner.os.environ.get("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama") or "ollama").strip().lower()
-    return backend if backend in {"ollama", "lemonade"} else "ollama"
+    """Return the active backend name. 'auto' is resolved to the detected backend."""
+    raw = str(owner.os.environ.get("GUPPY_LOCAL_RUNTIME_BACKEND", "auto") or "auto").strip().lower()
+    if raw not in _VALID_BACKENDS:
+        raw = "auto"
+    if raw == "auto":
+        try:
+            from src.guppy.inference.local_client import active_backend
+            return active_backend()
+        except Exception:
+            return "ollama"
+    return raw
 
 
 def local_runtime_base_url(owner: Any, backend: str) -> str:
@@ -19,7 +32,15 @@ def local_runtime_base_url(owner: Any, backend: str) -> str:
             owner.os.environ.get("GUPPY_LEMONADE_BASE_URL", owner._DEFAULT_LEMONADE_BASE_URL)
             or owner._DEFAULT_LEMONADE_BASE_URL
         ).strip()
-    return "http://127.0.0.1:11434"
+    if normalized == "lmstudio":
+        return str(
+            owner.os.environ.get("GUPPY_LMSTUDIO_BASE_URL", _LMSTUDIO_DEFAULT_URL)
+            or _LMSTUDIO_DEFAULT_URL
+        ).strip()
+    return str(
+        owner.os.environ.get("GUPPY_OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+        or "http://127.0.0.1:11434"
+    ).strip()
 
 
 def resolve_local_runtime_model(
@@ -89,6 +110,31 @@ def warm_ollama_chat_lane(owner: Any, model: str, keep_alive: str = "20m") -> tu
     return True, f"{normalized_model} warm"
 
 
+def warm_lmstudio_chat_lane(owner: Any, model: str) -> tuple[bool, str]:
+    normalized_model = str(model or "").strip()
+    if not normalized_model:
+        return False, "no LM Studio model configured for warmup"
+    payload = {
+        "model": normalized_model,
+        "messages": [{"role": "user", "content": "ok"}],
+        "stream": False,
+        "max_tokens": 1,
+    }
+    base = owner._local_runtime_base_url("lmstudio").rstrip("/")
+    req = urllib.request.Request(
+        f"{base}/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=owner._LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS) as resp:
+        data = json.loads(resp.read())
+    choices = data.get("choices", []) if isinstance(data, dict) else []
+    if not choices:
+        return False, "LM Studio warmup returned no choices"
+    return True, f"{normalized_model} warm"
+
+
 def warm_lemonade_chat_lane(owner: Any, model: str) -> tuple[bool, str]:
     normalized_model = str(model or "").strip()
     if not normalized_model:
@@ -141,6 +187,8 @@ def refresh_local_runtime_warm_status(owner: Any, force: bool = False) -> dict[s
     try:
         if backend == "lemonade":
             ok, detail = warm_lemonade_chat_lane(owner, model)
+        elif backend == "lmstudio":
+            ok, detail = warm_lmstudio_chat_lane(owner, model)
         else:
             ok, detail = warm_ollama_chat_lane(owner, model)
     except Exception as exc:
@@ -271,9 +319,26 @@ def build_local_runtime_status(owner: Any) -> dict[str, Any]:
         if backend == "lemonade":
             model_ids = owner._fetch_lemonade_model_ids()
             detail = "Lemonade model registry reachable"
-        else:
+        elif backend == "lmstudio":
+            base = owner._local_runtime_base_url("lmstudio").rstrip("/")
             req = urllib.request.Request(
-                "http://127.0.0.1:11434/api/tags",
+                f"{base}/v1/models",
+                headers={"Accept": "application/json"},
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=4.0) as resp:
+                data = json.loads(resp.read())
+            items = data.get("data", []) if isinstance(data, dict) else []
+            model_ids = {
+                str(item.get("id", "")).strip()
+                for item in items
+                if isinstance(item, dict) and str(item.get("id", "")).strip()
+            }
+            detail = "LM Studio model registry reachable"
+        else:
+            ollama_base = owner._local_runtime_base_url("ollama").rstrip("/")
+            req = urllib.request.Request(
+                f"{ollama_base}/api/tags",
                 headers={"Accept": "application/json"},
                 method="GET",
             )

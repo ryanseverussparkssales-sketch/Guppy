@@ -270,7 +270,9 @@ from src.guppy.api._server_fragment_models import (
 )
 from src.guppy.api.routes_core import build_core_router
 from src.guppy.api.routes_instances import build_instances_router
+from src.guppy.api.routes_models import build_models_router
 from src.guppy.api.routes_ops import build_ops_router
+from src.guppy.api.routes_providers import build_providers_router
 from src.guppy.api.routes_realtime import build_realtime_router
 from src.guppy.api.runtime_state import ServerRuntimeState
 from src.guppy.api.server_paths import ServerPathConfig
@@ -445,6 +447,8 @@ app.include_router(build_core_router(_server_context))
 
 _server_context.require_repair_token = _require_repair_token
 app.include_router(build_instances_router(_server_context))
+app.include_router(build_models_router(_server_context))
+app.include_router(build_providers_router(_server_context))
 app.include_router(build_ops_router(_server_context))
 app.include_router(build_realtime_router(_server_context))
 

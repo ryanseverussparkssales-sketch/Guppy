@@ -56,6 +56,60 @@
   height: 16px;
 }
 
+.settings-note {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin: 0 0 14px 0;
+}
+
+.settings-note code {
+  background-color: var(--color-bg-hover);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: var(--font-size-sm);
+}
+
+.provider-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.provider-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-ok  { color: #22c55e; flex-shrink: 0; }
+.provider-off { color: var(--color-text-muted); flex-shrink: 0; }
+
+.provider-label { font-weight: 500; }
+
+.provider-model {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-family: monospace;
+}
+
+.provider-env {
+  font-size: var(--font-size-sm);
+  background-color: var(--color-bg-hover);
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+}
+
+.provider-get-key {
+  font-size: var(--font-size-sm);
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.provider-get-key:hover { text-decoration: underline; }
+
 .setting-item input[type="range"] {
   width: 100%;
 }

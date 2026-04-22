@@ -7,14 +7,25 @@ interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  source?: string
   timestamp: Date
 }
+
+const MODES = [
+  { value: 'auto',     label: 'Auto' },
+  { value: 'claude',   label: 'Claude' },
+  { value: 'openai',   label: 'OpenAI' },
+  { value: 'google',   label: 'Google' },
+  { value: 'local',    label: 'Local' },
+  { value: 'code',     label: 'Code' },
+]
 
 export default function AssistantView() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isListening, setIsListening] = useState(false)
+  const [mode, setMode] = useState('auto')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -40,29 +51,26 @@ export default function AssistantView() {
     setIsLoading(true)
 
     try {
-      // Call the chat endpoint
-      const response = await api.post('/chat', {
-        message: text,
-        mode: 'auto',
-      })
-
+      const response = await api.post('/chat', { message: text, mode })
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: response.data.response || response.data.message || 'No response',
+        source: response.data.source,
         timestamp: new Date(),
       }
-
       setMessages((prev) => [...prev, assistantMessage])
     } catch (error) {
       console.error('Failed to send message:', error)
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 2).toString(),
-        role: 'assistant',
-        content: 'Sorry, I encountered an error processing your request.',
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, errorMessage])
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 2).toString(),
+          role: 'assistant',
+          content: 'Sorry, I encountered an error processing your request.',
+          timestamp: new Date(),
+        },
+      ])
     } finally {
       setIsLoading(false)
     }
@@ -86,13 +94,13 @@ export default function AssistantView() {
             <h1>Welcome to Guppy</h1>
             <p>Your AI assistant is ready to help. Start a conversation below.</p>
             <div className="welcome-suggestions">
-              <button className="suggestion-btn" onClick={() => setInput('What can you help me with?')}>
+              <button type="button" className="suggestion-btn" onClick={() => setInput('What can you help me with?')}>
                 What can you help me with?
               </button>
-              <button className="suggestion-btn" onClick={() => setInput('Tell me about yourself')}>
+              <button type="button" className="suggestion-btn" onClick={() => setInput('Tell me about yourself')}>
                 Tell me about yourself
               </button>
-              <button className="suggestion-btn" onClick={() => setInput('Help me code something')}>
+              <button type="button" className="suggestion-btn" onClick={() => setInput('Help me code something')}>
                 Help me code something
               </button>
             </div>
@@ -104,9 +112,12 @@ export default function AssistantView() {
             <div key={msg.id} className={`message ${msg.role}`}>
               <div className="message-content">
                 <p>{msg.content}</p>
-                <span className="message-time">
-                  {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
+                <div className="message-meta">
+                  {msg.source && <span className="message-source">{msg.source}</span>}
+                  <span className="message-time">
+                    {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
               </div>
             </div>
           ))}
@@ -124,8 +135,20 @@ export default function AssistantView() {
       )}
 
       <div className="assistant-input-area">
+        <div className="mode-selector">
+          {MODES.map((m) => (
+            <button type="button"
+              key={m.value}
+              className={`mode-chip ${mode === m.value ? 'active' : ''}`}
+              onClick={() => setMode(m.value)}
+              disabled={isLoading}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
         <div className="input-toolbar">
-          <button
+          <button type="button"
             className="input-btn"
             onClick={startNewChat}
             title="Start new chat"
@@ -136,7 +159,7 @@ export default function AssistantView() {
           <input
             type="text"
             className="message-input"
-            placeholder="Type your message... or press / for commands"
+            placeholder="Type your message..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -147,7 +170,7 @@ export default function AssistantView() {
             }}
             disabled={isLoading}
           />
-          <button
+          <button type="button"
             className="input-btn voice-btn"
             onClick={toggleVoiceInput}
             title="Voice input"
@@ -155,11 +178,11 @@ export default function AssistantView() {
           >
             <Mic size={18} className={isListening ? 'active' : ''} />
           </button>
-          <button
+          <button type="button"
             className="input-btn send-btn"
             onClick={() => handleSendMessage(input)}
             disabled={!input.trim() || isLoading}
-            title="Send message (Ctrl+Enter)"
+            title="Send message"
           >
             <Send size={18} />
           </button>

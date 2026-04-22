@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import json
 import logging
-import socket
-import urllib.error
-import urllib.request
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
+
+from src.guppy.inference.local_client import local_chat
 
 logger = logging.getLogger(__name__)
 
@@ -294,70 +292,104 @@ def _ollama_call(
     messages: Optional[list] = None,
     timeout: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Shared Ollama HTTP call used by all local query methods."""
+    """Local inference call with circuit breaker and retry via local_chat."""
     _timeout = timeout if timeout is not None else self.OLLAMA_TIMEOUT
-    if messages is None:
-        all_msgs = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_text},
-        ]
-    else:
-        all_msgs = messages
+    all_msgs = messages if messages is not None else [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_text},
+    ]
 
-    last_error: Exception | None = None
     for candidate in self._candidate_local_models(model):
-        try:
-            logger.info(f"[LOCAL] attempting {candidate}")
-            if candidate != model:
-                logger.info(f"[LOCAL] compatibility alias resolved {model} -> {candidate}")
-
-            payload: Dict[str, Any] = {
-                "model": candidate,
-                "messages": all_msgs,
-                "stream": False,
-                "keep_alive": "10m",
-                "options": {
-                    "temperature": 0.8,
-                    "top_p": 0.95,
-                    "top_k": 40,
-                    "num_predict": self.local_num_predict,
-                },
-            }
-            if tools:
-                payload["tools"] = tools
-
-            req = urllib.request.Request(
-                self.OLLAMA_API,
-                data=json.dumps(payload).encode(),
-                headers={"Content-Type": "application/json"},
-                method="POST",
+        if candidate != model:
+            logger.info(f"[LOCAL] alias {model} -> {candidate}")
+        result = local_chat(
+            candidate,
+            all_msgs,
+            tools=tools,
+            timeout=_timeout,
+            num_predict=self.local_num_predict,
+        )
+        if result is not None:
+            result["requested_model"] = model
+            result["resolved_model"] = candidate
+            result.setdefault("metadata", {}).update(
+                {"requested_model": model, "resolved_model": candidate}
             )
-            with urllib.request.urlopen(req, timeout=_timeout) as r:
-                data = json.loads(r.read().decode())
+            return result
 
-            logger.info(f"[LOCAL] success {candidate}")
-            return {
-                "response": data.get("message", {}).get("content", ""),
-                "model": candidate,
-                "requested_model": model,
-                "source": "local",
-                "tool_calls": data.get("message", {}).get("tool_calls", []),
-                "metadata": {
-                    "timestamp": datetime.now().isoformat(),
-                    "raw_data": data,
-                    "requested_model": model,
-                    "resolved_model": candidate,
-                },
-            }
-        except (socket.timeout, urllib.error.URLError) as e:
-            last_error = e
-            logger.warning(f"[LOCAL] Timeout/connection ({_timeout}s) model={candidate}: {e}")
-        except Exception as e:
-            last_error = e
-            logger.warning(f"[LOCAL] Error model={candidate}: {e}")
-    if last_error is not None:
-        logger.warning(f"[LOCAL] Unable to resolve a working local model for {model}: {last_error}")
+    logger.warning(f"[LOCAL] all candidates failed for {model}")
     return None
+
+def query_openai(self, system_prompt: str, user_text: str, tools: Optional[list] = None) -> Optional[Dict[str, Any]]:
+    """Query OpenAI (gpt-4o-mini default). Returns response dict or None."""
+    if not self.openai_available or self.openai_client is None:
+        logger.warning("[OPENAI] Not configured. Skipping.")
+        return None
+    try:
+        logger.info(f"[OPENAI] Querying {self.openai_model}...")
+        messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_text}]
+        kwargs: Dict[str, Any] = {"model": self.openai_model, "messages": messages, "max_tokens": 4096}
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+        response = self.openai_client.chat.completions.create(**kwargs)
+        content = (response.choices[0].message.content or "").strip() if response.choices else ""
+        if not content:
+            logger.warning("[OPENAI] Empty response.")
+            return None
+        logger.info(f"[OPENAI] ok tokens={response.usage.completion_tokens if response.usage else '?'}")
+        return {
+            "response": content,
+            "model": self.openai_model,
+            "source": "openai",
+            "tool_calls": [],
+            "metadata": {
+                "timestamp": datetime.now().isoformat(),
+                "usage": {
+                    "input_tokens": response.usage.prompt_tokens if response.usage else 0,
+                    "output_tokens": response.usage.completion_tokens if response.usage else 0,
+                },
+            },
+        }
+    except Exception as e:
+        logger.error(f"[OPENAI] Error: {e}")
+        return None
+
+
+def query_gemini(self, system_prompt: str, user_text: str, tools: Optional[list] = None) -> Optional[Dict[str, Any]]:
+    """Query Google Gemini. Returns response dict or None."""
+    if not self.google_available:
+        logger.warning("[GOOGLE] Not configured. Skipping.")
+        return None
+    try:
+        from google import genai
+        from google.genai import types as gtypes
+        logger.info(f"[GOOGLE] Querying {self.google_model}...")
+        client = genai.Client(api_key=self._google_api_key)
+        response = client.models.generate_content(
+            model=self.google_model,
+            contents=[gtypes.Content(role="user", parts=[gtypes.Part(text=user_text)])],
+            config=gtypes.GenerateContentConfig(
+                system_instruction=system_prompt,
+                max_output_tokens=4096,
+            ),
+        )
+        content = (response.text or "").strip()
+        if not content:
+            logger.warning("[GOOGLE] Empty response.")
+            return None
+        logger.info("[GOOGLE] ok")
+        return {
+            "response": content,
+            "model": self.google_model,
+            "source": "google",
+            "tool_calls": [],
+            "metadata": {"timestamp": datetime.now().isoformat()},
+        }
+    except Exception as e:
+        logger.error(f"[GOOGLE] Error: {e}")
+        return None
+
 
 def query_local(self, system_prompt: str, user_text: str, tools: Optional[list] = None, messages: Optional[list] = None) -> Optional[Dict[str, Any]]:
     """Query the guppy (32B) model via Ollama. Returns response dict or None."""
@@ -540,6 +572,8 @@ def attach_router_execution_methods(cls) -> None:
     cls.query_local_paired = query_local_paired
     cls._ollama_call = _ollama_call
     cls.query_local = query_local
+    cls.query_openai = query_openai
+    cls.query_gemini = query_gemini
     cls.query_haiku = query_haiku
     cls.query_sonnet = query_sonnet
     cls.query = query

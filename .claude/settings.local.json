@@ -58,7 +58,13 @@
       "Bash(python tools/dev_workflow.py dev-check --guard-scope delta)",
       "Bash(python tools/dev_workflow.py release-check)",
       "Bash(python tools/dev_workflow.py --help)",
-      "Bash(pip show *)"
+      "Bash(pip show *)",
+      "Bash(PYTHONPATH=. .venv/Scripts/python -m pytest tests/unit/test_inference_router_fallback.py -v)",
+      "Bash(.venv/Scripts/python -c ' *)",
+      "Bash(.venv/Scripts/python -c \"import openai; print\\('openai', openai.__version__\\)\")",
+      "Bash(.venv/Scripts/python -c \"import google.generativeai; print\\('google-generativeai ok'\\)\")",
+      "Bash(.venv/Scripts/python -c \"import google.generativeai; print\\('genai ok'\\)\")",
+      "Bash(.venv/Scripts/pip show *)"
     ]
   }
 }
