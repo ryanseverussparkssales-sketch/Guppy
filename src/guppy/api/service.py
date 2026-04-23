@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class APIError:
     
     def __post_init__(self):
         if self.timestamp is None:
-            self.timestamp = datetime.utcnow().isoformat()
+            self.timestamp = datetime.now(timezone.utc).isoformat()
 
 
 @dataclass
@@ -338,7 +338,7 @@ class GuppyAPIClient:
         try:
             return APIResponse(
                 success=True,
-                data={"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+                data={"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
             )
         except Exception as e:
             logger.exception("Health check failed")

@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-04-22
+**Last updated:** 2026-04-23
 
 ---
 
@@ -31,9 +31,11 @@ launcher_app.py              hub_app.py              server.py
 ### Known Architecture Seams
 1. **UI Launcher is a re-export shim** — `ui/launcher/__init__.py` delegates to `compat_shims/launcher_ui/ui/launcher/`. Real code lives in compat_shims. This is intentional (cleanup in progress).
 
-2. **Legacy code quarantined** — `compat_shims/legacy_surfaces/` is empty (candidate for removal). `src/guppy/merlin/` holds old specialist material (not active launcher).
+2. **Legacy code quarantined** — `compat_shims/legacy_surfaces/` is empty (candidate for removal). `src/guppy/merlin/` holds old specialist material (not active launcher). `.quarantine/` contains a README only — confirmed intentional archival, not dead code. Scheduled for review at P6 closeout.
 
-3. **Multiple /repair endpoints** — `/repair` and `/repair-token/refresh` declared in three files (`routes_ops.py`, `snapshot_misc_routes.py`, `_server_fragment_routes_core.py`). Verify if these are alternative mount points or dead code.
+3. **Catalog routes are all production** — `launcher_application/` catalogs (connector, workflow, instance, voice) are active production code. No experimental catalog routes exist.
+
+4. **Multiple /repair endpoints** — `/repair` and `/repair-token/refresh` declared in three files (`routes_ops.py`, `snapshot_misc_routes.py`, `_server_fragment_routes_core.py`). Verify if these are alternative mount points or dead code.
 
 ---
 
@@ -108,6 +110,8 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - ✅ Database pragmas and hardening
 - ✅ All documented tool scripts and test files
 - ✅ `GUPPY_DEV_MODE` env var and logging
+- ✅ **Web UI parity (P6)** — Web UI fetches model inventory and workspace state entirely from the same API endpoints as the desktop. No duplicate inventories. Parity validated 2026-04-23. One known gap: `models_view.py` has a local `CLOUD_MODELS` list for the desktop library panel — must stay in sync with `src/guppy/api/routes_providers.py`. (Fixed `claude-opus-4` → `claude-opus-4-7` 2026-04-23.)
+- ✅ **Phase 3 complete (TR54-C)** — `ui/launcher/accounts/connector_remediation_paths.py`, `ui/launcher/views/settings_connector_flow.py`, `ui/launcher/config/runtime_settings_schema.py`, `ui/launcher/config/settings_io.py`, `ui/launcher/tools/tool_evidence_builder.py`, `ui/launcher/tools/tool_status_copy.py`
 
 ---
 

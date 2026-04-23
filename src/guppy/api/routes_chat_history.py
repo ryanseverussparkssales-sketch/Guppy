@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -68,7 +68,7 @@ class ChatHistoryDB:
     def create_conversation(self, workspace_id: str, title: Optional[str] = None) -> Dict[str, Any]:
         """Create a new conversation."""
         conv_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         final_title = title or f"Conversation {now[:10]}"
 
         with sqlite3.connect(self.db_path) as conn:
@@ -131,7 +131,7 @@ class ChatHistoryDB:
     def add_message(self, conv_id: str, role: str, content: str, model: Optional[str] = None) -> Dict[str, Any]:
         """Add a message to a conversation."""
         msg_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         with sqlite3.connect(self.db_path) as conn:
             # Add message
@@ -165,7 +165,7 @@ class ChatHistoryDB:
 
     def update_conversation_title(self, conv_id: str, title: str) -> Dict[str, Any]:
         """Update conversation title."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",

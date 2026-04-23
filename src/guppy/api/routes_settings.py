@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -58,7 +58,7 @@ class SettingsDB:
                 INSERT OR IGNORE INTO settings (key, value, updated_at)
                 VALUES ('active_provider', 'local', ?)
                 """,
-                (datetime.utcnow().isoformat(),),
+                (datetime.now(timezone.utc).isoformat(),),
             )
 
             conn.commit()
@@ -68,7 +68,7 @@ class SettingsDB:
         if not api_key.strip():
             raise ValueError("api_key cannot be empty")
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
@@ -114,7 +114,7 @@ class SettingsDB:
 
     def set_setting(self, key: str, value: str) -> Dict[str, Any]:
         """Set a setting value."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """

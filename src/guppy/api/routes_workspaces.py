@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -61,7 +61,7 @@ class WorkspaceDB:
     def create_workspace(self, name: str, description: str = "") -> Dict[str, Any]:
         """Create a new workspace."""
         ws_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
@@ -79,7 +79,7 @@ class WorkspaceDB:
         if not ws:
             raise ValueError(f"Workspace {ws_id} not found")
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         updates = {"updated_at": now}
         if name is not None:
             updates["name"] = name

@@ -68,8 +68,8 @@ def build_library_layout(owner) -> None:
     title_row.addStretch()
     owner._workspace_chip = QLabel("DAILY WORKSPACE")
     owner._workspace_chip.setStyleSheet(
-        f"color: {T.ACCENT_ORANGE}; background: rgba(255,109,0,0.10); border: 1px solid rgba(255,109,0,0.30);"
-        f" border-radius: 4px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
+        f"color: {T.ACCENT_TEAL}; background: rgba(0,106,106,0.10); border: 1px solid rgba(0,106,106,0.30);"
+        f" border-radius: 14px; padding: 6px 10px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
     )
     title_row.addWidget(owner._workspace_chip)
     header_layout.addLayout(title_row)
@@ -96,6 +96,8 @@ def build_library_layout(owner) -> None:
     )
     owner._search.textChanged.connect(owner._apply_search_query)
     header_layout.addWidget(owner._search)
+    owner._search_status_lbl = _body("", color=T.DIM, size=T.FS_TINY)
+    header_layout.addWidget(owner._search_status_lbl)
     layout.addWidget(header)
 
     manager = QFrame()
@@ -105,7 +107,7 @@ def build_library_layout(owner) -> None:
     manager_layout = QVBoxLayout(manager)
     manager_layout.setContentsMargins(16, 14, 16, 14)
     manager_layout.setSpacing(10)
-    manager_layout.addWidget(_mono("MANAGE LIBRARY", T.PRIMARY, T.FS_TINY, True))
+    manager_layout.addWidget(_mono("MANAGE LIBRARY", T.ACCENT_TEAL, T.FS_TINY, True))
 
     root_row = QHBoxLayout()
     root_row.setSpacing(8)
@@ -196,12 +198,16 @@ def build_library_layout(owner) -> None:
     owner._artifact_cancel_btn.setStyleSheet(_styled_button(T.SECONDARY))
     owner._artifact_cancel_btn.clicked.connect(owner._reset_artifact_editor)
     owner._artifact_cancel_btn.setVisible(False)
+    owner._artifact_title.textChanged.connect(owner._refresh_artifact_editor_state)
+    owner._artifact_path.textChanged.connect(owner._refresh_artifact_editor_state)
     artifact_row.addWidget(owner._artifact_title, stretch=1)
     artifact_row.addWidget(owner._artifact_path, stretch=2)
     artifact_row.addWidget(owner._artifact_browse_btn)
     artifact_row.addWidget(owner._artifact_save_btn)
     artifact_row.addWidget(owner._artifact_cancel_btn)
     manager_layout.addLayout(artifact_row)
+    owner._artifact_editor_hint = _body("", color=T.DIM, size=T.FS_TINY)
+    manager_layout.addWidget(owner._artifact_editor_hint)
     layout.addWidget(manager)
 
     owner._recent_lbl = _mono("", T.PRIMARY, T.FS_TINY, True)

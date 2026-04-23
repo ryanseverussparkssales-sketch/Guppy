@@ -376,3 +376,58 @@ def apply_density_mode(view, width: int) -> None:
         if compact and not view._workspace_details_expanded
         else ("HIDE DETAILS" if view._workspace_details_expanded else "DETAILS")
     )
+
+
+def update_workspace_details_visibility(view) -> None:
+    if not view._home_workspace_details_enabled:
+        view._workspace_details_summary.setText("")
+        view._workspace_details_btn.setText("DETAILS")
+        view._identity_details_btn.setText("DETAILS")
+        view._identity_details_btn.setVisible(False)
+        view._workspace_details_strip.setVisible(False)
+        view._workspace_details_host.setVisible(False)
+        return
+    has_saved_output = bool(view._latest_saved_output)
+    has_sources = bool(view._active_context_items)
+    summary = "Files and saved context are tucked away here."
+    if has_sources and has_saved_output:
+        summary = "Attached sources and saved output are available here."
+    elif has_sources:
+        summary = "Attached sources are available here."
+    elif has_saved_output:
+        summary = "Saved output is available here."
+    view._workspace_details_summary.setText(summary)
+    view._workspace_details_btn.setText("HIDE DETAILS" if view._workspace_details_expanded else "DETAILS")
+    view._identity_details_btn.setText("HIDE DETAILS" if view._workspace_details_expanded else "DETAILS")
+    view._workspace_details_host.setVisible(view._workspace_details_expanded)
+
+
+def update_starter_visibility(view) -> None:
+    buttons_visible = view._starters_expanded and view.width() >= 920
+    has_context = bool(view._active_context_items)
+    has_draft = hasattr(view, "_input") and bool(view._input.text().strip())
+    view._starter_buttons_host.setVisible(buttons_visible)
+    view._starter_summary.setVisible(view.width() >= 920 and (buttons_visible or has_context or has_draft))
+    view._starters_btn.setText("HIDE PROMPTS" if view._starters_expanded else "PROMPTS")
+
+
+def set_persona_options(view, options: list[tuple[str, str]], selected: str | None = None) -> None:
+    target = str(selected or view._cb_persona.currentData() or view._cb_persona.currentText()).strip().lower()
+    normalized = [
+        (str(label).strip() or str(value).strip(), str(value).strip())
+        for label, value in options
+        if str(value).strip()
+    ]
+    if not normalized:
+        normalized = [("GUPPY", "guppy")]
+    view._cb_persona.blockSignals(True)
+    view._cb_persona.clear()
+    for label, value in normalized:
+        view._cb_persona.addItem(label, value)
+    target_index = 0
+    for idx in range(view._cb_persona.count()):
+        if str(view._cb_persona.itemData(idx) or "").strip().lower() == target:
+            target_index = idx
+            break
+    view._cb_persona.setCurrentIndex(target_index)
+    view._cb_persona.blockSignals(False)
