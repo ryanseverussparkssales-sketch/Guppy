@@ -81,6 +81,7 @@ def build_core_router(ctx: ServerContext) -> APIRouter:
         }
 
     @router.get("/status")
+    @router.get("/api/status")
     async def get_status(user_id: str = Depends(ctx.require_rate_limit)):
         del user_id
 
