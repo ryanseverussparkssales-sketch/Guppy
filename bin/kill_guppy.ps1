@@ -1,38 +1,44 @@
-# kill_guppy.ps1 — Stop all Guppy processes and free port 8081
+param()
+# kill_guppy.ps1 - Stop all Guppy processes and free port 8081
 
-$killed = @()
+$killed = [System.Collections.Generic.List[string]]::new()
 
 # 1. Kill anything holding port 8081
-$pids = netstat -ano 2>$null |
-    Select-String ':\b8081\b' |
-    ForEach-Object { ($_ -split '\s+')[-1] } |
+$portPids = netstat -ano 2>$null |
+    Select-String ':8081' |
+    ForEach-Object { ($_.ToString().Trim() -split '\s+')[-1] } |
     Where-Object { $_ -match '^\d+$' } |
     Select-Object -Unique
 
-foreach ($p in $pids) {
+foreach ($p in $portPids) {
     try {
-        Stop-Process -Id $p -Force -ErrorAction Stop
-        $killed += "PID $p (port 8081)"
-    } catch {}
+        Stop-Process -Id ([int]$p) -Force -ErrorAction Stop
+        $killed.Add("PID $p (port 8081)")
+    } catch { }
 }
 
 # 2. Kill Python processes running Guppy scripts
-$guppyKeywords = @('guppy_api', 'server_runtime', 'launch.py', 'guppy_hub', 'guppy_launcher', 'hub_app')
+$keywords = 'guppy_api','server_runtime','launch.py','guppy_hub','guppy_launcher','hub_app'
 
-Get-Process -Name python, pythonw -ErrorAction SilentlyContinue | ForEach-Object {
-    $proc = $_
-    try {
-        $cmd = (Get-WmiObject Win32_Process -Filter "ProcessId=$($proc.Id)" -ErrorAction SilentlyContinue).CommandLine
-        if ($cmd -and ($guppyKeywords | Where-Object { $cmd -like "*$_*" })) {
-            Stop-Process -Id $proc.Id -Force -ErrorAction Stop
-            $killed += "PID $($proc.Id) (python: $($cmd -replace '.+\\',''))"
-        }
-    } catch {}
+Get-Process -Name python,pythonw -ErrorAction SilentlyContinue | ForEach-Object {
+    $id  = $_.Id
+    $wmi = Get-WmiObject Win32_Process -Filter "ProcessId=$id" -ErrorAction SilentlyContinue
+    if (-not $wmi) { return }
+    $cmd = $wmi.CommandLine
+    $match = $keywords | Where-Object { $cmd -like "*$_*" } | Select-Object -First 1
+    if ($match) {
+        try {
+            Stop-Process -Id $id -Force -ErrorAction Stop
+            $killed.Add("PID $id (python: $match)")
+        } catch { }
+    }
 }
 
 if ($killed.Count -eq 0) {
-    Write-Host "Nothing to kill — no Guppy processes found."
+    Write-Host 'Nothing to kill - no Guppy processes found.'
 } else {
     Write-Host "Killed $($killed.Count) process(es):"
-    $killed | ForEach-Object { Write-Host "  $_" }
+    foreach ($entry in $killed) {
+        Write-Host "  $entry"
+    }
 }
