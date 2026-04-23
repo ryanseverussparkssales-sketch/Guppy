@@ -13,6 +13,7 @@ import SettingsView from './views/SettingsView'
 import StatusView from './views/StatusView'
 import AdminPanel from './views/AdminPanel'
 import DashboardView from './views/DashboardView'
+import LoginView from './views/LoginView'
 import { useAppStore, useWorkspaceStore, syncManager } from './store'
 import { useErrorStore } from './store/errorStore'
 import api from './api/client'
@@ -78,4 +79,70 @@ function AppContent() {
 
   // Listen for navigation events from sidebar/command palette
   useEffect(() => {
-    const handleNavigate = (e:
+    const handleNavigate = (e: CustomEvent<{ view: string }>) => {
+      const viewToRoute: Record<string, string> = {
+        dashboard: '/',
+        assistant: '/assistant',
+        instances: '/instances',
+        library: '/library',
+        models: '/models',
+        tools: '/tools',
+        voices: '/voices',
+        settings: '/settings',
+        status: '/status',
+        admin: '/admin',
+      }
+      const route = viewToRoute[e.detail.view] || '/'
+      navigate(route)
+    }
+
+    window.addEventListener('guppy:navigate', handleNavigate as EventListener)
+    return () => window.removeEventListener('guppy:navigate', handleNavigate as EventListener)
+  }, [navigate])
+
+  return (
+    <>
+      <AppShell>
+        <Routes>
+          <Route path="/" element={<DashboardView />} />
+          <Route path="/assistant" element={<AssistantView />} />
+          <Route path="/instances" element={<InstancesView />} />
+          <Route path="/library" element={<LibraryView />} />
+          <Route path="/models" element={<ModelsView />} />
+          <Route path="/tools" element={<ToolsView />} />
+          <Route path="/voices" element={<VoicesView />} />
+          <Route path="/settings" element={<SettingsView />} />
+          <Route path="/status" element={<StatusView />} />
+          <Route path="/admin" element={<AdminPanel />} />
+          <Route path="/login" element={<LoginView />} />
+        </Routes>
+      </AppShell>
+
+      {/* Error toast container for displaying error notifications from error store */}
+      <ErrorToastContainer
+        toasts={errors.map((e) => ({
+          id: e.id,
+          error: e.details || e.code,
+          message: e.message,
+          onRetry: e.onRetry,
+        }))}
+        onDismiss={removeError}
+        position="bottom-right"
+      />
+    </>
+  )
+}
+
+/**
+ * App - Root component with error boundary
+ * Wraps all app content to catch unhandled React errors
+ */
+function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  )
+}
+
+export default App
