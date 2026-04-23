@@ -1,7 +1,7 @@
 # Creates a desktop shortcut that opens the Guppy web UI in Edge app mode.
 # Run once: powershell -ExecutionPolicy Bypass -File tools\create_webui_shortcut.ps1
 
-$url     = "http://127.0.0.1:8081"
+$url     = "http://127.0.0.1:8081/index.html"
 $edge    = @(
     "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
     "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"

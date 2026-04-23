@@ -2,8 +2,8 @@ $log  = Join-Path $PSScriptRoot 'launch_webui.log'
 "[$(Get-Date -f 'HH:mm:ss')] script started" | Out-File $log -Encoding utf8
 $root   = Split-Path $PSScriptRoot -Parent
 $port   = 8081
-$url    = "http://127.0.0.1:$port"
-$health = "$url/"
+$url    = "http://127.0.0.1:$port/index.html"
+$health = "http://127.0.0.1:$port/"
 
 function Test-ApiReady {
     try {
