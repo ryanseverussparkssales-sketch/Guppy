@@ -51,7 +51,7 @@ $browser = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 
 Write-Host "Opening $url ..."
 if ($browser) {
-    Start-Process $browser -ArgumentList "--app=$url", "--window-size=1280,820", "--window-position=80,60"
+    Start-Process $browser -ArgumentList "--app=$url", "--window-size=1280,820", "--window-position=80,60" -WindowStyle Normal
 } else {
-    Start-Process $url
+    Start-Process $url -WindowStyle Normal
 }
