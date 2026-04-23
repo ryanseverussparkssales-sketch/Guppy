@@ -1,3 +1,5 @@
+$log  = Join-Path $PSScriptRoot 'launch_webui.log'
+"[$(Get-Date -f 'HH:mm:ss')] script started" | Out-File $log -Encoding utf8
 $root   = Split-Path $PSScriptRoot -Parent
 $port   = 8081
 $url    = "http://127.0.0.1:$port"
@@ -51,7 +53,10 @@ $browser = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 
 Write-Host "Opening $url ..."
 if ($browser) {
+    "[$(Get-Date -f 'HH:mm:ss')] launching browser: $browser" | Add-Content $log -Encoding utf8
     Start-Process $browser -ArgumentList "--app=$url", "--window-size=1280,820", "--window-position=80,60" -WindowStyle Normal
 } else {
+    "[$(Get-Date -f 'HH:mm:ss')] no Edge/Chrome found, using Start-Process url" | Add-Content $log -Encoding utf8
     Start-Process $url -WindowStyle Normal
 }
+"[$(Get-Date -f 'HH:mm:ss')] done" | Add-Content $log -Encoding utf8
