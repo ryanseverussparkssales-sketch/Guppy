@@ -328,11 +328,20 @@ _default_origins = [
     "http://127.0.0.1:8081",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
 ]
 _configured_origins = os.environ.get("GUPPY_ALLOWED_ORIGINS", "").strip()
-ALLOWED_ORIGINS = [
-    origin.strip() for origin in _configured_origins.split(",") if origin.strip()
-] if _configured_origins else _default_origins
+
+# In dev mode, allow all origins for localhost development
+if DEV_MODE:
+    ALLOWED_ORIGINS = ["*"]  # Allow all origins in dev mode
+else:
+    ALLOWED_ORIGINS = [
+        origin.strip() for origin in _configured_origins.split(",") if origin.strip()
+    ] if _configured_origins else _default_origins
 
 _path_config = ServerPathConfig.from_roots(CONFIG_DIR, RUNTIME_DIR)
 _runtime_dir = _path_config.runtime_dir
@@ -449,14 +458,20 @@ _server_context = _server_shell.server_context
 app.include_router(build_core_router(_server_context))
 
 _server_context.require_repair_token = _require_repair_token
-app.include_router(build_instances_router(_server_context))
+_instances_router = build_instances_router(_server_context)
+app.include_router(_instances_router)               # /instances/...
+app.include_router(_instances_router, prefix="/api") # /api/instances/... (web UI prefix)
+
 app.include_router(build_models_router(_server_context))
 app.include_router(build_providers_router(_server_context))
 app.include_router(build_workspaces_router(_server_context))
 app.include_router(build_chat_history_router(_server_context))
 app.include_router(build_settings_router(_server_context))
 app.include_router(build_ops_router(_server_context))
-app.include_router(build_realtime_router(_server_context))
+
+_realtime_router = build_realtime_router(_server_context)
+app.include_router(_realtime_router)               # /chat
+app.include_router(_realtime_router, prefix="/api") # /api/chat (web UI prefix)
 
 # Serve static web UI files
 try:
@@ -475,4 +490,9 @@ if __name__ == "__main__":
     uvicorn.run(
         "src.guppy.api.server:app",
         host=HOST,
-    
+        port=PORT,
+        reload=api_reload,
+        log_level="info"
+    )
+
+# === END _server_fragment_routes_ops.py ===

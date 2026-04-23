@@ -154,6 +154,17 @@ def build_settings_router(ctx: ServerContext) -> APIRouter:
             "credentials": _settings_db.get_credentials_status(),
         }
 
+    @router.put("")
+    async def update_settings(
+        payload: Dict[str, Any],
+        user_id: str = Depends(ctx.require_rate_limit),
+    ):
+        """Bulk-update settings (theme, language, etc)."""
+        del user_id
+        if "active_provider" in payload:
+            _settings_db.set_active_provider(payload["active_provider"], payload.get("active_model", ""))
+        return {"ok": True}
+
     @router.get("/credentials")
     async def get_credentials_status(user_id: str = Depends(ctx.require_rate_limit)):
         """Get credential configuration status (no keys exposed)."""
