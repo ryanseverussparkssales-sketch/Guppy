@@ -1,2 +1,2 @@
 @echo off
-powershell -ExecutionPolicy Bypass -File "%~dp0launch_webui.ps1"
+powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0launch_webui.ps1"
