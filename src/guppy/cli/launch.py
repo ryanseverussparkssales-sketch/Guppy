@@ -39,17 +39,25 @@ def _get_win_user_env(name: str) -> str:
 
 
 def _load_dotenv(root: Path) -> None:
-    env_file = root / ".env"
-    if not env_file.exists():
-        return
-    for raw in env_file.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    """Load environment variables from .env and .env.local files.
+
+    .env.local (if present) overrides .env values.
+    Variables already in os.environ are not overwritten.
+    """
+    for env_file_name in (".env", ".env.local"):
+        env_file = root / env_file_name
+        if not env_file.exists():
             continue
-        key, _, val = line.partition("=")
-        key = key.strip()
-        if key and key not in os.environ:
-            os.environ[key] = val.strip()
+        for raw in env_file.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            # .env.local values override .env values, but don't override os.environ
+            if key:
+                if env_file_name == ".env.local" or key not in os.environ:
+                    os.environ[key] = val.strip()
 
 
 def setup_env(root: Path, profile: str = "standard") -> None:
@@ -142,6 +150,9 @@ def _setup_api_env() -> None:
     os.environ.setdefault("GUPPY_API_RELOAD", "0")
     os.environ.setdefault("GUPPY_JWT_SECRET", "dev-secret-key-change-in-production")
     os.environ.setdefault("TURNSTILE_SECRET", "dev-turnstile-secret")
+    # Default to local inference — probe Ollama (11434) then LM Studio (1234).
+    # Only falls back to cloud (Claude) if ANTHROPIC_API_KEY is explicitly set.
+    os.environ.setdefault("GUPPY_DEFAULT_MODE", "local")
     if not os.environ.get("GUPPY_JWT_SECRET") or os.environ["GUPPY_JWT_SECRET"] == "dev-secret-key-change-in-production":
         print("[launch] WARNING: GUPPY_JWT_SECRET is not set — using dev default")
     if not os.environ.get("TURNSTILE_SECRET") or os.environ["TURNSTILE_SECRET"] == "dev-turnstile-secret":
