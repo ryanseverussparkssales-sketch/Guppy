@@ -6,6 +6,10 @@ from src.guppy.launcher_application.app_mgmt_presenter import (
     build_connector_inventory_state,
     validate_connector_action,
 )
+from ui.launcher.accounts.connector_remediation_paths import (
+    build_remediation_path,
+    remediation_summary,
+)
 
 _DEFAULT_CONNECTORS = (
     ("gmail", "Gmail"),
@@ -104,6 +108,33 @@ def sync_connector_controls(owner) -> None:
         button.setVisible(button_state.visible)
         button.setEnabled(button_state.enabled)
         button.setToolTip(button_state.tooltip)
+
+
+def get_remediation_summary(owner) -> str:
+    item = current_connector_payload(owner)
+    connector_id = str(item.get("id", "") or owner._connector_cb.currentData() or "").strip().lower()
+    blocked_reason = str(item.get("blocked_reason", "") or item.get("policy_reason_code", "") or "").strip().lower()
+    if not connector_id:
+        return ""
+    return remediation_summary(connector_id, blocked_reason)
+
+
+def get_remediation_steps(owner) -> list[dict[str, str]]:
+    item = current_connector_payload(owner)
+    connector_id = str(item.get("id", "") or owner._connector_cb.currentData() or "").strip().lower()
+    blocked_reason = str(item.get("blocked_reason", "") or item.get("policy_reason_code", "") or "").strip().lower()
+    if not connector_id:
+        return []
+    path = build_remediation_path(connector_id, blocked_reason)
+    return [
+        {
+            "action": step.action.value,
+            "label": step.label,
+            "description": step.description,
+            "button_label": step.button_label,
+        }
+        for step in path.steps
+    ]
 
 
 def emit_connector_action(owner, action: str) -> None:

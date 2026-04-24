@@ -1,4 +1,10 @@
 {
+  "buildCommand": "cd web && npm install && npm run build",
+  "outputDirectory": "web/dist",
+  "framework": "vite",
+  "env": {
+    "VITE_API_URL": "@vite_api_url"
+  },
   "builds": [
     {
       "src": "api/index.py",
@@ -8,10 +14,34 @@
       }
     }
   ],
-  "rewrites": [
+  "routes": [
     {
-      "source": "/(.*)",
-      "destination": "/api/index.py"
+      "src": "/api/(.*)",
+      "dest": "/api/index.py",
+      "methods": ["GET", "POST", "OPTIONS", "PUT", "DELETE", "PATCH"]
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/web/dist/$1"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Authorization, Content-Type, X-Request-ID"
+        }
+      ]
     }
   ]
 }

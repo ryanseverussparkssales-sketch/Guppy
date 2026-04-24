@@ -4,8 +4,6 @@ Runtime settings plus assistant/persona configuration for the unified launcher.
 """
 from __future__ import annotations
 
-import json
-import re
 import time
 from typing import Any
 
@@ -23,10 +21,6 @@ from PySide6.QtWidgets import (
 
 from src.guppy.experience_config import (
     apply_runtime_settings_to_env as apply_settings_to_env,
-    ensure_personalization_scaffold,
-    list_model_ids,
-    load_persona_config_with_diagnostics,
-    load_provider_registry,
     load_runtime_settings as load_app_settings,
     personalization_backend_available,
     recommend_runtime_profile,
@@ -37,11 +31,26 @@ from src.guppy.experience_config import (
 )
 from src.guppy.experience_config.personalization_defaults import DEFAULT_ASSISTANT_NAME, DEFAULT_PERSONA_CONFIG
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
-from src.guppy.launcher_application.settings_persona_presenter import (
-    build_assignment_summary_text,
-    build_persona_preview_text,
-)
 from .. import tokens as T
+from .settings_view_persona_logic import (
+    _PERSONALIZATION_BACKEND,
+    build_persona_config as _build_persona_config_fn,
+    create_persona,
+    deepcopy_json,
+    delete_persona,
+    load_model_binding_options,
+    load_persona_settings,
+    next_persona_id,
+    on_persona_selected,
+    on_scope_changed,
+    persona_items,
+    populate_persona_form,
+    refresh_assignment_summary,
+    refresh_persona_lists,
+    refresh_preview,
+    selected_persona,
+    set_persona_controls_enabled,
+)
 from .settings_view_sections import (
     _MODEL_BINDING_OPTIONS,
     build_settings_persona_frame,
@@ -49,18 +58,6 @@ from .settings_view_sections import (
 )
 
 _PROFILE_BACKEND = runtime_settings_backend_available()
-_PERSONALIZATION_BACKEND = personalization_backend_available()
-
-_SLUG_RE = re.compile(r"[^a-z0-9]+")
-
-
-def _deepcopy_json(data: dict[str, Any]) -> dict[str, Any]:
-    return json.loads(json.dumps(data))
-
-
-def _slugify(raw: str) -> str:
-    normalized = _SLUG_RE.sub("_", (raw or "").strip().lower()).strip("_")
-    return normalized[:40] or "persona"
 
 
 class SettingsView(QWidget):
@@ -69,7 +66,7 @@ class SettingsView(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._persona_config = _deepcopy_json(DEFAULT_PERSONA_CONFIG)
+        self._persona_config = deepcopy_json(DEFAULT_PERSONA_CONFIG)
         self._current_persona_id = "main_guppy"
         self._loading_persona = False
         self._settings_section = "runtime"
@@ -216,287 +213,49 @@ class SettingsView(QWidget):
             return
 
     def _load_persona_settings(self) -> None:
-        if not _PERSONALIZATION_BACKEND:
-            self._set_persona_controls_enabled(False)
-            self._persona_status_lbl.setText("Assistant & Persona Builder unavailable: personalization backend not loaded.")
-            self._refresh_preview()
-            return
-
-        try:
-            ensure_personalization_scaffold()
-            self._load_model_binding_options()
-            config, diagnostics = load_persona_config_with_diagnostics()
-        except Exception as exc:
-            self._set_persona_controls_enabled(False)
-            self._persona_status_lbl.setText(f"Assistant & Persona Builder failed to load: {exc}")
-            self._refresh_preview()
-            return
-
-        if isinstance(config, dict):
-            self._persona_config = config
-        self._persona_diag_lbl.setText(
-            "Persona config healthy" if not diagnostics else "Config notes: " + " | ".join(diagnostics)
-        )
-        select_id = str(
-            self._persona_config.get("default_persona_id")
-            or self._persona_config.get("assignments", {}).get("global", "main_guppy")
-        )
-        self._refresh_persona_lists(select_id)
-        self._persona_status_lbl.setText("Assistant & Persona Builder ready")
+        load_persona_settings(self)
 
     def _load_model_binding_options(self) -> None:
-        options = list_model_ids(load_provider_registry())
-        current = self._model_binding_cb.currentText().strip()
-        self._model_binding_cb.blockSignals(True)
-        self._model_binding_cb.clear()
-        self._model_binding_cb.addItems(options or list(_MODEL_BINDING_OPTIONS))
-        if current:
-            index = self._model_binding_cb.findText(current)
-            if index >= 0:
-                self._model_binding_cb.setCurrentIndex(index)
-        self._model_binding_cb.blockSignals(False)
+        load_model_binding_options(self)
 
     def _set_persona_controls_enabled(self, enabled: bool) -> None:
-        for widget in [
-            self._persona_picker,
-            self._new_persona_btn,
-            self._delete_persona_btn,
-            self._persona_name,
-            self._scope_cb,
-            self._model_binding_cb,
-            self._tone_cb,
-            self._verbosity_cb,
-            self._style_cb,
-            self._teaching_toggle,
-            self._socratic_slider,
-            self._example_slider,
-            self._global_persona_cb,
-            self._system_prompt,
-        ]:
-            widget.setEnabled(enabled)
+        set_persona_controls_enabled(self, enabled)
 
     def _persona_items(self) -> list[dict[str, Any]]:
-        personas = self._persona_config.get("personas", [])
-        return [item for item in personas if isinstance(item, dict)]
+        return persona_items(self)
 
     def _refresh_persona_lists(self, select_id: str = "") -> None:
-        personas = self._persona_items()
-        if not personas:
-            self._persona_config = _deepcopy_json(DEFAULT_PERSONA_CONFIG)
-            personas = self._persona_items()
-
-        target = select_id or str(personas[0].get("id", "main_guppy"))
-        self._persona_picker.blockSignals(True)
-        self._global_persona_cb.blockSignals(True)
-        self._persona_picker.clear()
-        self._global_persona_cb.clear()
-
-        for persona in personas:
-            persona_id = str(persona.get("id", "")).strip()
-            name = str(persona.get("name", persona_id)).strip() or persona_id
-            scope = str(persona.get("scope", "global")).strip().upper()
-            label = f"{name} [{scope}]"
-            self._persona_picker.addItem(label, persona_id)
-            self._global_persona_cb.addItem(name, persona_id)
-
-        picker_index = max(0, self._persona_picker.findData(target))
-        self._persona_picker.setCurrentIndex(picker_index)
-        global_target = str(self._persona_config.get("assignments", {}).get("global", "") or target)
-        global_index = self._global_persona_cb.findData(global_target)
-        self._global_persona_cb.setCurrentIndex(max(0, global_index))
-        self._persona_picker.blockSignals(False)
-        self._global_persona_cb.blockSignals(False)
-        self._current_persona_id = str(self._persona_picker.currentData() or target)
-        self._populate_persona_form()
+        refresh_persona_lists(self, select_id)
 
     def _selected_persona(self) -> dict[str, Any]:
-        for persona in self._persona_items():
-            if str(persona.get("id", "")).strip() == self._current_persona_id:
-                return persona
-        return self._persona_items()[0]
+        return selected_persona(self)
 
     def _populate_persona_form(self) -> None:
-        persona = self._selected_persona()
-        traits = persona.get("traits", {}) if isinstance(persona.get("traits"), dict) else {}
-        teaching = persona.get("teaching", {}) if isinstance(persona.get("teaching"), dict) else {}
-
-        self._loading_persona = True
-        self._persona_name.setText(str(persona.get("name", "")))
-        self._scope_cb.setCurrentText(str(persona.get("scope", "global")).upper())
-        model_name = str(persona.get("model", _MODEL_BINDING_OPTIONS[0]))
-        if model_name not in _MODEL_BINDING_OPTIONS:
-            model_name = _MODEL_BINDING_OPTIONS[0]
-        model_index = self._model_binding_cb.findText(model_name)
-        self._model_binding_cb.setCurrentIndex(max(0, model_index))
-        self._tone_cb.setCurrentText(str(traits.get("tone", "butler")).upper())
-        self._verbosity_cb.setCurrentText(str(traits.get("verbosity", "medium")).upper())
-        self._style_cb.setCurrentText(str(traits.get("response_style", "direct")).upper())
-        self._teaching_toggle.setChecked(bool(teaching.get("enabled", True)))
-        self._socratic_slider.setValue(int(teaching.get("socratic_bias", 35) or 35))
-        self._example_slider.setValue(int(teaching.get("example_bias", 60) or 60))
-        self._system_prompt.setPlainText(str(persona.get("system_prompt", "")))
-        self._loading_persona = False
-        self._on_scope_changed(self._scope_cb.currentText())
-        self._refresh_assignment_summary()
-        self._refresh_preview()
+        populate_persona_form(self)
 
     def _refresh_assignment_summary(self) -> None:
-        mapping = self._persona_config.get("assignments", {}).get("by_model", {})
-        self._assignment_summary_lbl.setText(build_assignment_summary_text(self._persona_items(), mapping))
+        refresh_assignment_summary(self)
 
     def _on_persona_selected(self, _index: int) -> None:
-        self._current_persona_id = str(self._persona_picker.currentData() or self._current_persona_id)
-        self._populate_persona_form()
+        on_persona_selected(self, _index)
 
     def _on_scope_changed(self, text: str) -> None:
-        model_scope = (text or "GLOBAL").strip().upper() == "MODEL"
-        self._model_binding_cb.setEnabled(model_scope and _PERSONALIZATION_BACKEND)
-        self._refresh_preview()
+        on_scope_changed(self, text)
 
     def _next_persona_id(self, base_name: str) -> str:
-        base = _slugify(base_name)
-        existing = {str(item.get("id", "")).strip() for item in self._persona_items()}
-        candidate = base
-        suffix = 2
-        while candidate in existing:
-            candidate = f"{base}_{suffix}"
-            suffix += 1
-        return candidate
+        return next_persona_id(self, base_name)
 
     def _create_persona(self) -> None:
-        if not _PERSONALIZATION_BACKEND:
-            return
-        name = f"Custom Assistant {len(self._persona_items()) + 1}"
-        persona_id = self._next_persona_id(name)
-        self._persona_config.setdefault("personas", []).append(
-            {
-                "id": persona_id,
-                "name": name,
-                "scope": "global",
-                "system_prompt": "You are Guppy. Stay explicit, bounded, and practical.",
-                "traits": {
-                    "tone": "coach",
-                    "verbosity": "medium",
-                    "response_style": "structured",
-                },
-                "teaching": {
-                    "enabled": True,
-                    "socratic_bias": 50,
-                    "example_bias": 50,
-                },
-            }
-        )
-        self._refresh_persona_lists(persona_id)
-        self._persona_status_lbl.setText(f"Draft assistant persona created: {name}")
+        create_persona(self)
 
     def _delete_persona(self) -> None:
-        personas = self._persona_items()
-        if len(personas) <= 1:
-            self._persona_status_lbl.setText("At least one persona must remain.")
-            return
-        keep = [item for item in personas if str(item.get("id", "")).strip() != self._current_persona_id]
-        self._persona_config["personas"] = keep
-        assignments = self._persona_config.setdefault("assignments", {"global": keep[0]["id"], "by_model": {}})
-        by_model = assignments.get("by_model", {}) if isinstance(assignments.get("by_model"), dict) else {}
-        assignments["by_model"] = {model: persona_id for model, persona_id in by_model.items() if persona_id != self._current_persona_id}
-        if assignments.get("global") == self._current_persona_id:
-            assignments["global"] = str(keep[0].get("id", "main_guppy"))
-        self._persona_config["default_persona_id"] = assignments["global"]
-        self._refresh_persona_lists(str(keep[0].get("id", "main_guppy")))
-        self._persona_status_lbl.setText("Assistant persona removed from draft config")
+        delete_persona(self)
 
     def _build_persona_config(self) -> tuple[dict[str, Any], dict[str, Any]]:
-        cfg = _deepcopy_json(self._persona_config)
-        personas = cfg.get("personas", []) if isinstance(cfg.get("personas"), list) else []
-        persona_id = self._current_persona_id or self._next_persona_id(self._persona_name.text().strip())
-        name = self._persona_name.text().strip()
-        if not name:
-            raise ValueError("Assistant name is required")
-        scope = self._scope_cb.currentText().strip().lower()
-        model_name = self._model_binding_cb.currentText().strip()
-        if scope == "model" and not model_name:
-            raise ValueError("Model scope requires a model binding")
-
-        existing_persona = next(
-            (
-                item
-                for item in personas
-                if isinstance(item, dict) and str(item.get("id", "")).strip() == persona_id
-            ),
-            {},
-        )
-        preserved = {
-            key: value
-            for key, value in existing_persona.items()
-            if key not in {"id", "name", "scope", "model", "system_prompt", "traits", "teaching"}
-        }
-
-        persona = {
-            **preserved,
-            "id": persona_id,
-            "name": name,
-            "scope": scope,
-            "system_prompt": self._system_prompt.toPlainText().strip() or "You are Guppy. Be concise, dependable, and practical.",
-            "traits": {
-                "tone": self._tone_cb.currentText().strip().lower(),
-                "verbosity": self._verbosity_cb.currentText().strip().lower(),
-                "response_style": self._style_cb.currentText().strip().lower(),
-            },
-            "teaching": {
-                "enabled": self._teaching_toggle.isChecked(),
-                "socratic_bias": int(self._socratic_slider.value()),
-                "example_bias": int(self._example_slider.value()),
-            },
-        }
-        if scope == "model":
-            persona["model"] = model_name
-
-        replaced = False
-        for index, item in enumerate(personas):
-            if isinstance(item, dict) and str(item.get("id", "")).strip() == persona_id:
-                personas[index] = persona
-                replaced = True
-                break
-        if not replaced:
-            personas.append(persona)
-        cfg["personas"] = personas
-
-        assignments = cfg.setdefault("assignments", {"global": persona_id, "by_model": {}})
-        if not isinstance(assignments.get("by_model"), dict):
-            assignments["by_model"] = {}
-        assignments["by_model"] = {
-            model: assigned_persona
-            for model, assigned_persona in assignments["by_model"].items()
-            if assigned_persona != persona_id
-        }
-        if scope == "model":
-            assignments["by_model"][model_name] = persona_id
-
-        global_persona_id = str(self._global_persona_cb.currentData() or persona_id).strip() or persona_id
-        if global_persona_id not in {str(item.get("id", "")).strip() for item in personas if isinstance(item, dict)}:
-            global_persona_id = persona_id
-        assignments["global"] = global_persona_id
-        cfg["default_persona_id"] = global_persona_id
-        return cfg, persona
+        return _build_persona_config_fn(self)
 
     def _refresh_preview(self) -> None:
-        if self._loading_persona:
-            return
-        prompt = self._system_prompt.toPlainText().strip() or "You are Guppy. Be concise, dependable, and practical."
-        self._preview_lbl.setText(
-            build_persona_preview_text(
-                persona_name=self._persona_name.text(),
-                scope=self._scope_cb.currentText(),
-                model_text=self._model_binding_cb.currentText(),
-                tone=self._tone_cb.currentText(),
-                verbosity=self._verbosity_cb.currentText(),
-                style=self._style_cb.currentText(),
-                teaching_enabled=self._teaching_toggle.isChecked(),
-                socratic_bias=self._socratic_slider.value(),
-                example_bias=self._example_slider.value(),
-                prompt=prompt,
-            )
-        )
+        refresh_preview(self)
 
     def _save(self) -> None:
         profile_map = {0: "light", 1: "standard", 2: "power"}
@@ -524,7 +283,7 @@ class SettingsView(QWidget):
                 self._persona_status_lbl.setText(f"Assistant save blocked: {exc}")
                 return
 
-        previous_persona_config = _deepcopy_json(self._persona_config)
+        previous_persona_config = deepcopy_json(self._persona_config)
         previous_runtime_settings = load_app_settings() if _PROFILE_BACKEND else None
 
         try:

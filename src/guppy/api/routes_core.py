@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.guppy.api._server_fragment_models import TokenResponse, TurnstileToken
 from src.guppy.api.server_context import ServerContext
@@ -51,6 +51,27 @@ def build_core_router(ctx: ServerContext) -> APIRouter:
             expires_in=ctx.access_token_expire_minutes * 60,
         )
 
+    @router.post("/auth/local", response_model=TokenResponse)
+    async def auth_local_token(http_request: Request):
+        """Issue a JWT for localhost callers without requiring Turnstile.
+
+        Only accepts direct loopback connections (no proxy headers).
+        Lets the web UI authenticate against a local desktop API instance
+        without needing GUPPY_DEV_MODE or a Cloudflare Turnstile widget.
+        """
+        host = (http_request.client.host if http_request.client else "") or ""
+        forwarded = (
+            http_request.headers.get("X-Forwarded-For")
+            or http_request.headers.get("CF-Connecting-IP")
+        )
+        if forwarded or host not in {"127.0.0.1", "::1", "localhost"}:
+            raise HTTPException(status_code=403, detail="Local-only endpoint")
+        access_token = ctx.create_access_token(data={"sub": "local_user"})
+        return TokenResponse(
+            access_token=access_token,
+            expires_in=ctx.access_token_expire_minutes * 60,
+        )
+
     @router.get("/auth/self-check")
     async def auth_self_check(user_id: str = Depends(ctx.require_rate_limit)):
         return {
@@ -60,6 +81,7 @@ def build_core_router(ctx: ServerContext) -> APIRouter:
         }
 
     @router.get("/status")
+    @router.get("/api/status")
     async def get_status(user_id: str = Depends(ctx.require_rate_limit)):
         del user_id
 

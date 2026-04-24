@@ -11,18 +11,21 @@ from PySide6.QtWidgets import (
     QFrame,
     QLabel,
     QPushButton,
-    QVBoxLayout,
     QWidget,
 )
 
 from src.guppy.launcher_application.home_presenter import (
     build_home_workspace_copy,
     build_home_welcome_message,
-    build_home_workspace_state,
 )
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
 from .. import tokens as T
 from . import assistant_behavior_support as behavior
+from .assistant_behavior_support import (
+    set_persona_options as _set_persona_options_fn,
+    update_starter_visibility as _update_starter_visibility_fn,
+    update_workspace_details_visibility as _update_workspace_details_visibility_fn,
+)
 from . import assistant_starter_support as starters
 from .assistant_first_run_banner import FirstRunBanner
 from .assistant_context import (
@@ -34,6 +37,11 @@ from .assistant_context import (
     set_runtime_facts as context_set_runtime_facts,
     sync_context_bar_visibility as context_sync_context_bar_visibility,
     toggle_context_details as context_toggle_context_details,
+)
+from .assistant_empty_state import (
+    build_empty_state as _build_empty_state_fn,
+    refresh_empty_state_copy as _refresh_empty_state_copy_fn,
+    refresh_empty_state_guidance as _refresh_empty_state_guidance_fn,
 )
 from .assistant_shell_sections import build_assistant_shell
 from .assistant_transcript import build_transcript_row, clear_transcript_layout
@@ -142,106 +150,23 @@ class AssistantView(QWidget):
         self._update_starter_visibility()
 
     def _update_workspace_details_visibility(self) -> None:
-        if not self._home_workspace_details_enabled:
-            self._workspace_details_summary.setText("")
-            self._workspace_details_btn.setText("DETAILS")
-            self._identity_details_btn.setText("DETAILS")
-            self._identity_details_btn.setVisible(False)
-            self._workspace_details_strip.setVisible(False)
-            self._workspace_details_host.setVisible(False)
-            return
-        has_saved_output = bool(self._latest_saved_output)
-        has_sources = bool(self._active_context_items)
-        summary = "Files and saved context are tucked away here."
-        if has_sources and has_saved_output:
-            summary = "Attached sources and saved output are available here."
-        elif has_sources:
-            summary = "Attached sources are available here."
-        elif has_saved_output:
-            summary = "Saved output is available here."
-        self._workspace_details_summary.setText(summary)
-        self._workspace_details_btn.setText("HIDE DETAILS" if self._workspace_details_expanded else "DETAILS")
-        self._identity_details_btn.setText("HIDE DETAILS" if self._workspace_details_expanded else "DETAILS")
-        self._workspace_details_host.setVisible(self._workspace_details_expanded)
+        _update_workspace_details_visibility_fn(self)
 
     def _update_starter_visibility(self) -> None:
-        buttons_visible = self._starters_expanded and self.width() >= 920
-        has_context = bool(self._active_context_items)
-        has_draft = hasattr(self, "_input") and bool(self._input.text().strip())
-        self._starter_buttons_host.setVisible(buttons_visible)
-        self._starter_summary.setVisible(self.width() >= 920 and (buttons_visible or has_context or has_draft))
-        self._starters_btn.setText("HIDE PROMPTS" if self._starters_expanded else "PROMPTS")
+        _update_starter_visibility_fn(self)
 
     def _build_empty_state(self) -> QFrame:
-        frame = QFrame()
-        frame.setObjectName("empty_state")
-        frame.setStyleSheet(
-            f"QFrame#empty_state {{ background-color: rgba(255,250,243,0.78); border: 1px solid rgba(205,181,154,0.55); border-radius: 28px; }}"
-        )
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(10)
-
-        self._empty_state_title_lbl = QLabel(self._empty_state_title_text)
-        self._empty_state_title_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        self._empty_state_title_lbl.setStyleSheet(
-            f"color: {T.TEXT}; font-family: '{T.FF_HEAD}'; font-size: 25pt; font-weight: 700;"
-        )
-        layout.addWidget(self._empty_state_title_lbl)
-
-        self._empty_state_subtitle_lbl = QLabel(self._empty_state_subtitle_text)
-        self._empty_state_subtitle_lbl.setWordWrap(True)
-        self._empty_state_subtitle_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        self._empty_state_subtitle_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_BODY}'; font-size: {T.FS_LABEL}pt;"
-        )
-        layout.addWidget(self._empty_state_subtitle_lbl)
-        self._empty_state_recipe_lbl = QLabel(self._empty_state_recipe_text)
-        self._empty_state_recipe_lbl.setWordWrap(True)
-        self._empty_state_recipe_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        self._empty_state_recipe_lbl.setStyleSheet(
-            f"color: {T.ACCENT_TEAL}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-        layout.addWidget(self._empty_state_recipe_lbl)
-        return frame
+        return _build_empty_state_fn(self)
 
     def _refresh_empty_state(self) -> None:
         has_history = any(item.get("role") in {"user", "assistant"} for item in self._conversation_history)
         self._empty_state.setVisible(not has_history)
 
     def _refresh_empty_state_copy(self) -> None:
-        state = build_home_workspace_state(
-            self._workspace_name,
-            workspace_type=self._workspace_type,
-            description=self._workspace_purpose,
-            mode=self.selected_mode(),
-            persona=self.selected_persona(),
-            voice="default",
-            last_message="",
-        )
-        self._base_empty_state_title = state.onboarding_title
-        self._base_empty_state_subtitle = state.onboarding_subtitle
-        self._base_empty_state_recipe = state.onboarding_recipe
-        self._refresh_empty_state_guidance()
+        _refresh_empty_state_copy_fn(self)
 
     def _refresh_empty_state_guidance(self) -> None:
-        title = self._base_empty_state_title
-        subtitle = self._base_empty_state_subtitle
-        recipe = self._base_empty_state_recipe
-        titles = self._active_context_titles()
-        if titles:
-            joined = ", ".join(titles)
-            subtitle = f"{subtitle} Library sources are already attached: {joined}."
-            recipe = f"{recipe} Or ask the next thing using these attached sources: {joined}."
-        self._empty_state_title_text = title
-        self._empty_state_subtitle_text = subtitle
-        self._empty_state_recipe_text = recipe
-        if hasattr(self, "_empty_state_title_lbl"):
-            self._empty_state_title_lbl.setText(title)
-        if hasattr(self, "_empty_state_subtitle_lbl"):
-            self._empty_state_subtitle_lbl.setText(subtitle)
-        if hasattr(self, "_empty_state_recipe_lbl"):
-            self._empty_state_recipe_lbl.setText(recipe)
+        _refresh_empty_state_guidance_fn(self)
 
     def _refresh_resource_context(self) -> None:
         context_refresh_resource_context(self)
@@ -337,25 +262,7 @@ class AssistantView(QWidget):
         return persona or "guppy"
 
     def set_persona_options(self, options: list[tuple[str, str]], selected: str | None = None) -> None:
-        target = str(selected or self._cb_persona.currentData() or self._cb_persona.currentText()).strip().lower()
-        normalized = [
-            (str(label).strip() or str(value).strip(), str(value).strip())
-            for label, value in options
-            if str(value).strip()
-        ]
-        if not normalized:
-            normalized = [("GUPPY", "guppy")]
-        self._cb_persona.blockSignals(True)
-        self._cb_persona.clear()
-        for label, value in normalized:
-            self._cb_persona.addItem(label, value)
-        target_index = 0
-        for idx in range(self._cb_persona.count()):
-            if str(self._cb_persona.itemData(idx) or "").strip().lower() == target:
-                target_index = idx
-                break
-        self._cb_persona.setCurrentIndex(target_index)
-        self._cb_persona.blockSignals(False)
+        _set_persona_options_fn(self, options, selected)
 
     def set_route_preview(
         self,

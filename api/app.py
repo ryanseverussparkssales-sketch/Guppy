@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes.auth_refresh import router as auth_refresh_router
 from api.routes.auth_token import router as auth_token_router
+from api.routes.catalog import router as catalog_router
 from api.routes.chat import router as chat_router
 from api.routes.health import router as health_router
 
@@ -80,3 +81,4 @@ app.include_router(auth_token_router, prefix="/auth/token", tags=["auth"])
 app.include_router(auth_refresh_router, prefix="/auth/refresh", tags=["auth"])
 app.include_router(chat_router, prefix="/chat", tags=["chat"])
 app.include_router(health_router, tags=["health"])
+app.include_router(catalog_router)

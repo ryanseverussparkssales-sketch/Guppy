@@ -69,6 +69,7 @@ def build_models_router(ctx: ServerContext) -> APIRouter:
             },
         }
 
+    @router.post("/download")
     @router.post("/pull")
     async def pull_model(body: PullRequest, user_id: str = Depends(ctx.require_rate_limit)):
         del user_id

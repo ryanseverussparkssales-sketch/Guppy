@@ -76,12 +76,17 @@ def call_unified_inference(
         raise RuntimeError("Guppy core not available.")
 
     if not owner.INFERENCE_ROUTER_AVAILABLE:
-        owner.logger.warning("Router unavailable, falling back to Claude")
-        return owner._call_claude_with_tools(
-            user_text,
-            system_prompt,
-            instance_name=instance_name,
-            instance_type=instance_type,
+        if owner.os.environ.get("ANTHROPIC_API_KEY"):
+            owner.logger.warning("Router unavailable, falling back to Claude")
+            return owner._call_claude_with_tools(
+                user_text,
+                system_prompt,
+                instance_name=instance_name,
+                instance_type=instance_type,
+            )
+        raise RuntimeError(
+            "Inference router unavailable and no ANTHROPIC_API_KEY set. "
+            "Start Ollama (port 11434) or LM Studio (port 1234) first."
         )
 
     router = owner.get_router()
@@ -134,6 +139,11 @@ def call_unified_inference(
         if requested_mode in {"local", "code", "claude", "ollama"}:
             owner.logger.error("Inference failed in explicit mode '%s': %s", requested_mode, exc)
             raise
+        if not owner.os.environ.get("ANTHROPIC_API_KEY"):
+            raise RuntimeError(
+                f"Local inference failed ({exc}). "
+                "Start Ollama (port 11434) or LM Studio (port 1234) and try again."
+            ) from exc
         owner.logger.error("Unified inference failed: %s. Escalating to Claude Sonnet.", exc)
         try:
             return owner._call_claude_with_tools(

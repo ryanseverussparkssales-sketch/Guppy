@@ -222,8 +222,10 @@ def rebuild_saved_cards(owner) -> None:
         layout.addLayout(top)
         layout.addWidget(_body(title, color=T.INK, size=T.FS_LABEL))
         source_line = str(card_state.get("source_line", "") or "").strip()
-        if source_line:
-            layout.addWidget(_mono(source_line.upper(), T.ACCENT_TEAL, T.FS_TINY, True))
+        date_label = str(card_state.get("date_label", "") or "").strip()
+        meta_line = " · ".join(part for part in (source_line.upper(), date_label) if part)
+        if meta_line:
+            layout.addWidget(_mono(meta_line, T.ACCENT_TEAL, T.FS_TINY, True))
         layout.addWidget(_body(detail, color=T.DIM))
         layout.addWidget(_body("USE IN CHAT makes this note or artifact available on Home without leaving the current session.", color=T.TERTIARY))
         owner._saved_layout.addWidget(card)

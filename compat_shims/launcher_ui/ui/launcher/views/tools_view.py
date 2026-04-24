@@ -231,7 +231,7 @@ class ToolsView(QWidget):
         self._search.textChanged.connect(self._apply_filters)
 
         self._filter_cb = QComboBox()
-        self._filter_cb.addItems(["ALL", "READ", "WRITE", "CODE", "QUERY", "DEBUG", "RESTRICTED"])
+        self._filter_cb.addItems(["ALL", "READ", "WRITE", "CODE", "QUERY", "DEBUG", "CONNECTOR", "RESTRICTED", "PLANNED"])
         self._filter_cb.setToolTip("Filter tools by permission category")
         self._filter_cb.setMinimumHeight(36)
         self._filter_cb.currentTextChanged.connect(self._apply_filters)
@@ -245,7 +245,7 @@ class ToolsView(QWidget):
             f" padding: 3px 8px; margin-right: 4px; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; }}"
             f"QTabBar::tab:selected {{ color: {T.INK}; border-color: {T.ACCENT_ORANGE}; background: rgba(255,109,0,0.12); }}"
         )
-        for label in ("All", "Read", "Write", "Code", "Connect", "Restricted"):
+        for label in ("All", "Read", "Write", "Code", "Connect", "Restricted", "Planned"):
             self._type_tabs.addTab(QWidget(), label)
         self._type_tabs.currentChanged.connect(self._apply_type_tab_filter)
 
@@ -374,6 +374,7 @@ class ToolsView(QWidget):
             matches_category = (
                 category == "ALL"
                 or (category == "RESTRICTED" and card.state == "restricted")
+                or (category == "PLANNED" and getattr(card, "_is_planned", False))
                 or card.category == category
             )
             visible = matches_query and matches_category
@@ -450,6 +451,7 @@ class ToolsView(QWidget):
             3: "CODE",
             4: "CONNECTOR",
             5: "RESTRICTED",
+            6: "PLANNED",
         }
         target = mapping.get(index, "ALL")
         filter_index = self._filter_cb.findText(target)

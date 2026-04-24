@@ -64,6 +64,16 @@ def test_provider_readiness_state_flags_active_backend_failure() -> None:
     assert "Harness note:" in state.text
 
 
+def test_provider_readiness_state_names_planned_adapters_as_informational() -> None:
+    state = build_models_provider_readiness_state(
+        {"ollama_local": "ready", "local_harness": "ready"},
+        active_backend="ollama",
+    )
+
+    assert "Planned adapters remain informational only" in state.text
+    assert "anythingllm" in state.text.lower() or "hugging face" in state.text.lower()
+
+
 def test_loadout_help_text_surfaces_role_assignments() -> None:
     text = build_models_loadout_help_text(
         main_model="qwen-main",

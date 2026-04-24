@@ -6,7 +6,6 @@ the unified launcher stack, and the bottom system strip.
 from __future__ import annotations
 
 import os
-import threading
 import time
 import urllib
 from queue import Empty, SimpleQueue
@@ -26,7 +25,6 @@ from src.guppy.launcher_application import (
 )
 from src.guppy.launcher_application import launcher_connector_handlers as _conn_handlers
 from src.guppy.launcher_application import launcher_instance_handlers as _inst_handlers
-from src.guppy.launcher_application import launcher_library_handlers as _lib_handlers
 from src.guppy.launcher_application import launcher_nav_handlers as _nav_handlers
 from src.guppy.experience_config import (
     personalization_backend_available,
@@ -145,38 +143,16 @@ from src.guppy.launcher_application.windows_ops_request_flow import (
 from src.guppy.launcher_application.tools_trace_adapter import LauncherToolsTraceAdapter
 
 from PySide6.QtCore import QTimer, Signal
-from PySide6.QtWidgets import (
-    QFrame,
-    QHBoxLayout,
-    QMainWindow,
-    QStackedWidget,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QMainWindow
 
 from . import tokens as T
+from .launcher_window_build import build_launcher_window_ui
 from . import launcher_window_action_methods as _action_methods
 from . import launcher_window_core_methods as _core_methods
 from . import launcher_window_delegate_methods as _delegate_methods
 from .stylesheet import SHEET
 from .launcher_runtime_control_mixin import LauncherRuntimeControlMixin
 from .launcher_windows_ops_mixin import LauncherWindowsOpsMixin
-from .components import Sidebar, TopBar, StatusPanel
-from .views import (
-    AssistantView,
-    InstanceManagerView,
-    LibraryView,
-    ToolsView,
-    SettingsView,
-    SettingsHubView,
-    SettingsDeviceAccountsPanel,
-    SettingsOperationsPanel,
-    ModelsHubView,
-    LocalLLMView,
-    ModelsView,
-    RuntimeRoutingView,
-    VoicesView,
-)
 
 _PERSONALIZATION_BOOTSTRAP_AVAILABLE = personalization_backend_available()
 _INSTANCE_LOGGER_AVAILABLE = instance_logger_backend_available()
@@ -288,113 +264,10 @@ class LauncherWindow(LauncherWindowsOpsMixin, LauncherRuntimeControlMixin, QMain
         self._load_tool_states()
 
     def _build_ui(self) -> None:
-        central = QWidget(self)
-        self.setCentralWidget(central)
-        root = QVBoxLayout(central)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        # ── Top bar ─────────────────────────────────────────────────────────
-        self._topbar = TopBar(self)
-        self._topbar.setFixedHeight(T.TOPBAR_H)
-        root.addWidget(self._topbar)
-
-        # ── Divider ──────────────────────────────────────────────────────────
-        div = QFrame()
-        div.setFixedHeight(1)
-        div.setStyleSheet(f"background: {T.BORDER_SOFT};")
-        root.addWidget(div)
-
-        # ── Body row: Sidebar | Content | StatusPanel ────────────────────────
-        body = QHBoxLayout()
-        body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(0)
-
-        self._sidebar = Sidebar(self)
-        body.addWidget(self._sidebar)
-
-        # Thin vertical divider
-        sdiv = QFrame()
-        sdiv.setFixedWidth(1)
-        sdiv.setStyleSheet(f"background: {T.BORDER_SOFT};")
-        body.addWidget(sdiv)
-
-        # Content stack
-        self._stack = QStackedWidget(self)
-        self._assistant_view  = AssistantView(self)
-        self._instance_manager_view = InstanceManagerView(self)
-        self._library_view    = LibraryView(self)
-        self._tools_view      = ToolsView(self)
-        self._settings_view   = SettingsView(self)
-        self._settings_device_accounts_panel = SettingsDeviceAccountsPanel(self)
-        self._settings_operations_panel = SettingsOperationsPanel(self)
-        self._settings_hub_view = SettingsHubView(
-            self._settings_view,
-            self._settings_device_accounts_panel,
-            self._settings_operations_panel,
+        build_launcher_window_ui(
             self,
+            personalization_bootstrap_available=_PERSONALIZATION_BOOTSTRAP_AVAILABLE,
         )
-        self._local_llm_view  = LocalLLMView(self)
-        self._models_view     = ModelsView(self)
-        self._runtime_view    = RuntimeRoutingView(self)
-        self._voices_view     = VoicesView(self)
-        self._models_hub_view = ModelsHubView(
-            self._models_view,
-            self._local_llm_view,
-            self._voices_view,
-            self,
-        )
-
-        for view in [
-            self._assistant_view,
-            self._instance_manager_view,
-            self._library_view,
-            self._tools_view,
-            self._settings_hub_view,
-            self._models_hub_view,
-        ]:
-            self._stack.addWidget(view)
-
-        body.addWidget(self._stack, stretch=1)
-
-        # Thin vertical divider
-        self._status_divider = QFrame()
-        self._status_divider.setFixedWidth(1)
-        self._status_divider.setStyleSheet(f"background: {T.BORDER_SOFT};")
-        body.addWidget(self._status_divider)
-
-        self._status_panel = StatusPanel(self)
-        body.addWidget(self._status_panel)
-        _lib_handlers.ensure_library_workflow(self)
-        self._wire_tools_trace_adapter()
-
-        root.addLayout(body, stretch=1)
-
-        # ── Bottom system strip ──────────────────────────────────────────────
-        self._sys_strip = self._build_sys_strip()
-        root.addWidget(self._sys_strip)
-
-        # ── Wire signals ─────────────────────────────────────────────────────
-        self._wire_signals()
-        self._assistant_view.set_session_id(self._chat_session_id)
-        self._topbar.set_launcher_summary("AUTO / GUPPY / LIGHT [EDIT]")
-        self._topbar.set_runtime_status(
-            "STARTING",
-            detail="Launcher is still collecting startup readiness and runtime health.",
-            severity="info",
-        )
-        self._sidebar.set_collapsed(True)
-        self._topbar.set_sidebar_collapsed(True)
-        self._set_status_panel_visible(False)
-        self._bootstrap_instance_switcher()
-        self._refresh_personalization_state()
-        self._refresh_first_run_banner()
-        self._sync_automation_test_state()
-        QTimer.singleShot(0, self._apply_start_destination)
-
-        if _PERSONALIZATION_BOOTSTRAP_AVAILABLE:
-            self._log_launcher_event("startup_phase", phase="personalization_scaffold_thread_start")
-            threading.Thread(target=self._bootstrap_personalization_scaffold_worker, daemon=True).start()
 
     
 LauncherWindow._sync_assistant_library_context = _delegate_methods.sync_assistant_library_context

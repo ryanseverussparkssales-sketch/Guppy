@@ -27,10 +27,11 @@ export default function LoginView() {
         setPassword('')
         setIsSignUp(false)
       } else {
-        // Login with Turnstile token
         const response = await api.post('/auth/verify', { token: email })
         localStorage.setItem('accessToken', response.data.access_token)
-        localStorage.setItem('expiresIn', response.data.expires_in)
+        if (response.data.expires_in) {
+          localStorage.setItem('expiresIn', String(response.data.expires_in))
+        }
         navigate('/')
       }
     } catch (err: any) {
@@ -43,12 +44,22 @@ export default function LoginView() {
   const handleGuestAccess = async () => {
     setIsLoading(true)
     try {
-      // Get dev token for testing
-      const response = await api.post('/auth/verify', { token: 'dev-token' })
+      // Try local-auth first (desktop API running on same machine)
+      const response = await api.post('/auth/local', {})
       localStorage.setItem('accessToken', response.data.access_token)
+      if (response.data.expires_in) {
+        localStorage.setItem('expiresIn', String(response.data.expires_in))
+      }
       navigate('/')
-    } catch (err) {
-      setError('Guest access failed')
+    } catch {
+      try {
+        // Fall back to Turnstile verify with dev token (works when GUPPY_DEV_MODE=1)
+        const response = await api.post('/auth/verify', { token: 'dev-token' })
+        localStorage.setItem('accessToken', response.data.access_token)
+        navigate('/')
+      } catch {
+        setError('Guest access unavailable. Start the API with GUPPY_DEV_MODE=1 or use a Turnstile token.')
+      }
     } finally {
       setIsLoading(false)
     }
@@ -158,7 +169,7 @@ export default function LoginView() {
         </div>
 
         <div className="login-info">
-          <p>For development: Use token <code>dev-token</code></p>
+          <p>Running locally? <strong>Continue as Guest</strong> authenticates automatically.</p>
         </div>
       </div>
     </div>

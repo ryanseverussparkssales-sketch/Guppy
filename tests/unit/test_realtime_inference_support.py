@@ -66,14 +66,23 @@ def test_sanitize_chat_history_filters_invalid_entries() -> None:
     ]
 
 
-def test_call_unified_inference_falls_back_to_claude_without_router() -> None:
+def test_call_unified_inference_falls_back_to_claude_without_router_when_key_set() -> None:
     owner = _build_owner()
     owner.INFERENCE_ROUTER_AVAILABLE = False
+    owner.os.environ["ANTHROPIC_API_KEY"] = "sk-test"
 
     result = realtime_inference_support.call_unified_inference(owner, "Hi", "SYSTEM")
 
     assert result == "claude"
     owner._call_claude_with_tools.assert_called_once()
+
+
+def test_call_unified_inference_raises_without_router_and_no_key() -> None:
+    owner = _build_owner()
+    owner.INFERENCE_ROUTER_AVAILABLE = False
+
+    with pytest.raises(RuntimeError, match="Ollama.*LM Studio"):
+        realtime_inference_support.call_unified_inference(owner, "Hi", "SYSTEM")
 
 
 def test_call_unified_inference_local_mode_uses_selected_runtime() -> None:

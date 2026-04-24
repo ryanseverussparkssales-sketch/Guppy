@@ -10,10 +10,12 @@ from pydantic import BaseModel
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
+    workspace_id: Optional[str] = None  # Workspace context for organizing conversations
     mode: Optional[str] = None
     persona: Optional[str] = None
     history: Optional[List[Dict[str, str]]] = None
     use_claude: Optional[bool] = True
+    model: Optional[str] = None  # Model to use: "fast", "code", "main", or any Ollama model name
     idempotency_key: Optional[str] = None
 
 
@@ -75,6 +77,3 @@ class InstanceConnectorBindingRequest(BaseModel):
     provider: str = ""
     action_allow: List[str] = []
     action_block: List[str] = []
-    endpoint_allow: List[str] = []
-    endpoint_block: List[str] = []
-    note: str = ""

@@ -18,6 +18,7 @@ class ToolActionEntry:
     home_starter_prompt: str
     category: str
     dry_run: bool
+    availability_status: str = "available"  # "available" | "planned"
 
 
 TOOL_ACTION_REGISTRY: dict[str, ToolActionEntry] = {
@@ -156,6 +157,7 @@ TOOL_ACTION_REGISTRY: dict[str, ToolActionEntry] = {
         ),
         category="CONNECTOR",
         dry_run=True,
+        availability_status="planned",
     ),
 }
 
@@ -178,10 +180,11 @@ def get_home_starter_prompt(tool_key: str) -> str:
 
 
 def get_tool_starters() -> list[dict[str, str]]:
-    """Return a list of minimal starter dicts derived from TOOL_ACTION_REGISTRY.
+    """Return starter dicts for tools that are currently available (not planned).
 
-    Each dict has: tool_key, label, command_hint, home_starter_prompt, category.
-    Suitable for use in Home presenter surfaces that want to surface tool starters.
+    Each dict has: tool_key, label, command_hint, home_starter_prompt, category,
+    availability_status. Planned tools are excluded so Home starters only surface
+    tools users can actually use today.
     """
     return [
         {
@@ -190,8 +193,10 @@ def get_tool_starters() -> list[dict[str, str]]:
             "command_hint": entry.command_hint,
             "home_starter_prompt": entry.home_starter_prompt,
             "category": entry.category,
+            "availability_status": entry.availability_status,
         }
         for key, entry in TOOL_ACTION_REGISTRY.items()
+        if entry.availability_status != "planned"
     ]
 
 

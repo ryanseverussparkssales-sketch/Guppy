@@ -274,6 +274,7 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
             "connectors": ctx.workspace_connector_payload(target),
         }
 
+    @router.post("/instances/{name}/start")
     @router.post("/instances/{name}/activate")
     async def activate_instance(
         name: str,
@@ -303,6 +304,12 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
             "active_instance": target,
             "limits": ctx.instance_limits_payload(config, state),
         }
+
+    @router.post("/instances/{name}/stop")
+    async def stop_instance(name: str, user_id: str = Depends(ctx.require_rate_limit)):
+        del user_id
+        # Desktop: stopping an instance just means it's no longer active
+        return {"ok": True, "instance": name, "status": "stopped"}
 
     @router.delete("/instances/{name}")
     async def delete_instance(
