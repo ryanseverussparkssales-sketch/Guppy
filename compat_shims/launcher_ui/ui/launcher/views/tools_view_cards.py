@@ -32,127 +32,7 @@ from src.guppy.workspace_governance import (
     required_capability_for_tool,
 )
 from .. import tokens as T
-
-
-INSTANCE_TOOL_CATALOG: list[dict[str, object]] = [
-    {
-        "key": "read_file",
-        "name": "READ FILE",
-        "category": "READ",
-        "description": "Read source, docs, tests, and configuration files in the active instance context.",
-        "allowed_types": {"user_instance", "admin_instance", "builder_instance", "read_only_instance"},
-        "reason": "Safe read access for inspection and retrieval.",
-        "dry_run": False,
-    },
-    {
-        "key": "screenshot",
-        "name": "SCREENSHOT",
-        "category": "READ",
-        "description": "Capture or inspect the current screen when the active instance needs visual context.",
-        "allowed_types": {"user_instance", "admin_instance", "builder_instance", "read_only_instance"},
-        "reason": "Observation-only capability.",
-        "dry_run": False,
-    },
-    {
-        "key": "query_instance",
-        "name": "QUERY INSTANCE",
-        "category": "QUERY",
-        "description": "Send a bounded synchronous request to another configured instance and return the answer to Home.",
-        "allowed_types": {"user_instance", "admin_instance", "builder_instance", "read_only_instance"},
-        "reason": "Cross-instance coordination within the M2 bounded bridge.",
-        "dry_run": False,
-    },
-    {
-        "key": "debug_console",
-        "name": "DEBUG CONSOLE",
-        "category": "DEBUG",
-        "description": "Inspect runtime state and developer diagnostics that are safe to expose to the current instance.",
-        "allowed_types": {"user_instance", "admin_instance", "builder_instance"},
-        "reason": "Available to trusted interactive workspaces only.",
-        "dry_run": False,
-    },
-    {
-        "key": "run_python",
-        "name": "RUN PYTHON",
-        "category": "CODE",
-        "description": "Execute bounded Python snippets and return output back into the active transcript.",
-        "allowed_types": {"user_instance", "admin_instance", "builder_instance"},
-        "reason": "Requires code-execution permission.",
-        "dry_run": True,
-    },
-    {
-        "key": "write_file",
-        "name": "WRITE FILE",
-        "category": "WRITE",
-        "description": "Write changes within approved workspace areas. Builder workspaces stay scoped to docs, tests, and config paths.",
-        "allowed_types": {"user_instance", "admin_instance", "builder_instance"},
-        "reason": "Write capability is blocked for read-only workspaces.",
-        "dry_run": True,
-    },
-    {
-        "key": "execute_command",
-        "name": "EXECUTE COMMAND",
-        "category": "WRITE",
-        "description": "Run shell commands when the active instance is permitted to mutate or inspect the local environment.",
-        "allowed_types": {"user_instance", "admin_instance"},
-        "reason": "Reserved for higher-trust workspaces.",
-        "dry_run": True,
-    },
-    {
-        "key": "send_email",
-        "name": "GMAIL",
-        "category": "CONNECTOR",
-        "description": "Send or clean up Gmail from the workspace-bound account when machine auth and workspace binding both allow it.",
-        "allowed_types": {"user_instance", "admin_instance", "builder_instance"},
-        "reason": "Connector access now respects workspace bindings, account choice, and machine-level auth.",
-        "dry_run": False,
-    },
-    {
-        "key": "calendar_events",
-        "name": "CALENDAR",
-        "category": "CONNECTOR",
-        "description": "Read upcoming calendar events from the workspace-bound calendar scope.",
-        "allowed_types": {"user_instance", "admin_instance", "builder_instance", "read_only_instance"},
-        "reason": "Calendar reads stay subject to workspace connector policy and host auth readiness.",
-        "dry_run": False,
-    },
-    {
-        "key": "spotify_current",
-        "name": "SPOTIFY",
-        "category": "CONNECTOR",
-        "description": "Inspect or control Spotify when the workspace binding and machine auth are ready.",
-        "allowed_types": {"user_instance", "admin_instance", "builder_instance"},
-        "reason": "Media connectors now have the same workspace governance story as file and code tools.",
-        "dry_run": False,
-    },
-    {
-        "key": "youtube_search",
-        "name": "YOUTUBE",
-        "category": "CONNECTOR",
-        "description": "Search or open YouTube through the workspace connector binding and machine auth posture.",
-        "allowed_types": {"user_instance", "admin_instance", "builder_instance", "read_only_instance"},
-        "reason": "YouTube connector access is now visible through the same workspace policy surface.",
-        "dry_run": False,
-    },
-    {
-        "key": "crm_upsert_contact",
-        "name": "CRM",
-        "category": "CONNECTOR",
-        "description": "Prepare CRM writes against the workspace-bound provider when the provider configuration is ready.",
-        "allowed_types": {"user_instance", "admin_instance", "builder_instance"},
-        "reason": "Business connectors must now pass workspace binding, provider, and auth checks.",
-        "dry_run": True,
-    },
-    {
-        "key": "voip_place_call",
-        "name": "VOIP",
-        "category": "CONNECTOR",
-        "description": "Prepare or place outbound calls through the workspace-bound VoIP provider.",
-        "allowed_types": {"user_instance", "admin_instance"},
-        "reason": "VoIP stays restricted to higher-trust workspaces and now shows connector policy reasons explicitly.",
-        "dry_run": True,
-    },
-]
+from .tools_catalog import INSTANCE_TOOL_CATALOG
 
 
 def mono_label(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = False) -> QLabel:
@@ -225,13 +105,15 @@ class ToolCard(QFrame):
         root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(8)
 
-        # Registry is authoritative for label, category, dry_run; catalog supplies
-        # description, allowed_types, and reason which are card-specific.
+        # Registry is authoritative for label, category, dry_run, availability_status;
+        # catalog supplies description, allowed_types, and reason which are card-specific.
         _reg_entry = get_action_for_tool(str(tool.get("key", "")))
         _display_name = _reg_entry.label if _reg_entry is not None else str(tool.get("name", "TOOL"))
         _display_category = _reg_entry.category if _reg_entry is not None else str(tool.get("category", "READ"))
         _display_dry_run = _reg_entry.dry_run if _reg_entry is not None else bool(tool.get("dry_run", False))
-        self._is_setup_first = bool(_display_dry_run)
+        _availability_status = _reg_entry.availability_status if _reg_entry is not None else "available"
+        self._is_planned = _availability_status == "planned"
+        self._is_setup_first = bool(_display_dry_run) and not self._is_planned
 
         header = QHBoxLayout()
         self._name_lbl = QLabel(_display_name)
@@ -240,7 +122,9 @@ class ToolCard(QFrame):
         )
         header.addWidget(self._name_lbl)
         header.addStretch()
-        self._status_lbl = mono_label("READY", T.GREEN, T.FS_TINY, True)
+        _initial_badge = "PLANNED" if self._is_planned else "READY"
+        _initial_badge_color = T.DIM if self._is_planned else T.GREEN
+        self._status_lbl = mono_label(_initial_badge, _initial_badge_color, T.FS_TINY, True)
         header.addWidget(self._status_lbl)
         root.addLayout(header)
 
@@ -463,6 +347,19 @@ class ToolCard(QFrame):
             "settings_route": dict(settings_route),
             **tool_readiness_debug_fields(readiness),
         }
+        if self._is_planned:
+            self._status_lbl.setText("PLANNED")
+            self._status_lbl.setStyleSheet(
+                f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px; font-weight: bold;"
+            )
+            self._scope_lbl.setText(
+                f"{self._name_lbl.text().title()} is planned for a future release and not yet available in {instance_name}."
+            )
+            self._hint_btn.setEnabled(False)
+            self._manage_payload = {}
+            self._manage_btn.setVisible(False)
+            return
+
         if allowed:
             if self._is_setup_first:
                 self._status_lbl.setText("SET UP FIRST")

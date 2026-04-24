@@ -95,14 +95,17 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 ## Known Issues & TODOs
 
 ### 🔴 Code Cleanup
-- [ ] Empty directory: `compat_shims/legacy_surfaces/` — Remove or restore content
-- [ ] Abandoned surface: `api/` folder at root has `requirements.txt` but no Python sources. Verify if dead code.
-- [ ] Multiple `/repair` implementations — Consolidate or document alternative mount points
+*(none open — all resolved below)*
 
 ### 🟡 Documentation
-- [ ] Add one-line clarification to `OPERATIONS.md` §2 explaining that `ui/launcher/` is a re-export shim
-- [ ] Document launcher shortcut management (`tools/ensure_desktop_launcher.ps1`)
 - [ ] Add architecture diagram to README.md
+
+### 🟢 Verified / Resolved
+- ✅ **`compat_shims/legacy_surfaces/`** — Not empty; contains an intentional `__init__.py` quarantine marker (`__all__ = ()`). Guardrail in `tools/check_architecture_boundaries.py` blocks imports. Protocol documented in `docs/LEGACY_QUARANTINE_PROTOCOL.md` and `docs/LEGACY_SURFACES.md`. No action needed.
+- ✅ **`api/` root folder** — Active Vercel cloud backend (`app.py`, `auth.py`, `index.py`, `routes/`). Completely separate from the local runtime. See `docs/LIVE_ARCHITECTURE.md`. Not dead code.
+- ✅ **Multiple `/repair` endpoints** — One live implementation: `routes_ops.py` (mounted via `build_ops_router()` in `server_runtime.py:470`). `_server_fragment_routes_core.py` is a build-time source fragment for `tools/rebuild_api_server_runtime.py`; `snapshot_misc_routes.py` is registered only in the generated output (`server_runtime_snapshot.py`), not in the live server. No consolidation needed.
+- ✅ **`ui/launcher/` shim clarification** — Documented in "Known Architecture Seams" §1 above and in `docs/LIVE_ARCHITECTURE.md`. OPERATIONS.md does not exist (reference was stale); `docs/LIVE_ARCHITECTURE.md` is the canonical architecture doc.
+- ✅ **Launcher shortcut management** — `tools/ensure_desktop_launcher.ps1` updates `Desktop\Guppy Launcher.lnk` to point to dist exe or repo launcher. Documented in Tools & Utilities below.
 
 ### 🟢 Verified Working
 - ✅ CLI launcher paths (launcher, guppyprime, hub, api, agent)
@@ -112,6 +115,8 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - ✅ `GUPPY_DEV_MODE` env var and logging
 - ✅ **Web UI parity (P6)** — Web UI fetches model inventory and workspace state entirely from the same API endpoints as the desktop. No duplicate inventories. Parity validated 2026-04-23. One known gap: `models_view.py` has a local `CLOUD_MODELS` list for the desktop library panel — must stay in sync with `src/guppy/api/routes_providers.py`. (Fixed `claude-opus-4` → `claude-opus-4-7` 2026-04-23.)
 - ✅ **Phase 3 complete (TR54-C)** — `ui/launcher/accounts/connector_remediation_paths.py`, `ui/launcher/views/settings_connector_flow.py`, `ui/launcher/config/runtime_settings_schema.py`, `ui/launcher/config/settings_io.py`, `ui/launcher/tools/tool_evidence_builder.py`, `ui/launcher/tools/tool_status_copy.py`
+- ✅ **TR54-D (Desktop Hardening) D1–D5 complete** — D1 startup orchestration, D2 process guard, D3 boot verification (`ui/launcher/diagnostics/startup_verification.py`), D4 snapshot cache, D5 diagnostics (`ui/launcher/diagnostics/launcher_diagnostics.py` + `ui/launcher/views/diagnostics_panel.py`). D3 wired into `compat_shims/launcher_ui/launcher_app.py` main(). `datetime.utcnow()` deprecation fixed across 4 API route files.
+- ✅ **Move-to-Strong roadmap S1–S6 complete (2026-04-23)** — S1: continuity spine (workspace cards + home entry hints surface continuity_summary); S2: library metadata hierarchy (timestamps, date labels, longer note previews); S3: tool clarity (availability_status on ToolActionEntry, PLANNED badge on cards, planned tools excluded from bucket counts); S4: model/voice/local runtime confidence (planned adapters clearly labeled, voice engines probed at startup); S5: web API parity (GET /api/tools endpoint backed by TOOL_ACTION_REGISTRY, ToolsView no longer falls back to mock data); S6: freeze polish (verify_voice_runtime.py validation tool, CONNECTOR/PLANNED filter fix in tools_view, CLAUDE.md updated).
 
 ---
 
@@ -126,6 +131,7 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - **`tools/pilot_exit_check.py`** — Graceful shutdown verification
 - **`tools/verify_logging_health.py`** — Log system audit
 - **`tools/verify_ollama_runtime.py`** — Ollama availability check
+- **`tools/verify_voice_runtime.py`** — Voice engine availability check (edge_tts, kokoro, pyttsx3, ElevenLabs)
 - **`tools/run_overnight_low_compute.py`** — Off-hours testing
 
 ### Desktop Launcher
@@ -177,7 +183,7 @@ Located at `config/instances.json`. Defines available runtime instances:
 
 **Before making changes:**
 1. Read `docs/PROJECT_BRIEF.md` (active status & roadmap)
-2. Check `OPERATIONS.md` / `DEVELOPMENT.md` (stable reference)
+2. Check `docs/LIVE_ARCHITECTURE.md` (canonical architecture reference)
 3. Run `python tools/dev_workflow.py dev-check --guard-scope delta` (verify your changes don't break guardrails)
 
 **When adding features:**

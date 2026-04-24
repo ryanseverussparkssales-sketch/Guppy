@@ -241,7 +241,7 @@ def home_workspace_starter_templates(workspace_type: str) -> tuple[HomeStarterTe
 
 def _continuity_hint(continuity_snapshot: dict[str, object] | None) -> str:
     snapshot = continuity_snapshot if isinstance(continuity_snapshot, dict) else {}
-    return str(snapshot.get("continuity_hint", "") or "").strip()
+    return str(snapshot.get("continuity_summary", "") or snapshot.get("continuity_hint", "") or "").strip()
 
 
 def _continuity_summary(continuity_snapshot: dict[str, object] | None) -> str:
@@ -283,13 +283,8 @@ def build_home_resume_hint(last_message: str, continuity_snapshot: dict[str, obj
         source = str(snapshot.get("latest_message", "") or "").strip()
     if not source:
         return ""
-    recent_text = workspace_recent_context({"last_message": source}).strip()
-    if not recent_text:
-        return ""
-    hint = recent_text
-    if hint.endswith("."):
-        hint = hint[:-1]
-    return f"Resume cue: {hint}."
+    snippet = source[:120] + ("..." if len(source) > 120 else "")
+    return f"Last: {snippet}"
 
 
 def build_home_welcome_message(workspace_type: str, *, description: str = "") -> str:

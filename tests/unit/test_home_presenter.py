@@ -65,13 +65,13 @@ def test_build_home_workspace_state_keeps_calm_start_copy_aligned() -> None:
 
     assert state.entry_hint == (
         "Start here in reference-desk: start with SOURCE RESEARCH if you want evidence first. "
-        "Continuity: 2 recent sessions are saved here."
+        "Continuity: 2 recent sessions are saved here. Last saved thread: Compare the current brief with the source material."
     )
-    assert state.resume_hint == "Resume cue: Recent context: Compare the current brief with the source material."
+    assert state.resume_hint == "Last: Compare the current brief with the source material."
     assert state.input_placeholder == "Ask one evidence or source-check question..."
     assert "Saved context: LOCAL mode | GUPPY persona | DEFAULT voice." in state.workspace_summary
     assert "Recent context: Compare the current brief" in state.workspace_summary
-    assert state.continuity_hint == "Continuity: 2 recent sessions are saved here."
+    assert state.continuity_hint == "Continuity: 2 recent sessions are saved here. Last saved thread: Compare the current brief with the source material."
     assert state.welcome_message == build_home_welcome_message(
         "read_only_instance",
         description="Safe research and source review.",
@@ -99,5 +99,5 @@ def test_build_home_resume_hint_can_fall_back_to_continuity_snapshot() -> None:
             "",
             {"latest_message": "Pick up the builder review from the saved patch notes."},
         )
-        == "Resume cue: Recent context: Pick up the builder review from the saved patch notes."
+        == "Last: Pick up the builder review from the saved patch notes."
     )

@@ -277,6 +277,7 @@ from src.guppy.api.routes_realtime import build_realtime_router
 from src.guppy.api.routes_workspaces import build_workspaces_router
 from src.guppy.api.routes_chat_history import build_chat_history_router
 from src.guppy.api.routes_settings import build_settings_router
+from src.guppy.api.routes_tools import build_tools_router
 from src.guppy.api.runtime_state import ServerRuntimeState
 from src.guppy.api.server_paths import ServerPathConfig
 from src.guppy.api.server_runtime_startup_support import (
@@ -467,6 +468,7 @@ app.include_router(build_providers_router(_server_context))
 app.include_router(build_workspaces_router(_server_context))
 app.include_router(build_chat_history_router(_server_context))
 app.include_router(build_settings_router(_server_context))
+app.include_router(build_tools_router(_server_context))
 app.include_router(build_ops_router(_server_context))
 
 _realtime_router = build_realtime_router(_server_context)

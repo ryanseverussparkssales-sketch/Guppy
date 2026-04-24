@@ -7,9 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from guppy_core.tool_registry import TOOLS
 from src.guppy.inference.local_client import active_backend, list_local_models, probe_backends
-from src.guppy.launcher_application.workspace_snapshot_support import build_local_instance_snapshot
 from utils.connector_manager import connector_inventory
 
 router = APIRouter(tags=["catalog"])
@@ -132,7 +130,15 @@ def _normalize_instance_status(status: str) -> str:
 
 
 def _instance_snapshot_payload() -> dict[str, Any]:
-    return build_local_instance_snapshot(
+    try:
+        mod = __import__(
+            "src.guppy.launcher_application.workspace_snapshot_support",
+            fromlist=["build_local_instance_snapshot"],
+        )
+        build_fn = mod.build_local_instance_snapshot
+    except Exception:
+        return {"instances": []}
+    return build_fn(
         config_path=_CONFIG_DIR / "instances.json",
         state_path=_RUNTIME_DIR / "instance_state.json",
         include_workspace_details=True,
@@ -198,8 +204,13 @@ def _tool_category(name: str) -> str:
 
 
 def _flat_tools_payload() -> list[dict[str, Any]]:
+    try:
+        tools_mod = __import__("guppy_core.tool_registry", fromlist=["TOOLS"])
+        tools_list = tools_mod.TOOLS
+    except Exception:
+        return []
     items: list[dict[str, Any]] = []
-    for tool in TOOLS:
+    for tool in tools_list:
         if not isinstance(tool, dict):
             continue
         tool_id = str(tool.get("name", "") or "").strip()

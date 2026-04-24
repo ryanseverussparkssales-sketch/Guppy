@@ -14,6 +14,7 @@ class ToolsSurfaceState:
     available_now: int
     setup_first: int
     restricted_here: int
+    planned: int
     summary_line: str
     ownership_line: str
     planning_line: str
@@ -39,11 +40,15 @@ def build_tools_surface_state(
     restricted_here = 0
     connector_ready_now = 0
 
+    planned = 0
     for row in tool_rows:
         tool_key = str(row.get("key", "") or "").strip().lower()
         if not tool_key:
             continue
         entry = get_action_for_tool(tool_key)
+        if entry is not None and entry.availability_status == "planned":
+            planned += 1
+            continue
         dry_run = entry.dry_run if entry is not None else bool(row.get("dry_run", False))
         category = entry.category if entry is not None else str(row.get("category", "") or "").strip().upper()
         bucket = _tool_bucket(tool_key, states.get(tool_key, "unknown"), dry_run=dry_run)
@@ -74,12 +79,14 @@ def build_tools_surface_state(
     )
     if setup_first:
         guidance_line += " Setup-first cards can be primed from Home, but they still need approval or setup before real execution."
+    planned_suffix = f" | Planned: {planned}" if planned else ""
     return ToolsSurfaceState(
         available_now=available_now,
         setup_first=setup_first,
         restricted_here=restricted_here,
+        planned=planned,
         summary_line=(
-            f"Available now: {available_now} | Set up first: {setup_first} | Restricted here: {restricted_here}"
+            f"Available now: {available_now} | Set up first: {setup_first} | Restricted here: {restricted_here}{planned_suffix}"
         ),
         ownership_line=(
             "Settings connects accounts. Workspaces decides bindings. Tools runs the action for the active workspace."
