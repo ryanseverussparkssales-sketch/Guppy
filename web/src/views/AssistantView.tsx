@@ -442,4 +442,21 @@ export default function AssistantView() {
                           className={cn(
                             "w-full text-left px-4 py-2 text-xs font-bold transition-colors",
                             selectedModel === model
-                              ? "bg-primary/1
+                              ? "bg-primary/10 text-primary"
+                              : "text-on-surface-variant hover:bg-surface-container-high"
+                          )}
+                        >
+                          {model}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
