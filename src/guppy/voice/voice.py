@@ -105,8 +105,10 @@ class GuppyVoice:
         self.default_voice = self.cfg.tts_voice or default_voice
         self.whisper_model = None
         self.kokoro_pipeline = None
+        self.kokoro_api_url = ""
         self._whisper_error = ""
         self._tts_error = ""
+        self._deepgram_available = False
         self._sr_module = None
         self.quiet_mode = False
 
@@ -199,6 +201,9 @@ class GuppyVoice:
     def _transcribe_file(self, audio_path: str) -> str:
         return _runtime.transcribe_file(self, audio_path)
 
+    def _speak_with_kokoro_api(self, text: str, voice: str, speed: float) -> None:
+        _runtime.speak_with_kokoro_api(self, text, voice, speed)
+
     def _speak_with_kokoro(self, text: str, voice: str, speed: float) -> None:
         _runtime.speak_with_kokoro(self, text, voice, speed)
 
@@ -239,6 +244,12 @@ class GuppyVoice:
                 self._speak_with_elevenlabs(text, voice or self.default_voice)
             elif provider == "sapi":
                 self._speak_with_windows_tts(text, voice or self.default_voice)
+            elif self.kokoro_api_url:
+                self._speak_with_kokoro_api(
+                    text,
+                    voice or self.default_voice,
+                    self._kokoro_speed_value(self.cfg.tts_rate, speed),
+                )
             elif self.kokoro_pipeline is not None:
                 self._speak_with_kokoro(
                     text,

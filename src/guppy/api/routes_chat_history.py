@@ -10,21 +10,27 @@ GET  /api/chat/history/search       — search conversations by keyword
 """
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.guppy.api.server_context import ServerContext
+from src.guppy.paths import ensure_user_data_dir
+
+
+def _default_chat_history_db_path() -> str:
+    return str(ensure_user_data_dir() / "chat_history.db")
 
 
 class ChatHistoryDB:
     """SQLite-based chat history storage."""
 
-    def __init__(self, db_path: str = "chat_history.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str | None = None):
+        self.db_path = db_path or _default_chat_history_db_path()
         self._init_db()
 
     def _init_db(self) -> None:
@@ -68,7 +74,7 @@ class ChatHistoryDB:
     def create_conversation(self, workspace_id: str, title: Optional[str] = None) -> Dict[str, Any]:
         """Create a new conversation."""
         conv_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         final_title = title or f"Conversation {now[:10]}"
 
         with sqlite3.connect(self.db_path) as conn:
@@ -131,7 +137,7 @@ class ChatHistoryDB:
     def add_message(self, conv_id: str, role: str, content: str, model: Optional[str] = None) -> Dict[str, Any]:
         """Add a message to a conversation."""
         msg_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         with sqlite3.connect(self.db_path) as conn:
             # Add message
@@ -165,7 +171,7 @@ class ChatHistoryDB:
 
     def update_conversation_title(self, conv_id: str, title: str) -> Dict[str, Any]:
         """Update conversation title."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
@@ -214,7 +220,7 @@ def build_chat_history_router(ctx: ServerContext) -> APIRouter:
     ):
         """List conversations in a workspace."""
         del user_id
-        conversations = _chat_history_db.list_conversations(workspace_id, limit)
+        conversations = await asyncio.to_thread(_chat_history_db.list_conversations, workspace_id, limit)
         return {"conversations": conversations, "count": len(conversations)}
 
     @router.post("")
@@ -229,14 +235,14 @@ def build_chat_history_router(ctx: ServerContext) -> APIRouter:
             raise HTTPException(status_code=400, detail="workspace_id required")
 
         title = payload.get("title", "").strip() or None
-        conv = _chat_history_db.create_conversation(workspace_id, title)
+        conv = await asyncio.to_thread(_chat_history_db.create_conversation, workspace_id, title)
         return conv
 
     @router.get("/{conv_id}")
     async def get_conversation(conv_id: str, user_id: str = Depends(ctx.require_rate_limit)):
         """Get conversation with messages."""
         del user_id
-        conv = _chat_history_db.get_conversation_with_messages(conv_id)
+        conv = await asyncio.to_thread(_chat_history_db.get_conversation_with_messages, conv_id)
         if not conv:
             raise HTTPException(status_code=404, detail="conversation not found")
         return conv
@@ -253,7 +259,7 @@ def build_chat_history_router(ctx: ServerContext) -> APIRouter:
         if not title:
             raise HTTPException(status_code=400, detail="title required")
 
-        conv = _chat_history_db.update_conversation_title(conv_id, title)
+        conv = await asyncio.to_thread(_chat_history_db.update_conversation_title, conv_id, title)
         if not conv:
             raise HTTPException(status_code=404, detail="conversation not found")
         return conv
@@ -262,7 +268,7 @@ def build_chat_history_router(ctx: ServerContext) -> APIRouter:
     async def delete_conversation(conv_id: str, user_id: str = Depends(ctx.require_rate_limit)):
         """Delete a conversation."""
         del user_id
-        _chat_history_db.delete_conversation(conv_id)
+        await asyncio.to_thread(_chat_history_db.delete_conversation, conv_id)
         return {"deleted": conv_id}
 
     @router.post("/{conv_id}/messages")
@@ -280,7 +286,7 @@ def build_chat_history_router(ctx: ServerContext) -> APIRouter:
         if not role or not content:
             raise HTTPException(status_code=400, detail="role and content required")
 
-        message = _chat_history_db.add_message(conv_id, role, content, model)
+        message = await asyncio.to_thread(_chat_history_db.add_message, conv_id, role, content, model)
         return message
 
     @router.get("/search/{workspace_id}")
@@ -295,7 +301,7 @@ def build_chat_history_router(ctx: ServerContext) -> APIRouter:
         if not q.strip():
             raise HTTPException(status_code=400, detail="search query required")
 
-        results = _chat_history_db.search_conversations(workspace_id, q, limit)
+        results = await asyncio.to_thread(_chat_history_db.search_conversations, workspace_id, q, limit)
         return {"results": results, "count": len(results), "query": q}
 
     return router

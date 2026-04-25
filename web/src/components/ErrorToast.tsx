@@ -305,7 +305,7 @@ export function useErrorToast() {
  *         toasts={toasts}
  *         onDismiss={dismissToast}
  *       />
- *       {/* rest of app */}
+ *       ... rest of app ...
  *     </>
  *   )
  */

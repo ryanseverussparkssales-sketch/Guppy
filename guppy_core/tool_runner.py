@@ -1119,19 +1119,45 @@ def _exec_tool(name: str, inp: dict):
                 shot.save(buf, format="JPEG", quality=85)
                 img_b64 = base64.standard_b64encode(buf.getvalue()).decode()
 
-                # Send to Claude vision for text extraction
+                # Prefer local vision model; fall back to Claude if key available
+                _local_vision = os.environ.get("GUPPY_VISION_MODEL", "guppy-vision")
+                _ollama_base = os.environ.get("GUPPY_OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+                import urllib.request as _urlreq, json as _json
+                _payload = _json.dumps({
+                    "model": _local_vision,
+                    "messages": [{
+                        "role": "user",
+                        "content": instruction,
+                        "images": [img_b64],
+                    }],
+                    "stream": False,
+                    "options": {"num_predict": 1024},
+                }).encode()
+                try:
+                    _req = _urlreq.Request(
+                        f"{_ollama_base}/api/chat",
+                        data=_payload,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with _urlreq.urlopen(_req, timeout=60) as _r:
+                        _data = _json.loads(_r.read())
+                    return (_data.get("message", {}).get("content") or "No text extracted.").strip()
+                except Exception:
+                    pass
+                # Claude fallback
+                _api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+                if not _api_key:
+                    return "Vision unavailable: local model unreachable and no ANTHROPIC_API_KEY set."
                 import anthropic as _ant
-                _vision_client = _ant.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+                _vision_client = _ant.Anthropic(api_key=_api_key)
                 resp = _vision_client.messages.create(
                     model=os.environ.get("ANTHROPIC_BACKUP_MODEL", "claude-haiku-4-5-20251001"),
                     max_tokens=1024,
                     messages=[{
                         "role": "user",
                         "content": [
-                            {
-                                "type": "image",
-                                "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64},
-                            },
+                            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64}},
                             {"type": "text", "text": instruction},
                         ],
                     }],

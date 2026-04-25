@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import json
 import logging
 import os
 import queue
@@ -7,6 +9,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import urllib.request
 from pathlib import Path
 
 try:
@@ -33,7 +36,42 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
+def _deepgram_api_key() -> str:
+    return os.environ.get("DEEPGRAM_API_KEY", "").strip()
+
+
+def transcribe_with_deepgram(audio_path: str) -> str:
+    """Send a WAV/audio file to Deepgram nova-3 and return the transcript."""
+    api_key = _deepgram_api_key()
+    if not api_key:
+        raise RuntimeError("DEEPGRAM_API_KEY not set")
+    with open(audio_path, "rb") as f:
+        audio_bytes = f.read()
+    req = urllib.request.Request(
+        "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&language=en",
+        data=audio_bytes,
+        headers={
+            "Authorization": f"Token {api_key}",
+            "Content-Type": "audio/wav",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read())
+    transcript = (
+        data.get("results", {})
+        .get("channels", [{}])[0]
+        .get("alternatives", [{}])[0]
+        .get("transcript", "")
+        .strip()
+    )
+    return transcript
+
+
 def init_stt_backends(owner, voice_cls) -> None:
+    # Deepgram is preferred — fast, accurate, works with no local GPU
+    owner._deepgram_available = bool(_deepgram_api_key())
+
     try:
         from faster_whisper import WhisperModel
 
@@ -55,7 +93,39 @@ def init_stt_backends(owner, voice_cls) -> None:
         owner._sr_module = None
 
 
+_KOKORO_API_DEFAULT_URL = "http://127.0.0.1:8881"
+_KOKORO_API_DEFAULT_VOICE = "af_heart"
+
+
+def _probe_kokoro_api(base_url: str, timeout: float = 2.0) -> bool:
+    try:
+        req = urllib.request.Request(
+            f"{base_url.rstrip('/')}/v1/models",
+            headers={"Accept": "application/json"},
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read())
+        items = data.get("data", []) if isinstance(data, dict) else []
+        return any(
+            isinstance(item, dict) and "kokoro" in str(item.get("owned_by", "")).lower()
+            for item in items
+        )
+    except Exception:
+        return False
+
+
 def init_tts_backend(owner) -> None:
+    # Prefer the Kokoro FastAPI container (OpenAI-compat, already running)
+    kokoro_api_url = str(
+        getattr(owner, "cfg", None) and getattr(owner.cfg, "kokoro_api_url", "") or ""
+    ).strip() or os.environ.get("GUPPY_KOKORO_API_URL", _KOKORO_API_DEFAULT_URL).strip()
+    if _probe_kokoro_api(kokoro_api_url):
+        owner.kokoro_api_url = kokoro_api_url
+        owner.kokoro_pipeline = None
+        owner._tts_error = ""
+        return
+    owner.kokoro_api_url = ""
     try:
         from kokoro import KPipeline
 
@@ -116,6 +186,15 @@ def record_worker(owner, timeout: float | None = None) -> None:
 
 
 def transcribe_file(owner, audio_path: str) -> str:
+    # Deepgram: fastest and most accurate — use when key is available
+    if getattr(owner, "_deepgram_available", False):
+        try:
+            result = transcribe_with_deepgram(audio_path)
+            if result:
+                return result
+        except Exception as exc:
+            logger.warning("Deepgram STT failed, falling back to Whisper: %s", exc)
+
     if owner.whisper_model:
         segments, _info = owner.whisper_model.transcribe(audio_path, beam_size=5)
         return " ".join(segment.text.strip() for segment in segments if segment.text).strip()
@@ -132,6 +211,41 @@ def transcribe_file(owner, audio_path: str) -> str:
     if not owner._sr_module:
         errors.append("SpeechRecognition unavailable")
     raise RuntimeError("; ".join(errors) or "No transcription backend available")
+
+
+def speak_with_kokoro_api(owner, text: str, voice: str, speed: float) -> None:
+    if np is None or sd is None:
+        raise RuntimeError("Audio playback dependencies (numpy/sounddevice) unavailable")
+    base = (getattr(owner, "kokoro_api_url", "") or _KOKORO_API_DEFAULT_URL).rstrip("/")
+    resolved_voice = voice.strip() if voice.strip() else _KOKORO_API_DEFAULT_VOICE
+    payload = json.dumps({
+        "model": "kokoro",
+        "input": text,
+        "voice": resolved_voice,
+        "speed": float(speed),
+        "response_format": "wav",
+    }).encode()
+    req = urllib.request.Request(
+        f"{base}/v1/audio/speech",
+        data=payload,
+        headers={"Content-Type": "application/json", "Accept": "audio/wav"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        wav_bytes = resp.read()
+    if not wav_bytes:
+        raise RuntimeError("Kokoro API returned empty audio")
+    if sf is None:
+        raise RuntimeError("soundfile unavailable for WAV decode")
+    audio_data, sample_rate = sf.read(io.BytesIO(wav_bytes), dtype="float32")
+    if owner._stop_speaking.is_set():
+        return
+    sd.play(audio_data, sample_rate)
+    while sd.get_stream() and sd.get_stream().active:
+        if owner._stop_speaking.is_set():
+            sd.stop()
+            break
+        time.sleep(0.05)
 
 
 def speak_with_kokoro(owner, text: str, voice: str, speed: float) -> None:

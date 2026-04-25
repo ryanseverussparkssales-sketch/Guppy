@@ -7,8 +7,9 @@ import urllib.request
 from typing import Any, Optional
 
 
-_VALID_BACKENDS = {"ollama", "lmstudio", "lemonade", "auto"}
+_VALID_BACKENDS = {"ollama", "lmstudio", "lemonade", "vllm", "auto"}
 _LMSTUDIO_DEFAULT_URL = "http://127.0.0.1:1234"
+_VLLM_DEFAULT_URL = "http://127.0.0.1:8000"
 
 
 def selected_local_runtime_backend(owner: Any) -> str:
@@ -36,6 +37,11 @@ def local_runtime_base_url(owner: Any, backend: str) -> str:
         return str(
             owner.os.environ.get("GUPPY_LMSTUDIO_BASE_URL", _LMSTUDIO_DEFAULT_URL)
             or _LMSTUDIO_DEFAULT_URL
+        ).strip()
+    if normalized == "vllm":
+        return str(
+            owner.os.environ.get("GUPPY_VLLM_BASE_URL", _VLLM_DEFAULT_URL)
+            or _VLLM_DEFAULT_URL
         ).strip()
     return str(
         owner.os.environ.get("GUPPY_OLLAMA_BASE_URL", "http://127.0.0.1:11434")
@@ -135,6 +141,29 @@ def warm_lmstudio_chat_lane(owner: Any, model: str) -> tuple[bool, str]:
     return True, f"{normalized_model} warm"
 
 
+def warm_vllm_chat_lane(owner: Any, model: str) -> tuple[bool, str]:
+    normalized_model = str(model or "guppy").strip()
+    payload = {
+        "model": normalized_model,
+        "messages": [{"role": "user", "content": "ok"}],
+        "stream": False,
+        "max_tokens": 1,
+    }
+    base = owner._local_runtime_base_url("vllm").rstrip("/")
+    req = urllib.request.Request(
+        f"{base}/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=owner._LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS) as resp:
+        data = json.loads(resp.read())
+    choices = data.get("choices", []) if isinstance(data, dict) else []
+    if not choices:
+        return False, "vLLM warmup returned no choices"
+    return True, f"{normalized_model} warm via vLLM"
+
+
 def warm_lemonade_chat_lane(owner: Any, model: str) -> tuple[bool, str]:
     normalized_model = str(model or "").strip()
     if not normalized_model:
@@ -189,6 +218,8 @@ def refresh_local_runtime_warm_status(owner: Any, force: bool = False) -> dict[s
             ok, detail = warm_lemonade_chat_lane(owner, model)
         elif backend == "lmstudio":
             ok, detail = warm_lmstudio_chat_lane(owner, model)
+        elif backend == "vllm":
+            ok, detail = warm_vllm_chat_lane(owner, model)
         else:
             ok, detail = warm_ollama_chat_lane(owner, model)
     except Exception as exc:
@@ -200,7 +231,7 @@ def refresh_local_runtime_warm_status(owner: Any, force: bool = False) -> dict[s
         "checked_at": now,
         "expires_at": now + max(30.0, owner._LOCAL_RUNTIME_WARM_TTL_SECONDS),
         "chat_ready": bool(ok),
-        "chat_state": "READY" if ok else "WARMING",
+        "chat_state": "READY" if ok else "FAILED",
         "chat_detail": str(detail or ("local runtime warmed" if ok else "local runtime warmup failed")),
     }
     with state.local_runtime_warm_lock:
@@ -335,6 +366,22 @@ def build_local_runtime_status(owner: Any) -> dict[str, Any]:
                 if isinstance(item, dict) and str(item.get("id", "")).strip()
             }
             detail = "LM Studio model registry reachable"
+        elif backend == "vllm":
+            base = owner._local_runtime_base_url("vllm").rstrip("/")
+            req = urllib.request.Request(
+                f"{base}/v1/models",
+                headers={"Accept": "application/json"},
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=4.0) as resp:
+                data = json.loads(resp.read())
+            items = data.get("data", []) if isinstance(data, dict) else []
+            model_ids = {
+                str(item.get("id", "")).strip()
+                for item in items
+                if isinstance(item, dict) and str(item.get("id", "")).strip()
+            }
+            detail = "vLLM model registry reachable"
         else:
             ollama_base = owner._local_runtime_base_url("ollama").rstrip("/")
             req = urllib.request.Request(
@@ -371,9 +418,9 @@ def build_local_runtime_status(owner: Any) -> dict[str, Any]:
     else:
         state = "MISSING"
 
-    if backend == "ollama" and available_roles and str(warm_status.get("chat_state", "UNKNOWN") or "UNKNOWN") == "UNKNOWN":
+    if backend in {"ollama", "vllm"} and available_roles and str(warm_status.get("chat_state", "UNKNOWN") or "UNKNOWN") == "UNKNOWN":
         owner._trigger_local_runtime_warm_refresh(force=False)
-    if backend == "ollama" and available_roles and not bool(warm_status.get("chat_ready", False)) and state == "READY":
+    if backend in {"ollama", "vllm"} and available_roles and not bool(warm_status.get("chat_ready", False)) and state == "READY":
         state = "PARTIAL"
         detail = f"{detail} | chat lane warming"
 
@@ -434,6 +481,42 @@ def call_lemonade_chat(
     return content
 
 
+def call_vllm_chat(
+    owner: Any,
+    user_text: str,
+    system_prompt: str,
+    *,
+    model_override: Optional[str] = None,
+) -> str:
+    model_name = str(model_override or "").strip() or "guppy"
+    payload = {
+        "model": model_name,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text},
+        ],
+        "stream": False,
+        "max_tokens": 2048,
+    }
+    base = owner._local_runtime_base_url("vllm").rstrip("/")
+    req = urllib.request.Request(
+        f"{base}/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=owner.CHAT_TIMEOUT_SECONDS) as resp:
+        data = json.loads(resp.read())
+    choices = data.get("choices", []) if isinstance(data, dict) else []
+    if not choices:
+        raise RuntimeError("vLLM returned no chat choices.")
+    message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
+    content = str(message.get("content", "") or "").strip()
+    if not content:
+        raise RuntimeError("vLLM returned an empty response.")
+    return content
+
+
 def call_selected_local_runtime(
     owner: Any,
     user_text: str,
@@ -449,6 +532,13 @@ def call_selected_local_runtime(
         owner._trigger_local_runtime_warm_refresh(force=True)
     if backend == "lemonade":
         return owner._call_lemonade_chat(
+            user_text,
+            system_prompt,
+            model_override=model_override,
+        )
+    if backend == "vllm":
+        return call_vllm_chat(
+            owner,
             user_text,
             system_prompt,
             model_override=model_override,

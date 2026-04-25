@@ -10,21 +10,27 @@ POST /api/workspaces/{id}/activate — set as active workspace
 """
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.guppy.api.server_context import ServerContext
+from src.guppy.paths import ensure_user_data_dir
+
+
+def _default_workspaces_db_path() -> str:
+    return str(ensure_user_data_dir() / "workspaces.db")
 
 
 class WorkspaceDB:
     """Simple SQLite-based workspace storage."""
 
-    def __init__(self, db_path: str = "workspaces.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str | None = None):
+        self.db_path = db_path or _default_workspaces_db_path()
         self._init_db()
 
     def _init_db(self) -> None:
@@ -61,7 +67,7 @@ class WorkspaceDB:
     def create_workspace(self, name: str, description: str = "") -> Dict[str, Any]:
         """Create a new workspace."""
         ws_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
@@ -79,7 +85,7 @@ class WorkspaceDB:
         if not ws:
             raise ValueError(f"Workspace {ws_id} not found")
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         updates = {"updated_at": now}
         if name is not None:
             updates["name"] = name
@@ -128,8 +134,8 @@ def build_workspaces_router(ctx: ServerContext) -> APIRouter:
     async def list_workspaces(user_id: str = Depends(ctx.require_rate_limit)):
         """List all workspaces."""
         del user_id
-        workspaces = _workspace_db.list_workspaces()
-        active = _workspace_db.get_active_workspace()
+        workspaces = await asyncio.to_thread(_workspace_db.list_workspaces)
+        active = await asyncio.to_thread(_workspace_db.get_active_workspace)
         return {
             "workspaces": workspaces,
             "active_id": active["id"] if active else None,
@@ -148,14 +154,14 @@ def build_workspaces_router(ctx: ServerContext) -> APIRouter:
             raise HTTPException(status_code=400, detail="workspace name required")
 
         description = payload.get("description", "").strip()
-        workspace = _workspace_db.create_workspace(name, description)
+        workspace = await asyncio.to_thread(_workspace_db.create_workspace, name, description)
         return workspace
 
     @router.get("/{ws_id}")
     async def get_workspace(ws_id: str, user_id: str = Depends(ctx.require_rate_limit)):
         """Get workspace details."""
         del user_id
-        ws = _workspace_db.get_workspace(ws_id)
+        ws = await asyncio.to_thread(_workspace_db.get_workspace, ws_id)
         if not ws:
             raise HTTPException(status_code=404, detail="workspace not found")
         return ws
@@ -169,11 +175,9 @@ def build_workspaces_router(ctx: ServerContext) -> APIRouter:
         """Update workspace metadata."""
         del user_id
         try:
-            ws = _workspace_db.update_workspace(
-                ws_id,
-                name=payload.get("name"),
-                description=payload.get("description"),
-            )
+            name = payload.get("name") or None
+            description = payload.get("description") or None
+            ws = await asyncio.to_thread(_workspace_db.update_workspace, ws_id, name, description)
             return ws
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
@@ -183,7 +187,7 @@ def build_workspaces_router(ctx: ServerContext) -> APIRouter:
         """Delete a workspace."""
         del user_id
         try:
-            _workspace_db.delete_workspace(ws_id)
+            await asyncio.to_thread(_workspace_db.delete_workspace, ws_id)
             return {"deleted": ws_id}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
@@ -192,18 +196,18 @@ def build_workspaces_router(ctx: ServerContext) -> APIRouter:
     async def activate_workspace(ws_id: str, user_id: str = Depends(ctx.require_rate_limit)):
         """Set workspace as active."""
         del user_id
-        ws = _workspace_db.get_workspace(ws_id)
+        ws = await asyncio.to_thread(_workspace_db.get_workspace, ws_id)
         if not ws:
             raise HTTPException(status_code=404, detail="workspace not found")
 
-        _workspace_db.set_active_workspace(ws_id)
+        await asyncio.to_thread(_workspace_db.set_active_workspace, ws_id)
         return {"active": ws_id}
 
     @router.get("/active/current")
     async def get_active_workspace(user_id: str = Depends(ctx.require_rate_limit)):
         """Get currently active workspace."""
         del user_id
-        ws = _workspace_db.get_active_workspace()
+        ws = await asyncio.to_thread(_workspace_db.get_active_workspace)
         if not ws:
             raise HTTPException(status_code=404, detail="no active workspace")
         return ws

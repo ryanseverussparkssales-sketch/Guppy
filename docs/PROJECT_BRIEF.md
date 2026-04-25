@@ -287,20 +287,20 @@ Execution note (April 20, 2026):
   3. launcher/runtime/provider/config seams must be explicit enough that release behavior is understandable without reading giant files
   4. release-check stays green throughout
 
-Current hotspot inventory:
+Original hotspot inventory (all resolved — current sizes below cap as of 2026-04-22):
 
-1. `src/guppy/api/server_runtime_snapshot.py` `2232`
-2. `ui/launcher/launcher_window.py` `3354`
-3. `ui/launcher/views/models_view.py` `1542`
-4. `ui/launcher/views/assistant_view.py` `1394`
-5. `ui/launcher/views/settings_operations_panel.py` `1032`
-6. `ui/launcher/views/settings_device_accounts_panel.py` `824`
-7. `ui/launcher/views/library_view.py` `961`
-8. `ui/launcher/views/voices_view.py` `866`
-9. `utils/connector_manager.py` `670`
-10. `utils/personalization_config.py` `1029`
-11. `src/guppy/api/server_runtime.py` `586`
-12. `src/guppy/api/services_realtime.py` `599`
+1. `src/guppy/api/server_runtime_snapshot.py` `2232` → **570** ✓
+2. `ui/launcher/launcher_window.py` `3354` → **534** ✓
+3. `ui/launcher/views/models_view.py` `1542` → **558** ✓
+4. `ui/launcher/views/assistant_view.py` `1394` → **584** ✓
+5. `ui/launcher/views/settings_operations_panel.py` `1032` → **593** ✓
+6. `ui/launcher/views/settings_device_accounts_panel.py` `824` → **543** ✓
+7. `ui/launcher/views/library_view.py` `961` → **531** ✓
+8. `ui/launcher/views/voices_view.py` `866` → **457** ✓
+9. `utils/connector_manager.py` `670` → below cap ✓
+10. `utils/personalization_config.py` `1029` → below cap ✓
+11. `src/guppy/api/server_runtime.py` `586` → **492** ✓
+12. `src/guppy/api/services_realtime.py` `599` → below cap ✓
 
 Program tranches:
 
@@ -420,22 +420,22 @@ Top-level naming and product rule:
 3. Model surfaces should stop showing old assistant/loadout labels such as `guppy`, `merlin`, `fast`, and `vault` as if they were model identities.
 4. Model selectors should show the actual model/runtime name, and customization should come from the attached persona rather than from legacy tab naming.
 
-Current live debt targets:
+Current live sizes (all below 700-line cap, no active waivers — as of 2026-04-22):
 
-1. `src/guppy/api/server_runtime_snapshot.py` `1912`
-2. `ui/launcher/launcher_window.py` `3070`
-3. `src/guppy/daemon/daemon.py` `1473`
-4. `ui/launcher/views/models_view.py` `1298`
-5. `src/guppy/merlin/core.py` `1115`
-6. `ui/launcher/views/settings_operations_panel.py` `1008`
-7. `src/guppy/memory/memory.py` `944`
-8. `ui/launcher/views/instance_manager_view.py` `869`
-9. `ui/launcher/views/assistant_view.py` `839`
-10. `src/guppy/launcher_application/library_workflow.py` `502` with stale waiver headroom to `777`
-11. `ui/launcher/views/library_view.py` `747`
-12. `ui/launcher/views/settings_view.py` `732`
-13. `src/guppy/debug/console.py` `717`
-14. `src/guppy/voice/voice.py` `704`
+1. `src/guppy/api/server_runtime_snapshot.py` **570**
+2. `ui/launcher/launcher_window.py` **534**
+3. `src/guppy/daemon/daemon.py` **63** (fully reduced)
+4. `ui/launcher/views/models_view.py` **558**
+5. `src/guppy/merlin/core.py` **401** (fully reduced)
+6. `ui/launcher/views/settings_operations_panel.py` **593**
+7. `src/guppy/memory/memory.py` **432** (fully reduced)
+8. `ui/launcher/views/instance_manager_view.py` **370** (fully reduced)
+9. `ui/launcher/views/assistant_view.py` **584**
+10. `src/guppy/launcher_application/library_workflow.py` **502**
+11. `ui/launcher/views/library_view.py` **531**
+12. `ui/launcher/views/settings_view.py` **575**
+13. `src/guppy/debug/console.py` **59** (fully reduced)
+14. `src/guppy/voice/voice.py` **292** (fully reduced)
 
 Current cleanup findings:
 

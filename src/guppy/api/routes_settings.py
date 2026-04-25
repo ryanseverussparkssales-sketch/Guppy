@@ -9,21 +9,27 @@ POST /api/settings/provider     — set active provider { provider: string }
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.guppy.api.server_context import ServerContext
+from src.guppy.paths import ensure_user_data_dir
+
+
+def _default_settings_db_path() -> str:
+    return str(ensure_user_data_dir() / "settings.db")
 
 
 class SettingsDB:
     """SQLite-based settings and credentials storage."""
 
-    def __init__(self, db_path: str = "settings.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str | None = None):
+        self.db_path = db_path or _default_settings_db_path()
         self._init_db()
 
     def _init_db(self) -> None:
@@ -58,7 +64,7 @@ class SettingsDB:
                 INSERT OR IGNORE INTO settings (key, value, updated_at)
                 VALUES ('active_provider', 'local', ?)
                 """,
-                (datetime.utcnow().isoformat(),),
+                (datetime.now(timezone.utc).isoformat(),),
             )
 
             conn.commit()
@@ -68,7 +74,7 @@ class SettingsDB:
         if not api_key.strip():
             raise ValueError("api_key cannot be empty")
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
@@ -114,7 +120,7 @@ class SettingsDB:
 
     def set_setting(self, key: str, value: str) -> Dict[str, Any]:
         """Set a setting value."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
@@ -149,10 +155,9 @@ def build_settings_router(ctx: ServerContext) -> APIRouter:
     async def get_settings(user_id: str = Depends(ctx.require_rate_limit)):
         """Get all settings and credential status."""
         del user_id
-        return {
-            "active_provider": _settings_db.get_active_provider(),
-            "credentials": _settings_db.get_credentials_status(),
-        }
+        active_provider = await asyncio.to_thread(_settings_db.get_active_provider)
+        credentials = await asyncio.to_thread(_settings_db.get_credentials_status)
+        return {"active_provider": active_provider, "credentials": credentials}
 
     @router.put("")
     async def update_settings(
@@ -162,14 +167,14 @@ def build_settings_router(ctx: ServerContext) -> APIRouter:
         """Bulk-update settings (theme, language, etc)."""
         del user_id
         if "active_provider" in payload:
-            _settings_db.set_active_provider(payload["active_provider"], payload.get("active_model", ""))
+            await asyncio.to_thread(_settings_db.set_active_provider, payload["active_provider"], payload.get("active_model", ""))
         return {"ok": True}
 
     @router.get("/credentials")
     async def get_credentials_status(user_id: str = Depends(ctx.require_rate_limit)):
         """Get credential configuration status (no keys exposed)."""
         del user_id
-        return _settings_db.get_credentials_status()
+        return await asyncio.to_thread(_settings_db.get_credentials_status)
 
     @router.post("/credentials")
     async def store_credential(
@@ -189,7 +194,7 @@ def build_settings_router(ctx: ServerContext) -> APIRouter:
             raise HTTPException(status_code=400, detail="api_key required")
 
         try:
-            result = _settings_db.store_credential(provider, api_key)
+            result = await asyncio.to_thread(_settings_db.store_credential, provider, api_key)
             return result
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -198,14 +203,14 @@ def build_settings_router(ctx: ServerContext) -> APIRouter:
     async def delete_credential(provider: str, user_id: str = Depends(ctx.require_rate_limit)):
         """Delete credentials for a provider."""
         del user_id
-        _settings_db.delete_credential(provider)
+        await asyncio.to_thread(_settings_db.delete_credential, provider)
         return {"deleted": provider}
 
     @router.get("/provider")
     async def get_provider(user_id: str = Depends(ctx.require_rate_limit)):
         """Get active provider."""
         del user_id
-        return {"active_provider": _settings_db.get_active_provider()}
+        return {"active_provider": await asyncio.to_thread(_settings_db.get_active_provider)}
 
     @router.post("/provider")
     async def set_provider(
@@ -219,7 +224,7 @@ def build_settings_router(ctx: ServerContext) -> APIRouter:
             raise HTTPException(status_code=400, detail="provider required")
 
         try:
-            result = _settings_db.set_active_provider(provider)
+            result = await asyncio.to_thread(_settings_db.set_active_provider, provider)
             return result
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))

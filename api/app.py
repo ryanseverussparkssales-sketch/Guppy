@@ -13,7 +13,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
+from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes.auth_refresh import router as auth_refresh_router
@@ -21,6 +21,9 @@ from api.routes.auth_token import router as auth_token_router
 from api.routes.catalog import router as catalog_router
 from api.routes.chat import router as chat_router
 from api.routes.health import router as health_router
+from api.routes.history import router as history_router
+from api.routes.settings import router as settings_router
+from api.routes.workspaces import router as workspaces_router
 
 logger = logging.getLogger(__name__)
 
@@ -80,5 +83,69 @@ async def _request_id_middleware(request: Request, call_next) -> Response:
 app.include_router(auth_token_router, prefix="/auth/token", tags=["auth"])
 app.include_router(auth_refresh_router, prefix="/auth/refresh", tags=["auth"])
 app.include_router(chat_router, prefix="/chat", tags=["chat"])
+app.include_router(chat_router, prefix="/api/chat", tags=["chat"])  # alias for web UI
 app.include_router(health_router, tags=["health"])
 app.include_router(catalog_router)
+app.include_router(workspaces_router)
+app.include_router(settings_router)
+app.include_router(history_router)
+
+
+# ---------------------------------------------------------------------------
+# Auth extras — signup / verify (cloud stubs: return tokens directly)
+# ---------------------------------------------------------------------------
+_auth_extras = APIRouter(tags=["auth"])
+
+
+@_auth_extras.post("/auth/signup")
+async def auth_signup(request: Request) -> dict:
+    body = await request.json()
+    token = str(uuid.uuid4())
+    return {"access_token": token, "token_type": "bearer", "email": body.get("email", "")}
+
+
+@_auth_extras.post("/auth/verify")
+async def auth_verify(request: Request) -> dict:
+    return {"ok": True, "verified": True}
+
+
+app.include_router(_auth_extras)
+
+
+# ---------------------------------------------------------------------------
+# Desktop-only stubs — return graceful empty / 503 rather than 404
+# ---------------------------------------------------------------------------
+_desktop_stubs = APIRouter(tags=["desktop-stubs"])
+
+
+@_desktop_stubs.get("/logs/recent")
+async def logs_recent() -> dict:
+    return {"logs": [], "total": 0}
+
+
+@_desktop_stubs.get("/metrics")
+async def metrics() -> dict:
+    return {"uptime_seconds": round(time.time() - _STARTUP_TIME, 1), "requests": 0}
+
+
+@_desktop_stubs.get("/telemetry/report")
+async def telemetry_report() -> dict:
+    return {"events": [], "total": 0}
+
+
+@_desktop_stubs.get("/repair-token/refresh")
+async def repair_token_refresh() -> dict:
+    return {"available": False, "reason": "desktop-only"}
+
+
+@_desktop_stubs.post("/api/models/pull")
+async def models_pull() -> dict:
+    return {"available": False, "reason": "desktop-only"}
+
+
+@_desktop_stubs.post("/api/voices/test")
+async def voices_test() -> dict:
+    return {"available": False, "reason": "desktop-only"}
+
+
+app.include_router(_desktop_stubs)

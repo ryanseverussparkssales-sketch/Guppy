@@ -25,8 +25,10 @@ from utils.db_utils import open_db as _open_db
 import requests
 
 DB_PATH = MEMORY_DB_PATH
-EMBED_MODEL = "nomic-embed-text"
+EMBED_MODEL = os.environ.get("GUPPY_EMBED_MODEL", "nomic-embed-text").strip() or "nomic-embed-text"
 CHROMA_PATH = CHROMA_DIR
+# Override to point at a vLLM embedding model: GUPPY_EMBED_BASE_URL=http://127.0.0.1:8000
+_EMBED_BASE_URL = os.environ.get("GUPPY_EMBED_BASE_URL", "http://localhost:11434").strip().rstrip("/")
 
 
 def _backend() -> str:
@@ -57,15 +59,34 @@ def _conn() -> sqlite3.Connection:
     return c
 
 
+def _is_openai_compat_embed() -> bool:
+    """True when GUPPY_EMBED_BASE_URL points at a vLLM/OpenAI-compat server."""
+    return "11434" not in _EMBED_BASE_URL
+
+
 def _embed_text(text: str) -> list[float]:
     text = (text or "").strip()
     if not text:
         raise RuntimeError("Cannot embed empty text")
 
-    # Prefer modern batch endpoint
+    if _is_openai_compat_embed():
+        # vLLM / OpenAI-compat: POST /v1/embeddings
+        r = requests.post(
+            f"{_EMBED_BASE_URL}/v1/embeddings",
+            json={"model": EMBED_MODEL, "input": text},
+            timeout=45,
+        )
+        r.raise_for_status()
+        data = r.json()
+        emb = (data.get("data") or [{}])[0].get("embedding") or []
+        if emb:
+            return [float(x) for x in emb]
+        raise RuntimeError("vLLM embedding response missing embedding vector")
+
+    # Ollama: prefer modern batch endpoint
     try:
         r = requests.post(
-            "http://localhost:11434/api/embed",
+            f"{_EMBED_BASE_URL}/api/embed",
             json={"model": EMBED_MODEL, "input": [text]},
             timeout=45,
         )
@@ -77,9 +98,9 @@ def _embed_text(text: str) -> list[float]:
     except Exception:
         pass
 
-    # Back-compat endpoint
+    # Ollama back-compat endpoint
     r = requests.post(
-        "http://localhost:11434/api/embeddings",
+        f"{_EMBED_BASE_URL}/api/embeddings",
         json={"model": EMBED_MODEL, "prompt": text},
         timeout=45,
     )
@@ -97,9 +118,23 @@ def _embed_texts(texts: list[str]) -> list[list[float]]:
     if not cleaned:
         raise RuntimeError("Cannot embed empty text list")
 
+    if _is_openai_compat_embed():
+        r = requests.post(
+            f"{_EMBED_BASE_URL}/v1/embeddings",
+            json={"model": EMBED_MODEL, "input": cleaned},
+            timeout=60,
+        )
+        r.raise_for_status()
+        data = r.json()
+        items = data.get("data") or []
+        embs = [item.get("embedding") or [] for item in items]
+        if embs and all(embs):
+            return [[float(x) for x in row] for row in embs]
+        raise RuntimeError("vLLM batch embedding response malformed")
+
     try:
         r = requests.post(
-            "http://localhost:11434/api/embed",
+            f"{_EMBED_BASE_URL}/api/embed",
             json={"model": EMBED_MODEL, "input": cleaned},
             timeout=60,
         )
@@ -111,7 +146,6 @@ def _embed_texts(texts: list[str]) -> list[list[float]]:
     except Exception:
         pass
 
-    # Back-compat fallback (single call per text)
     return [_embed_text(t) for t in cleaned]
 
 

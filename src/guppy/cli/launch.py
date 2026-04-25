@@ -114,6 +114,35 @@ def _resolve_python_executable(root: Path, *, prefer_windowed: bool = False) -> 
 # Hub management
 # ---------------------------------------------------------------------------
 
+def _poll_hub_ready(root: Path, timeout: float = 10.0, interval: float = 0.4) -> None:
+    """Poll the hub health endpoint until it responds or timeout elapses."""
+    import urllib.request
+    hub_health = "http://127.0.0.1:8080/health"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(hub_health, timeout=1) as r:
+                if r.status == 200:
+                    print("[launch] Hub is ready.")
+                    return
+        except Exception:
+            pass
+        time.sleep(interval)
+    print("[launch] WARNING: Hub did not respond within timeout — continuing anyway")
+
+
+def _check_port_available(port: int) -> bool:
+    """Return True if the TCP port is not bound by any process."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+
+
 def start_hub_background(root: Path) -> subprocess.Popen | None:
     """Start guppy_hub.py in the background without a console window."""
     exe = _resolve_python_executable(root, prefer_windowed=True)
@@ -150,9 +179,11 @@ def _setup_api_env() -> None:
     os.environ.setdefault("GUPPY_API_RELOAD", "0")
     os.environ.setdefault("GUPPY_JWT_SECRET", "dev-secret-key-change-in-production")
     os.environ.setdefault("TURNSTILE_SECRET", "dev-turnstile-secret")
-    # Default to local inference — probe Ollama (11434) then LM Studio (1234).
+    # Default to local inference via Ollama (GPU-accelerated on Windows via HIP).
+    # Switch to vLLM by setting GUPPY_LOCAL_RUNTIME_BACKEND=vllm in .env.
     # Only falls back to cloud (Claude) if ANTHROPIC_API_KEY is explicitly set.
     os.environ.setdefault("GUPPY_DEFAULT_MODE", "local")
+    os.environ.setdefault("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama")
     if not os.environ.get("GUPPY_JWT_SECRET") or os.environ["GUPPY_JWT_SECRET"] == "dev-secret-key-change-in-production":
         print("[launch] WARNING: GUPPY_JWT_SECRET is not set — using dev default")
     if not os.environ.get("TURNSTILE_SECRET") or os.environ["TURNSTILE_SECRET"] == "dev-turnstile-secret":
@@ -232,10 +263,14 @@ def main(argv: list[str] | None = None) -> int:
     if should_start_hub:
         print("[launch] Starting hub in background...")
         start_hub_background(ROOT)
-        time.sleep(2)
+        _poll_hub_ready(ROOT)
 
     if args.surface == "api":
         _setup_api_env()
+        _api_port = int(os.environ.get("GUPPY_API_PORT", "8081"))
+        if not _check_port_available(_api_port):
+            print(f"[launch] ERROR: Port {_api_port} is already in use. Stop the existing process or change GUPPY_API_PORT.")
+            return 1
 
     python = _resolve_python_executable(
         ROOT,

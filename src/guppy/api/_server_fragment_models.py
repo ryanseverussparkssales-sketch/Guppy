@@ -77,3 +77,6 @@ class InstanceConnectorBindingRequest(BaseModel):
     provider: str = ""
     action_allow: List[str] = []
     action_block: List[str] = []
+    endpoint_allow: List[str] = []
+    endpoint_block: List[str] = []
+    note: str = ""

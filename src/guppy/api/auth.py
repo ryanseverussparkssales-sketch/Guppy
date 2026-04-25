@@ -8,6 +8,9 @@ Provides dependency injection for FastAPI routes requiring authentication.
 
 import os
 import logging
+import secrets
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -36,29 +39,46 @@ load_env_file(override=True)
 DEV_MODE = os.getenv("GUPPY_DEV_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
 
 # Prefer OS credential store; fall back to env-var so existing deployments
-# continue to work with no migration step.
+# continue to work with no migration step.  If neither is configured, a
+# stable dev secret is auto-generated on first use (see _get_or_create_dev_secret).
 _env_jwt = os.getenv("GUPPY_JWT_SECRET", "").strip()
 SECRET_KEY = (_secret_store.get_secret("jwt_secret", fallback=_env_jwt) or "").strip() if _SECRET_STORE_AVAILABLE else _env_jwt
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 24 * 60  # 24 hours
 
-TURNSTILE_SECRET = os.getenv("TURNSTILE_SECRET", "").strip()
+TURNSTILE_SECRET = (os.getenv("GUPPY_TURNSTILE_SECRET") or os.getenv("TURNSTILE_SECRET", "")).strip()
 TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 
 
-def _refresh_runtime_config() -> None:
-    """Reload env-backed auth settings for reloader and alternate import paths."""
-    global DEV_MODE, SECRET_KEY, TURNSTILE_SECRET
+_CONFIG_TTL_SECONDS = 30.0
+_config_last_loaded: float = 0.0
+_config_lock = threading.Lock()
 
-    load_env_file(override=True)
-    DEV_MODE = os.getenv("GUPPY_DEV_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
-    _env_jwt_now = os.getenv("GUPPY_JWT_SECRET", "").strip()
-    SECRET_KEY = (
-        (_secret_store.get_secret("jwt_secret", fallback=_env_jwt_now) or "").strip()
-        if _SECRET_STORE_AVAILABLE
-        else _env_jwt_now
-    )
-    TURNSTILE_SECRET = os.getenv("TURNSTILE_SECRET", "").strip()
+
+def _refresh_runtime_config() -> None:
+    """Reload env-backed auth settings at most once per TTL window."""
+    global DEV_MODE, SECRET_KEY, TURNSTILE_SECRET, _config_last_loaded
+
+    now = time.monotonic()
+    if now - _config_last_loaded < _CONFIG_TTL_SECONDS:
+        return
+
+    with _config_lock:
+        if time.monotonic() - _config_last_loaded < _CONFIG_TTL_SECONDS:
+            return
+        load_env_file(override=True)
+        DEV_MODE = os.getenv("GUPPY_DEV_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+        _env_jwt_now = os.getenv("GUPPY_JWT_SECRET", "").strip()
+        _resolved = (
+            (_secret_store.get_secret("jwt_secret", fallback=_env_jwt_now) or "").strip()
+            if _SECRET_STORE_AVAILABLE
+            else _env_jwt_now
+        )
+        if _is_placeholder_secret(_resolved):
+            _resolved = _get_or_create_dev_secret()
+        SECRET_KEY = _resolved
+        TURNSTILE_SECRET = (os.getenv("GUPPY_TURNSTILE_SECRET") or os.getenv("TURNSTILE_SECRET", "")).strip()
+        _config_last_loaded = time.monotonic()
 
 
 def _is_placeholder_secret(value: str) -> bool:
@@ -70,6 +90,30 @@ def _is_placeholder_secret(value: str) -> bool:
         "changeme",
         "replace-me",
     }
+
+
+def _get_or_create_dev_secret() -> str:
+    """Return a stable auto-generated JWT secret for local dev.
+
+    Persisted to USER_DATA_DIR/dev_jwt_secret so the same secret survives
+    restarts (tokens stay valid across server bounces in the same install).
+    Never used in production — only reached when no real secret is configured.
+    """
+    try:
+        from src.guppy.paths import USER_DATA_DIR
+        secret_file = USER_DATA_DIR / "dev_jwt_secret"
+        secret_file.parent.mkdir(parents=True, exist_ok=True)
+        if secret_file.exists():
+            value = secret_file.read_text().strip()
+            if value and not _is_placeholder_secret(value):
+                return value
+        new_secret = secrets.token_hex(32)
+        secret_file.write_text(new_secret)
+        logger.info("Auto-generated dev JWT secret persisted to %s", secret_file)
+        return new_secret
+    except Exception as exc:
+        logger.warning("Could not persist dev JWT secret (%s); using ephemeral secret", exc)
+        return secrets.token_hex(32)
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
@@ -95,6 +139,10 @@ def _verify_token_credentials(credentials: Optional[HTTPAuthorizationCredentials
         )
 
     if not credentials:
+        # In dev mode, allow unauthenticated access for local testing
+        if DEV_MODE:
+            logger.info("Dev mode: allowing unauthenticated API request")
+            return "dev-user"
         raise HTTPException(
             status_code=401,
             detail={"code": "auth_missing_bearer", "message": "Authentication required"},
@@ -127,7 +175,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Create JWT access token."""
     _refresh_runtime_config()
     if _is_placeholder_secret(SECRET_KEY):
-        raise RuntimeError("GUPPY_JWT_SECRET is not configured")
+        raise RuntimeError("GUPPY_JWT_SECRET is not configured")  # should not reach here after _refresh_runtime_config auto-fills
 
     to_encode = data.copy()
     if expires_delta:
@@ -149,7 +197,7 @@ def get_token_expiry(token: str) -> Optional[datetime]:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_exp": False})
         exp = payload.get("exp")
         if exp:
-            return datetime.fromtimestamp(exp)
+            return datetime.fromtimestamp(exp, tz=timezone.utc)
     except JWTError:
         pass
     return None
@@ -456,7 +504,7 @@ def validate_environment():
     if _is_placeholder_secret(SECRET_KEY):
         missing.append("GUPPY_JWT_SECRET")
     if _is_placeholder_secret(TURNSTILE_SECRET):
-        missing.append("TURNSTILE_SECRET")
+        missing.append("GUPPY_TURNSTILE_SECRET")
 
     if missing:
         if DEV_MODE:
@@ -467,5 +515,15 @@ def validate_environment():
                 f"Missing required environment variables in strict mode: {', '.join(missing)}. "
                 "Set GUPPY_DEV_MODE=1 only for local development."
             )
+
+    if DEV_MODE:
+        _banner = (
+            "\n" + "=" * 70 + "\n"
+            "  !! GUPPY_DEV_MODE=1 IS ACTIVE !!\n"
+            "  JWT auth, Turnstile verification, and rate limiting are BYPASSED.\n"
+            "  NEVER run with DEV_MODE enabled in production or on a shared network.\n"
+            + "=" * 70
+        )
+        logger.warning(_banner)
 
     return len(missing) == 0

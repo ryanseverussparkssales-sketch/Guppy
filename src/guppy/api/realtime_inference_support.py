@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import urllib.request
-from typing import Any, Optional
+from typing import Any, AsyncGenerator, Optional
 
 
 def sanitize_chat_history(history: Any, limit: int = 12) -> list[dict[str, str]]:
@@ -63,6 +63,43 @@ def is_rate_limited_error(error: Exception | str) -> bool:
     return "429" in txt or "rate limit" in txt or "too many requests" in txt
 
 
+def _is_transient_inference_error(exc: Exception) -> bool:
+    txt = str(exc).lower()
+    return any(k in txt for k in ("timeout", "timed out", "connection reset", "temporarily unavailable", "503", "busy"))
+
+
+def _with_single_retry(fn: Any, *args: Any, **kwargs: Any) -> Any:
+    """Call fn(*args, **kwargs), retry once after 1s on transient errors."""
+    import time as _time
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:
+        if _is_transient_inference_error(exc):
+            _time.sleep(1.0)
+            return fn(*args, **kwargs)
+        raise
+
+
+def _inject_semantic_context(system_prompt: str, user_text: str, owner: Any) -> str:
+    """Append relevant ChromaDB/SQLite semantic memory to the system prompt."""
+    if not owner.os.environ.get("GUPPY_SEMANTIC_RAG", "1").strip().lower() in {"1", "true", "yes", "on"}:
+        return system_prompt
+    try:
+        from src.guppy.memory.semantic import build_semantic_prompt_context
+        ctx = build_semantic_prompt_context(user_text, n=4)
+        if ctx:
+            return f"{system_prompt}\n\n{ctx}"
+    except Exception:
+        pass
+    return system_prompt
+
+
+async def _inject_semantic_context_async(system_prompt: str, user_text: str, owner: Any) -> str:
+    """Async wrapper — runs the synchronous ChromaDB/SQLite read in a thread pool."""
+    import asyncio
+    return await asyncio.to_thread(_inject_semantic_context, system_prompt, user_text, owner)
+
+
 def call_unified_inference(
     owner: Any,
     user_text: str,
@@ -92,6 +129,7 @@ def call_unified_inference(
     router = owner.get_router()
     clean_history = sanitize_chat_history(history)
     augmented_system_prompt = augment_system_with_history(system_prompt, clean_history)
+    augmented_system_prompt = _inject_semantic_context(augmented_system_prompt, user_text, owner)
     router_messages = build_router_messages(augmented_system_prompt, user_text, clean_history)
     requested_mode = (
         mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto"
@@ -99,7 +137,8 @@ def call_unified_inference(
 
     try:
         if requested_mode == "local":
-            response, source, metadata = _run_local_mode(
+            response, source, metadata = _with_single_retry(
+                _run_local_mode,
                 owner=owner,
                 router=router,
                 user_text=user_text,
@@ -109,7 +148,8 @@ def call_unified_inference(
                 instance_type=instance_type,
             )
         elif requested_mode == "code":
-            response, source, metadata = _run_code_mode(
+            response, source, metadata = _with_single_retry(
+                _run_code_mode,
                 owner=owner,
                 router=router,
                 user_text=user_text,
@@ -471,3 +511,168 @@ def call_ollama_with_tools(
             all_msgs.append({"role": "tool", "content": str(result)})
 
     return final_text or "No response produced."
+
+
+# ── Streaming support ─────────────────────────────────────────────────────────
+
+_OLLAMA_CHAT_URL = "http://127.0.0.1:11434/api/chat"
+_TOOL_CALL_SENTINEL = "\x00TOOL_CALLS:"
+
+
+async def _stream_ollama_tokens(
+    *,
+    model: str,
+    messages: list[dict],
+    tools: list | None = None,
+    timeout: float = 180.0,
+) -> AsyncGenerator[str, None]:
+    """
+    Yield content token strings from Ollama's streaming chat API.
+
+    If the model produces tool calls, the final yielded value is a sentinel
+    string ``"\\x00TOOL_CALLS:<json>"`` so the caller can detect and handle
+    them without breaking the token stream.
+    """
+    import httpx
+
+    payload: dict = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "keep_alive": "10m",
+        "options": {"temperature": 0.8, "top_p": 0.95, "top_k": 40, "num_predict": 512},
+    }
+    if tools:
+        payload["tools"] = tools
+
+    tool_calls_buffer: list = []
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", _OLLAMA_CHAT_URL, json=payload) as response:
+                response.raise_for_status()
+                async for raw_line in response.aiter_lines():
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    msg = chunk.get("message", {})
+                    content = msg.get("content") or ""
+                    if content:
+                        yield content
+
+                    calls = msg.get("tool_calls")
+                    if calls:
+                        tool_calls_buffer.extend(calls)
+
+                    if chunk.get("done"):
+                        break
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(f"Ollama returned {exc.response.status_code}") from exc
+    except httpx.ConnectError as exc:
+        raise RuntimeError(
+            "Cannot reach Ollama on port 11434. Start Ollama and try again."
+        ) from exc
+
+    if tool_calls_buffer:
+        yield _TOOL_CALL_SENTINEL + json.dumps(tool_calls_buffer)
+
+
+async def stream_unified_inference(
+    owner: Any,
+    user_text: str,
+    system_prompt: str,
+    mode: Optional[str] = None,
+    history: Optional[list[dict]] = None,
+    instance_name: Optional[str] = None,
+    instance_type: Optional[str] = None,
+) -> AsyncGenerator[str, None]:
+    """
+    Async generator yielding content tokens for the chat response.
+
+    For Ollama backends: true token-level streaming via httpx.
+    For Claude / fallbacks: yields the full response as a single chunk.
+    """
+    clean_history = sanitize_chat_history(history)
+    augmented_system = augment_system_with_history(system_prompt, clean_history)
+    augmented_system = await _inject_semantic_context_async(augmented_system, user_text, owner)
+    requested_mode = (mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto").strip().lower()
+
+    can_stream_ollama = (
+        owner.GUPPY_CORE_AVAILABLE
+        and owner.INFERENCE_ROUTER_AVAILABLE
+        and requested_mode in {"local", "auto", ""}
+    )
+
+    if can_stream_ollama:
+        try:
+            router = owner.get_router()
+            task_type = router._classify_task(user_text, augmented_system)
+            model_name = router.LOCAL_TIER_MAP.get(task_type, router.LOCAL_MODEL)
+            messages = build_router_messages(augmented_system, user_text, clean_history)
+            tools = owner.core.to_ollama_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
+
+            tool_calls_accumulated: list = []
+            all_messages = list(messages)
+            assistant_content = ""
+
+            async for token in _stream_ollama_tokens(
+                model=model_name,
+                messages=all_messages,
+                tools=tools,
+            ):
+                if token.startswith(_TOOL_CALL_SENTINEL):
+                    tool_calls_accumulated = json.loads(token[len(_TOOL_CALL_SENTINEL):])
+                else:
+                    assistant_content += token
+                    yield token
+
+            if tool_calls_accumulated:
+                clean_assistant: dict = {"role": "assistant", "content": assistant_content}
+                clean_assistant["tool_calls"] = tool_calls_accumulated
+                all_messages.append(clean_assistant)
+
+                for tool_call in tool_calls_accumulated:
+                    fn = tool_call.get("function", {})
+                    name = fn.get("name", "")
+                    args = fn.get("arguments", {})
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except Exception:
+                            args = {}
+                    result = owner.core.run_tool(
+                        name,
+                        args if isinstance(args, dict) else {},
+                        instance_name=instance_name,
+                        instance_type=instance_type,
+                    )
+                    all_messages.append({"role": "tool", "content": str(result)})
+
+                async for token in _stream_ollama_tokens(
+                    model=model_name,
+                    messages=all_messages,
+                    tools=tools,
+                ):
+                    if not token.startswith(_TOOL_CALL_SENTINEL):
+                        yield token
+            return
+
+        except RuntimeError:
+            pass  # fall through to non-streaming fallback
+
+    # Non-streaming fallback (Claude / no router / explicit code mode)
+    response = call_unified_inference(
+        owner=owner,
+        user_text=user_text,
+        system_prompt=system_prompt,
+        mode=mode,
+        history=history,
+        instance_name=instance_name,
+        instance_type=instance_type,
+    )
+    yield response

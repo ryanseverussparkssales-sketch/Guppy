@@ -93,12 +93,11 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 ## Known Issues & TODOs
 
 ### 🔴 Code Cleanup
-- [ ] Empty directory: `compat_shims/legacy_surfaces/` — Remove or restore content
-- [ ] Abandoned surface: `api/` folder at root has `requirements.txt` but no Python sources. Verify if dead code.
-- [ ] Multiple `/repair` implementations — Consolidate or document alternative mount points
+- [x] `compat_shims/legacy_surfaces/` — Intentionally empty quarantine marker (enforced by `tools/check_wrapper_integrity.py`); not a cleanup target
+- [x] Multiple `/repair` implementations — Consolidated. Only `routes_ops.py` / `ServerContext` path is active. Legacy files (`_server_fragment_routes_core.py`, `server_runtime_snapshot.py`, `snapshot_misc_routes.py` and related snapshot support files) removed.
 
 ### 🟡 Documentation
-- [ ] Add one-line clarification to `OPERATIONS.md` §2 explaining that `ui/launcher/` is a re-export shim
+- [x] Add one-line clarification to `instructions/OPERATIONS.md` §2 explaining that `ui/launcher/` is a re-export shim — done
 - [ ] Document launcher shortcut management (`tools/ensure_desktop_launcher.ps1`)
 - [ ] Add architecture diagram to README.md
 
@@ -173,7 +172,7 @@ Located at `config/instances.json`. Defines available runtime instances:
 
 **Before making changes:**
 1. Read `docs/PROJECT_BRIEF.md` (active status & roadmap)
-2. Check `OPERATIONS.md` / `DEVELOPMENT.md` (stable reference)
+2. Check `instructions/OPERATIONS.md` / `instructions/DEVELOPMENT.md` (stable reference)
 3. Run `python tools/dev_workflow.py dev-check --guard-scope delta` (verify your changes don't break guardrails)
 
 **When adding features:**

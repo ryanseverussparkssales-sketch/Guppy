@@ -13,7 +13,7 @@
  * Errors: syncManager catches errors and can report to error store for display
  */
 
-import api, { setupCircuitBreakerMonitoring, getQueueStats } from '../api/client'
+import api, { setupCircuitBreakerMonitoring, getQueueStats, streamChat } from '../api/client'
 import { useAppStore, ChatMessage, Conversation, Settings, Workspace, Provider } from './appStore'
 import { getErrorStore } from './errorStore'
 import { getCircuitBreaker } from '../utils/circuitBreaker'
@@ -560,7 +560,12 @@ export class SyncManager {
     }
   }
 
-  async getAIResponse(conversationId: string, userMessage: string, model?: string) {
+  async getAIResponse(
+    conversationId: string,
+    userMessage: string,
+    model?: string,
+    onToken?: (token: string) => void
+  ) {
     const store = useAppStore.getState()
     const endpoint = 'POST /api/chat'
 
@@ -570,8 +575,39 @@ export class SyncManager {
       details: { operation: 'getAIResponse', model, messageLength: userMessage.length },
     })
 
+    // Try streaming path if caller wants live tokens
+    if (onToken) {
+      try {
+        let fullResponse = ''
+        await streamChat(
+          {
+            message: userMessage,
+            session_id: conversationId,
+            workspace_id: store.activeWorkspaceId,
+            mode: model || 'auto',
+          },
+          (token) => {
+            fullResponse += token
+            onToken(token)
+          }
+        )
+        if (fullResponse.trim()) {
+          await this.addMessage(conversationId, 'assistant', fullResponse, model)
+          telemetry.recordEvent({
+            type: 'request_success',
+            endpoint,
+            details: { operation: 'getAIResponse', streaming: true, responseLength: fullResponse.length },
+          })
+          return fullResponse
+        }
+      } catch (streamErr) {
+        console.warn('Streaming chat failed, falling back to non-streaming:', streamErr)
+        // Fall through to non-streaming below
+      }
+    }
+
     try {
-      // Call the AI endpoint to get response
+      // Non-streaming fallback
       const response = await api.post('/api/chat', {
         message: userMessage,
         session_id: conversationId,
@@ -584,15 +620,13 @@ export class SyncManager {
       telemetry.recordEvent({
         type: 'request_success',
         endpoint,
-        details: { operation: 'getAIResponse', responseLength: aiResponse.length },
+        details: { operation: 'getAIResponse', streaming: false, responseLength: aiResponse.length },
       })
 
-      // Save the AI response as an assistant message
       await this.addMessage(conversationId, 'assistant', aiResponse, model)
 
       return aiResponse
     } catch (error) {
-      // Check if request was queued
       if ((error as any).queued) {
         telemetry.recordEvent({
           type: 'request_queued',
@@ -602,7 +636,6 @@ export class SyncManager {
 
         const apiError = handleError(error, 'Failed to get AI response', endpoint)
         reportError(apiError, true)
-        // Return a placeholder response that indicates queuing
         return '[Request queued - response will be sent when service is available]'
       }
 

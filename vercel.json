@@ -1,6 +1,6 @@
 {
   "buildCommand": "cd web && npm install && npm run build",
-  "outputDirectory": "web/dist",
+  "outputDirectory": "static",
   "framework": "vite",
   "env": {
     "VITE_API_URL": "@vite_api_url"
@@ -22,7 +22,7 @@
     },
     {
       "src": "/(.*)",
-      "dest": "/web/dist/$1"
+      "dest": "/$1"
     }
   ],
   "headers": [

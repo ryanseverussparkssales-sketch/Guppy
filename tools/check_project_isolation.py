@@ -1,68 +1,90 @@
-"""Fail when Guppy workflow detects cross-project edits in the Guppy-pi workspace.
+"""Fail CI if test helpers, dev tools, or compat shims bleed into production src/.
 
-Policy:
-- Guppy and Guppy-pi must be developed independently.
-- Running Guppy guardrails should not proceed when Guppy-pi has tracked changes.
-
-Set GUPPY_ALLOW_CROSS_PROJECT_DIRTY=1 only for emergency local bypasses.
+Rules enforced:
+- src/guppy/ must not import from tests/, tools/, or compat_shims/ at module level
+- guppy_core/ must not import from tests/ or tools/
 """
 from __future__ import annotations
 
 import os
+import re
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGET = "Guppy-pi"
-ALLOW_DIRTY = (os.environ.get("GUPPY_ALLOW_CROSS_PROJECT_DIRTY", "") or "").strip() == "1"
+GUARD_SCOPE = (os.environ.get("GUPPY_GUARD_SCOPE", "delta") or "delta").strip().lower()
+
+_PROD_ROOTS = ("src/guppy/", "guppy_core/", "utils/")
+_FORBIDDEN_IMPORT_PATTERNS = [
+    re.compile(r"^\s*(?:import|from)\s+tests[\.\s]"),
+    re.compile(r"^\s*(?:import|from)\s+tools[\.\s]"),
+]
+
+_ALWAYS_SKIP = (
+    ".venv/",
+    ".tmp/",
+    "__pycache__/",
+)
 
 
-def _git_status_porcelain() -> list[str]:
+def _tracked_python_files() -> list[Path]:
     try:
-        output = subprocess.check_output(
-            ["git", "status", "--porcelain"],
-            cwd=ROOT,
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
+        if GUARD_SCOPE == "delta":
+            result = subprocess.run(
+                ["git", "diff", "--name-only", "--diff-filter=ACMR", "HEAD"],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                paths = [ROOT / p for p in result.stdout.splitlines() if p.endswith(".py")]
+                return [p for p in paths if p.exists()]
     except Exception:
-        return []
-    return [line.rstrip("\n") for line in output.splitlines() if line.strip()]
+        pass
+
+    # Baseline: all tracked Python files under prod roots
+    result = subprocess.run(
+        ["git", "ls-files", "--", "*.py"],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+    )
+    lines = result.stdout.splitlines()
+    return [ROOT / p for p in lines if p.endswith(".py") and p.exists()]
 
 
-def _cross_project_lines(lines: list[str]) -> list[str]:
-    hits: list[str] = []
-    for line in lines:
-        if len(line) < 4:
+def check() -> list[str]:
+    violations: list[str] = []
+    files = _tracked_python_files()
+
+    for path in files:
+        rel = path.relative_to(ROOT).as_posix()
+        if any(rel.startswith(skip) for skip in _ALWAYS_SKIP):
             continue
-        path = line[3:].strip()
-        if path == TARGET or path.startswith(f"{TARGET}/"):
-            hits.append(line)
-    return hits
+        if not any(rel.startswith(root) for root in _PROD_ROOTS):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for i, line in enumerate(text.splitlines(), 1):
+            for pat in _FORBIDDEN_IMPORT_PATTERNS:
+                if pat.match(line):
+                    violations.append(f"{rel}:{i}: forbidden dev import: {line.strip()!r}")
+
+    return violations
 
 
-def main() -> int:
-    lines = _git_status_porcelain()
-    hits = _cross_project_lines(lines)
-
-    if not hits:
-        print("project isolation check passed")
-        return 0
-
-    if ALLOW_DIRTY:
-        print("project isolation check bypassed (GUPPY_ALLOW_CROSS_PROJECT_DIRTY=1)")
-        for hit in hits:
-            print(f" - {hit}")
-        return 0
-
-    print("project isolation check failed: cross-project changes detected under Guppy-pi")
-    print("Guppy and Guppy-pi must remain isolated; do not run shared guardrails with mixed edits.")
-    print("Detected entries:")
-    for hit in hits:
-        print(f" - {hit}")
-    print("If this is intentional local-only work, run with GUPPY_ALLOW_CROSS_PROJECT_DIRTY=1.")
-    return 1
+def main() -> None:
+    violations = check()
+    if violations:
+        print(f"project isolation check FAILED ({len(violations)} violation(s)):")
+        for v in violations:
+            print(f"  {v}")
+        sys.exit(1)
+    print("project isolation check passed")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

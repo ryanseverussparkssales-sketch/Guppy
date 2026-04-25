@@ -182,8 +182,14 @@ def _hub_running() -> bool:
         _cleanup_hub_pid()
         return False
     except ImportError:
-        logger.warning("psutil not available - cannot verify hub PID, will launch hub")
-        return False
+        logger.warning("psutil not available - falling back to os.kill(pid, 0) probe")
+        try:
+            import os as _os
+            _os.kill(pid, 0)
+            return True  # process exists; can't verify it's the hub but skip re-spawn
+        except OSError:
+            _cleanup_hub_pid()
+            return False
 
 
 def _start_hub() -> None:

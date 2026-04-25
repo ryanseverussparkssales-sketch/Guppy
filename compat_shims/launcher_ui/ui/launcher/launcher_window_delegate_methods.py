@@ -186,7 +186,12 @@ def apply_start_destination(self) -> None:
 
 
 def set_status_panel_visible(self, visible: bool) -> None:
-    _nav_handlers.set_status_panel_visible(self, visible)
+    # Do the Qt work directly — delegating back to _nav_handlers would recurse
+    # because launcher_window.py assigns _set_status_panel_visible = this function,
+    # and _nav_handlers.set_status_panel_visible calls _set_status_panel_visible.
+    self._status_divider.setVisible(visible)
+    self._status_panel.setVisible(visible)
+    self._topbar.set_drawer_open(visible)
 
 
 def toggle_status_panel(self) -> None:

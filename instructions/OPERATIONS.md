@@ -16,7 +16,7 @@ This is the primary operator runbook for the current codebase.
 
 ## 2) Runtime Surfaces
 
-- Primary UI: launcher (`ui/launcher/`)
+- Primary UI: launcher (`ui/launcher/`) — **Note:** `ui/launcher/__init__.py` is a re-export shim; real implementation lives in `compat_shims/launcher_ui/ui/launcher/`. This is intentional (cleanup in progress).
 - Background collaboration: configured instances from `config/instances.json` (`guppy-primary`, optional `builder-collab`)
 - Historical specialist material: `compat_shims/legacy_surfaces/` and `src/guppy/merlin/` (not active desktop entrypoints)
 - API: `src/guppy/api/server.py` (wrapper: `guppy_api.py`)

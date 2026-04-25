@@ -67,11 +67,13 @@ except ImportError:
     ANTHROPIC_AVAILABLE = False
 
 # Import Guppy core functionality
+_import_warnings: list[str] = []
+
 try:
     import guppy_core as core
     GUPPY_CORE_AVAILABLE = True
 except ImportError as e:
-    print(f"Warning: Guppy core not available: {e}")
+    _import_warnings.append(f"guppy_core: {e}")
     GUPPY_CORE_AVAILABLE = False
     core = None
 
@@ -79,7 +81,7 @@ try:
     from src.guppy.voice import voice
     GUPPY_VOICE_AVAILABLE = True
 except Exception as e:
-    print(f"Warning: Guppy voice not available: {e}")
+    _import_warnings.append(f"voice: {e}")
     GUPPY_VOICE_AVAILABLE = False
     voice = None
 
@@ -87,7 +89,7 @@ try:
     from src.guppy.memory import memory
     GUPPY_MEMORY_AVAILABLE = True
 except ImportError as e:
-    print(f"Warning: Guppy memory not available: {e}")
+    _import_warnings.append(f"memory: {e}")
     GUPPY_MEMORY_AVAILABLE = False
     memory = None
 
@@ -95,7 +97,7 @@ try:
     from src.guppy.daemon.daemon import get_daemon_manager
     GUPPY_DAEMON_AVAILABLE = True
 except ImportError as e:
-    print(f"Warning: Guppy daemon not available: {e}")
+    _import_warnings.append(f"daemon: {e}")
     GUPPY_DAEMON_AVAILABLE = False
     def get_daemon_manager():
         return None
@@ -127,7 +129,7 @@ try:
     from src.guppy.inference.router import get_router
     INFERENCE_ROUTER_AVAILABLE = True
 except ImportError as e:
-    print(f"Warning: Inference router not available: {e}")
+    _import_warnings.append(f"inference_router: {e}")
     INFERENCE_ROUTER_AVAILABLE = False
 
 try:
@@ -152,6 +154,13 @@ except Exception:
 
 
 logger = logging.getLogger(__name__)
+
+if _import_warnings:
+    logger.warning(
+        "Server started with %d optional subsystem(s) unavailable: %s",
+        len(_import_warnings),
+        "; ".join(_import_warnings),
+    )
 
 try:
     from utils.session_logger import log_session_event, tail_session_events, rotate_jsonl_file
@@ -334,14 +343,14 @@ _default_origins = [
     "http://127.0.0.1:3001",
 ]
 _configured_origins = os.environ.get("GUPPY_ALLOWED_ORIGINS", "").strip()
+_parsed_origins = [o.strip() for o in _configured_origins.split(",") if o.strip()] if _configured_origins else []
 
-# In dev mode, allow all origins for localhost development
-if DEV_MODE:
-    ALLOWED_ORIGINS = ["*"]  # Allow all origins in dev mode
+if _parsed_origins:
+    ALLOWED_ORIGINS = _parsed_origins
+elif DEV_MODE:
+    ALLOWED_ORIGINS = ["*"]
 else:
-    ALLOWED_ORIGINS = [
-        origin.strip() for origin in _configured_origins.split(",") if origin.strip()
-    ] if _configured_origins else _default_origins
+    ALLOWED_ORIGINS = _default_origins
 
 _path_config = ServerPathConfig.from_roots(CONFIG_DIR, RUNTIME_DIR)
 _runtime_dir = _path_config.runtime_dir

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 
 from src.guppy.api._server_fragment_models import ChatRequest
 from src.guppy.api.server_context import ServerContext
+from src.guppy.api.realtime_inference_support import stream_unified_inference
 
 
 def build_realtime_router(ctx: ServerContext) -> APIRouter:
@@ -227,7 +230,78 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 ctx.complete_chat_idempotency_key(
                     idempotency_key, error=str(e), status_code=500
                 )
-            raise HTTPException(status_code=500, detail=str(e))
+            user_msg = str(e)
+            if "ollama" in user_msg.lower() or "11434" in user_msg or "connect" in user_msg.lower():
+                user_msg = f"Cannot reach local inference backend. Start Ollama and try again. ({e})"
+            raise HTTPException(status_code=500, detail=user_msg)
+
+    @router.post("/chat/stream")
+    async def chat_stream(
+        request: ChatRequest,
+        user_id: str = Depends(ctx.require_rate_limit),
+    ):
+        """
+        SSE streaming chat endpoint. Yields tokens as they are produced by the
+        inference backend.  Each event is ``data: {"token": "..."}\\n\\n``.
+        The stream ends with ``data: [DONE]\\n\\n``.
+        On error: ``data: {"error": "..."}\\n\\n``.
+        """
+        del user_id
+
+        (
+            active_instance_name,
+            active_instance_type,
+            active_instance_persona,
+            _active_instance_voice,
+        ) = ctx.get_active_instance_context()
+        system_prompt = ctx.build_chat_system_prompt(
+            session_id=request.session_id,
+            message=request.message,
+            mode=request.mode,
+            persona=request.persona or active_instance_persona,
+            model_id=request.mode,
+            history=request.history,
+        )
+
+        async def _generate():
+            full_response = ""
+            try:
+                async for token in stream_unified_inference(
+                    owner,
+                    request.message,
+                    system_prompt,
+                    mode=request.mode,
+                    history=request.history,
+                    instance_name=active_instance_name,
+                    instance_type=active_instance_type,
+                ):
+                    full_response += token
+                    yield f"data: {json.dumps({'token': token})}\n\n"
+
+                yield "data: [DONE]\n\n"
+
+            except Exception as exc:
+                owner.logger.error("Streaming chat error: %s", exc)
+                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+                return
+
+            _persist_chat_memory(
+                session_id=request.session_id,
+                user_text=request.message,
+                assistant_text=full_response,
+                persona_id=str(request.persona or active_instance_persona or "").strip(),
+                workspace_name=str(active_instance_name or "").strip(),
+            )
+
+        return StreamingResponse(
+            _generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
 
     @router.post("/chat/voice")
     async def chat_voice(

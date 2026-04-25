@@ -1,213 +1,201 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import api from '../api/client'
 
 export interface ChatMessage {
   id: string
+  conversation_id: string
   role: 'user' | 'assistant'
   content: string
-  timestamp: number
-  metadata?: {
-    files?: string[]
-    confidence?: number
-    source?: string
-  }
+  model?: string
+  created_at: string
 }
 
-export interface ChatSession {
+export interface Conversation {
   id: string
+  workspace_id: string
   title: string
-  messages: ChatMessage[]
-  createdAt: number
-  updatedAt: number
+  created_at: string
+  updated_at: string
+  message_count: number
+  messages?: ChatMessage[]
 }
 
-const DB_NAME = 'GuppyDB'
-const STORE_NAME = 'chatSessions'
-const VERSION = 1
+export function useChatHistory(workspaceId: string | null) {
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [activeConversation, setActiveConversation] = useState<Conversation | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [searchResults, setSearchResults] = useState<Conversation[]>([])
 
-export const useChatHistory = () => {
-  const [sessions, setSessions] = useState<ChatSession[]>([])
-  const [currentSession, setCurrentSession] = useState<ChatSession | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const dbRef = useRef<IDBDatabase | null>(null)
+  // Fetch all conversations in workspace
+  const fetchConversations = useCallback(async () => {
+    if (!workspaceId) return
 
-  // Initialize IndexedDB
-  useEffect(() => {
-    const openDB = async () => {
-      return new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, VERSION)
-
-        request.onerror = () => reject(request.error)
-        request.onsuccess = () => resolve(request.result)
-
-        request.onupgradeneeded = () => {
-          const db = request.result
-          if (!db.objectStoreNames.contains(STORE_NAME)) {
-            const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' })
-            store.createIndex('updatedAt', 'updatedAt', { unique: false })
-          }
-        }
-      })
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await api.get('/api/chat/history', { params: { workspace_id: workspaceId } })
+      setConversations(res.data.conversations || [])
+    } catch (err) {
+      setError('Failed to fetch conversations')
+      console.error('Fetch conversations error:', err)
+    } finally {
+      setLoading(false)
     }
+  }, [workspaceId])
 
-    openDB()
-      .then((db) => {
-        dbRef.current = db
-        loadSessions()
-      })
-      .catch((error) => console.error('Failed to initialize IndexedDB:', error))
+  // Create new conversation
+  const createConversation = useCallback(
+    async (title?: string) => {
+      if (!workspaceId) return null
+
+      try {
+        const res = await api.post('/api/chat/history', {
+          workspace_id: workspaceId,
+          title,
+        })
+        setConversations((prev) => [res.data, ...prev])
+        return res.data
+      } catch (err) {
+        setError('Failed to create conversation')
+        console.error('Create conversation error:', err)
+        throw err
+      }
+    },
+    [workspaceId]
+  )
+
+  // Load conversation with all messages
+  const loadConversation = useCallback(async (convId: string) => {
+    try {
+      const res = await api.get(`/api/chat/history/${convId}`)
+      setActiveConversation(res.data)
+      return res.data
+    } catch (err) {
+      setError('Failed to load conversation')
+      console.error('Load conversation error:', err)
+      throw err
+    }
   }, [])
 
-  const loadSessions = useCallback(async () => {
-    if (!dbRef.current) return
-
-    const transaction = dbRef.current.transaction([STORE_NAME], 'readonly')
-    const store = transaction.objectStore(STORE_NAME)
-    const index = store.index('updatedAt')
-
-    return new Promise<ChatSession[]>((resolve) => {
-      const request = index.getAll()
-
-      request.onsuccess = () => {
-        const allSessions = request.result.sort(
-          (a: ChatSession, b: ChatSession) => b.updatedAt - a.updatedAt
-        )
-        setSessions(allSessions)
-        setIsLoading(false)
-        resolve(allSessions)
-      }
-
-      request.onerror = () => {
-        setIsLoading(false)
-        resolve([])
-      }
-    })
-  }, [])
-
-  const saveSession = useCallback(
-    async (session: ChatSession) => {
-      if (!dbRef.current) return
-
-      const transaction = dbRef.current.transaction([STORE_NAME], 'readwrite')
-      const store = transaction.objectStore(STORE_NAME)
-
-      const updated = {
-        ...session,
-        updatedAt: Date.now(),
-      }
-
-      return new Promise<void>((resolve) => {
-        const request = store.put(updated)
-
-        request.onsuccess = () => {
-          setSessions((prev) => {
-            const index = prev.findIndex((s) => s.id === updated.id)
-            if (index >= 0) {
-              const newSessions = [...prev]
-              newSessions[index] = updated
-              return newSessions.sort((a, b) => b.updatedAt - a.updatedAt)
-            }
-            return [updated, ...prev]
-          })
-          resolve()
-        }
-
-        request.onerror = () => resolve()
-      })
-    },
-    []
-  )
-
-  const createSession = useCallback(
-    async (title: string = 'New Chat') => {
-      const session: ChatSession = {
-        id: `session-${Date.now()}`,
-        title,
-        messages: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      }
-
-      await saveSession(session)
-      setCurrentSession(session)
-      return session
-    },
-    [saveSession]
-  )
-
-  const updateSessionTitle = useCallback(
-    async (sessionId: string, title: string) => {
-      const session = sessions.find((s) => s.id === sessionId)
-      if (session) {
-        await saveSession({ ...session, title })
-      }
-    },
-    [sessions, saveSession]
-  )
-
-  const deleteSession = useCallback(
-    async (sessionId: string) => {
-      if (!dbRef.current) return
-
-      const transaction = dbRef.current.transaction([STORE_NAME], 'readwrite')
-      const store = transaction.objectStore(STORE_NAME)
-
-      return new Promise<void>((resolve) => {
-        const request = store.delete(sessionId)
-
-        request.onsuccess = () => {
-          setSessions((prev) => prev.filter((s) => s.id !== sessionId))
-          if (currentSession?.id === sessionId) {
-            setCurrentSession(null)
-          }
-          resolve()
-        }
-
-        request.onerror = () => resolve()
-      })
-    },
-    [currentSession]
-  )
-
+  // Add message to conversation
   const addMessage = useCallback(
-    async (message: ChatMessage) => {
-      if (!currentSession) return
+    async (convId: string, role: 'user' | 'assistant', content: string, model?: string) => {
+      try {
+        const res = await api.post(`/api/chat/history/${convId}/messages`, {
+          role,
+          content,
+          model,
+        })
 
-      const updated = {
-        ...currentSession,
-        messages: [...currentSession.messages, message],
-      }
-
-      setCurrentSession(updated)
-      await saveSession(updated)
-    },
-    [currentSession, saveSession]
-  )
-
-  const clearSession = useCallback(
-    async (sessionId: string) => {
-      const session = sessions.find((s) => s.id === sessionId)
-      if (session) {
-        const cleared = { ...session, messages: [] }
-        await saveSession(cleared)
-        if (currentSession?.id === sessionId) {
-          setCurrentSession(cleared)
+        // Update active conversation if it's the current one
+        if (activeConversation?.id === convId) {
+          setActiveConversation((prev) => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              messages: [...(prev.messages || []), res.data],
+              message_count: (prev.message_count || 0) + 1,
+              updated_at: new Date().toISOString(),
+            }
+          })
         }
+
+        // Update conversation in list
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === convId
+              ? { ...c, message_count: (c.message_count || 0) + 1, updated_at: new Date().toISOString() }
+              : c
+          )
+        )
+
+        return res.data
+      } catch (err) {
+        setError('Failed to add message')
+        console.error('Add message error:', err)
+        throw err
       }
     },
-    [sessions, currentSession, saveSession]
+    [activeConversation?.id]
   )
+
+  // Update conversation title
+  const updateTitle = useCallback(async (convId: string, title: string) => {
+    try {
+      const res = await api.put(`/api/chat/history/${convId}`, { title })
+
+      // Update in lists
+      setConversations((prev) => prev.map((c) => (c.id === convId ? res.data : c)))
+      if (activeConversation?.id === convId) {
+        setActiveConversation(res.data)
+      }
+
+      return res.data
+    } catch (err) {
+      setError('Failed to update conversation')
+      console.error('Update conversation error:', err)
+      throw err
+    }
+  }, [activeConversation?.id])
+
+  // Delete conversation
+  const deleteConversation = useCallback(async (convId: string) => {
+    try {
+      await api.delete(`/api/chat/history/${convId}`)
+
+      // Remove from lists
+      setConversations((prev) => prev.filter((c) => c.id !== convId))
+      if (activeConversation?.id === convId) {
+        setActiveConversation(null)
+      }
+    } catch (err) {
+      setError('Failed to delete conversation')
+      console.error('Delete conversation error:', err)
+    }
+  }, [activeConversation?.id])
+
+  // Search conversations
+  const searchConversations = useCallback(
+    async (query: string) => {
+      if (!workspaceId || !query.trim()) {
+        setSearchResults([])
+        return []
+      }
+
+      try {
+        const res = await api.get(`/api/chat/history/search/${workspaceId}`, { params: { q: query } })
+        setSearchResults(res.data.results || [])
+        return res.data.results
+      } catch (err) {
+        setError('Search failed')
+        console.error('Search error:', err)
+        throw err
+      }
+    },
+    [workspaceId]
+  )
+
+  // Load conversations when workspace changes
+  useEffect(() => {
+    if (workspaceId) {
+      fetchConversations()
+      setActiveConversation(null)
+    }
+  }, [workspaceId, fetchConversations])
 
   return {
-    sessions,
-    currentSession,
-    isLoading,
-    setCurrentSession,
-    createSession,
-    saveSession,
-    updateSessionTitle,
-    deleteSession,
+    conversations,
+    activeConversation,
+    searchResults,
+    loading,
+    error,
+    fetchConversations,
+    createConversation,
+    loadConversation,
     addMessage,
-    clearSession,
-    loadSessions,
+    updateTitle,
+    deleteConversation,
+    searchConversations,
   }
 }
