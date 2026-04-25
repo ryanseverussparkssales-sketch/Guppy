@@ -96,75 +96,66 @@ def register_instance_routes(
     """Register the snapshot's instance and connector route family."""
 
     @app.get("/instances")
-    async def list_instances(user_id: str = Depends(require_rate_limit)):
+    async def list_instances(_user_id: str = Depends(require_rate_limit)):
         """Contract-first M2 endpoint: list configured instances with lightweight runtime state."""
-        del user_id
         return build_instance_list_response()
 
     @app.post("/instances")
     async def create_or_update_instance(
         request: InstanceConfigRequest,
-        user_id: str = Depends(require_rate_limit),
+        _user_id: str = Depends(require_rate_limit),
     ):
-        del user_id
         return create_or_update_instance_response(request)
 
     @app.post("/instances/{name}/governance")
     async def save_instance_governance(
         name: str,
         request: InstanceGovernanceRequest,
-        user_id: str = Depends(require_rate_limit),
+        _user_id: str = Depends(require_rate_limit),
     ):
-        del user_id
         return save_instance_governance_response(name, request)
 
     @app.get("/connectors")
-    async def list_connectors(user_id: str = Depends(require_rate_limit)):
-        del user_id
+    async def list_connectors(_user_id: str = Depends(require_rate_limit)):
         return list_connectors_response()
 
     @app.post("/connectors/{connector_id}/verify")
     async def verify_connector(
         connector_id: str,
         request: ConnectorActionRequest,
-        user_id: str = Depends(require_rate_limit),
+        _user_id: str = Depends(require_rate_limit),
     ):
-        del user_id
         return run_connector_action_response(connector_id, "verify", request)
 
     @app.post("/connectors/{connector_id}/connect")
     async def connect_connector(
         connector_id: str,
         request: ConnectorActionRequest,
-        user_id: str = Depends(require_rate_limit),
+        _user_id: str = Depends(require_rate_limit),
     ):
-        del user_id
         return run_connector_action_response(connector_id, "connect", request)
 
     @app.post("/connectors/{connector_id}/reconnect")
     async def reconnect_connector(
         connector_id: str,
         request: ConnectorActionRequest,
-        user_id: str = Depends(require_rate_limit),
+        _user_id: str = Depends(require_rate_limit),
     ):
-        del user_id
         return run_connector_action_response(connector_id, "reconnect", request)
 
     @app.post("/connectors/{connector_id}/disconnect")
     async def disconnect_connector(
         connector_id: str,
         request: ConnectorActionRequest,
-        user_id: str = Depends(require_rate_limit),
+        _user_id: str = Depends(require_rate_limit),
     ):
-        del user_id
         return run_connector_action_response(connector_id, "disconnect", request)
 
     @app.get("/instances/{name}/connectors")
     async def list_instance_connectors(
         name: str,
-        user_id: str = Depends(require_rate_limit),
+        _user_id: str = Depends(require_rate_limit),
     ):
-        del user_id
         return list_instance_connectors_response(name)
 
     @app.post("/instances/{name}/connectors/{connector_id}")
@@ -172,43 +163,38 @@ def register_instance_routes(
         name: str,
         connector_id: str,
         request: InstanceConnectorBindingRequest,
-        user_id: str = Depends(require_rate_limit),
+        _user_id: str = Depends(require_rate_limit),
     ):
-        del user_id
         return save_instance_connector_binding_response(name, connector_id, request)
 
     @app.post("/instances/{name}/activate")
     async def activate_instance(
         name: str,
-        user_id: str = Depends(require_rate_limit),
+        _user_id: str = Depends(require_rate_limit),
     ):
-        del user_id
         return activate_instance_response(name)
 
     @app.delete("/instances/{name}")
     async def delete_instance(
         name: str,
-        user_id: str = Depends(require_rate_limit),
+        _user_id: str = Depends(require_rate_limit),
     ):
-        del user_id
         return delete_instance_response(name)
 
     @app.get("/instances/{name}/logs")
     async def get_instance_logs(
         name: str,
         limit: int = 50,
-        user_id: str = Depends(require_rate_limit),
+        _user_id: str = Depends(require_rate_limit),
     ):
-        del user_id
         return build_instance_logs_response(name, limit=limit)
 
     @app.post("/instances/{name}/query")
     async def query_instance(
         name: str,
         request: InstanceQueryRequest,
-        user_id: str = Depends(require_rate_limit),
+        _user_id: str = Depends(require_rate_limit),
     ):
-        del user_id
         return await query_instance_response(name, request)
 
     return SimpleNamespace(

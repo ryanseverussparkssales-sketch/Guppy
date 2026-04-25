@@ -51,7 +51,7 @@ def _tracked_python_files() -> list[Path]:
         cwd=ROOT,
     )
     lines = result.stdout.splitlines()
-    return [ROOT / p for p in lines if p.endswith(".py") and p.exists()]
+    return [ROOT / p for p in lines if p.endswith(".py") and (ROOT / p).exists()]
 
 
 def check() -> list[str]:

@@ -290,25 +290,47 @@ export interface InstanceStatusPayload {
 // =============================================================================
 
 export interface SystemStatus {
-  /** Overall system health */
-  health: "healthy" | "degraded" | "unhealthy"
-  /** Backend version */
-  version: string
-  /** Uptime in seconds */
-  uptime: number
-  /** System resource usage */
-  resources: {
-    cpuUsage: number
-    memoryUsage: number
-    memoryTotal: number
+  /** Overall system health — matches the `status` field in GET /api/status */
+  status: "healthy" | "degraded" | "unhealthy"
+  /** ISO timestamp of the response */
+  timestamp?: string
+  /** Whether the memory module is available */
+  memory_available?: boolean
+  /** Whether voice is available */
+  voice_available?: boolean
+  voice_tts_backend?: string
+  voice_stt_backend?: string
+  /** Local runtime info (lmstudio / ollama) */
+  local_runtime?: {
+    backend: string
+    state: "READY" | "PARTIAL" | "MISSING" | "UNKNOWN"
+    detail: string
+    models?: string[]
+    chat_ready?: boolean
+    chat_state?: string
+  }
+  /** Startup readiness checks */
+  startup_readiness?: {
+    overall: "READY" | "PARTIAL" | "MISSING" | "UNKNOWN"
+    checks?: Record<string, unknown>
+  }
+  /** Resource envelope metrics */
+  resource_envelope?: {
+    state: string
+    metrics?: Record<string, number>
+    message?: string
+  }
+  /**
+   * Legacy resource fields — not returned by the real API; kept for
+   * DashboardView fallback-value ternaries. Values will always be undefined
+   * at runtime, so the UI falls back to its hardcoded display strings.
+   */
+  resources?: {
+    cpuUsage?: number
+    memoryUsage?: number
+    memoryTotal?: number
     gpuUsage?: number
     gpuMemory?: number
-  }
-  /** Connected services status */
-  services: {
-    database: "connected" | "disconnected"
-    modelServer: "connected" | "disconnected"
-    websocket: "connected" | "disconnected"
   }
 }
 

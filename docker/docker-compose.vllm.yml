@@ -1,0 +1,74 @@
+# vLLM inference server — AMD RX 7900 XTX (gfx1100) via ROCm
+#
+# WSL2 PREREQUISITE — run once inside WSL2 before starting this:
+#   sudo apt-get install -y rocm-dev rocm-libs rccl
+#   sudo usermod -aG video,render $USER
+#   echo 'ADD_EXTRA_GROUPS=1' | sudo tee -a /etc/adduser.conf
+# Then restart Docker Desktop.  /dev/kfd and /dev/dri/renderD128 must exist in WSL2.
+#
+# First run pulls the model from HuggingFace (~20 GB for the default).
+# Subsequent starts load from the local cache (~30 s).
+#
+# Usage:
+#   docker compose -f docker/docker-compose.vllm.yml up -d
+#   docker compose -f docker/docker-compose.vllm.yml down
+#
+# Override model or port via .env at repo root:
+#   GUPPY_VLLM_MODEL=Qwen/Qwen2.5-14B-Instruct-AWQ
+#   GUPPY_VLLM_PORT=8000
+#   HF_TOKEN=hf_...   (only needed for gated models)
+
+services:
+  vllm:
+    image: rocm/vllm:latest
+    container_name: guppy-vllm
+    restart: unless-stopped
+
+    # ROCm GPU passthrough — /dev/kfd and /dev/dri must exist in WSL2.
+    # If they don't, run the WSL2 prerequisite steps above.
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - render
+    ipc: host
+    shm_size: 16g
+
+    ports:
+      - "${GUPPY_VLLM_PORT:-8000}:8000"
+
+    volumes:
+      # Cache downloaded model weights so they survive container restarts
+      - vllm-model-cache:/root/.cache/huggingface
+
+    environment:
+      # gfx1100 = RX 7900 XTX — tells ROCm which ISA to use
+      - HSA_OVERRIDE_GFX_VERSION=11.0.0
+      # Suppress ROCm "no such device" warnings for unused PCIe slots
+      - ROCR_VISIBLE_DEVICES=0
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_DISABLE_PROGRESS_BARS=0
+
+    command: >
+      python -m vllm.entrypoints.openai.api_server
+      --model ${GUPPY_VLLM_MODEL:-Qwen/Qwen2.5-32B-Instruct-AWQ}
+      --quantization awq
+      --dtype float16
+      --gpu-memory-utilization 0.92
+      --max-model-len 16384
+      --max-num-seqs 8
+      --port 8000
+      --host 0.0.0.0
+      --served-model-name guppy
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+
+volumes:
+  vllm-model-cache:
+    driver: local

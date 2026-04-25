@@ -3,7 +3,7 @@
   "outputDirectory": "static",
   "framework": "vite",
   "env": {
-    "VITE_API_URL": "@vite_api_url"
+    "VITE_API_URL": "/api"
   },
   "builds": [
     {
@@ -22,7 +22,7 @@
     },
     {
       "src": "/(.*)",
-      "dest": "/$1"
+      "dest": "/index.html"
     }
   ],
   "headers": [

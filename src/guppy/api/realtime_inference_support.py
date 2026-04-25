@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import urllib.request
 from typing import Any, AsyncGenerator, Optional
 
+_log = logging.getLogger(__name__)
 
-def sanitize_chat_history(history: Any, limit: int = 12) -> list[dict[str, str]]:
+_CHAT_CONTENT_MAX_CHARS = 2000
+_HISTORY_SNIPPET_MAX_CHARS = 240
+_HISTORY_TURNS_SHOWN = 8
+_CHAT_HISTORY_LIMIT = 12
+
+
+def sanitize_chat_history(history: Any, limit: int = _CHAT_HISTORY_LIMIT) -> list[dict[str, str]]:
     if not isinstance(history, list):
         return []
     out: list[dict[str, str]] = []
@@ -16,7 +24,7 @@ def sanitize_chat_history(history: Any, limit: int = 12) -> list[dict[str, str]]
         content = str(item.get("content", "")).strip()
         if role not in {"user", "assistant"} or not content:
             continue
-        out.append({"role": role, "content": content[:2000]})
+        out.append({"role": role, "content": content[:_CHAT_CONTENT_MAX_CHARS]})
     return out
 
 
@@ -49,11 +57,11 @@ def augment_system_with_history(system_prompt: str, history: list[dict[str, str]
     if not history:
         return system_prompt
     lines = ["LIVE SESSION HISTORY (RECENT TURNS):"]
-    for item in history[-8:]:
+    for item in history[-_HISTORY_TURNS_SHOWN:]:
         speaker = "Ryan" if item.get("role") == "user" else "Guppy"
         snippet = item.get("content", "").replace("\n", " ").strip()
-        if len(snippet) > 240:
-            snippet = snippet[:240] + "..."
+        if len(snippet) > _HISTORY_SNIPPET_MAX_CHARS:
+            snippet = snippet[:_HISTORY_SNIPPET_MAX_CHARS] + "..."
         lines.append(f"- {speaker}: {snippet}")
     return f"{system_prompt}\n\n" + "\n".join(lines)
 
@@ -82,15 +90,15 @@ def _with_single_retry(fn: Any, *args: Any, **kwargs: Any) -> Any:
 
 def _inject_semantic_context(system_prompt: str, user_text: str, owner: Any) -> str:
     """Append relevant ChromaDB/SQLite semantic memory to the system prompt."""
-    if not owner.os.environ.get("GUPPY_SEMANTIC_RAG", "1").strip().lower() in {"1", "true", "yes", "on"}:
+    if not (owner.os.environ.get("GUPPY_SEMANTIC_RAG", "1").strip().lower() in {"1", "true", "yes", "on"}):
         return system_prompt
     try:
         from src.guppy.memory.semantic import build_semantic_prompt_context
         ctx = build_semantic_prompt_context(user_text, n=4)
         if ctx:
             return f"{system_prompt}\n\n{ctx}"
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.debug("Semantic context injection failed: %s", exc)
     return system_prompt
 
 

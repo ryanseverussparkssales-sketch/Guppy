@@ -19,7 +19,7 @@
  *   />
  */
 
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertCircle, AlertTriangle, CheckCircle, X, RotateCcw } from 'lucide-react'
 import { parseApiError, FormattedError } from '@/utils/errorMessages'
 import { isRetryable } from '@/utils/errorCodes'
@@ -167,11 +167,12 @@ export function ErrorToast({
   }
 
   // Icon based on severity
-  const IconComponent = {
+  const iconMap = {
     info: CheckCircle,
     warning: AlertTriangle,
     critical: AlertCircle,
-  }[severity as keyof typeof IconComponent]
+  } as const
+  const IconComponent = iconMap[severity as keyof typeof iconMap] ?? AlertCircle
 
   return (
     <div

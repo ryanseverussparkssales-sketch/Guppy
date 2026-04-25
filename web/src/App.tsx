@@ -1,9 +1,8 @@
 import { Routes, Route, useNavigate } from 'react-router-dom'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect } from 'react'
 import { AppShell } from './components/layout/index'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ErrorToastContainer } from './components/ErrorToast'
-import { CommandPalette } from './components/CommandPalette'
 import AssistantView from './views/AssistantView'
 import InstancesView from './views/InstancesView'
 import LibraryView from './views/LibraryView'
@@ -15,6 +14,7 @@ import MCPView from './views/MCPView'
 import SettingsView from './views/SettingsView'
 import StatusView from './views/StatusView'
 import AdminPanel from './views/AdminPanel'
+import InstructionsView from './views/InstructionsView'
 import DashboardView from './views/DashboardView'
 import LoginView from './views/LoginView'
 import { useWorkspaceStore, syncManager } from './store'
@@ -54,9 +54,6 @@ function AppContent() {
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { errors, removeError } = useErrorStore()
-  const [paletteOpen, setPaletteOpen] = useState(false)
-
-  const closePalette = useCallback(() => setPaletteOpen(false), [])
 
   // Initialize app data on mount
   useEffect(() => {
@@ -83,19 +80,6 @@ function AppContent() {
     }
   }, [activeWorkspaceId])
 
-  // Cmd+K / Ctrl+K opens command palette
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        setPaletteOpen((prev) => !prev)
-      }
-      if (e.key === 'Escape') setPaletteOpen(false)
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [])
-
   // Listen for navigation events from sidebar/command palette
   useEffect(() => {
     const handleNavigate = (e: CustomEvent<{ view: string }>) => {
@@ -111,7 +95,8 @@ function AppContent() {
         mcp: '/mcp',
         settings: '/settings',
         status: '/status',
-        admin: '/admin',
+        admin:        '/admin',
+        instructions: '/instructions',
       }
       const route = viewToRoute[e.detail.view] || '/'
       navigate(route)
@@ -137,6 +122,7 @@ function AppContent() {
           <Route path="/settings" element={<SettingsView />} />
           <Route path="/status" element={<StatusView />} />
           <Route path="/admin" element={<AdminPanel />} />
+          <Route path="/instructions" element={<InstructionsView />} />
           <Route path="/login" element={<LoginView />} />
         </Routes>
       </AppShell>
@@ -153,7 +139,6 @@ function AppContent() {
         position="bottom-right"
       />
       <Toaster position="top-right" richColors closeButton />
-      <CommandPalette open={paletteOpen} onClose={closePalette} />
     </>
   )
 }

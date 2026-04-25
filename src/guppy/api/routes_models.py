@@ -43,8 +43,7 @@ def build_models_router(ctx: ServerContext) -> APIRouter:
     router = APIRouter(prefix="/api/models")
 
     @router.get("")
-    async def list_models(user_id: str = Depends(ctx.require_rate_limit)):
-        del user_id
+    async def list_models(_user_id: str = Depends(ctx.require_rate_limit)):
         backend = active_backend()
         models = list_local_models(backend)
         return {
@@ -54,8 +53,7 @@ def build_models_router(ctx: ServerContext) -> APIRouter:
         }
 
     @router.get("/backends")
-    async def backend_status(user_id: str = Depends(ctx.require_rate_limit)):
-        del user_id
+    async def backend_status(_user_id: str = Depends(ctx.require_rate_limit)):
         liveness = probe_backends(timeout=2.0)
         detected = active_backend()
         return {
@@ -71,8 +69,7 @@ def build_models_router(ctx: ServerContext) -> APIRouter:
 
     @router.post("/download")
     @router.post("/pull")
-    async def pull_model(body: PullRequest, user_id: str = Depends(ctx.require_rate_limit)):
-        del user_id
+    async def pull_model(body: PullRequest, _user_id: str = Depends(ctx.require_rate_limit)):
         name = body.name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="model name required")
@@ -127,8 +124,7 @@ def build_models_router(ctx: ServerContext) -> APIRouter:
         return {"job_id": job_id, "name": name, "status": "queued"}
 
     @router.get("/pull/{job_id}")
-    async def pull_status(job_id: str, user_id: str = Depends(ctx.require_rate_limit)):
-        del user_id
+    async def pull_status(job_id: str, _user_id: str = Depends(ctx.require_rate_limit)):
         with _pull_lock:
             job = _pull_jobs.get(job_id)
         if not job:
@@ -136,8 +132,7 @@ def build_models_router(ctx: ServerContext) -> APIRouter:
         return job
 
     @router.delete("/{name:path}")
-    async def delete_model(name: str, user_id: str = Depends(ctx.require_rate_limit)):
-        del user_id
+    async def delete_model(name: str, _user_id: str = Depends(ctx.require_rate_limit)):
         name = name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="model name required")

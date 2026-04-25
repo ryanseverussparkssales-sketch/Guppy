@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-04-25
+**Last updated:** 2026-04-25 (session 2)
 
 ---
 
@@ -29,7 +29,7 @@ launcher_app.py              hub_app.py              server.py
 - **`src/guppy/api/`** — REST API with JWT auth, repair token, dev mode
 - **`src/guppy/api/routes_tools.py`** — SQLite-backed tools registry (`GET /tools`, `POST /tools/:id/enable|disable`)
 - **`src/guppy/api/routes_mcp.py`** — MCP server registry (`/api/mcp/servers`, test, tools listing)
-- **`src/guppy/api/routes_providers.py`** — Provider/model management; checks env + settings DB; `POST /providers/{p}/active-model`
+- **`src/guppy/api/routes_providers.py`** — Provider/model management; checks env + settings DB; `POST /providers/{p}/active-model`. Supports 5 cloud providers: anthropic, openai, google, **cohere**, **mistral**
 - **`src/guppy/mcp/manager.py`** — MCPPluginManager: SQLite registry, 11 preset servers, lazy client pool
 - **`src/guppy/experience_config/`** — Runtime persona, provider selection, voice settings
 - **`src/guppy/apps/`** — UI surfaces (launcher_app.py, hub_app.py, **fishbowl_app.py**)
@@ -116,12 +116,15 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - [x] `routes_settings.py:168` — Extra arg passed to `set_active_provider()` (only accepts 1). Fixed 2026-04-24.
 - [x] `store/index.ts` — `Provider` type not re-exported, causing TS error in SettingsView. Fixed 2026-04-24.
 - [x] `api/schemas.ts` — Zod v4 `z.record()` required two-arg form; all calls fixed 2026-04-25.
+- [x] `web/src/types/api.ts` `SystemStatus` — interface used `health` field but API returns `status`; caused permanent "Offline" badge. Fixed 2026-04-25 (session 2). Also fixed `useApi.ts` hooks + `DashboardView.tsx`.
+- [x] LM Studio `/api/status` returning MISSING/401 — fixed `local_client.py` (correct endpoint `/api/v1/models`, auth headers), `services_runtime_local.py` (lmstudio branch, model listing, warmup trigger). Fixed 2026-04-25.
 - [ ] `os.environ.get()` migration — `server_runtime.py` and `auth.py` still use direct env reads; migrate to `settings` from `config.py`
 - [ ] Migrate remaining views to TanStack Query hooks — `ModelsView`, `SettingsView`, `MCPView`, `ToolsView` still use manual `useState`/`useEffect` fetch patterns
 
 ### 🟡 Pending Features (installed, not yet wired)
 - [ ] **Recharts** — installed; AdminPanel metrics dashboard charts not built yet (requests over time, latency sparklines)
 - [ ] **react-resizable-panels** — installed; chat sidebar + desktop split not built yet
+- [ ] **Theme customization packs** — system is ready (see 🎨 Theme System below); co-worker handover in progress (2026-04-25)
 
 ### 🟡 Documentation
 - [x] Add one-line clarification to `instructions/OPERATIONS.md` §2 explaining that `ui/launcher/` is a re-export shim — done
@@ -144,14 +147,34 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - ✅ Web UI: Command palette — `Ctrl+K` / `Cmd+K`, navigate + switch provider + toggle tools
 - ✅ Web UI: Security hardening — CSP meta tag, Vite security headers, FastAPI security middleware
 - ✅ Web UI: Provider model switching — `POST /providers/{p}/active-model`, active model persisted in settings DB
+- ✅ Web UI: "Connected" badge — fixed `SystemStatus` type mismatch (`health` vs `status` field); badge now reflects real API state
 - ✅ Vitest running — 5 MarkdownMessage tests pass; `npm test` works; TypeScript clean (`npx tsc --noEmit`)
+- ✅ Cohere provider — 6 models (Command A, R+, R, Light, Aya 23 35B/8B); env `COHERE_API_KEY` / settings DB
+- ✅ Mistral provider — 6 models (Large, Small, Codestral, Nemo, Pixtral 12B, Mixtral 8x22B); env `MISTRAL_API_KEY` / settings DB
+- ✅ LM Studio local runtime — state READY with 7 models; auth via `GUPPY_LMSTUDIO_API_KEY`; `/api/v1/models` endpoint
 
-### 🎨 Theme System for V0
-- Theme CSS lives in `web/src/themes/` — one file per theme
-- Register theme in `web/src/themes/index.ts` `THEMES` array
-- V0 output: a single `[data-theme="your-theme-id"] { --color-primary: ...; ... }` CSS block
-- **Never** modify `@theme` block in `index.css` — that's the default; override only via `[data-theme]`
-- Import new theme CSS in `web/src/themes/index.ts` or `index.css`
+### 🎨 Theme System for V0 — Handover Brief (2026-04-25)
+
+**Status:** System fully wired and working. Ready for theme pack additions.
+
+**How it works:**
+- `web/src/themes/index.ts` — theme registry (`THEMES` array) + `applyTheme(id)` + `initTheme()` (FOUC prevention via `<script>` in `index.html`)
+- `web/src/themes/dark.css` — example theme override block
+- `web/src/index.css` — contains the `@theme` baseline block. **Never touch this.** Themes override via `[data-theme="id"]` attribute on `<html>`.
+- `SettingsView.tsx` → Appearance card → `useTheme()` hook → `applyTheme()` → saves to localStorage + sets `document.documentElement.dataset.theme`
+
+**To add a theme pack:**
+1. Create `web/src/themes/my-theme.css` with a single `[data-theme="my-theme"] { --color-primary: ...; }` block
+2. Add to `THEMES` array in `web/src/themes/index.ts`: `{ id: 'my-theme', label: 'My Theme', preview: ['#hex1', '#hex2'] }`
+3. Import the CSS file in `web/src/themes/index.ts` or `web/src/index.css`
+4. Run `npm run build` — theme appears in Settings → Appearance grid automatically
+
+**CSS variables to override** (check `index.css` `@theme` block for full list):
+- `--color-primary`, `--color-secondary`, `--color-background`, `--color-surface`
+- `--color-on-surface`, `--color-on-surface-variant`
+- `--font-headline`, `--font-body`
+
+**Testing:** Open Settings → Appearance, click the new theme swatch. No restart needed.
 
 ---
 

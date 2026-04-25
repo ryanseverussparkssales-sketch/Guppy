@@ -14,12 +14,12 @@
  * =============================================================================
  */
 
-import { useState } from 'react'
-import { 
-  FolderOpen, 
-  Plus, 
-  Search, 
-  FileText, 
+import { useState, useRef } from 'react'
+import {
+  FolderOpen,
+  Plus,
+  Search,
+  FileText,
   MessageSquare,
   Sparkles,
   Star,
@@ -27,6 +27,7 @@ import {
   Copy,
   Trash2,
   Edit,
+  X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -105,6 +106,11 @@ export default function LibraryView() {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
   const [items, setItems] = useState(MOCK_ITEMS)
   const [collections] = useState(MOCK_COLLECTIONS)
+  const [showNewItem, setShowNewItem] = useState(false)
+  const [newTitle, setNewTitle] = useState('')
+  const [newContent, setNewContent] = useState('')
+  const [newType, setNewType] = useState<'prompt' | 'template' | 'artifact'>('prompt')
+  const titleRef = useRef<HTMLInputElement>(null)
 
   // Filter items
   const filteredItems = items.filter(item => {
@@ -128,11 +134,33 @@ export default function LibraryView() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   }
 
+  const handleAddItem = () => {
+    if (!newTitle.trim() || !newContent.trim()) return
+    const now = new Date().toISOString().slice(0, 10)
+    setItems(prev => [...prev, {
+      id: `item-${Date.now()}`,
+      title: newTitle.trim(),
+      content: newContent.trim(),
+      type: newType,
+      collection: selectedCollection || collections[0]?.id || 'coding',
+      tags: [],
+      isFavorite: false,
+      createdAt: now,
+      updatedAt: now,
+    }])
+    setNewTitle('')
+    setNewContent('')
+    setShowNewItem(false)
+  }
+
   return (
     <div className="flex h-full">
       {/* Sidebar */}
       <div className="w-64 border-r border-border p-4 flex flex-col">
-        <button className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors mb-6">
+        <button
+          onClick={() => { setShowNewItem(true); setTimeout(() => titleRef.current?.focus(), 50) }}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors mb-6"
+        >
           <Plus className="w-4 h-4" />
           New Item
         </button>
@@ -300,6 +328,53 @@ export default function LibraryView() {
           )}
         </div>
       </div>
+
+      {/* New Item Modal */}
+      {showNewItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowNewItem(false)}>
+          <div className="bg-surface border border-outline-variant rounded-xl shadow-2xl p-6 w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-on-surface">New Library Item</h3>
+              <button onClick={() => setShowNewItem(false)}><X className="w-4 h-4 text-on-surface-variant" /></button>
+            </div>
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                {(['prompt', 'template', 'artifact'] as const).map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setNewType(t)}
+                    className={`px-3 py-1 rounded-full text-xs border font-medium capitalize transition-colors ${newType === t ? 'bg-primary/10 text-primary border-primary/30' : 'border-outline-variant text-on-surface-variant hover:bg-surface-variant'}`}
+                  >{t}</button>
+                ))}
+              </div>
+              <input
+                ref={titleRef}
+                value={newTitle}
+                onChange={e => setNewTitle(e.target.value)}
+                placeholder="Title"
+                className="w-full px-3 py-2 rounded-lg bg-surface-variant border border-outline-variant text-sm text-on-surface placeholder:text-on-surface-variant/50 outline-none focus:border-primary"
+              />
+              <textarea
+                value={newContent}
+                onChange={e => setNewContent(e.target.value)}
+                placeholder="Prompt or template content…"
+                rows={5}
+                className="w-full px-3 py-2 rounded-lg bg-surface-variant border border-outline-variant text-sm font-mono text-on-surface placeholder:text-on-surface-variant/50 outline-none focus:border-primary resize-none"
+              />
+            </div>
+            <div className="flex gap-2 mt-5 justify-end">
+              <button onClick={() => setShowNewItem(false)} className="px-4 py-2 text-sm rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-variant">Cancel</button>
+              <button
+                onClick={handleAddItem}
+                disabled={!newTitle.trim() || !newContent.trim()}
+                className="px-4 py-2 text-sm rounded-lg bg-primary text-on-primary hover:bg-primary/90 disabled:opacity-50"
+              >
+                Add to Library
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

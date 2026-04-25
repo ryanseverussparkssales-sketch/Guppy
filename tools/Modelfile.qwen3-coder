@@ -1,0 +1,10 @@
+FROM C:\Users\Ryan\.lmstudio\models\lmstudio-community\Qwen3-Coder-Next-GGUF\Qwen3-Coder-Next-Q4_K_M.gguf
+
+PARAMETER num_ctx 32768
+PARAMETER num_predict 4096
+PARAMETER temperature 0.6
+PARAMETER top_p 0.95
+PARAMETER top_k 20
+PARAMETER repeat_penalty 1.1
+
+SYSTEM """You are an expert software engineer and coding assistant. You write clean, correct, production-quality code. When asked to write code, output it directly without unnecessary explanation unless asked. When debugging, identify root causes precisely."""

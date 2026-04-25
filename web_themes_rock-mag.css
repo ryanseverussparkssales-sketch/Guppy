@@ -1,0 +1,310 @@
+/*
+   Guppy Web UI Theme: Rock Mag
+   Vintage magazine aesthetic (1970s Creem/Rolling Stone vibes)
+   Newsprint colors, warm tones, monospace body
+   Source: rock-mag-inspo.html
+*/
+
+[data-theme="rock-mag"] {
+  /* === COLOR PALETTE === */
+  --color-background: #e8e0d0;       /* newsprint */
+  --color-surface: #f5f0e8;          /* cream */
+  --color-surface-container: #ddd5c3;
+  --color-surface-container-high: #c8c0b0;
+
+  /* Primary & Accents */
+  --color-primary: #c4420a;          /* rust */
+  --color-on-primary: #f5f0e8;       /* cream */
+  --color-primary-container: #d4a017; /* goldenrod */
+  --color-on-primary-container: #1a1410; /* ink */
+
+  /* Secondary */
+  --color-secondary: #8b2020;        /* faded-red */
+  --color-on-secondary: #f5f0e8;     /* cream */
+
+  /* Tertiary (darker accents) */
+  --color-tertiary: #d4a017;         /* goldenrod */
+  --color-on-tertiary: #1a1410;      /* ink */
+
+  /* Text & Foreground */
+  --color-on-background: #1a1410;    /* ink */
+  --color-on-surface: #2c2416;       /* smudge */
+  --color-on-surface-variant: #4a4a4a; /* slate */
+
+  /* Borders & Dividers */
+  --color-border: #d4c5a9;           /* dust/newsprint-dark */
+  --color-outline: #c8c0b0;          /* lighter border */
+  --color-outline-variant: #ddd5c3;  /* even lighter */
+
+  /* Semantic Colors */
+  --color-error: #c4420a;            /* rust (repurposed) */
+  --color-on-error: #f5f0e8;
+  --color-error-container: #8b2020;
+  --color-on-error-container: #f5f0e8;
+
+  --color-success: #d4a017;          /* goldenrod */
+  --color-on-success: #1a1410;
+
+  --color-warning: #c4420a;          /* rust */
+  --color-on-warning: #f5f0e8;
+
+  /* Elevation & Depth */
+  --shadow-1: 0 2px 6px rgba(26, 20, 16, 0.08);
+  --shadow-2: 0 6px 16px rgba(26, 20, 16, 0.12);
+  --shadow-3: 0 12px 32px rgba(26, 20, 16, 0.16);
+
+  /* === TYPOGRAPHY === */
+  --font-headline: 'Playfair Display', serif;
+  --font-body: 'Courier Prime', monospace;
+  --font-monospace: 'Courier Prime', monospace;
+
+  /* === TRANSITIONS === */
+  --transition-fast: 150ms ease-in-out;
+  --transition-normal: 300ms ease-in-out;
+  --transition-slow: 500ms ease-in-out;
+
+  /* === SPECIAL EFFECTS === */
+  --glow-primary: 0 0 12px rgba(196, 66, 10, 0.2);
+  --glow-accent: 0 0 8px rgba(212, 160, 23, 0.2);
+
+  /* Newsprint grain texture (optional) */
+  --grain-opacity: 0.06;
+}
+
+/* === SCOTCH TAPE EFFECT (Optional decorative element) === */
+[data-theme="rock-mag"] .tape-decoration {
+  position: absolute;
+  width: 60px;
+  height: 22px;
+  background: rgba(240, 208, 96, 0.4);
+  transform: rotate(-3deg);
+  border: 1px solid rgba(200, 170, 50, 0.3);
+  pointer-events: none;
+}
+
+/* === BUTTON STATES === */
+[data-theme="rock-mag"] .button,
+[data-theme="rock-mag"] button {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: 2px solid var(--color-primary);
+  font-family: var(--font-body);
+  letter-spacing: 1px;
+  transition: all var(--transition-normal);
+  text-transform: uppercase;
+}
+
+[data-theme="rock-mag"] .button:hover,
+[data-theme="rock-mag"] button:hover {
+  background-color: var(--color-secondary);
+  border-color: var(--color-secondary);
+  box-shadow: var(--glow-primary);
+  transform: translateY(-1px);
+}
+
+[data-theme="rock-mag"] .button:active,
+[data-theme="rock-mag"] button:active {
+  background-color: #8b2020;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+  transform: translateY(0);
+}
+
+/* === INPUT FIELDS === */
+[data-theme="rock-mag"] input,
+[data-theme="rock-mag"] textarea,
+[data-theme="rock-mag"] select {
+  background-color: #f5f0e8;
+  color: var(--color-on-surface);
+  border: 2px solid var(--color-border);
+  font-family: var(--font-body);
+  letter-spacing: 0.5px;
+  transition: border-color var(--transition-fast);
+}
+
+[data-theme="rock-mag"] input:focus,
+[data-theme="rock-mag"] textarea:focus,
+[data-theme="rock-mag"] select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--glow-primary);
+}
+
+/* === CARDS & PANELS === */
+[data-theme="rock-mag"] .card,
+[data-theme="rock-mag"] .panel {
+  background-color: #f5f0e8;
+  border: 2px solid var(--color-border);
+  box-shadow: var(--shadow-1);
+  transition: all var(--transition-normal);
+  position: relative;
+}
+
+[data-theme="rock-mag"] .card::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: 30px;
+  width: 60px;
+  height: 22px;
+  background: rgba(240, 208, 96, 0.3);
+  transform: rotate(-2deg);
+  border: 1px solid rgba(200, 170, 50, 0.2);
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+[data-theme="rock-mag"] .card:hover,
+[data-theme="rock-mag"] .panel:hover {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-2);
+}
+
+/* === TOOLTIPS & POPOVERS === */
+[data-theme="rock-mag"] .tooltip,
+[data-theme="rock-mag"] .popover {
+  background-color: #f5f0e8;
+  border: 2px solid var(--color-border);
+  color: var(--color-on-surface);
+  box-shadow: var(--shadow-2);
+}
+
+/* === CODE BLOCKS === */
+[data-theme="rock-mag"] code,
+[data-theme="rock-mag"] pre {
+  background-color: #e8e0d0;
+  color: #8b2020;
+  border-left: 4px solid var(--color-primary);
+  padding: 8px 12px;
+  font-family: var(--font-monospace);
+  letter-spacing: 0.5px;
+}
+
+/* === SCROLLBAR === */
+[data-theme="rock-mag"] ::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+[data-theme="rock-mag"] ::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+
+[data-theme="rock-mag"] ::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+[data-theme="rock-mag"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary);
+}
+
+/* === LINKS === */
+[data-theme="rock-mag"] a {
+  color: var(--color-secondary);
+  text-decoration: underline;
+  transition: all var(--transition-fast);
+  font-weight: 500;
+}
+
+[data-theme="rock-mag"] a:hover {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+/* === TABLES === */
+[data-theme="rock-mag"] table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+[data-theme="rock-mag"] table thead {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border-bottom: 3px solid var(--color-primary);
+}
+
+[data-theme="rock-mag"] table thead th {
+  padding: 12px;
+  font-family: var(--font-headline);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+[data-theme="rock-mag"] table tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+[data-theme="rock-mag"] table tbody tr:hover {
+  background-color: rgba(196, 66, 10, 0.05);
+}
+
+/* === BADGES & TAGS === */
+[data-theme="rock-mag"] .badge,
+[data-theme="rock-mag"] .tag {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: 2px solid var(--color-primary);
+  border-radius: 2px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-family: var(--font-body);
+}
+
+/* === LOADER === */
+[data-theme="rock-mag"] .spinner {
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* === HEADLINES === */
+[data-theme="rock-mag"] h1,
+[data-theme="rock-mag"] h2,
+[data-theme="rock-mag"] h3 {
+  font-family: var(--font-headline);
+  font-style: italic;
+  color: var(--color-on-background);
+  letter-spacing: -1px;
+}
+
+[data-theme="rock-mag"] h1 {
+  font-size: 2.5rem;
+}
+
+[data-theme="rock-mag"] h2 {
+  font-size: 2rem;
+  border-bottom: 2px solid var(--color-primary);
+  padding-bottom: 8px;
+}
+
+[data-theme="rock-mag"] h3 {
+  font-size: 1.5rem;
+  color: var(--color-secondary);
+}
+
+/* === ACCESSIBILITY === */
+[data-theme="rock-mag"] :focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+[data-theme="rock-mag"] .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

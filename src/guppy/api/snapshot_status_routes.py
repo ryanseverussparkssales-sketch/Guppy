@@ -31,8 +31,7 @@ def build_status_support_context(owner: Any) -> SimpleNamespace:
 
 def register_status_routes(app: Any, owner: Any) -> None:
     @app.get("/metrics")
-    async def get_metrics(user_id: str = Depends(owner.require_rate_limit)):
-        del user_id
+    async def get_metrics(_user_id: str = Depends(owner.require_rate_limit)):
         return owner.snapshot_status_context_support.build_metrics_payload(
             api_metrics=owner._api_metrics,
             api_metrics_lock=owner._api_metrics_lock,
@@ -55,8 +54,7 @@ def register_status_routes(app: Any, owner: Any) -> None:
         )
 
     @app.get("/auth/self-check")
-    async def auth_self_check(user_id: str = Depends(owner.require_rate_limit)):
-        del user_id
+    async def auth_self_check(_user_id: str = Depends(owner.require_rate_limit)):
         return {
             "ok": True,
             "user_id": user_id,
@@ -64,8 +62,7 @@ def register_status_routes(app: Any, owner: Any) -> None:
         }
 
     @app.get("/status")
-    async def get_status(user_id: str = Depends(owner.require_rate_limit)):
-        del user_id
+    async def get_status(_user_id: str = Depends(owner.require_rate_limit)):
         try:
             return await owner.build_status_response(build_status_support_context(owner))
         except Exception as exc:
@@ -74,8 +71,7 @@ def register_status_routes(app: Any, owner: Any) -> None:
             return {"status": "error", "message": str(exc)}
 
     @app.get("/startup/check")
-    async def startup_check(deep: bool = False, user_id: str = Depends(owner.require_rate_limit)):
-        del user_id
+    async def startup_check(deep: bool = False, _user_id: str = Depends(owner.require_rate_limit)):
         snapshot = await owner.build_startup_check_response(build_status_support_context(owner), deep=deep)
         owner.log_session_event("api", "startup_check", level="info", overall=snapshot.get("overall", "unknown"))
         return snapshot

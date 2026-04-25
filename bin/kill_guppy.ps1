@@ -18,9 +18,10 @@ foreach ($p in $portPids) {
 }
 
 # 2. Kill Python processes running Guppy scripts
+# Includes python3.12.exe (Windows Store Python) which uvicorn uses for worker processes
 $keywords = 'guppy_api','server_runtime','launch.py','guppy_hub','guppy_launcher','hub_app'
 
-Get-Process -Name python,pythonw -ErrorAction SilentlyContinue | ForEach-Object {
+Get-Process -Name python,pythonw,python3.12 -ErrorAction SilentlyContinue | ForEach-Object {
     $id  = $_.Id
     $wmi = Get-WmiObject Win32_Process -Filter "ProcessId=$id" -ErrorAction SilentlyContinue
     if (-not $wmi) { return }

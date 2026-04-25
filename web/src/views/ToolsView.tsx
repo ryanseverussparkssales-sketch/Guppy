@@ -14,6 +14,7 @@
  */
 
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { 
   Wrench, 
   Search, 
@@ -31,8 +32,8 @@ import {
   AlertCircle
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useTools } from '@/hooks/useApi'
-import type { Tool } from '@/types/api'
+import { useTools, useSetToolEnabled } from '@/api/queries'
+import type { Tool } from '@/api/schemas'
 
 // Category icon mapping
 const categoryIcons: Record<string, typeof Wrench> = {
@@ -138,39 +139,42 @@ const MOCK_TOOLS: Tool[] = [
 ]
 
 export default function ToolsView() {
-  const { tools: apiTools, isLoading, error } = useTools()
+  const toolsQuery = useTools()
+  const setToolEnabled = useSetToolEnabled()
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
-  const [localToggles, setLocalToggles] = useState<Record<string, boolean>>({})
+  const [pendingToggles, setPendingToggles] = useState<Record<string, boolean>>({})
 
-  // Use mock data until backend is connected
+  const isLoading = toolsQuery.isPending
+  const error = toolsQuery.error
+  const apiTools = toolsQuery.data ?? []
   const tools = apiTools.length > 0 ? apiTools : MOCK_TOOLS
 
-  // Get unique categories
   const categories = Array.from(new Set(tools.map(t => t.category)))
 
-  // Filter tools
   const filteredTools = tools.filter(tool => {
-    const matchesSearch = !searchQuery || 
+    const matchesSearch = !searchQuery ||
       tool.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       tool.description.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesCategory = !selectedCategory || tool.category === selectedCategory
     return matchesSearch && matchesCategory
   })
 
-  // Handle toggle with local state (will call API when connected)
-  const handleToggle = (toolId: string, currentState: boolean) => {
-    setLocalToggles(prev => ({
-      ...prev,
-      [toolId]: !currentState
-    }))
-    // TODO: Call API to persist toggle
-    // api.post(`/api/tools/${toolId}/${currentState ? 'disable' : 'enable'}`)
+  const handleToggle = async (toolId: string, currentState: boolean) => {
+    const enabling = !currentState
+    setPendingToggles(prev => ({ ...prev, [toolId]: true }))
+    try {
+      await setToolEnabled.mutateAsync({ toolId, enabled: enabling })
+      const tool = tools.find(t => t.id === toolId)
+      toast.success(`${tool?.name ?? toolId} ${enabling ? 'enabled' : 'disabled'}`)
+    } catch {
+      toast.error(`Failed to ${enabling ? 'enable' : 'disable'} tool`)
+    } finally {
+      setPendingToggles(prev => { const n = { ...prev }; delete n[toolId]; return n })
+    }
   }
 
-  const getToolEnabled = (tool: Tool) => {
-    return localToggles[tool.id] ?? tool.isEnabled
-  }
+  const getToolEnabled = (tool: Tool) => tool.isEnabled
 
   return (
     <div className="flex flex-col h-full">
@@ -295,14 +299,17 @@ export default function ToolsView() {
                   <div className="flex items-center justify-between">
                     <button
                       onClick={() => handleToggle(tool.id, isEnabled)}
+                      disabled={!!pendingToggles[tool.id]}
                       className={cn(
-                        "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors",
+                        "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
                         isEnabled
                           ? "bg-success/10 text-success hover:bg-success/20"
                           : "bg-muted text-muted-foreground hover:bg-muted/80"
                       )}
                     >
-                      {isEnabled ? (
+                      {pendingToggles[tool.id] ? (
+                        <div className="w-4 h-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                      ) : isEnabled ? (
                         <>
                           <ToggleRight className="w-4 h-4" />
                           Enabled

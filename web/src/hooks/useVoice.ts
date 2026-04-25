@@ -1,106 +1,210 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import api from '../api/client'
 
 interface UseVoiceOptions {
   onTranscript?: (text: string) => void
+  onResponse?: (text: string) => void
   onError?: (error: Error) => void
+  sessionId?: string
   language?: string
 }
+
+const RECORDER_MIME = (() => {
+  for (const t of ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']) {
+    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) return t
+  }
+  return ''
+})()
 
 export const useVoice = (options: UseVoiceOptions = {}) => {
   const [isListening, setIsListening] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [transcript, setTranscript] = useState('')
+  const [isSupported, setIsSupported] = useState(false)
+
+  // Keep options in a ref so callbacks always see the latest version
+  // without needing to be in every useCallback dep array.
+  const optionsRef = useRef(options)
+  useEffect(() => { optionsRef.current = options })
+
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+
+  // Web Speech API fallback refs
   const recognitionRef = useRef<any>(null)
-  const synthesisRef = useRef<SpeechSynthesis>(window.speechSynthesis)
-
-  useEffect(() => {
-    // Initialize speech recognition
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition()
-      recognitionRef.current.continuous = true
-      recognitionRef.current.interimResults = true
-      recognitionRef.current.language = options.language || 'en-US'
-
-      recognitionRef.current.onstart = () => {
-        setIsListening(true)
-      }
-
-      recognitionRef.current.onend = () => {
-        setIsListening(false)
-      }
-
-      recognitionRef.current.onresult = (event: any) => {
-        let interimTranscript = ''
-        let finalTranscript = ''
-
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript
-
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript + ' '
-          } else {
-            interimTranscript += transcript
-          }
-        }
-
-        const text = finalTranscript || interimTranscript
-        setTranscript(text)
-        if (finalTranscript && options.onTranscript) {
-          options.onTranscript(finalTranscript)
-        }
-      }
-
-      recognitionRef.current.onerror = (event: any) => {
-        const error = new Error(`Speech recognition error: ${event.error}`)
-        if (options.onError) {
-          options.onError(error)
-        }
-      }
-    }
-  }, [options])
-
-  const startListening = useCallback(() => {
-    if (recognitionRef.current && !isListening) {
-      setTranscript('')
-      recognitionRef.current.start()
-    }
-  }, [isListening])
-
-  const stopListening = useCallback(() => {
-    if (recognitionRef.current && isListening) {
-      recognitionRef.current.stop()
-    }
-  }, [isListening])
-
-  const speak = useCallback(
-    (text: string, rate = 1, pitch = 1, voice?: SpeechSynthesisVoice) => {
-      if (!synthesisRef.current) return
-
-      // Cancel any ongoing speech
-      synthesisRef.current.cancel()
-
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.rate = rate
-      utterance.pitch = pitch
-      if (voice) {
-        utterance.voice = voice
-      }
-
-      utterance.onstart = () => setIsSpeaking(true)
-      utterance.onend = () => setIsSpeaking(false)
-      utterance.onerror = () => setIsSpeaking(false)
-
-      synthesisRef.current.speak(utterance)
-    },
-    []
+  const synthesisRef = useRef<SpeechSynthesis | null>(
+    typeof window !== 'undefined' ? window.speechSynthesis : null
   )
 
-  const stopSpeaking = useCallback(() => {
-    if (synthesisRef.current) {
-      synthesisRef.current.cancel()
-      setIsSpeaking(false)
+  useEffect(() => {
+    const hasMediaRecorder = typeof MediaRecorder !== 'undefined' && !!navigator.mediaDevices
+    const hasSpeechRecognition = !!(
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    )
+    setIsSupported(hasMediaRecorder || hasSpeechRecognition)
+
+    // Init Web Speech API fallback
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (SR) {
+      const rec = new SR()
+      rec.continuous = false
+      rec.interimResults = true
+      rec.language = options.language || 'en-US'
+      rec.onresult = (event: any) => {
+        let interim = ''
+        let final = ''
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const t = event.results[i][0].transcript
+          if (event.results[i].isFinal) final += t + ' '
+          else interim += t
+        }
+        const text = final || interim
+        setTranscript(text)
+        if (final && optionsRef.current.onTranscript) optionsRef.current.onTranscript(final.trim())
+      }
+      rec.onerror = (e: any) => optionsRef.current.onError?.(new Error(`STT error: ${e.error}`))
+      rec.onend = () => setIsListening(false)
+      recognitionRef.current = rec
     }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── STT: start recording ───────────────────────────────────────────────────
+  const startListening = useCallback(async () => {
+    if (isListening) return
+    setTranscript('')
+
+    if (RECORDER_MIME && navigator.mediaDevices) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        const recorder = new MediaRecorder(stream, { mimeType: RECORDER_MIME })
+        chunksRef.current = []
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunksRef.current.push(e.data)
+        }
+        recorder.onstop = async () => {
+          stream.getTracks().forEach((t) => t.stop())
+          const blob = new Blob(chunksRef.current, { type: RECORDER_MIME })
+          if (blob.size < 1000) return // too short to be speech
+          await _transcribeBlob(blob)
+        }
+        recorder.start(250) // collect chunks every 250 ms
+        recorderRef.current = recorder
+        setIsListening(true)
+      } catch (e) {
+        optionsRef.current.onError?.(new Error('Microphone access denied'))
+        _fallbackStartListening()
+      }
+    } else {
+      _fallbackStartListening()
+    }
+  }, [isListening]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const _fallbackStartListening = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.start()
+      setIsListening(true)
+    } else {
+      optionsRef.current.onError?.(new Error('Speech recognition not supported'))
+    }
+  }, [])
+
+  // ── STT: stop recording and transcribe ────────────────────────────────────
+  const stopListening = useCallback(() => {
+    if (!isListening) return
+    if (recorderRef.current?.state === 'recording') {
+      recorderRef.current.stop()
+      recorderRef.current = null
+    } else if (recognitionRef.current) {
+      recognitionRef.current.stop()
+    }
+    setIsListening(false)
+  }, [isListening])
+
+  const _transcribeBlob = useCallback(async (blob: Blob) => {
+    try {
+      const form = new FormData()
+      form.append('file', blob, 'recording.webm')
+      const sid = optionsRef.current.sessionId
+      if (sid) form.append('session_id', sid)
+
+      const res = await api.post('/api/chat/voice', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      const { transcription, response } = res.data
+      if (transcription) {
+        setTranscript(transcription)
+        optionsRef.current.onTranscript?.(transcription)
+      }
+      if (response) optionsRef.current.onResponse?.(response)
+    } catch {
+      optionsRef.current.onError?.(new Error('Transcription failed'))
+    }
+  }, [])
+
+  // ── TTS: speak via backend, fall back to Web Speech API ──────────────────
+  const speak = useCallback(
+    async (text: string, rate = 1, _pitch = 1, _voice?: SpeechSynthesisVoice) => {
+      stopSpeaking()
+      setIsSpeaking(true)
+
+      // Try backend TTS (returns audio bytes for browser playback)
+      try {
+        const ctrl = new AbortController()
+        abortRef.current = ctrl
+        const res = await api.post(
+          '/api/voices/speak',
+          { text, speed: rate },
+          { responseType: 'blob', signal: ctrl.signal }
+        )
+        const url = URL.createObjectURL(res.data)
+        const audio = new Audio(url)
+        audioRef.current = audio
+        audio.onended = () => {
+          setIsSpeaking(false)
+          URL.revokeObjectURL(url)
+        }
+        audio.onerror = () => {
+          setIsSpeaking(false)
+          URL.revokeObjectURL(url)
+          _fallbackSpeak(text, rate)
+        }
+        await audio.play()
+        return
+      } catch (err: any) {
+        if (err?.name === 'AbortError') {
+          setIsSpeaking(false)
+          return
+        }
+        // Backend unavailable — fall through to Web Speech API
+      }
+
+      _fallbackSpeak(text, rate)
+    },
+    [] // eslint-disable-line react-hooks/exhaustive-deps
+  )
+
+  const _fallbackSpeak = useCallback((text: string, rate = 1) => {
+    if (!synthesisRef.current) { setIsSpeaking(false); return }
+    synthesisRef.current.cancel()
+    const utt = new SpeechSynthesisUtterance(text)
+    utt.rate = rate
+    utt.onstart = () => setIsSpeaking(true)
+    utt.onend   = () => setIsSpeaking(false)
+    utt.onerror = () => setIsSpeaking(false)
+    synthesisRef.current.speak(utt)
+  }, [])
+
+  const stopSpeaking = useCallback(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current = null
+    }
+    synthesisRef.current?.cancel()
+    setIsSpeaking(false)
   }, [])
 
   const getAvailableVoices = useCallback(() => {
@@ -110,6 +214,7 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
   return {
     isListening,
     isSpeaking,
+    isSupported,
     transcript,
     startListening,
     stopListening,

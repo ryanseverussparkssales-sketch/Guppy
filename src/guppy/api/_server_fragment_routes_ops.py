@@ -3,10 +3,9 @@ async def chat_voice(
     file: UploadFile = File(...),
     session_id: Optional[str] = None,
     use_claude: Optional[bool] = True,
-    user_id: str = Depends(require_rate_limit)
+    _user_id: str = Depends(require_rate_limit)
 ):
     """Upload audio file and get transcription + response."""
-    del user_id
 
     if not GUPPY_CORE_AVAILABLE:
         raise HTTPException(status_code=503, detail="Guppy core not available")

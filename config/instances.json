@@ -21,6 +21,16 @@
       "enabled": false,
       "type": "builder_instance",
       "created_at": "2026-04-14T00:00:00+00:00"
+    },
+    {
+      "name": "Test",
+      "description": "",
+      "mode": "auto",
+      "persona": "guppy",
+      "voice": "default",
+      "enabled": true,
+      "type": "user_instance",
+      "created_at": "2026-04-25T07:51:02.658205+00:00"
     }
   ]
 }

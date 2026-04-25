@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
-import { Plus, Server, Play, Square, Settings, MoreHorizontal, RefreshCw } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Server, Play, Square, Settings, MoreHorizontal, RefreshCw, X } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 import api from '../api/client'
 
 /**
@@ -42,11 +43,15 @@ export default function InstancesView() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [newInstanceName, setNewInstanceName] = useState('')
+  const [creating, setCreating] = useState(false)
+  const nameInputRef = useRef<HTMLInputElement>(null)
 
   const fetchInstances = async () => {
     try {
       setLoading(true)
-      const response = await api.get('/instances')
+      const response = await api.get('/api/instances')
       const instanceData = response.data.instances || []
       setInstances(Array.isArray(instanceData) ? instanceData : [])
       setError(null)
@@ -65,18 +70,32 @@ export default function InstancesView() {
 
   const handleStartInstance = async (name: string) => {
     try {
-      // BACKEND: POST /api/instances/:name/start
-      await api.post(`/instances/${name}/start`)
+      await api.post(`/api/instances/${name}/start`)
       fetchInstances()
     } catch (err) {
       console.error('Failed to start instance:', err)
     }
   }
 
+  const handleCreateInstance = async () => {
+    const name = newInstanceName.trim()
+    if (!name) return
+    setCreating(true)
+    try {
+      await api.post('/api/instances', { name })
+      toast.success(`Instance "${name}" created`)
+      setShowCreateModal(false)
+      fetchInstances()
+    } catch {
+      toast.error('Failed to create instance')
+    } finally {
+      setCreating(false)
+    }
+  }
+
   const handleStopInstance = async (name: string) => {
     try {
-      // BACKEND: POST /api/instances/:name/stop
-      await api.post(`/instances/${name}/stop`)
+      await api.post(`/api/instances/${name}/stop`)
       fetchInstances()
     } catch (err) {
       console.error('Failed to stop instance:', err)
@@ -103,16 +122,10 @@ export default function InstancesView() {
             Manage your Guppy assistant instances
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={fetchInstances} disabled={loading}>
-            <RefreshCw className={cn("w-4 h-4 mr-2", loading && "animate-spin")} />
-            Refresh
-          </Button>
-          <Button>
-            <Plus className="w-4 h-4 mr-2" />
-            New Instance
-          </Button>
-        </div>
+        <Button variant="outline" onClick={fetchInstances} disabled={loading}>
+          <RefreshCw className={cn("w-4 h-4 mr-2", loading && "animate-spin")} />
+          Refresh
+        </Button>
       </div>
 
       {/* Content */}
@@ -138,14 +151,10 @@ export default function InstancesView() {
             <div className="w-16 h-16 mb-4 rounded-2xl bg-muted flex items-center justify-center">
               <Server className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-semibold text-foreground mb-2">No instances yet</h3>
+            <h3 className="text-lg font-semibold text-foreground mb-2">No instances configured</h3>
             <p className="text-muted-foreground mb-4 max-w-sm">
-              Create your first instance to get started with Guppy
+              Instances are defined in <code className="text-xs bg-muted px-1 rounded">config/instances.json</code>. Restart the API after editing.
             </p>
-            <Button>
-              <Plus className="w-4 h-4 mr-2" />
-              Create Instance
-            </Button>
           </CardContent>
         </Card>
       ) : (
@@ -159,6 +168,36 @@ export default function InstancesView() {
               statusVariant={getStatusVariant(instance.status)}
             />
           ))}
+        </div>
+      )}
+
+      {/* Create Instance Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowCreateModal(false)} />
+          <div className="relative bg-card border border-border rounded-xl shadow-lg p-6 w-full max-w-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">New Instance</h2>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowCreateModal(false)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={newInstanceName}
+              onChange={(e) => setNewInstanceName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCreateInstance()}
+              placeholder="Instance name"
+              className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm outline-none focus:ring-2 focus:ring-primary mb-4"
+            />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setShowCreateModal(false)}>Cancel</Button>
+              <Button onClick={handleCreateInstance} disabled={creating || !newInstanceName.trim()}>
+                {creating ? 'Creating…' : 'Create'}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

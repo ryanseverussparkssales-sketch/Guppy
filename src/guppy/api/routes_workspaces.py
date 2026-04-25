@@ -131,9 +131,8 @@ def build_workspaces_router(ctx: ServerContext) -> APIRouter:
     router = APIRouter(prefix="/api/workspaces")
 
     @router.get("")
-    async def list_workspaces(user_id: str = Depends(ctx.require_rate_limit)):
+    async def list_workspaces(_user_id: str = Depends(ctx.require_rate_limit)):
         """List all workspaces."""
-        del user_id
         workspaces = await asyncio.to_thread(_workspace_db.list_workspaces)
         active = await asyncio.to_thread(_workspace_db.get_active_workspace)
         return {
@@ -145,10 +144,9 @@ def build_workspaces_router(ctx: ServerContext) -> APIRouter:
     @router.post("")
     async def create_workspace(
         payload: Dict[str, str],
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
         """Create a new workspace."""
-        del user_id
         name = payload.get("name", "").strip()
         if not name:
             raise HTTPException(status_code=400, detail="workspace name required")
@@ -158,9 +156,8 @@ def build_workspaces_router(ctx: ServerContext) -> APIRouter:
         return workspace
 
     @router.get("/{ws_id}")
-    async def get_workspace(ws_id: str, user_id: str = Depends(ctx.require_rate_limit)):
+    async def get_workspace(ws_id: str, _user_id: str = Depends(ctx.require_rate_limit)):
         """Get workspace details."""
-        del user_id
         ws = await asyncio.to_thread(_workspace_db.get_workspace, ws_id)
         if not ws:
             raise HTTPException(status_code=404, detail="workspace not found")
@@ -170,10 +167,9 @@ def build_workspaces_router(ctx: ServerContext) -> APIRouter:
     async def update_workspace(
         ws_id: str,
         payload: Dict[str, str],
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
         """Update workspace metadata."""
-        del user_id
         try:
             name = payload.get("name") or None
             description = payload.get("description") or None
@@ -183,9 +179,8 @@ def build_workspaces_router(ctx: ServerContext) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(e))
 
     @router.delete("/{ws_id}")
-    async def delete_workspace(ws_id: str, user_id: str = Depends(ctx.require_rate_limit)):
+    async def delete_workspace(ws_id: str, _user_id: str = Depends(ctx.require_rate_limit)):
         """Delete a workspace."""
-        del user_id
         try:
             await asyncio.to_thread(_workspace_db.delete_workspace, ws_id)
             return {"deleted": ws_id}
@@ -193,9 +188,8 @@ def build_workspaces_router(ctx: ServerContext) -> APIRouter:
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/{ws_id}/activate")
-    async def activate_workspace(ws_id: str, user_id: str = Depends(ctx.require_rate_limit)):
+    async def activate_workspace(ws_id: str, _user_id: str = Depends(ctx.require_rate_limit)):
         """Set workspace as active."""
-        del user_id
         ws = await asyncio.to_thread(_workspace_db.get_workspace, ws_id)
         if not ws:
             raise HTTPException(status_code=404, detail="workspace not found")
@@ -204,9 +198,8 @@ def build_workspaces_router(ctx: ServerContext) -> APIRouter:
         return {"active": ws_id}
 
     @router.get("/active/current")
-    async def get_active_workspace(user_id: str = Depends(ctx.require_rate_limit)):
+    async def get_active_workspace(_user_id: str = Depends(ctx.require_rate_limit)):
         """Get currently active workspace."""
-        del user_id
         ws = await asyncio.to_thread(_workspace_db.get_active_workspace)
         if not ws:
             raise HTTPException(status_code=404, detail="no active workspace")

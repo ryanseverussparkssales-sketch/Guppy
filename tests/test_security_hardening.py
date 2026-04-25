@@ -433,10 +433,12 @@ class AuthAndRepairLifecycleTests(unittest.TestCase):
         secret_store._KEYRING_AVAILABLE = False
         os.environ["GUPPY_JWT_SECRET"] = _TEST_SECRET
         guppy_api_auth.SECRET_KEY = _TEST_SECRET
-
-        app = guppy_api.app
-        client = TestClient(app, raise_server_exceptions=False, client=("127.0.0.1", 50000))
-        resp = client.get("/auth/self-check")
+        # Freeze config so .env GUPPY_DEV_MODE=1 can't override our test state.
+        with patch.object(guppy_api_auth, "_refresh_runtime_config"):
+            guppy_api_auth.DEV_MODE = False
+            app = guppy_api.app
+            client = TestClient(app, raise_server_exceptions=False, client=("127.0.0.1", 50000))
+            resp = client.get("/auth/self-check")
         self.assertEqual(resp.status_code, 401)
 
     def test_repair_token_accepted_from_keyring_and_file_fallback(self):
@@ -608,6 +610,7 @@ class RepairTokenRefreshEndpointTests(unittest.TestCase):
     def test_refresh_requires_bearer_token_even_on_localhost(self):
         token = "cd" * 32
         guppy_api._REPAIR_TOKEN = token
+        guppy_api_auth.DEV_MODE = False
         resp = self._client.get("/repair-token/refresh")
         self.assertEqual(resp.status_code, 401)
 

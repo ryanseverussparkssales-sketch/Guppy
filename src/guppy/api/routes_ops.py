@@ -17,9 +17,8 @@ def build_ops_router(ctx: ServerContext) -> APIRouter:
     @router.get("/logs/recent")
     async def get_recent_logs(
         limit: int = 100,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         lim = max(1, min(int(limit), 300))
         runtime_dir = ctx.paths.runtime_dir
         return {
@@ -40,9 +39,8 @@ def build_ops_router(ctx: ServerContext) -> APIRouter:
         since_minutes: int = 1440,
         limit: int = 200,
         backend: str = "auto",
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         lim = max(1, min(int(limit), 1000))
         since = max(0, int(since_minutes))
         stream_key = (stream or "").strip() or None
@@ -81,9 +79,8 @@ def build_ops_router(ctx: ServerContext) -> APIRouter:
         since_minutes: int = 1440,
         limit: int = 1000,
         backend: str = "auto",
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         lim = max(1, min(int(limit), 2000))
         since = max(0, int(since_minutes))
         stream_key = (stream or "").strip() or None
@@ -115,9 +112,8 @@ def build_ops_router(ctx: ServerContext) -> APIRouter:
     @router.get("/repair-token/refresh")
     async def repair_token_refresh(
         _req: Request,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         client_ip = _req.client.host if _req.client else ""
         if client_ip not in ("127.0.0.1", "::1", "localhost", ""):
             owner.log_session_event(
@@ -136,10 +132,9 @@ def build_ops_router(ctx: ServerContext) -> APIRouter:
     async def repair_runtime(
         request: RepairRequest,
         _req: Request,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
         _tok: None = Depends(repair_dependency) if repair_dependency is not None else None,
     ):
-        del user_id, _req, _tok
         action = (request.action or "").strip().lower()
         dry_run = bool(request.dry_run)
         result = await asyncio.to_thread(ctx.do_repair_action, action, dry_run)
@@ -155,8 +150,7 @@ def build_ops_router(ctx: ServerContext) -> APIRouter:
         return {"action": action, "dry_run": dry_run, **result}
 
     @router.get("/revenue/dashboard")
-    async def get_revenue_dashboard(user_id: str = Depends(ctx.require_rate_limit)):
-        del user_id
+    async def get_revenue_dashboard(_user_id: str = Depends(ctx.require_rate_limit)):
         if not owner.GUPPY_MEMORY_AVAILABLE:
             raise HTTPException(status_code=503, detail="Memory module not available")
         if not hasattr(owner.memory, "get_revenue_dashboard_data"):

@@ -37,11 +37,60 @@ _GOOGLE_MODELS = [
     {"id": "gemini-2.5-flash-preview", "name": "Gemini 2.5 Flash",  "tier": "fast"},
 ]
 
-_VALID_CLOUD_PROVIDERS = {"anthropic", "openai", "google"}
+_COHERE_MODELS = [
+    {"id": "command-a-03-2025",      "name": "Command A",       "tier": "powerful"},
+    {"id": "command-r-plus-08-2024", "name": "Command R+",      "tier": "smart"},
+    {"id": "command-r-08-2024",      "name": "Command R",       "tier": "smart"},
+    {"id": "command-light",          "name": "Command Light",   "tier": "fast"},
+    {"id": "aya-23-35b",             "name": "Aya 23 35B",      "tier": "smart"},
+    {"id": "aya-23-8b",              "name": "Aya 23 8B",       "tier": "fast"},
+]
+
+_MISTRAL_MODELS = [
+    {"id": "mistral-large-latest",   "name": "Mistral Large",   "tier": "powerful"},
+    {"id": "mistral-small-latest",   "name": "Mistral Small",   "tier": "smart"},
+    {"id": "codestral-latest",       "name": "Codestral",       "tier": "smart"},
+    {"id": "open-mistral-nemo",      "name": "Mistral Nemo",    "tier": "fast"},
+    {"id": "pixtral-12b-2409",       "name": "Pixtral 12B",     "tier": "smart"},
+    {"id": "open-mixtral-8x22b",     "name": "Mixtral 8x22B",   "tier": "powerful"},
+]
+
+_VALID_CLOUD_PROVIDERS = {"anthropic", "openai", "google", "cohere", "mistral"}
 _PROVIDER_MODEL_IDS = {
     "anthropic": {m["id"] for m in _ANTHROPIC_MODELS},
     "openai":    {m["id"] for m in _OPENAI_MODELS},
     "google":    {m["id"] for m in _GOOGLE_MODELS},
+    "cohere":    {m["id"] for m in _COHERE_MODELS},
+    "mistral":   {m["id"] for m in _MISTRAL_MODELS},
+}
+
+# Display metadata for local models: display name + capability tags
+# Covers both Ollama model IDs and LM Studio model IDs (key field from /api/v1/models)
+_LOCAL_MODEL_METADATA: Dict[str, Dict[str, Any]] = {
+    # Ollama guppy models
+    "guppy:latest":          {"display": "Guppy",        "tags": ["stable", "conversational"]},
+    "guppy-fast:latest":     {"display": "Guppy Fast",   "tags": ["fast"]},
+    "guppy-vision:latest":   {"display": "Guppy Vision", "tags": ["vision", "fast"]},
+    "guppy-vision-pro:latest": {"display": "Guppy Vision Pro", "tags": ["vision"]},
+    "guppy-code:latest":     {"display": "Guppy Code",   "tags": ["coding"]},
+    "guppy-teach:latest":    {"display": "Guppy Teach",  "tags": ["conversational"]},
+    "vault-scraper:latest":  {"display": "Vault Scraper", "tags": ["specialized"]},
+    # Ollama base models
+    "qwen2.5:7b":            {"display": "Qwen 7B",       "tags": ["fast"]},
+    "qwen2.5:32b":           {"display": "Qwen 32B",      "tags": ["stable", "conversational"]},
+    "qwen2.5:72b":           {"display": "Qwen 72B",      "tags": ["powerful"]},
+    "qwen2.5-coder:14b":     {"display": "Qwen Coder 14B", "tags": ["coding"]},
+    "qwen3:8b":              {"display": "Qwen3 8B",      "tags": ["fast", "reasoning"]},
+    "gemma3:12b":            {"display": "Gemma3 12B",    "tags": ["conversational", "coding"]},
+    "nomic-embed-text:latest": {"display": "Nomic Embed", "tags": ["embeddings"]},
+    # LM Studio models — IDs returned by /api/v1/models (key field)
+    "qwen/qwen3.6-27b":            {"display": "Qwen3 27B",       "tags": ["stable", "conversational", "reasoning"]},
+    "qwen/qwen3.5-9b":             {"display": "Qwen3.5 9B",      "tags": ["fast", "reasoning"]},
+    "qwen/qwen3-coder-next":       {"display": "Qwen3 Coder",     "tags": ["coding", "reasoning"]},
+    "nvidia/nemotron-3-nano":      {"display": "Nemotron Nano",   "tags": ["fast", "reasoning"]},
+    "google/gemma-4-26b-a4b":      {"display": "Gemma 4 26B",     "tags": ["fast", "reasoning", "vision"]},
+    "gemma-3-4b-it":               {"display": "Gemma 3 4B",      "tags": ["fast"]},
+    "text-embedding-nomic-embed-text-v1.5": {"display": "Nomic Embed v1.5", "tags": ["embeddings"]},
 }
 
 
@@ -57,6 +106,8 @@ def _is_configured(provider: str) -> bool:
         "anthropic": "ANTHROPIC_API_KEY",
         "openai":    "OPENAI_API_KEY",
         "google":    "GOOGLE_API_KEY",
+        "cohere":    "COHERE_API_KEY",
+        "mistral":   "MISTRAL_API_KEY",
     }
     env_key = env_map.get(provider, "")
     if os.environ.get(env_key, "").strip():
@@ -79,6 +130,8 @@ def _get_active_model(provider: str, default: str) -> str:
         "anthropic": "ANTHROPIC_MODEL",
         "openai":    "OPENAI_MODEL",
         "google":    "GOOGLE_MODEL",
+        "cohere":    "COHERE_MODEL",
+        "mistral":   "MISTRAL_MODEL",
     }
     return os.environ.get(env_map.get(provider, ""), default).strip() or default
 
@@ -87,8 +140,10 @@ def _provider_status() -> Dict[str, Any]:
     configured = {p: _is_configured(p) for p in _VALID_CLOUD_PROVIDERS}
 
     local_backend = active_backend()
-    local_liveness = probe_backends(timeout=1.0)
-    local_models_raw = list_local_models(local_backend, timeout=2.0) if local_liveness.get(local_backend) else []
+    local_liveness = probe_backends(timeout=3.0)
+    # Always attempt model listing for the active backend regardless of probe result —
+    # probe can fail transiently (timeout) while the backend is still functional.
+    local_models_raw = list_local_models(local_backend, timeout=4.0)
 
     def _should_include_model(model_name: str) -> bool:
         clean_names = {"fast:latest", "code:latest", "main:latest"}
@@ -100,7 +155,21 @@ def _provider_status() -> Dict[str, Any]:
         return True
 
     local_models_filtered = [m for m in local_models_raw if _should_include_model(m)]
-    local_models = [{"id": m, "name": m, "tier": "local"} for m in local_models_filtered]
+    local_models = []
+    for m in local_models_filtered:
+        # Exact match first, then prefix/substring match for long LM Studio IDs
+        meta = _LOCAL_MODEL_METADATA.get(m) or next(
+            (v for k, v in _LOCAL_MODEL_METADATA.items() if k in m),
+            {},
+        )
+        # For LM Studio, make a friendly short name from the path if no metadata
+        display_fallback = m.split("/")[-1].replace("-GGUF", "").replace(".gguf", "") if "/" in m else m
+        local_models.append({
+            "id": m,
+            "name": meta.get("display", display_fallback),
+            "tier": "local",
+            "tags": meta.get("tags", []),
+        })
 
     local_active = _get_active_model("local", local_models_raw[0] if local_models_raw else "")
 
@@ -119,6 +188,16 @@ def _provider_status() -> Dict[str, Any]:
             "configured": configured["google"],
             "active_model": _get_active_model("google", "gemini-2.0-flash"),
             "models": _GOOGLE_MODELS,
+        },
+        "cohere": {
+            "configured": configured["cohere"],
+            "active_model": _get_active_model("cohere", "command-a-03-2025"),
+            "models": _COHERE_MODELS,
+        },
+        "mistral": {
+            "configured": configured["mistral"],
+            "active_model": _get_active_model("mistral", "mistral-large-latest"),
+            "models": _MISTRAL_MODELS,
         },
         "local": {
             "configured": bool(local_models_raw),

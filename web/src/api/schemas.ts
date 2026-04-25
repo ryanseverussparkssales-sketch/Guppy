@@ -11,6 +11,8 @@ export const CredentialStatusSchema = z.object({
   anthropic: z.object({ configured: z.boolean() }),
   openai:    z.object({ configured: z.boolean() }),
   google:    z.object({ configured: z.boolean() }),
+  cohere:    z.object({ configured: z.boolean() }).optional(),
+  mistral:   z.object({ configured: z.boolean() }).optional(),
 })
 
 export const ModelParamsSchema = z.object({
@@ -19,7 +21,7 @@ export const ModelParamsSchema = z.object({
 })
 
 export const SettingsSchema = z.object({
-  active_provider: z.enum(['local', 'anthropic', 'openai', 'google']),
+  active_provider: z.enum(['local', 'anthropic', 'openai', 'google', 'cohere', 'mistral']),
   credentials:     CredentialStatusSchema,
   model_params:    ModelParamsSchema,
 })
@@ -161,6 +163,23 @@ export const VoiceSchema = z.object({
 }).passthrough()
 
 export type Voice = z.infer<typeof VoiceSchema>
+
+// ── Instructions Booklet ─────────────────────────────────────────────────────
+
+export const BookletSectionSchema = z.object({
+  id:         z.string(),
+  title:      z.string(),
+  content:    z.string(),
+  mode:       z.enum(['always', 'retrieve', 'off']),
+  sort_order: z.number(),
+})
+
+export const BookletCompiledSchema = z.object({
+  compiled: z.string(),
+})
+
+export type BookletSection  = z.infer<typeof BookletSectionSchema>
+export type BookletCompiled = z.infer<typeof BookletCompiledSchema>
 
 // ── Pull job ─────────────────────────────────────────────────────────────────
 

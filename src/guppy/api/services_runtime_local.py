@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import urllib.request
 from typing import Any, Optional
+
+_log = logging.getLogger(__name__)
 
 
 _VALID_BACKENDS = {"ollama", "lmstudio", "lemonade", "vllm", "auto"}
@@ -21,7 +24,8 @@ def selected_local_runtime_backend(owner: Any) -> str:
         try:
             from src.guppy.inference.local_client import active_backend
             return active_backend()
-        except Exception:
+        except Exception as exc:
+            _log.debug("Backend auto-detection failed, defaulting to ollama: %s", exc)
             return "ollama"
     return raw
 
@@ -77,8 +81,8 @@ def resolve_local_runtime_model(
                 return str(getattr(router, "LOCAL_CODE_MODEL", fallback) or fallback).strip()
             if normalized_role == "vault":
                 return str(getattr(router, "LOCAL_VAULT_MODEL", fallback) or fallback).strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.debug("Router model resolution failed for role %r: %s", role, exc)
     return str(fallback or "").strip()
 
 
@@ -117,28 +121,21 @@ def warm_ollama_chat_lane(owner: Any, model: str, keep_alive: str = "20m") -> tu
 
 
 def warm_lmstudio_chat_lane(owner: Any, model: str) -> tuple[bool, str]:
-    normalized_model = str(model or "").strip()
-    if not normalized_model:
-        return False, "no LM Studio model configured for warmup"
-    payload = {
-        "model": normalized_model,
-        "messages": [{"role": "user", "content": "ok"}],
-        "stream": False,
-        "max_tokens": 1,
-    }
-    base = owner._local_runtime_base_url("lmstudio").rstrip("/")
-    req = urllib.request.Request(
-        f"{base}/v1/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=owner._LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS) as resp:
-        data = json.loads(resp.read())
-    choices = data.get("choices", []) if isinstance(data, dict) else []
-    if not choices:
-        return False, "LM Studio warmup returned no choices"
-    return True, f"{normalized_model} warm"
+    # Delegate to local_client which handles auth, model resolution, and retries
+    try:
+        from src.guppy.inference.local_client import local_chat as _local_chat
+        result = _local_chat(
+            model,
+            [{"role": "user", "content": "ok"}],
+            timeout=int(owner._LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS),
+            num_predict=1,
+            backend="lmstudio",
+        )
+        if result is not None:
+            return True, f"lmstudio warm (model: {result.get('model', model)})"
+        return False, "LM Studio warmup returned no response"
+    except Exception as exc:
+        return False, f"LM Studio warmup error: {exc}"
 
 
 def warm_vllm_chat_lane(owner: Any, model: str) -> tuple[bool, str]:
@@ -351,21 +348,14 @@ def build_local_runtime_status(owner: Any) -> dict[str, Any]:
             model_ids = owner._fetch_lemonade_model_ids()
             detail = "Lemonade model registry reachable"
         elif backend == "lmstudio":
-            base = owner._local_runtime_base_url("lmstudio").rstrip("/")
-            req = urllib.request.Request(
-                f"{base}/v1/models",
-                headers={"Accept": "application/json"},
-                method="GET",
-            )
-            with urllib.request.urlopen(req, timeout=4.0) as resp:
-                data = json.loads(resp.read())
-            items = data.get("data", []) if isinstance(data, dict) else []
-            model_ids = {
-                str(item.get("id", "")).strip()
-                for item in items
-                if isinstance(item, dict) and str(item.get("id", "")).strip()
-            }
-            detail = "LM Studio model registry reachable"
+            # Use the shared local_client probe which includes auth headers
+            try:
+                from src.guppy.inference.local_client import list_local_models as _list_local_models
+                _ids = _list_local_models("lmstudio", timeout=4.0)
+                model_ids = set(_ids)
+            except Exception:
+                model_ids = set()
+            detail = "LM Studio model registry reachable" if model_ids else "LM Studio reachable (no models loaded)"
         elif backend == "vllm":
             base = owner._local_runtime_base_url("vllm").rstrip("/")
             req = urllib.request.Request(
@@ -409,16 +399,26 @@ def build_local_runtime_status(owner: Any) -> dict[str, Any]:
             detail=str(exc),
         )
 
-    available_roles = sorted([role for role, model in role_models.items() if model and model in model_ids])
-    missing_roles = sorted([role for role, model in role_models.items() if model and model not in model_ids])
-    if available_roles and not missing_roles:
-        state = "READY"
-    elif available_roles:
-        state = "PARTIAL"
+    # LM Studio auto-resolves to the loaded model — role names like "guppy-fast"
+    # won't appear in model_ids, but the runtime IS functional if any model is loaded.
+    if backend == "lmstudio":
+        state = "READY" if model_ids else "MISSING"
+        available_roles = list(role_models.keys()) if model_ids else []
+        missing_roles = [] if model_ids else list(role_models.keys())
     else:
-        state = "MISSING"
+        available_roles = sorted([role for role, model in role_models.items() if model and model in model_ids])
+        missing_roles = sorted([role for role, model in role_models.items() if model and model not in model_ids])
+        if available_roles and not missing_roles:
+            state = "READY"
+        elif available_roles:
+            state = "PARTIAL"
+        else:
+            state = "MISSING"
 
-    if backend in {"ollama", "vllm"} and available_roles and str(warm_status.get("chat_state", "UNKNOWN") or "UNKNOWN") == "UNKNOWN":
+    # For Ollama/vLLM: trigger background warmup and downgrade to PARTIAL while warming.
+    # For LM Studio: trigger warmup too (so chat_ready becomes True), but don't downgrade —
+    # LM Studio models are already loaded; the warmup is just a liveness check.
+    if available_roles and str(warm_status.get("chat_state", "UNKNOWN") or "UNKNOWN") == "UNKNOWN":
         owner._trigger_local_runtime_warm_refresh(force=False)
     if backend in {"ollama", "vllm"} and available_roles and not bool(warm_status.get("chat_ready", False)) and state == "READY":
         state = "PARTIAL"
@@ -517,6 +517,30 @@ def call_vllm_chat(
     return content
 
 
+def call_lmstudio_chat(
+    owner: Any,
+    user_text: str,
+    system_prompt: str,
+    *,
+    model_override: Optional[str] = None,
+) -> str:
+    """Route a chat request through LM Studio via local_client."""
+    from src.guppy.inference.local_client import local_chat as _local_chat, _resolve_lmstudio_model
+    model = str(model_override or "").strip() or owner._current_local_runtime_chat_model("lmstudio")
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": user_text})
+    timeout = int(getattr(owner, "CHAT_TIMEOUT_SECONDS", 60))
+    result = _local_chat(model, messages, timeout=timeout, num_predict=1024, backend="lmstudio")
+    if result is None:
+        raise RuntimeError("LM Studio returned no response.")
+    content = str(result.get("response", "") or "").strip()
+    if not content:
+        raise RuntimeError("LM Studio returned an empty response.")
+    return content
+
+
 def call_selected_local_runtime(
     owner: Any,
     user_text: str,
@@ -538,6 +562,13 @@ def call_selected_local_runtime(
         )
     if backend == "vllm":
         return call_vllm_chat(
+            owner,
+            user_text,
+            system_prompt,
+            model_override=model_override,
+        )
+    if backend == "lmstudio":
+        return call_lmstudio_chat(
             owner,
             user_text,
             system_prompt,

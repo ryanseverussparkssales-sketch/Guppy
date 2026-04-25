@@ -41,7 +41,12 @@ class Waiver:
 # Transitional waivers are intentionally narrow and temporary. Existing large
 # modules stay visible in the baseline watchlist, but only active over-cap files
 # should remain waived here.
-WAIVED_PATHS: dict[str, Waiver] = {}
+WAIVED_PATHS: dict[str, Waiver] = {
+    "utils/tool_registry.py": Waiver(
+        max_lines=800,
+        rationale="Pure data file: 78 tool JSON schemas. Splitting would add indirection with no benefit.",
+    ),
+}
 
 
 def _all_enforced_python_files() -> list[Path]:

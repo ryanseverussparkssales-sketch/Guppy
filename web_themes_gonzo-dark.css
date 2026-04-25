@@ -1,0 +1,345 @@
+/*
+   Guppy Web UI Theme: Gonzo Dark
+   Fear and Loathing aesthetic with acid green, blood red, scanlines
+   Chaos, saturation, raw energy — Hunter S. Thompson vibes
+   Source: gonzo-dark-inspo.html
+*/
+
+[data-theme="gonzo-dark"] {
+  /* === COLOR PALETTE === */
+  --color-background: #0a0804;        /* void */
+  --color-surface: #111009;           /* pitch */
+  --color-surface-container: #1a1612;
+  --color-surface-container-high: #262217;
+
+  /* Primary & Accents */
+  --color-primary: #cc2200;           /* blood */
+  --color-on-primary: #c8b89a;        /* parchment */
+  --color-primary-container: #8b1400; /* maroon */
+  --color-on-primary-container: #ff4422; /* hot-red */
+
+  /* Secondary */
+  --color-secondary: #b8e04a;         /* acid-green */
+  --color-on-secondary: #0a0804;      /* void */
+
+  /* Tertiary (neon accents) */
+  --color-tertiary: #ff6b35;          /* neon-orange */
+  --color-on-tertiary: #0a0804;       /* void */
+
+  /* Text & Foreground */
+  --color-on-background: #c8b89a;     /* parchment */
+  --color-on-surface: #d4c5a9;        /* newsprint */
+  --color-on-surface-variant: #a8a0b8; /* washed-silver */
+
+  /* Borders & Dividers */
+  --color-border: #3a3033;            /* shadow-dark */
+  --color-outline: #2a2417;           /* char-dark */
+  --color-outline-variant: #1a1612;   /* smoke-dark */
+
+  /* Semantic Colors */
+  --color-error: #ff2200;             /* blood-hot */
+  --color-on-error: #c8b89a;
+  --color-error-container: #8b1400;   /* maroon */
+  --color-on-error-container: #ff4422;
+
+  --color-success: #b8e04a;           /* acid-green (repurposed) */
+  --color-on-success: #0a0804;
+
+  --color-warning: #ff6b35;           /* neon-orange */
+  --color-on-warning: #0a0804;
+
+  /* Elevation & Depth */
+  --shadow-1: 0 2px 8px rgba(204, 34, 0, 0.2);
+  --shadow-2: 0 8px 24px rgba(204, 34, 0, 0.25);
+  --shadow-3: 0 16px 48px rgba(204, 34, 0, 0.3);
+
+  /* === TYPOGRAPHY === */
+  --font-headline: 'Abril Fatface', serif;
+  --font-body: 'Courier Prime', monospace;
+  --font-monospace: 'Courier Prime', monospace;
+
+  /* === TRANSITIONS === */
+  --transition-fast: 150ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --transition-normal: 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --transition-slow: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* === SPECIAL EFFECTS === */
+  --glow-primary: 0 0 16px rgba(204, 34, 0, 0.5);
+  --glow-accent: 0 0 12px rgba(184, 224, 74, 0.4);
+
+  /* Scanline grain overlay (optional, chaos aesthetic) */
+  --grain-opacity: 0.08;
+}
+
+/* === SCANLINE EFFECT (Optional decorative element) === */
+[data-theme="gonzo-dark"]::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(184, 224, 74, 0.03),
+    rgba(184, 224, 74, 0.03) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.5;
+}
+
+/* === BUTTON STATES === */
+[data-theme="gonzo-dark"] .button,
+[data-theme="gonzo-dark"] button {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: 2px solid var(--color-secondary);
+  font-family: var(--font-body);
+  letter-spacing: 1.5px;
+  transition: all var(--transition-normal);
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+[data-theme="gonzo-dark"] .button:hover,
+[data-theme="gonzo-dark"] button:hover {
+  background-color: var(--color-secondary);
+  color: var(--color-on-secondary);
+  border-color: var(--color-tertiary);
+  box-shadow: var(--glow-primary), var(--glow-accent);
+  transform: translateY(-2px) scaleX(1.02);
+}
+
+[data-theme="gonzo-dark"] .button:active,
+[data-theme="gonzo-dark"] button:active {
+  background-color: var(--color-primary-container);
+  box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.4);
+  transform: translateY(0);
+}
+
+/* === INPUT FIELDS === */
+[data-theme="gonzo-dark"] input,
+[data-theme="gonzo-dark"] textarea,
+[data-theme="gonzo-dark"] select {
+  background-color: var(--color-surface-container);
+  color: var(--color-on-surface);
+  border: 2px solid var(--color-border);
+  font-family: var(--font-body);
+  letter-spacing: 0.5px;
+  transition: all var(--transition-fast);
+}
+
+[data-theme="gonzo-dark"] input:focus,
+[data-theme="gonzo-dark"] textarea:focus,
+[data-theme="gonzo-dark"] select:focus {
+  outline: none;
+  border-color: var(--color-secondary);
+  box-shadow: var(--glow-accent);
+  background-color: var(--color-surface-container-high);
+}
+
+/* === CARDS & PANELS === */
+[data-theme="gonzo-dark"] .card,
+[data-theme="gonzo-dark"] .panel {
+  background-color: var(--color-surface-container);
+  border: 2px solid var(--color-border);
+  box-shadow: var(--shadow-1);
+  transition: all var(--transition-normal);
+  position: relative;
+}
+
+[data-theme="gonzo-dark"] .card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      rgba(184, 224, 74, 0.02),
+      rgba(184, 224, 74, 0.02) 2px,
+      transparent 2px,
+      transparent 4px
+    );
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+[data-theme="gonzo-dark"] .card:hover,
+[data-theme="gonzo-dark"] .panel:hover {
+  border-color: var(--color-secondary);
+  box-shadow: var(--shadow-2), var(--glow-accent);
+  transform: scale(1.01);
+}
+
+/* === TOOLTIPS & POPOVERS === */
+[data-theme="gonzo-dark"] .tooltip,
+[data-theme="gonzo-dark"] .popover {
+  background-color: var(--color-surface-container-high);
+  border: 2px solid var(--color-secondary);
+  color: var(--color-on-surface);
+  box-shadow: var(--shadow-2), var(--glow-primary);
+}
+
+/* === CODE BLOCKS === */
+[data-theme="gonzo-dark"] code,
+[data-theme="gonzo-dark"] pre {
+  background-color: var(--color-surface);
+  color: var(--color-secondary);
+  border-left: 4px solid var(--color-primary);
+  padding: 12px 16px;
+  font-family: var(--font-monospace);
+  letter-spacing: 0.5px;
+  box-shadow: inset 0 0 8px rgba(184, 224, 74, 0.1);
+}
+
+/* === SCROLLBAR === */
+[data-theme="gonzo-dark"] ::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+[data-theme="gonzo-dark"] ::-webkit-scrollbar-track {
+  background: var(--color-background);
+  border-left: 1px solid var(--color-border);
+}
+
+[data-theme="gonzo-dark"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--color-primary), var(--color-secondary));
+  border-radius: 2px;
+  border: 1px solid var(--color-secondary);
+}
+
+[data-theme="gonzo-dark"] ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--color-secondary), var(--color-tertiary));
+  box-shadow: var(--glow-accent);
+}
+
+/* === LINKS === */
+[data-theme="gonzo-dark"] a {
+  color: var(--color-secondary);
+  text-decoration: underline;
+  transition: all var(--transition-fast);
+  font-weight: 600;
+  text-shadow: 0 0 4px rgba(184, 224, 74, 0.3);
+}
+
+[data-theme="gonzo-dark"] a:hover {
+  color: var(--color-tertiary);
+  text-decoration: none;
+  text-shadow: 0 0 8px rgba(255, 107, 53, 0.5);
+}
+
+/* === TABLES === */
+[data-theme="gonzo-dark"] table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+[data-theme="gonzo-dark"] table thead {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border-bottom: 3px solid var(--color-secondary);
+}
+
+[data-theme="gonzo-dark"] table thead th {
+  padding: 14px;
+  font-family: var(--font-headline);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-size: 0.9rem;
+}
+
+[data-theme="gonzo-dark"] table tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border);
+  transition: background-color var(--transition-fast);
+}
+
+[data-theme="gonzo-dark"] table tbody tr:hover {
+  background-color: rgba(184, 224, 74, 0.08);
+}
+
+/* === BADGES & TAGS === */
+[data-theme="gonzo-dark"] .badge,
+[data-theme="gonzo-dark"] .tag {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+  border: 2px solid var(--color-secondary);
+  border-radius: 2px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-family: var(--font-body);
+  font-weight: 700;
+  box-shadow: 0 0 8px rgba(184, 224, 74, 0.2);
+}
+
+/* === LOADER === */
+[data-theme="gonzo-dark"] .spinner {
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-secondary);
+  border-right-color: var(--color-primary);
+  border-radius: 50%;
+  animation: chaos-spin 1s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+}
+
+@keyframes chaos-spin {
+  0% { transform: rotate(0deg); }
+  50% { transform: rotate(180deg) scale(1.1); }
+  100% { transform: rotate(360deg); }
+}
+
+/* === HEADLINES === */
+[data-theme="gonzo-dark"] h1,
+[data-theme="gonzo-dark"] h2,
+[data-theme="gonzo-dark"] h3 {
+  font-family: var(--font-headline);
+  color: var(--color-on-background);
+  letter-spacing: 2px;
+  text-shadow: 2px 2px 0px rgba(204, 34, 0, 0.3);
+}
+
+[data-theme="gonzo-dark"] h1 {
+  font-size: 2.8rem;
+  color: var(--color-secondary);
+  text-transform: uppercase;
+}
+
+[data-theme="gonzo-dark"] h2 {
+  font-size: 2.2rem;
+  color: var(--color-primary);
+  border-bottom: 3px solid var(--color-secondary);
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+[data-theme="gonzo-dark"] h3 {
+  font-size: 1.6rem;
+  color: var(--color-tertiary);
+}
+
+/* === ACCESSIBILITY === */
+[data-theme="gonzo-dark"] :focus-visible {
+  outline: 3px solid var(--color-secondary);
+  outline-offset: 3px;
+  box-shadow: 0 0 12px rgba(184, 224, 74, 0.5);
+}
+
+[data-theme="gonzo-dark"] .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

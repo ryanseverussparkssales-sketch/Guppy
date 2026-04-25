@@ -16,15 +16,17 @@ import {
 } from '@tanstack/react-query'
 import api from './client'
 import {
-  SettingsSchema,   type Settings,
-  ProvidersSchema,  type Providers,
-  ToolSchema,       type Tool,
-  MCPServerSchema,  type MCPServer,
-  MetricsSchema,    type Metrics,
-  StatusSchema,     type Status,
-  LogsSchema,       type Logs,
+  SettingsSchema,        type Settings,
+  ProvidersSchema,       type Providers,
+  ToolSchema,            type Tool,
+  MCPServerSchema,       type MCPServer,
+  MetricsSchema,         type Metrics,
+  StatusSchema,          type Status,
+  LogsSchema,            type Logs,
   TelemetryReportSchema, type TelemetryReport,
-  PullStatusSchema, type PullStatus,
+  PullStatusSchema,      type PullStatus,
+  BookletSectionSchema,  type BookletSection,
+  BookletCompiledSchema,
 } from './schemas'
 
 // ── Query keys ───────────────────────────────────────────────────────────────
@@ -38,6 +40,8 @@ export const QK = {
   status:     ['status']     as const,
   logs:       ['logs']       as const,
   telemetry:  ['telemetry']  as const,
+  booklet:    ['booklet']    as const,
+  bookletCompiled: ['bookletCompiled'] as const,
   pullJob:    (id: string) => ['pullJob', id] as const,
   mcpTools:   (id: string) => ['mcpTools', id] as const,
 } as const
@@ -261,6 +265,63 @@ export function useRepairToken() {
     staleTime: Infinity,
     enabled: false,
     retry: false,
+  })
+}
+
+// ── Instructions Booklet ─────────────────────────────────────────────────────
+
+export function useBooklet(opts?: Partial<UseQueryOptions<BookletSection[]>>) {
+  return useQuery<BookletSection[]>({
+    queryKey: QK.booklet,
+    queryFn: async () => {
+      const data = (await api.get('/api/booklet/sections')).data
+      return (Array.isArray(data) ? data : []).map((s: unknown) => BookletSectionSchema.parse(s))
+    },
+    staleTime: 30_000,
+    ...opts,
+  })
+}
+
+export function useBookletCompiled() {
+  return useQuery({
+    queryKey: QK.bookletCompiled,
+    queryFn: async () => BookletCompiledSchema.parse((await api.get('/api/booklet/compiled')).data),
+    enabled: false,
+    staleTime: 0,
+  })
+}
+
+export function useUpdateBookletSection() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string; title?: string; content?: string; mode?: string }) =>
+      api.patch(`/api/booklet/sections/${id}`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.booklet }),
+  })
+}
+
+export function useAddBookletSection() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { id: string; title: string; content?: string; mode?: string }) =>
+      api.post('/api/booklet/sections', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.booklet }),
+  })
+}
+
+export function useDeleteBookletSection() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/api/booklet/sections/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.booklet }),
+  })
+}
+
+export function useReorderBookletSections() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: string[]) => api.post('/api/booklet/sections/reorder', { ids }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.booklet }),
   })
 }
 

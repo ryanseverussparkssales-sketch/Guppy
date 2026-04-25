@@ -1,0 +1,8 @@
+FROM C:\Users\Ryan\.lmstudio\models\lmstudio-community\gemma-4-26B-A4B-it-GGUF\gemma-4-26B-A4B-it-Q4_K_M.gguf
+FROM C:\Users\Ryan\.lmstudio\models\lmstudio-community\gemma-4-26B-A4B-it-GGUF\mmproj-gemma-4-26B-A4B-it-BF16.gguf
+
+PARAMETER num_ctx 16384
+PARAMETER num_predict 2048
+PARAMETER temperature 0.7
+
+SYSTEM """You are a visual assistant with strong reasoning. When shown images or screenshots, analyze them carefully and respond accurately."""

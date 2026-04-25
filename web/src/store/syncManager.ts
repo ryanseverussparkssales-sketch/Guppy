@@ -13,12 +13,12 @@
  * Errors: syncManager catches errors and can report to error store for display
  */
 
-import api, { setupCircuitBreakerMonitoring, getQueueStats, streamChat } from '../api/client'
-import { useAppStore, ChatMessage, Conversation, Settings, Workspace, Provider } from './appStore'
+import api, { setupCircuitBreakerMonitoring, streamChat } from '../api/client'
+import { useAppStore, ChatMessage, Provider } from './appStore'
 import { getErrorStore } from './errorStore'
 import { getCircuitBreaker } from '../utils/circuitBreaker'
 import { RequestQueue } from '../utils/requestQueue'
-import { ErrorCode, errorMessages } from '../utils/errorCodes'
+import { ErrorCode } from '../utils/errorCodes'
 import { telemetry } from '../utils/telemetry'
 
 // ============= TYPES =============
@@ -160,39 +160,6 @@ async function withRetry<T>(
   }
 
   throw lastError
-}
-
-// ============= DEBOUNCING =============
-
-const debounceTimers = new Map<string, NodeJS.Timeout>()
-
-function debounce<T extends any[], R>(
-  key: string,
-  fn: (...args: T) => Promise<R>,
-  delayMs: number = 500
-) {
-  return (...args: T) => {
-    return new Promise<R>((resolve, reject) => {
-      // Cancel previous timer
-      if (debounceTimers.has(key)) {
-        clearTimeout(debounceTimers.get(key))
-      }
-
-      // Set new timer
-      const timer = setTimeout(async () => {
-        try {
-          const result = await fn(...args)
-          resolve(result)
-        } catch (error) {
-          reject(error)
-        } finally {
-          debounceTimers.delete(key)
-        }
-      }, delayMs)
-
-      debounceTimers.set(key, timer)
-    })
-  }
 }
 
 // ============= SYNC MANAGER CLASS =============

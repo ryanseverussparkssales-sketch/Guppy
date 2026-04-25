@@ -9,5 +9,5 @@
  */
 
 export { useAppStore, useChatStore, useSettingsStore, useWorkspaceStore, useUIStore } from './store/appStore'
-export type { AppState } from './store/appStore'
+export type { AppState, Provider } from './store/appStore'
 export { syncManager, SyncManager, APIError } from './store/syncManager'

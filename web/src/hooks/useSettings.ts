@@ -1,17 +1,24 @@
 import { useState, useCallback } from 'react'
 import api from '../api/client'
-
-export type Provider = 'local' | 'anthropic' | 'openai' | 'google'
+import type { Provider } from '@/store'
 
 export interface CredentialStatus {
   anthropic: { configured: boolean }
-  openai: { configured: boolean }
-  google: { configured: boolean }
+  openai:    { configured: boolean }
+  google:    { configured: boolean }
+  cohere?:   { configured: boolean }
+  mistral?:  { configured: boolean }
+}
+
+export interface ModelParams {
+  temperature: number
+  max_tokens: number
 }
 
 export interface Settings {
   active_provider: Provider
   credentials: CredentialStatus
+  model_params: ModelParams
 }
 
 export function useSettings() {
@@ -19,7 +26,6 @@ export function useSettings() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Fetch current settings
   const fetchSettings = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -34,72 +40,67 @@ export function useSettings() {
     }
   }, [])
 
-  // Store API credential
   const storeCredential = useCallback(async (provider: Provider, apiKey: string) => {
     try {
-      const res = await api.post('/api/settings/credentials', {
-        provider,
-        api_key: apiKey,
-      })
-
-      // Update local state
+      const res = await api.post('/api/settings/credentials', { provider, api_key: apiKey })
       setSettings((prev) => {
         if (!prev) return prev
         return {
           ...prev,
-          credentials: {
-            ...prev.credentials,
-            [provider]: { configured: true },
-          },
+          credentials: { ...prev.credentials, [provider]: { configured: true } },
         }
       })
-
       return res.data
     } catch (err) {
       setError('Failed to store credential')
-      console.error('Store credential error:', err)
       throw err
     }
   }, [])
 
-  // Delete API credential
   const deleteCredential = useCallback(async (provider: Provider) => {
     try {
       await api.delete(`/api/settings/credentials/${provider}`)
-
-      // Update local state
       setSettings((prev) => {
         if (!prev) return prev
         return {
           ...prev,
-          credentials: {
-            ...prev.credentials,
-            [provider]: { configured: false },
-          },
+          credentials: { ...prev.credentials, [provider]: { configured: false } },
         }
       })
     } catch (err) {
       setError('Failed to delete credential')
-      console.error('Delete credential error:', err)
       throw err
     }
   }, [])
 
-  // Set active provider
   const setActiveProvider = useCallback(async (provider: Provider) => {
     try {
       const res = await api.post('/api/settings/provider', { provider })
-
-      // Update local state
-      setSettings((prev) => {
-        if (!prev) return prev
-        return { ...prev, active_provider: provider }
-      })
-
+      setSettings((prev) => (prev ? { ...prev, active_provider: provider } : prev))
       return res.data
     } catch (err) {
       setError('Failed to set provider')
-      console.error('Set provider error:', err)
+      throw err
+    }
+  }, [])
+
+  const saveModelParams = useCallback(async (temperature: number, maxTokens: number) => {
+    try {
+      await api.put('/api/settings', { temperature, max_tokens: maxTokens })
+      setSettings((prev) =>
+        prev ? { ...prev, model_params: { temperature, max_tokens: maxTokens } } : prev
+      )
+    } catch (err) {
+      setError('Failed to save model parameters')
+      throw err
+    }
+  }, [])
+
+  const setProviderActiveModel = useCallback(async (provider: string, modelId: string) => {
+    try {
+      await api.post(`/providers/${provider}/active-model`, { model_id: modelId })
+    } catch (err) {
+      setError('Failed to set active model')
       throw err
     }
   }, [])
@@ -112,5 +113,7 @@ export function useSettings() {
     storeCredential,
     deleteCredential,
     setActiveProvider,
+    saveModelParams,
+    setProviderActiveModel,
   }
 }

@@ -8,9 +8,10 @@ import {
   WifiOff,
   ChevronDown,
   Plus,
-  Trash2,
+  Cpu,
+  Cloud,
 } from "lucide-react"
-import { useConnectionStatus } from "@/hooks/useApi"
+import { useConnectionStatus, useActiveModel } from "@/hooks/useApi"
 import { useWorkspaces } from "@/hooks/useWorkspaces"
 
 interface TopBarProps {
@@ -26,10 +27,12 @@ interface TopBarProps {
  * - Uses useConnectionStatus() hook to get real-time status
  * - Navigation tabs can link to different workspace modes
  */
-export function TopBar({ title = "Editorial Intelligence", onOpenCommandPalette }: TopBarProps) {
+export function TopBar({ title = "Guppy", onOpenCommandPalette }: TopBarProps) {
   const { isConnected } = useConnectionStatus()
   const { workspaces, activeWorkspace, switchWorkspace, createWorkspace } = useWorkspaces()
+  const { activeProvider, modelName, modelTags, providers, setProvider, setModel } = useActiveModel()
   const [workspaceDropdownOpen, setWorkspaceDropdownOpen] = useState(false)
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
   const [newWorkspaceName, setNewWorkspaceName] = useState("")
   const [showNewWorkspaceInput, setShowNewWorkspaceInput] = useState(false)
 
@@ -113,8 +116,95 @@ export function TopBar({ title = "Editorial Intelligence", onOpenCommandPalette 
         </div>
       </div>
 
-      {/* Right: Search + Controls */}
+      {/* Right: Model Pill + Search + Controls */}
       <div className="flex items-center gap-6">
+        {/* Active Model Indicator */}
+        <div className="relative">
+          <button
+            onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container-low hover:bg-surface-container transition-all text-xs font-medium"
+          >
+            {activeProvider === "local" ? (
+              <Cpu className="w-3.5 h-3.5 text-primary" />
+            ) : (
+              <Cloud className="w-3.5 h-3.5 text-tertiary" />
+            )}
+            <span className="text-on-surface max-w-28 truncate">{modelName || "No model"}</span>
+            {modelTags.slice(0, 2).map(tag => (
+              <span key={tag} className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px]">{tag}</span>
+            ))}
+            <ChevronDown className={cn("w-3 h-3 text-on-surface-variant/60 transition-transform", modelDropdownOpen && "rotate-180")} />
+          </button>
+
+          {modelDropdownOpen && providers && (
+            <div className="absolute top-full mt-1 right-0 bg-surface-container rounded-xl shadow-xl border border-outline-variant/20 z-50 min-w-72 max-h-96 overflow-y-auto">
+              {/* Local models */}
+              {providers.local?.models?.length > 0 && (
+                <div className="p-2">
+                  <div className="px-2 py-1 text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider flex items-center gap-1">
+                    <Cpu className="w-3 h-3" /> Local
+                  </div>
+                  {providers.local.models.map(m => (
+                    <button
+                      key={m.id}
+                      onClick={async () => {
+                        await setProvider("local")
+                        await setModel("local", m.id)
+                        setModelDropdownOpen(false)
+                      }}
+                      className={cn(
+                        "w-full text-left px-3 py-2 rounded-lg text-xs transition-colors flex items-center justify-between gap-2",
+                        providers.local.active_model === m.id && activeProvider === "local"
+                          ? "bg-primary/10 text-primary"
+                          : "text-on-surface hover:bg-surface-container-high"
+                      )}
+                    >
+                      <span className="font-medium truncate">{m.name}</span>
+                      <div className="flex gap-1 shrink-0">
+                        {(m.tags ?? []).map(tag => (
+                          <span key={tag} className="px-1.5 py-0.5 rounded bg-surface-variant text-on-surface-variant text-[10px]">{tag}</span>
+                        ))}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {/* Cloud providers */}
+              {(["anthropic", "openai", "google"] as const).map(p => {
+                const info = providers[p]
+                if (!info?.configured) return null
+                const label = p === "anthropic" ? "Anthropic" : p === "openai" ? "OpenAI" : "Google"
+                return (
+                  <div key={p} className="p-2 border-t border-outline-variant/10">
+                    <div className="px-2 py-1 text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider flex items-center gap-1">
+                      <Cloud className="w-3 h-3" /> {label}
+                    </div>
+                    {info.models.map(m => (
+                      <button
+                        key={m.id}
+                        onClick={async () => {
+                          await setProvider(p)
+                          await setModel(p, m.id)
+                          setModelDropdownOpen(false)
+                        }}
+                        className={cn(
+                          "w-full text-left px-3 py-2 rounded-lg text-xs transition-colors flex items-center justify-between gap-2",
+                          info.active_model === m.id && activeProvider === p
+                            ? "bg-primary/10 text-primary"
+                            : "text-on-surface hover:bg-surface-container-high"
+                        )}
+                      >
+                        <span className="font-medium truncate">{m.name}</span>
+                        <span className="px-1.5 py-0.5 rounded bg-surface-variant text-on-surface-variant text-[10px]">{m.tier}</span>
+                      </button>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
         {/* Search Input */}
         <button
           onClick={onOpenCommandPalette}

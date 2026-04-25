@@ -93,7 +93,7 @@ interface ErrorState {
   clearHistory: () => void
 }
 
-export const useErrorStore = create<ErrorState>((set, get) => ({
+export const useErrorStore = create<ErrorState>((set, _get) => ({
   errors: [],
   history: [],
   maxHistorySize: 100,

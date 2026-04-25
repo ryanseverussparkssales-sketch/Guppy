@@ -32,16 +32,20 @@ interface ProvidersPayload {
   anthropic: ProviderInfo
   openai: ProviderInfo
   google: ProviderInfo
+  cohere: ProviderInfo
+  mistral: ProviderInfo
   local: ProviderInfo & { backend: string; backends: Record<string, { alive: boolean }> }
 }
 
-type Tab = 'local' | 'anthropic' | 'openai' | 'google'
+type Tab = 'local' | 'anthropic' | 'openai' | 'google' | 'cohere' | 'mistral'
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-  { id: 'local', label: 'Local', icon: <Cpu className="w-4 h-4" /> },
-  { id: 'anthropic', label: 'Anthropic', icon: <Cloud className="w-4 h-4" /> },
-  { id: 'openai', label: 'OpenAI', icon: <Cloud className="w-4 h-4" /> },
-  { id: 'google', label: 'Google', icon: <Cloud className="w-4 h-4" /> },
+  { id: 'local',     label: 'Local',       icon: <Cpu className="w-4 h-4" /> },
+  { id: 'anthropic', label: 'Anthropic',   icon: <Cloud className="w-4 h-4" /> },
+  { id: 'openai',    label: 'OpenAI',      icon: <Cloud className="w-4 h-4" /> },
+  { id: 'google',    label: 'Google',      icon: <Cloud className="w-4 h-4" /> },
+  { id: 'cohere',    label: 'Cohere',      icon: <Cloud className="w-4 h-4" /> },
+  { id: 'mistral',   label: 'Mistral AI',  icon: <Cloud className="w-4 h-4" /> },
 ]
 
 /**

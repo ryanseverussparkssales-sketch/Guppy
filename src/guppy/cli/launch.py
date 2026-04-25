@@ -19,6 +19,11 @@ import sys
 import time
 from pathlib import Path
 
+from rich.console import Console
+from rich.text import Text
+
+_console = Console(highlight=False)
+
 # Three parents up from src/guppy/cli/ → project root
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -123,12 +128,12 @@ def _poll_hub_ready(root: Path, timeout: float = 10.0, interval: float = 0.4) ->
         try:
             with urllib.request.urlopen(hub_health, timeout=1) as r:
                 if r.status == 200:
-                    print("[launch] Hub is ready.")
+                    _console.print("[bold green][launch][/bold green] Hub is ready.")
                     return
         except Exception:
             pass
         time.sleep(interval)
-    print("[launch] WARNING: Hub did not respond within timeout — continuing anyway")
+    _console.print("[bold yellow][launch][/bold yellow] WARNING: Hub did not respond within timeout — continuing anyway")
 
 
 def _check_port_available(port: int) -> bool:
@@ -148,7 +153,7 @@ def start_hub_background(root: Path) -> subprocess.Popen | None:
     exe = _resolve_python_executable(root, prefer_windowed=True)
     hub_script = root / "guppy_hub.py"
     if not hub_script.exists():
-        print("[launch] WARNING: guppy_hub.py not found — skipping hub start")
+        _console.print("[bold yellow][launch][/bold yellow] WARNING: guppy_hub.py not found — skipping hub start")
         return None
     return subprocess.Popen(
         [exe, str(hub_script)],
@@ -163,14 +168,15 @@ def start_hub_background(root: Path) -> subprocess.Popen | None:
 
 #: Maps surface name → (script, needs_hub, default_profile)
 SURFACES: dict[str, tuple[str, bool, str]] = {
-    "guppy":       ("guppy_launcher.py", False, "standard"),
-    "launcher":    ("guppy_launcher.py", True,  "standard"),
-    "guppyprime":  ("guppy_launcher.py", True,  "power"),
-    "hub":         ("guppy_hub.py",      False, "standard"),
-    "api":         ("guppy_api.py",      False, "standard"),
+    "guppy":       ("guppy_launcher.py",  False, "standard"),
+    "launcher":    ("guppy_launcher.py",  True,  "standard"),
+    "guppyprime":  ("guppy_launcher.py",  True,  "power"),
+    "hub":         ("guppy_hub.py",       False, "standard"),
+    "api":         ("guppy_api.py",       False, "standard"),
+    "fishbowl":    ("guppy_fishbowl.py",  False, "standard"),
 }
 START_DESTINATIONS = ["home", "tools", "appmgmt", "automation-test"]
-GUI_SCRIPTS = {"guppy_launcher.py", "guppy_hub.py"}
+GUI_SCRIPTS = {"guppy_launcher.py", "guppy_hub.py", "guppy_fishbowl.py"}
 
 
 def _setup_api_env() -> None:
@@ -180,14 +186,14 @@ def _setup_api_env() -> None:
     os.environ.setdefault("GUPPY_JWT_SECRET", "dev-secret-key-change-in-production")
     os.environ.setdefault("TURNSTILE_SECRET", "dev-turnstile-secret")
     # Default to local inference via Ollama (GPU-accelerated on Windows via HIP).
-    # Switch to vLLM by setting GUPPY_LOCAL_RUNTIME_BACKEND=vllm in .env.
+    # Switch backends with GUPPY_LOCAL_RUNTIME_BACKEND=lmstudio|vllm|lemonade|auto
     # Only falls back to cloud (Claude) if ANTHROPIC_API_KEY is explicitly set.
     os.environ.setdefault("GUPPY_DEFAULT_MODE", "local")
     os.environ.setdefault("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama")
-    if not os.environ.get("GUPPY_JWT_SECRET") or os.environ["GUPPY_JWT_SECRET"] == "dev-secret-key-change-in-production":
-        print("[launch] WARNING: GUPPY_JWT_SECRET is not set — using dev default")
-    if not os.environ.get("TURNSTILE_SECRET") or os.environ["TURNSTILE_SECRET"] == "dev-turnstile-secret":
-        print("[launch] WARNING: TURNSTILE_SECRET is not set — Turnstile verification disabled")
+    if not os.environ.get("GUPPY_JWT_SECRET") or os.environ.get("GUPPY_JWT_SECRET") == "dev-secret-key-change-in-production":
+        _console.print("[bold yellow][launch][/bold yellow] WARNING: GUPPY_JWT_SECRET is not set — using dev default")
+    if not os.environ.get("TURNSTILE_SECRET") or os.environ.get("TURNSTILE_SECRET") == "dev-turnstile-secret":
+        _console.print("[bold yellow][launch][/bold yellow] WARNING: TURNSTILE_SECRET is not set — Turnstile verification disabled")
 
 
 def _launch_gui_surface(python: str, script: str) -> int:
@@ -251,17 +257,17 @@ def main(argv: list[str] | None = None) -> int:
             os.environ.pop("GUPPY_START_DESTINATION", None)
     else:
         if args.start:
-            print(
-                f"[launch] WARNING: --start only applies to launcher surfaces; ignoring '{args.start}' for {args.surface}"
+            _console.print(
+                f"[bold yellow][launch][/bold yellow] WARNING: --start only applies to launcher surfaces; ignoring '{args.start}' for {args.surface}"
             )
         os.environ.pop("GUPPY_START_DESTINATION", None)
 
     should_start_hub = hub_by_default and not args.no_hub and script != "guppy_launcher.py"
     if hub_by_default and not args.no_hub and script == "guppy_launcher.py":
-        print("[launch] Launcher surface manages hub bootstrap internally; skipping pre-launch hub spawn")
+        _console.print("[bold green][launch][/bold green] Launcher surface manages hub bootstrap internally; skipping pre-launch hub spawn")
 
     if should_start_hub:
-        print("[launch] Starting hub in background...")
+        _console.print("[bold green][launch][/bold green] Starting hub in background...")
         start_hub_background(ROOT)
         _poll_hub_ready(ROOT)
 
@@ -269,14 +275,14 @@ def main(argv: list[str] | None = None) -> int:
         _setup_api_env()
         _api_port = int(os.environ.get("GUPPY_API_PORT", "8081"))
         if not _check_port_available(_api_port):
-            print(f"[launch] ERROR: Port {_api_port} is already in use. Stop the existing process or change GUPPY_API_PORT.")
+            _console.print(f"[bold red][launch][/bold red] ERROR: Port {_api_port} is already in use. Stop the existing process or change GUPPY_API_PORT.")
             return 1
 
     python = _resolve_python_executable(
         ROOT,
-        prefer_windowed=script in {"guppy_launcher.py", "guppy_hub.py"},
+        prefer_windowed=script in {"guppy_launcher.py", "guppy_hub.py", "guppy_fishbowl.py"},
     )
-    print(f"[launch] Starting {script} (profile={profile})...")
+    _console.print(f"[bold green][launch][/bold green] Starting [cyan]{script}[/cyan] (profile=[italic]{profile}[/italic])...")
     if script in GUI_SCRIPTS:
         return _launch_gui_surface(python, script)
     result = subprocess.run([python, script], cwd=str(ROOT))

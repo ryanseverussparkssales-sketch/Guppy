@@ -216,20 +216,18 @@ def build_chat_history_router(ctx: ServerContext) -> APIRouter:
     async def list_conversations(
         workspace_id: str,
         limit: int = 50,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
         """List conversations in a workspace."""
-        del user_id
         conversations = await asyncio.to_thread(_chat_history_db.list_conversations, workspace_id, limit)
         return {"conversations": conversations, "count": len(conversations)}
 
     @router.post("")
     async def create_conversation(
         payload: Dict[str, str],
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
         """Create a new conversation."""
-        del user_id
         workspace_id = payload.get("workspace_id", "").strip()
         if not workspace_id:
             raise HTTPException(status_code=400, detail="workspace_id required")
@@ -239,9 +237,8 @@ def build_chat_history_router(ctx: ServerContext) -> APIRouter:
         return conv
 
     @router.get("/{conv_id}")
-    async def get_conversation(conv_id: str, user_id: str = Depends(ctx.require_rate_limit)):
+    async def get_conversation(conv_id: str, _user_id: str = Depends(ctx.require_rate_limit)):
         """Get conversation with messages."""
-        del user_id
         conv = await asyncio.to_thread(_chat_history_db.get_conversation_with_messages, conv_id)
         if not conv:
             raise HTTPException(status_code=404, detail="conversation not found")
@@ -251,10 +248,9 @@ def build_chat_history_router(ctx: ServerContext) -> APIRouter:
     async def update_conversation(
         conv_id: str,
         payload: Dict[str, str],
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
         """Update conversation metadata."""
-        del user_id
         title = payload.get("title", "").strip()
         if not title:
             raise HTTPException(status_code=400, detail="title required")
@@ -265,9 +261,8 @@ def build_chat_history_router(ctx: ServerContext) -> APIRouter:
         return conv
 
     @router.delete("/{conv_id}")
-    async def delete_conversation(conv_id: str, user_id: str = Depends(ctx.require_rate_limit)):
+    async def delete_conversation(conv_id: str, _user_id: str = Depends(ctx.require_rate_limit)):
         """Delete a conversation."""
-        del user_id
         await asyncio.to_thread(_chat_history_db.delete_conversation, conv_id)
         return {"deleted": conv_id}
 
@@ -275,10 +270,9 @@ def build_chat_history_router(ctx: ServerContext) -> APIRouter:
     async def add_message(
         conv_id: str,
         payload: Dict[str, str],
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
         """Add a message to a conversation."""
-        del user_id
         role = payload.get("role", "").strip()
         content = payload.get("content", "").strip()
         model = payload.get("model", "").strip() or None
@@ -294,10 +288,9 @@ def build_chat_history_router(ctx: ServerContext) -> APIRouter:
         workspace_id: str,
         q: str,
         limit: int = 20,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
         """Search conversations."""
-        del user_id
         if not q.strip():
             raise HTTPException(status_code=400, detail="search query required")
 

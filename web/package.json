@@ -6,30 +6,53 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:run": "vitest run",
+    "playwright": "playwright test"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.2.4",
+    "@tanstack/react-query": "^5.100.1",
+    "@types/dompurify": "^3.0.5",
     "axios": "1.6.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.0.0",
+    "cmdk": "^1.1.1",
+    "date-fns": "^4.1.0",
+    "dompurify": "^3.4.1",
+    "framer-motion": "^12.38.0",
     "lucide-react": "^0.292.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "react-hotkeys-hook": "^5.2.4",
+    "react-markdown": "^10.1.0",
+    "react-resizable-panels": "^4.10.0",
     "react-router-dom": "6.20.0",
-    "recharts": "2.10.0",
+    "recharts": "^2.10.0",
+    "remark-gfm": "^4.0.1",
+    "shiki": "^4.0.2",
+    "sonner": "^2.0.7",
     "swr": "^2.4.1",
     "tailwind-merge": "^3.5.0",
+    "zod": "^4.3.6",
     "zustand": "4.4.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "18.2.43",
     "@types/react-dom": "18.2.17",
     "@vitejs/plugin-react": "4.2.1",
+    "@vitest/ui": "^4.1.5",
     "autoprefixer": "^10.5.0",
+    "jsdom": "^29.0.2",
     "postcss": "^8.5.10",
     "tailwindcss": "^4.2.4",
     "typescript": "5.3.3",
-    "vite": "5.0.8"
+    "vite": "5.0.8",
+    "vitest": "^4.1.5"
   }
 }

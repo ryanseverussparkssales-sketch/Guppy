@@ -286,6 +286,11 @@ from src.guppy.api.routes_realtime import build_realtime_router
 from src.guppy.api.routes_workspaces import build_workspaces_router
 from src.guppy.api.routes_chat_history import build_chat_history_router
 from src.guppy.api.routes_settings import build_settings_router
+from src.guppy.api.routes_tools import build_tools_router
+from src.guppy.api.routes_voice import build_voice_router
+from src.guppy.api.routes_desktop import build_desktop_router
+from src.guppy.api.routes_mcp import build_mcp_router
+from src.guppy.api.routes_booklet import build_booklet_router
 from src.guppy.api.runtime_state import ServerRuntimeState
 from src.guppy.api.server_paths import ServerPathConfig
 from src.guppy.api.server_runtime_startup_support import (
@@ -477,10 +482,25 @@ app.include_router(build_workspaces_router(_server_context))
 app.include_router(build_chat_history_router(_server_context))
 app.include_router(build_settings_router(_server_context))
 app.include_router(build_ops_router(_server_context))
+_tools_router = build_tools_router(_server_context)
+app.include_router(_tools_router)               # /tools
+app.include_router(_tools_router, prefix="/api") # /api/tools (web UI prefix)
 
 _realtime_router = build_realtime_router(_server_context)
 app.include_router(_realtime_router)               # /chat
 app.include_router(_realtime_router, prefix="/api") # /api/chat (web UI prefix)
+
+_voice_router = build_voice_router(_server_context)
+app.include_router(_voice_router)                  # /api/voices
+
+_desktop_router = build_desktop_router(_server_context)
+app.include_router(_desktop_router)                # /api/desktop
+
+_mcp_router = build_mcp_router(_server_context)
+app.include_router(_mcp_router)                    # /api/mcp
+
+_booklet_router = build_booklet_router(_server_context)
+app.include_router(_booklet_router)                # /api/booklet
 
 # Serve static web UI files
 try:

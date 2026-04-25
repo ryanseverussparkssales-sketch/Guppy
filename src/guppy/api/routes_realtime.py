@@ -55,8 +55,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
             )
 
     @router.post("/chat")
-    async def chat(request: ChatRequest, user_id: str = Depends(ctx.require_rate_limit)):
-        del user_id
+    async def chat(request: ChatRequest, _user_id: str = Depends(ctx.require_rate_limit)):
 
         if not owner.GUPPY_CORE_AVAILABLE:
             raise HTTPException(status_code=503, detail="Guppy core not available")
@@ -238,7 +237,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
     @router.post("/chat/stream")
     async def chat_stream(
         request: ChatRequest,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
         """
         SSE streaming chat endpoint. Yields tokens as they are produced by the
@@ -246,7 +245,6 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
         The stream ends with ``data: [DONE]\\n\\n``.
         On error: ``data: {"error": "..."}\\n\\n``.
         """
-        del user_id
 
         (
             active_instance_name,
@@ -308,9 +306,8 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
         file: UploadFile = File(...),
         session_id: Optional[str] = None,
         use_claude: Optional[bool] = True,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
 
         if not owner.GUPPY_CORE_AVAILABLE:
             raise HTTPException(status_code=503, detail="Guppy core not available")

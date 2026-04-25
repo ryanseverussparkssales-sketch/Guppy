@@ -80,9 +80,8 @@ async def root():
 
 
 @app.get("/metrics")
-async def get_metrics(user_id: str = Depends(require_rate_limit)):
+async def get_metrics(_user_id: str = Depends(require_rate_limit)):
     """Runtime metrics for API and tool execution health."""
-    del user_id
     with _api_metrics_lock:
         requests_total = _api_metrics["requests_total"]
         avg_latency_ms = (_api_metrics["latency_total_ms"] / requests_total) if requests_total else 0.0
@@ -121,7 +120,7 @@ async def auth_verify_turnstile_token(
 
 
 @app.get("/auth/self-check")
-async def auth_self_check(user_id: str = Depends(require_rate_limit)):
+async def auth_self_check(_user_id: str = Depends(require_rate_limit)):
     """Local auth handshake probe for launcher diagnostics."""
     return {
         "ok": True,
@@ -131,9 +130,8 @@ async def auth_self_check(user_id: str = Depends(require_rate_limit)):
 
 
 @app.get("/status")
-async def get_status(user_id: str = Depends(require_rate_limit)):
+async def get_status(_user_id: str = Depends(require_rate_limit)):
     """Get system status and current context."""
-    del user_id
 
     if not GUPPY_CORE_AVAILABLE:
         return {"status": "error", "message": "Guppy core not available"}
@@ -189,9 +187,8 @@ async def get_status(user_id: str = Depends(require_rate_limit)):
 
 
 @app.get("/startup/check")
-async def startup_check(deep: bool = False, user_id: str = Depends(require_rate_limit)):
+async def startup_check(deep: bool = False, _user_id: str = Depends(require_rate_limit)):
     """Startup readiness checks (cached by default, deep probe when requested)."""
-    del user_id
     if deep:
         snapshot = await asyncio.to_thread(_startup_readiness_snapshot)
     else:
@@ -230,9 +227,8 @@ def _connector_inventory_payload() -> list[dict[str, Any]]:
 
 
 @app.get("/instances")
-async def list_instances(user_id: str = Depends(require_rate_limit)):
+async def list_instances(_user_id: str = Depends(require_rate_limit)):
     """Contract-first M2 endpoint: list configured instances with lightweight runtime state."""
-    del user_id
     config, state, config_warnings, state_warnings = _load_normalized_instance_bundle(persist_repairs=True)
 
     items: list[dict[str, Any]] = []
@@ -282,9 +278,8 @@ async def list_instances(user_id: str = Depends(require_rate_limit)):
 @app.post("/instances")
 async def create_or_update_instance(
     request: InstanceConfigRequest,
-    user_id: str = Depends(require_rate_limit),
+    _user_id: str = Depends(require_rate_limit),
 ):
-    del user_id
     raw_config = _load_instances_config()
     config, _warnings = _normalize_instances_config(raw_config)
     config, action = _upsert_instance_config(config, request)
@@ -317,9 +312,8 @@ async def create_or_update_instance(
 async def save_instance_governance(
     name: str,
     request: InstanceGovernanceRequest,
-    user_id: str = Depends(require_rate_limit),
+    _user_id: str = Depends(require_rate_limit),
 ):
-    del user_id
     target = (name or "").strip()
     config, _state, _warnings, _state_warnings = _load_normalized_instance_bundle(persist_repairs=True)
     target_entry = _get_instance_entry(config, target)
@@ -350,8 +344,7 @@ async def save_instance_governance(
 
 
 @app.get("/connectors")
-async def list_connectors(user_id: str = Depends(require_rate_limit)):
-    del user_id
+async def list_connectors(_user_id: str = Depends(require_rate_limit)):
     return {
         "connectors": _connector_inventory_payload(),
     }
@@ -361,9 +354,8 @@ async def list_connectors(user_id: str = Depends(require_rate_limit)):
 async def verify_connector(
     connector_id: str,
     request: ConnectorActionRequest,
-    user_id: str = Depends(require_rate_limit),
+    _user_id: str = Depends(require_rate_limit),
 ):
-    del user_id
     result = run_connector_action(
         connector_id,
         "verify",
@@ -379,9 +371,8 @@ async def verify_connector(
 async def connect_connector(
     connector_id: str,
     request: ConnectorActionRequest,
-    user_id: str = Depends(require_rate_limit),
+    _user_id: str = Depends(require_rate_limit),
 ):
-    del user_id
     result = run_connector_action(
         connector_id,
         "connect",
@@ -397,9 +388,8 @@ async def connect_connector(
 async def reconnect_connector(
     connector_id: str,
     request: ConnectorActionRequest,
-    user_id: str = Depends(require_rate_limit),
+    _user_id: str = Depends(require_rate_limit),
 ):
-    del user_id
     result = run_connector_action(
         connector_id,
         "reconnect",
@@ -415,9 +405,8 @@ async def reconnect_connector(
 async def disconnect_connector(
     connector_id: str,
     request: ConnectorActionRequest,
-    user_id: str = Depends(require_rate_limit),
+    _user_id: str = Depends(require_rate_limit),
 ):
-    del user_id
     result = run_connector_action(
         connector_id,
         "disconnect",
@@ -432,9 +421,8 @@ async def disconnect_connector(
 @app.get("/instances/{name}/connectors")
 async def list_instance_connectors(
     name: str,
-    user_id: str = Depends(require_rate_limit),
+    _user_id: str = Depends(require_rate_limit),
 ):
-    del user_id
     target = (name or "").strip()
     config, _state, _warnings, _state_warnings = _load_normalized_instance_bundle(persist_repairs=True)
     target_entry = _get_instance_entry(config, target)
@@ -451,9 +439,8 @@ async def save_instance_connector_binding(
     name: str,
     connector_id: str,
     request: InstanceConnectorBindingRequest,
-    user_id: str = Depends(require_rate_limit),
+    _user_id: str = Depends(require_rate_limit),
 ):
-    del user_id
     target = (name or "").strip()
     normalized_connector = (connector_id or "").strip().lower()
     config, _state, _warnings, _state_warnings = _load_normalized_instance_bundle(persist_repairs=True)
@@ -486,9 +473,8 @@ async def save_instance_connector_binding(
 @app.post("/instances/{name}/activate")
 async def activate_instance(
     name: str,
-    user_id: str = Depends(require_rate_limit),
+    _user_id: str = Depends(require_rate_limit),
 ):
-    del user_id
     target = (name or "").strip()
     raw_config = _load_instances_config()
     config, _warnings = _normalize_instances_config(raw_config)
@@ -517,9 +503,8 @@ async def activate_instance(
 @app.delete("/instances/{name}")
 async def delete_instance(
     name: str,
-    user_id: str = Depends(require_rate_limit),
+    _user_id: str = Depends(require_rate_limit),
 ):
-    del user_id
     target = (name or "").strip()
     raw_config = _load_instances_config()
     config, _warnings = _normalize_instances_config(raw_config)

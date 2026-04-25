@@ -1,0 +1,237 @@
+/*
+   Guppy Web UI Theme: Occult Dark
+   Mystical, esoteric aesthetic with deep purples, crimsons, golds
+   Source: occult-dark-inspo.html
+*/
+
+[data-theme="occult-dark"] {
+  /* === COLOR PALETTE === */
+  --color-background: #020103;
+  --color-surface: #08050a;
+  --color-surface-container: #16111c;
+  --color-surface-container-high: #241e2c;
+
+  /* Primary & Accents */
+  --color-primary: #c41e1e;          /* crimson */
+  --color-on-primary: #ead0cc;       /* vellum */
+  --color-primary-container: #8b0000; /* blood */
+  --color-on-primary-container: #e03030; /* ichor */
+
+  /* Secondary */
+  --color-secondary: #8b0000;        /* blood */
+  --color-on-secondary: #e03030;     /* ichor */
+
+  /* Tertiary (gold accents) */
+  --color-tertiary: #c8a84b;         /* gold */
+  --color-on-tertiary: #020103;      /* abyss */
+
+  /* Text & Foreground */
+  --color-on-background: #ead0cc;    /* vellum */
+  --color-on-surface: #d4c5a9;       /* bone */
+  --color-on-surface-variant: #a8a0b8; /* silver */
+
+  /* Borders & Dividers */
+  --color-border: #3a3044;           /* dust */
+  --color-outline: #241e2c;          /* ash */
+  --color-outline-variant: #16111c;  /* charcoal */
+
+  /* Semantic Colors */
+  --color-error: #ff2a2a;            /* ember-red */
+  --color-on-error: #020103;         /* abyss */
+  --color-error-container: #8b0000;  /* blood */
+  --color-on-error-container: #ff2a2a; /* ember-red */
+
+  --color-success: #c8a84b;          /* gold (repurposed for positive states) */
+  --color-on-success: #020103;
+
+  --color-warning: #e03030;          /* ichor */
+  --color-on-warning: #020103;
+
+  /* Elevation & Depth */
+  --shadow-1: 0 2px 8px rgba(139, 0, 0, 0.15);
+  --shadow-2: 0 8px 24px rgba(139, 0, 0, 0.2);
+  --shadow-3: 0 16px 48px rgba(139, 0, 0, 0.25);
+
+  /* === TYPOGRAPHY === */
+  --font-headline: 'Cinzel Decorative', serif;
+  --font-body: 'Cormorant Garamond', serif;
+  --font-monospace: 'Courier New', monospace;
+
+  /* === TRANSITIONS === */
+  --transition-fast: 150ms ease-in-out;
+  --transition-normal: 300ms ease-in-out;
+  --transition-slow: 500ms ease-in-out;
+
+  /* === SPECIAL EFFECTS === */
+  --glow-primary: 0 0 12px rgba(196, 30, 30, 0.4);
+  --glow-accent: 0 0 8px rgba(200, 168, 75, 0.3);
+
+  /* Grain texture overlay (optional, via pseudo-element) */
+  --grain-opacity: 0.04;
+}
+
+/* === BUTTON STATES === */
+[data-theme="occult-dark"] .button,
+[data-theme="occult-dark"] button {
+  background-color: var(--color-primary-container);
+  color: var(--color-on-primary);
+  border: 1px solid var(--color-primary);
+  transition: all var(--transition-normal);
+}
+
+[data-theme="occult-dark"] .button:hover,
+[data-theme="occult-dark"] button:hover {
+  background-color: var(--color-primary);
+  border-color: var(--color-tertiary);
+  box-shadow: var(--glow-primary);
+}
+
+[data-theme="occult-dark"] .button:active,
+[data-theme="occult-dark"] button:active {
+  background-color: var(--color-secondary);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* === INPUT FIELDS === */
+[data-theme="occult-dark"] input,
+[data-theme="occult-dark"] textarea,
+[data-theme="occult-dark"] select {
+  background-color: var(--color-surface-container);
+  color: var(--color-on-surface);
+  border: 1px solid var(--color-border);
+  transition: border-color var(--transition-fast);
+}
+
+[data-theme="occult-dark"] input:focus,
+[data-theme="occult-dark"] textarea:focus,
+[data-theme="occult-dark"] select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--glow-primary);
+}
+
+/* === CARDS & PANELS === */
+[data-theme="occult-dark"] .card,
+[data-theme="occult-dark"] .panel {
+  background-color: var(--color-surface-container);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-1);
+  transition: all var(--transition-normal);
+}
+
+[data-theme="occult-dark"] .card:hover,
+[data-theme="occult-dark"] .panel:hover {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-2);
+}
+
+/* === TOOLTIPS & POPOVERS === */
+[data-theme="occult-dark"] .tooltip,
+[data-theme="occult-dark"] .popover {
+  background-color: var(--color-surface-container-high);
+  border: 1px solid var(--color-border);
+  color: var(--color-on-surface);
+  box-shadow: var(--shadow-2);
+}
+
+/* === CODE BLOCKS === */
+[data-theme="occult-dark"] code,
+[data-theme="occult-dark"] pre {
+  background-color: var(--color-surface-container);
+  color: var(--color-tertiary);
+  border-left: 3px solid var(--color-primary);
+  padding: 4px 8px;
+  font-family: var(--font-monospace);
+}
+
+/* === SCROLLBAR (if styled) === */
+[data-theme="occult-dark"] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+[data-theme="occult-dark"] ::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+
+[data-theme="occult-dark"] ::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 5px;
+}
+
+[data-theme="occult-dark"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary);
+}
+
+/* === LINKS === */
+[data-theme="occult-dark"] a {
+  color: var(--color-tertiary);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(200, 168, 75, 0.3);
+  transition: all var(--transition-fast);
+}
+
+[data-theme="occult-dark"] a:hover {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+/* === TABLES === */
+[data-theme="occult-dark"] table {
+  border-collapse: collapse;
+}
+
+[data-theme="occult-dark"] table thead {
+  background-color: var(--color-surface-container-high);
+  border-bottom: 2px solid var(--color-primary);
+}
+
+[data-theme="occult-dark"] table tbody tr {
+  border-bottom: 1px solid var(--color-border);
+  transition: background-color var(--transition-fast);
+}
+
+[data-theme="occult-dark"] table tbody tr:hover {
+  background-color: var(--color-surface-container);
+}
+
+/* === BADGES & TAGS === */
+[data-theme="occult-dark"] .badge,
+[data-theme="occult-dark"] .tag {
+  background-color: var(--color-primary-container);
+  color: var(--color-on-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+}
+
+/* === LOADER === */
+[data-theme="occult-dark"] .spinner {
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* === ACCESSIBILITY === */
+[data-theme="occult-dark"] :focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+[data-theme="occult-dark"] .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

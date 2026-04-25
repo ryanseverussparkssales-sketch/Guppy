@@ -1,12 +1,46 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.guppy.inference.local_client import local_chat
 
 logger = logging.getLogger(__name__)
+
+
+# ── Tool enable/disable filtering ─────────────────────────────────────────────
+
+def _get_enabled_tool_ids() -> set[str]:
+    """Return the set of tool IDs that are enabled in tools.db.
+
+    Falls back to an empty set (allow all) if the DB is unavailable.
+    """
+    try:
+        from src.guppy.paths import ensure_user_data_dir
+        db_path = str(ensure_user_data_dir() / "tools.db")
+        with sqlite3.connect(db_path, timeout=2) as conn:
+            rows = conn.execute(
+                "SELECT id FROM tools WHERE is_enabled = 1"
+            ).fetchall()
+        return {r[0] for r in rows}
+    except Exception:
+        return set()  # DB not ready yet — allow all tools
+
+
+def _filter_tools(tools: Optional[list]) -> Optional[list]:
+    """Remove disabled tools from the tool list before sending to an LLM.
+
+    If tools is None/empty or the DB returns an empty set (unavailable),
+    the original list is returned unchanged.
+    """
+    if not tools:
+        return tools
+    enabled = _get_enabled_tool_ids()
+    if not enabled:
+        return tools  # DB not populated yet — pass everything
+    return [t for t in tools if t.get("name") in enabled] or tools
 
 def query_smart(
     self,
@@ -15,89 +49,55 @@ def query_smart(
     tools: Optional[list] = None,
     messages: Optional[list] = None,
 ) -> Tuple[str, str, Dict[str, Any]]:
-    """
-    NEW SMART DISPATCH (Phase 1): Haiku-first with task-aware routing.
+    """Smart dispatch: LOCAL-FIRST with task-aware model selection.
 
-    For BUTLER USE: fast, predictable latency.
-    - Simple tasks (lookup, format, summarize) â†’ Haiku (2-3s)
-    - Complex tasks (research, code, design) â†’ Sonnet (5-10s)
-    - Teaching tasks (explain, learn) â†’ guppy-teach/Ollama (Socratic, local)
-    - Fallback: Haiku timeout â†’ Sonnet â†’ give up
+    Priority chain for all task types:
+      1. Local Ollama (guppy-fast / guppy / guppy-teach) — free, private
+      2. Haiku (cloud fallback, low cost)
+      3. Sonnet (last resort, highest reasoning)
 
-    Args:
-        system_prompt: System/context prompt
-        user_text: User message
-        tools: Optional tool definitions (for Haiku; Sonnet uses different tool format)
-        messages: Optional message history (used if Ollama is fallback)
+    Tool list is filtered against the enabled-tools DB before being sent
+    to any backend, so disabled tools are never offered to the LLM.
 
-    Returns:
-        (response_text, source, metadata)
-        where source is "haiku", "sonnet", or "local" (teaching fallback)
+    Returns: (response_text, source, metadata)
     """
     task_type = self._classify_task(user_text, system_prompt)
+    # Filter tools against DB-enabled state before passing to any backend
+    filtered_tools = _filter_tools(tools)
 
     logger.info("=" * 70)
-    logger.info(f"SMART DISPATCH | Task: {task_type} | User text: {user_text[:60]}...")
+    logger.info(
+        "[SMART] task=%s | tools=%d/%d | text=%.60s…",
+        task_type,
+        len(filtered_tools) if filtered_tools else 0,
+        len(tools) if tools else 0,
+        user_text,
+    )
     logger.info("=" * 70)
 
-    # Routing decision based on task classification
-    if task_type == "teaching":
-        # Route to guppy-teach/Ollama for Socratic teaching
-        logger.info("[SMART] Teaching task -> trying Ollama/guppy-teach (Socratic)")
-        result = self.query_local(system_prompt, user_text, tools, messages)
-        if result:
-            return result["response"], result["source"], result["metadata"]
-        # If Ollama unavailable, fall back to Haiku (not ideal for teaching, but available)
-        logger.info("[SMART] Ollama unavailable for teaching, falling back to Haiku")
-        result = self.query_haiku(system_prompt, user_text, tools)
-        if result:
-            return result["response"], result["source"], result["metadata"]
-        result = self.query_sonnet(system_prompt, user_text, tools)
-        if result:
-            return result["response"], result["source"], result["metadata"]
-        raise RuntimeError("[SMART] All backends failed for teaching task")
+    # ── 1. Try local Ollama first (all task types) ────────────────────────
+    local_model_for_task = self.LOCAL_TIER_MAP.get(task_type, self.LOCAL_FAST_MODEL)
+    logger.info("[SMART] Trying local Ollama (%s) first", local_model_for_task)
+    result = self.query_local(system_prompt, user_text, filtered_tools, messages)
+    if result:
+        self.current_primary = "local"
+        return result["response"], result["source"], result["metadata"]
 
-    elif task_type == "complex":
-        # Complex task -> try Sonnet first (better reasoning), then Haiku, then Ollama
-        logger.info("[SMART] Complex task -> trying Sonnet first")
-        result = self.query_sonnet(system_prompt, user_text, tools)
-        if result:
-            self.current_primary = "sonnet"
-            return result["response"], result["source"], result["metadata"]
-        # Sonnet failed, try Haiku
-        logger.info("[SMART] Sonnet failed/timeout, trying Haiku")
-        result = self.query_haiku(system_prompt, user_text, tools)
-        if result:
-            self.current_primary = "haiku"
-            return result["response"], result["source"], result["metadata"]
-        # Last resort: local
-        logger.info("[SMART] Haiku failed/timeout, trying local Ollama")
-        result = self.query_local(system_prompt, user_text, tools, messages)
-        if result:
-            self.current_primary = "local"
-            return result["response"], result["source"], result["metadata"]
-        raise RuntimeError("[SMART] All backends failed for complex task")
+    # ── 2. Haiku cloud fallback ───────────────────────────────────────────
+    logger.info("[SMART] Local unavailable/failed — falling back to Haiku")
+    result = self.query_haiku(system_prompt, user_text, filtered_tools)
+    if result:
+        self.current_primary = "haiku"
+        return result["response"], result["source"], result["metadata"]
 
-    else:  # simple
-        # Simple task -> fast Haiku first, then Sonnet, then Ollama
-        logger.info("[SMART] Simple task -> trying Haiku first (2-3s timeout)")
-        result = self.query_haiku(system_prompt, user_text, tools)
-        if result:
-            self.current_primary = "haiku"
-            return result["response"], result["source"], result["metadata"]
-        # Haiku timeout/failed, try Sonnet
-        logger.info("[SMART] Haiku timeout/failed, trying Sonnet")
-        result = self.query_sonnet(system_prompt, user_text, tools)
-        if result:
-            self.current_primary = "sonnet"
-            return result["response"], result["source"], result["metadata"]
-        # Last resort: local
-        logger.info("[SMART] Sonnet failed, trying local Ollama")
-        result = self.query_local(system_prompt, user_text, tools, messages)
-        if result:
-            self.current_primary = "local"
-            return result["response"], result["source"], result["metadata"]
-        raise RuntimeError("[SMART] All backends failed for simple task")
+    # ── 3. Sonnet last resort ─────────────────────────────────────────────
+    logger.info("[SMART] Haiku failed — last resort: Sonnet")
+    result = self.query_sonnet(system_prompt, user_text, filtered_tools)
+    if result:
+        self.current_primary = "sonnet"
+        return result["response"], result["source"], result["metadata"]
+
+    raise RuntimeError("[SMART] All backends failed (local, haiku, sonnet)")
 
 def _haiku_boost(
     self,

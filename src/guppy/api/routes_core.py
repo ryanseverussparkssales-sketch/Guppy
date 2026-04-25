@@ -15,8 +15,7 @@ def build_core_router(ctx: ServerContext) -> APIRouter:
         return {"message": "Guppy API is running", "status": "healthy"}
 
     @router.get("/metrics")
-    async def get_metrics(user_id: str = Depends(ctx.require_rate_limit)):
-        del user_id
+    async def get_metrics(_user_id: str = Depends(ctx.require_rate_limit)):
         with ctx.api_metrics_lock:
             requests_total = ctx.api_metrics["requests_total"]
             avg_latency_ms = (ctx.api_metrics["latency_total_ms"] / requests_total) if requests_total else 0.0
@@ -82,8 +81,7 @@ def build_core_router(ctx: ServerContext) -> APIRouter:
 
     @router.get("/status")
     @router.get("/api/status")
-    async def get_status(user_id: str = Depends(ctx.require_rate_limit)):
-        del user_id
+    async def get_status(_user_id: str = Depends(ctx.require_rate_limit)):
 
         try:
             return await build_status_response(ctx)
@@ -93,8 +91,7 @@ def build_core_router(ctx: ServerContext) -> APIRouter:
             return {"status": "error", "message": str(e)}
 
     @router.get("/startup/check")
-    async def startup_check(deep: bool = False, user_id: str = Depends(ctx.require_rate_limit)):
-        del user_id
+    async def startup_check(deep: bool = False, _user_id: str = Depends(ctx.require_rate_limit)):
         snapshot = await build_startup_check_response(ctx, deep=deep)
         ctx.log_session_event("api", "startup_check", level="info", overall=snapshot.get("overall", "unknown"))
         return snapshot

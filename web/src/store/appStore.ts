@@ -16,7 +16,7 @@ import { devtools } from 'zustand/middleware'
 
 // ============= TYPE DEFINITIONS =============
 
-export type Provider = 'local' | 'anthropic' | 'openai' | 'google'
+export type Provider = 'local' | 'anthropic' | 'openai' | 'google' | 'cohere' | 'mistral'
 
 export interface ChatMessage {
   id: string
@@ -39,8 +39,10 @@ export interface Conversation {
 
 export interface CredentialStatus {
   anthropic: { configured: boolean }
-  openai: { configured: boolean }
-  google: { configured: boolean }
+  openai:    { configured: boolean }
+  google:    { configured: boolean }
+  cohere:    { configured: boolean }
+  mistral:   { configured: boolean }
 }
 
 export interface Settings {
@@ -66,7 +68,7 @@ export interface SyncStatus {
 
 // ============= STORE STATE INTERFACE =============
 
-interface AppState {
+export interface AppState {
   // Chat State
   conversations: Conversation[]
   activeConversationId: string | null
@@ -375,7 +377,7 @@ export const useAppStore = create<AppState>()(
 
       setActiveWorkspace: (id) =>
         set(
-          (state) => ({
+          (_state) => ({
             activeWorkspaceId: id,
             // Clear conversations when switching workspaces
             conversations: [],
@@ -527,7 +529,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'app-store',
-      enabled: process.env.NODE_ENV === 'development',
+      enabled: import.meta.env.DEV,
     }
   )
 )

@@ -25,9 +25,35 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Self-contained .env bootstrap for env vars this module needs.
+# Runs once at import time so the module works correctly regardless of whether
+# the parent process (launcher, API, test runner) has already called
+# load_env_file().  Only fills vars that aren't already set.
+# ---------------------------------------------------------------------------
+def _bootstrap_env() -> None:
+    env_file = Path(__file__).resolve().parents[3] / ".env"
+    if not env_file.exists():
+        return
+    try:
+        for raw in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key and not os.environ.get(key):
+                os.environ[key] = val
+    except Exception:
+        pass
+
+_bootstrap_env()
 
 _BACKENDS: Dict[str, Dict[str, Any]] = {
     "ollama": {
@@ -41,7 +67,7 @@ _BACKENDS: Dict[str, Dict[str, Any]] = {
     "lmstudio": {
         "default_url": "http://127.0.0.1:1234",
         "chat_path": "/v1/chat/completions",
-        "tags_path": "/v1/models",
+        "tags_path": "/api/v1/models",
         "pull_path": None,
         "delete_path": None,
         "format": "openai",
@@ -126,13 +152,23 @@ _auto_lock = threading.Lock()
 _AUTO_PROBE_ORDER = ("ollama", "lmstudio")
 
 
+def _probe_headers(name: str) -> Dict[str, str]:
+    """Build probe headers, including auth for LM Studio."""
+    h: Dict[str, str] = {"Accept": "application/json"}
+    if name == "lmstudio":
+        key = os.environ.get("GUPPY_LMSTUDIO_API_KEY", "").strip()
+        if key:
+            h["Authorization"] = f"Bearer {key}"
+    return h
+
+
 def _probe_backends(timeout: float = 1.5) -> str:
     """Ping each backend in order; return the first that responds."""
     for name in _AUTO_PROBE_ORDER:
         cfg = _BACKENDS[name]
         url = f"{_resolve_url(name)}{cfg['tags_path']}"
         try:
-            req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+            req = urllib.request.Request(url, headers=_probe_headers(name), method="GET")
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 r.read()
             logger.info(f"[LOCAL/auto] detected backend: {name}")
@@ -165,11 +201,12 @@ def probe_backends(timeout: float = 1.5) -> Dict[str, bool]:
     for name, cfg in _BACKENDS.items():
         url = f"{_resolve_url(name)}{cfg['tags_path']}"
         try:
-            req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+            req = urllib.request.Request(url, headers=_probe_headers(name), method="GET")
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 r.read()
             result[name] = True
-        except Exception:
+        except Exception as e:
+            logger.debug(f"[LOCAL/probe] {name} unreachable at {url}: {e}")
             result[name] = False
     return result
 
@@ -194,22 +231,41 @@ def _get_lmstudio_models(timeout: float = 2.0) -> List[str]:
     return models
 
 
+def _get_lmstudio_loaded_model() -> Optional[str]:
+    """Return the first model that has a loaded instance in LM Studio, or None."""
+    key = os.environ.get("GUPPY_LMSTUDIO_API_KEY", "").strip()
+    url = f"{_resolve_url('lmstudio')}/api/v1/models"
+    try:
+        req = urllib.request.Request(url, headers=_probe_headers("lmstudio"), method="GET")
+        with urllib.request.urlopen(req, timeout=3.0) as r:
+            data = json.loads(r.read().decode())
+        for m in data.get("models", []):
+            if m.get("loaded_instances"):
+                return m.get("key") or m.get("id")
+    except Exception:
+        pass
+    return None
+
+
 def _resolve_lmstudio_model(requested: str) -> str:
     """Map a Guppy logical model name to an LM Studio model ID.
 
-    If the requested name exists verbatim in LM Studio, use it.
-    Otherwise fall back to the first loaded model — LM Studio users
-    never need to configure model names explicitly.
+    Prefers the currently loaded model over the requested name, since
+    LM Studio users pick models in the UI — no config needed.
     """
+    loaded = _get_lmstudio_loaded_model()
+    if loaded:
+        if requested != loaded:
+            logger.info(f"[LOCAL/lmstudio] '{requested}' → using loaded model '{loaded}'")
+        return loaded
     available = _get_lmstudio_models()
     if not available:
-        return requested  # nothing loaded; attempt will fail gracefully
+        return requested
     if requested in available:
         return requested
-    # Use whatever is currently loaded
     resolved = available[0]
     if requested != resolved:
-        logger.info(f"[LOCAL/lmstudio] '{requested}' not found — using loaded model '{resolved}'")
+        logger.info(f"[LOCAL/lmstudio] '{requested}' not found — using '{resolved}'")
     return resolved
 
 
@@ -270,8 +326,13 @@ def _parse_openai(data: Dict[str, Any], model: str, backend: str) -> Optional[Di
     if not choices:
         return None
     msg = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
+    content = str(msg.get("content") or "")
+    # Reasoning models (e.g. gemma-4, nemotron) put chain-of-thought in reasoning_content;
+    # visible answer goes in content. If content is empty the model ran out of tokens mid-think.
+    if not content.strip():
+        content = str(msg.get("reasoning_content") or "")
     return {
-        "response": str(msg.get("content") or ""),
+        "response": content,
         "model": model,
         "source": "local",
         "tool_calls": msg.get("tool_calls", []),
@@ -324,10 +385,15 @@ def local_chat(
             logger.info(f"[LOCAL/{resolved}] retry {attempt}/{max_retries} in {backoff:.1f}s model={actual_model}")
             time.sleep(backoff)
         try:
+            headers: Dict[str, str] = {"Content-Type": "application/json"}
+            if resolved == "lmstudio":
+                auth = _probe_headers("lmstudio")
+                if "Authorization" in auth:
+                    headers["Authorization"] = auth["Authorization"]
             req = urllib.request.Request(
                 url,
                 data=json.dumps(payload).encode(),
-                headers={"Content-Type": "application/json"},
+                headers=headers,
                 method="POST",
             )
             with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -364,11 +430,16 @@ def list_local_models(backend: Optional[str] = None, timeout: float = 4.0) -> Li
     cfg = _BACKENDS[resolved]
     url = f"{_resolve_url(resolved)}{cfg['tags_path']}"
     try:
-        req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+        headers = _probe_headers(resolved)
+        req = urllib.request.Request(url, headers=headers, method="GET")
         with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read().decode())
         if cfg["format"] == "ollama":
             return [m.get("name", "") for m in data.get("models", []) if m.get("name")]
+        # LM Studio native: {"models": [{"key": "org/model"}]}
+        # LM Studio OpenAI-compat: {"data": [{"id": "..."}]}
+        if "models" in data:
+            return [m.get("key", m.get("id", "")) for m in data.get("models", []) if m.get("key") or m.get("id")]
         return [m.get("id", "") for m in data.get("data", []) if m.get("id")]
     except Exception as e:
         logger.warning(f"[LOCAL/{resolved}] list_models failed: {e}")

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import { Search, Plus, Trash2, MessageSquare } from 'lucide-react'
+import { Plus, Trash2, MessageSquare } from 'lucide-react'
 import type { Conversation } from '@/hooks/useChatHistory'
 
 interface ChatHistorySidebarProps {
@@ -25,7 +25,6 @@ export function ChatHistorySidebar({
   searchResults,
 }: ChatHistorySidebarProps) {
   const [searchQuery, setSearchQuery] = useState('')
-  const [showSearch, setShowSearch] = useState(false)
 
   const displayConversations = searchQuery && searchResults ? searchResults : conversations
   const isEmpty = displayConversations.length === 0

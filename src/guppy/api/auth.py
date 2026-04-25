@@ -304,8 +304,8 @@ def _clear_rate_limit_backend() -> None:
         with open_db(_RATE_LIMIT_DB_PATH, schema_sql=_RATE_LIMIT_SCHEMA) as conn:
             conn.execute("DELETE FROM rate_limit_events")
             conn.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Rate limit backend clear failed: %s", exc)
 
 
 class _RateLimitStoreMirror(dict):

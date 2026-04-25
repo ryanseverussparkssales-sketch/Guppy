@@ -112,7 +112,7 @@ export function useErrorRecovery(options: UseErrorRecoveryOptions) {
   })
 
   const abortControllerRef = useRef<AbortController | null>(null)
-  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   /**
    * Calculate exponential backoff time
@@ -390,7 +390,7 @@ export function useRequestTimeout(options: UseRequestTimeoutOptions = {}) {
       return Promise.race([
         fn(),
         new Promise<T>((_, reject) => {
-          const timeoutId = setTimeout(() => {
+          setTimeout(() => {
             reject(
               parseApiError(
                 new Error(

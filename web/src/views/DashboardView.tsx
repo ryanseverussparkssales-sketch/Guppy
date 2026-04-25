@@ -36,7 +36,7 @@ export default function DashboardView() {
               Real-time Infrastructure
             </span>
             <h2 className="text-4xl font-headline font-bold text-on-surface mb-4">
-              System Status: {statusLoading ? "Loading..." : status?.health === 'healthy' ? "Optimal" : "Degraded"}
+              System Status: {statusLoading ? "Loading..." : status?.status === 'healthy' ? "Optimal" : "Degraded"}
             </h2>
             <p className="text-on-surface-variant leading-relaxed max-w-lg">
               {instancesLoading ? "Checking instances..." : 

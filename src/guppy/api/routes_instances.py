@@ -22,8 +22,7 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
     owner = ctx.owner
 
     @router.get("/instances")
-    async def list_instances(user_id: str = Depends(ctx.require_rate_limit)):
-        del user_id
+    async def list_instances(_user_id: str = Depends(ctx.require_rate_limit)):
         config, state, config_warnings, state_warnings = ctx.load_normalized_instance_bundle(
             persist_repairs=True
         )
@@ -78,9 +77,8 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
     @router.post("/instances")
     async def create_or_update_instance(
         request: InstanceConfigRequest,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         raw_config = ctx.load_instances_config()
         config, _warnings = ctx.normalize_instances_config(raw_config)
         config, action = ctx.upsert_instance_config(config, request)
@@ -118,9 +116,8 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
     async def save_instance_governance(
         name: str,
         request: InstanceGovernanceRequest,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         target = (name or "").strip()
         config, _state, _warnings, _state_warnings = ctx.load_normalized_instance_bundle(
             persist_repairs=True
@@ -155,17 +152,15 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
         }
 
     @router.get("/connectors")
-    async def list_connectors(user_id: str = Depends(ctx.require_rate_limit)):
-        del user_id
+    async def list_connectors(_user_id: str = Depends(ctx.require_rate_limit)):
         return {"connectors": ctx.connector_inventory_payload()}
 
     @router.post("/connectors/{connector_id}/verify")
     async def verify_connector(
         connector_id: str,
         request: ConnectorActionRequest,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         result = ctx.run_connector_action(
             connector_id,
             "verify",
@@ -180,9 +175,8 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
     async def connect_connector(
         connector_id: str,
         request: ConnectorActionRequest,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         result = ctx.run_connector_action(
             connector_id,
             "connect",
@@ -197,9 +191,8 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
     async def reconnect_connector(
         connector_id: str,
         request: ConnectorActionRequest,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         result = ctx.run_connector_action(
             connector_id,
             "reconnect",
@@ -214,9 +207,8 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
     async def disconnect_connector(
         connector_id: str,
         request: ConnectorActionRequest,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         result = ctx.run_connector_action(
             connector_id,
             "disconnect",
@@ -230,9 +222,8 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
     @router.get("/instances/{name}/connectors")
     async def list_instance_connectors(
         name: str,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         target = (name or "").strip()
         config, _state, _warnings, _state_warnings = ctx.load_normalized_instance_bundle(
             persist_repairs=True
@@ -247,9 +238,8 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
         name: str,
         connector_id: str,
         request: InstanceConnectorBindingRequest,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         target = (name or "").strip()
         normalized_connector = (connector_id or "").strip().lower()
         config, _state, _warnings, _state_warnings = ctx.load_normalized_instance_bundle(
@@ -278,9 +268,8 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
     @router.post("/instances/{name}/activate")
     async def activate_instance(
         name: str,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         target = (name or "").strip()
         raw_config = ctx.load_instances_config()
         config, _warnings = ctx.normalize_instances_config(raw_config)
@@ -306,17 +295,15 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
         }
 
     @router.post("/instances/{name}/stop")
-    async def stop_instance(name: str, user_id: str = Depends(ctx.require_rate_limit)):
-        del user_id
+    async def stop_instance(name: str, _user_id: str = Depends(ctx.require_rate_limit)):
         # Desktop: stopping an instance just means it's no longer active
         return {"ok": True, "instance": name, "status": "stopped"}
 
     @router.delete("/instances/{name}")
     async def delete_instance(
         name: str,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         target = (name or "").strip()
         raw_config = ctx.load_instances_config()
         config, _warnings = ctx.normalize_instances_config(raw_config)
@@ -364,9 +351,8 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
     async def get_instance_logs(
         name: str,
         limit: int = 50,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         target = (name or "").strip()
         raw_config = ctx.load_instances_config()
         config, _warnings = ctx.normalize_instances_config(raw_config)
@@ -386,9 +372,8 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
     async def query_instance(
         name: str,
         request: InstanceQueryRequest,
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        del user_id
         target = (name or "").strip()
         if not target:
             raise HTTPException(status_code=400, detail="instance name is required")

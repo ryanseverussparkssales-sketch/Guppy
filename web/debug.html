@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Guppy Debug</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { --bg:#0d0d0f; --surface:#16161a; --border:#2a2a35; --accent:#7c6af7;
+          --green:#22c55e; --red:#ef4444; --yellow:#f59e0b; --text:#e8e8f0; --muted:#6b6b80; }
+  body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif;
+         padding:24px; min-height:100vh; }
+  h1 { color:var(--accent); font-size:1.3rem; margin-bottom:20px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px; }
+  .card h2 { font-size:0.8rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:12px; }
+  .row { display:flex; align-items:center; justify-content:space-between; padding:6px 0;
+         border-bottom:1px solid var(--border); font-size:0.88rem; }
+  .row:last-child { border-bottom:none; }
+  .row .label { color:var(--muted); }
+  .badge { padding:2px 10px; border-radius:20px; font-size:0.75rem; font-weight:600; }
+  .ok { background:#14532d; color:var(--green); }
+  .err { background:#450a0a; color:var(--red); }
+  .warn { background:#431407; color:var(--yellow); }
+  .unknown { background:#1e1b4b; color:#a5b4fc; }
+  #models-list { display:flex; flex-direction:column; gap:4px; }
+  .model-row { display:flex; justify-content:space-between; font-size:0.82rem; padding:4px 0; border-bottom:1px solid var(--border); }
+  .model-row:last-child { border-bottom:none; }
+  .model-size { color:var(--muted); }
+  button { background:var(--accent); color:white; border:none; border-radius:6px;
+           padding:6px 14px; cursor:pointer; font-size:0.82rem; margin-top:10px; }
+  button:hover { opacity:.85; }
+  #log { background:#0a0a0c; border:1px solid var(--border); border-radius:8px; padding:12px;
+         font-family:monospace; font-size:0.78rem; color:#a0a0b0; max-height:200px;
+         overflow-y:auto; white-space:pre-wrap; word-break:break-all; }
+  .ts { color:var(--muted); }
+</style>
+</head>
+<body>
+<h1>⚡ Guppy Debug Dashboard</h1>
+<div class="grid">
+  <div class="card">
+    <h2>Services</h2>
+    <div class="row"><span class="label">Ollama</span><span id="s-ollama" class="badge unknown">checking…</span></div>
+    <div class="row"><span class="label">Guppy API</span><span id="s-api" class="badge unknown">checking…</span></div>
+    <div class="row"><span class="label">Kokoro TTS</span><span id="s-kokoro" class="badge unknown">checking…</span></div>
+  </div>
+  <div class="card">
+    <h2>Guppy API Status</h2>
+    <div class="row"><span class="label">Version</span><span id="api-ver">—</span></div>
+    <div class="row"><span class="label">TTS Backend</span><span id="api-tts">—</span></div>
+    <div class="row"><span class="label">STT Backend</span><span id="api-stt">—</span></div>
+    <div class="row"><span class="label">Local Runtime</span><span id="api-backend">—</span></div>
+    <div class="row"><span class="label">Chat Ready</span><span id="api-chat">—</span></div>
+  </div>
+  <div class="card">
+    <h2>Ollama Models</h2>
+    <div id="models-list">loading…</div>
+  </div>
+  <div class="card">
+    <h2>Quick Test</h2>
+    <div class="row"><span class="label">Model</span>
+      <select id="test-model" style="background:#0d0d0f;color:#e8e8f0;border:1px solid #2a2a35;border-radius:4px;padding:3px 8px;font-size:0.82rem">
+        <option value="guppy-fast">guppy-fast</option>
+        <option value="guppy">guppy</option>
+      </select>
+    </div>
+    <button onclick="runTest()">Run ping test</button>
+    <div id="test-result" style="margin-top:8px;font-size:0.82rem;color:#a5b4fc"></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <h2>Log</h2>
+  <div id="log"></div>
+  <button onclick="document.getElementById('log').textContent=''">Clear</button>
+</div>
+
+<script>
+const OLLAMA = 'http://127.0.0.1:11434';
+const API    = 'http://127.0.0.1:8081';
+
+function log(msg) {
+  const el = document.getElementById('log');
+  const ts = new Date().toLocaleTimeString();
+  el.textContent += `[${ts}] ${msg}\n`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function badge(id, text, cls) {
+  const el = document.getElementById(id);
+  el.textContent = text; el.className = `badge ${cls}`;
+}
+
+async function probe(url, timeout=3000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeout);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(t); return r.ok;
+  } catch { clearTimeout(t); return false; }
+}
+
+async function checkOllama() {
+  const ok = await probe(`${OLLAMA}/`);
+  badge('s-ollama', ok ? 'Running' : 'Offline', ok ? 'ok' : 'err');
+  log(`Ollama: ${ok ? 'up' : 'DOWN'}`);
+  if (ok) loadModels();
+}
+
+async function checkAPI() {
+  try {
+    const r = await fetch(`${API}/status`, { headers: { Authorization: 'Bearer dev' } });
+    if (!r.ok) { badge('s-api', 'Error '+r.status, 'err'); return; }
+    const d = await r.json();
+    badge('s-api', 'Running', 'ok');
+    document.getElementById('api-ver').textContent = d.version || '—';
+    document.getElementById('api-tts').textContent = d.voice_tts_backend || '—';
+    document.getElementById('api-stt').textContent = d.voice_stt_backend || '—';
+    document.getElementById('api-backend').textContent = d.local_runtime_backend || '—';
+    document.getElementById('api-chat').textContent = d.local_chat_ready ? '✅ Ready' : '⚠ Warming';
+    log(`API: up — backend=${d.local_runtime_backend}, tts=${d.voice_tts_backend}`);
+  } catch(e) {
+    badge('s-api', 'Offline', 'err');
+    log(`API: DOWN — ${e.message}`);
+  }
+}
+
+async function checkKokoro() {
+  const ok = await probe('http://127.0.0.1:8881/v1/models');
+  badge('s-kokoro', ok ? 'Running' : 'Offline', ok ? 'ok' : 'warn');
+  log(`Kokoro TTS: ${ok ? 'up' : 'not running'}`);
+}
+
+async function loadModels() {
+  try {
+    const r = await fetch(`${OLLAMA}/api/tags`);
+    const d = await r.json();
+    const models = d.models || [];
+    const el = document.getElementById('models-list');
+    el.innerHTML = models.map(m => {
+      const gb = (m.size/1e9).toFixed(1);
+      return `<div class="model-row"><span>${m.name}</span><span class="model-size">${gb}GB</span></div>`;
+    }).join('');
+  } catch { document.getElementById('models-list').textContent = 'Failed to load'; }
+}
+
+async function runTest() {
+  const model = document.getElementById('test-model').value;
+  const res = document.getElementById('test-result');
+  res.textContent = 'Sending…';
+  const t0 = Date.now();
+  try {
+    const r = await fetch(`${OLLAMA}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages:[{role:'user',content:'Reply with just the word: PONG'}],
+                             stream:false, options:{num_predict:10} })
+    });
+    const d = await r.json();
+    const ms = Date.now()-t0;
+    const reply = d?.message?.content?.trim();
+    res.textContent = `✅ ${reply} (${ms}ms)`;
+    log(`Ping ${model}: "${reply}" in ${ms}ms`);
+  } catch(e) {
+    res.textContent = `❌ ${e.message}`;
+    log(`Ping ${model}: FAILED — ${e.message}`);
+  }
+}
+
+checkOllama();
+checkAPI();
+checkKokoro();
+</script>
+</body>
+</html>

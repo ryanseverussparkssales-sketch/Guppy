@@ -46,14 +46,14 @@ const fetcher = async <T>(url: string): Promise<T> => {
  * @backend GET /api/instances
  */
 export function useInstances() {
-  const { data, error, isLoading, mutate: revalidate } = useSWR<Instance[]>(
+  const { data, error, isLoading, mutate: revalidate } = useSWR<{ instances: Instance[] }>(
     "/api/instances",
     fetcher,
-    { refreshInterval: 5000 } // Poll every 5s for status updates
+    { refreshInterval: 5000 }
   )
 
   return {
-    instances: data ?? [],
+    instances: data?.instances ?? [],
     isLoading,
     error,
     revalidate,
@@ -159,13 +159,13 @@ export function useInstanceMutations() {
  * @backend GET /api/models
  */
 export function useModels() {
-  const { data, error, isLoading, mutate: revalidate } = useSWR<Model[]>(
+  const { data, error, isLoading, mutate: revalidate } = useSWR<{ models: Model[] }>(
     "/api/models",
     fetcher
   )
 
   return {
-    models: data ?? [],
+    models: data?.models ?? [],
     isLoading,
     error,
     revalidate,
@@ -211,6 +211,64 @@ export function useModelMutations() {
 }
 
 // =============================================================================
+// PROVIDER / ACTIVE MODEL HOOKS
+// =============================================================================
+
+interface LocalModelMeta { id: string; name: string; tier: string; tags: string[] }
+interface ProviderInfo {
+  configured: boolean
+  active_model: string
+  models: LocalModelMeta[]
+  backend?: string
+  tags?: string[]
+}
+interface ProvidersResponse { anthropic: ProviderInfo; openai: ProviderInfo; google: ProviderInfo; local: ProviderInfo }
+
+export function useProviders() {
+  const { data, error, isLoading, mutate: revalidate } = useSWR<ProvidersResponse>(
+    "/providers",
+    fetcher,
+    { refreshInterval: 10000 }
+  )
+  return { providers: data ?? null, isLoading, error, revalidate }
+}
+
+export function useActiveModel() {
+  const { providers, isLoading } = useProviders()
+  const { data: settingData } = useSWR<{ active_provider: string }>(
+    "/api/settings/provider",
+    fetcher,
+    { refreshInterval: 10000 }
+  )
+
+  const activeProvider = settingData?.active_provider ?? "local"
+  const providerInfo = providers?.[activeProvider as keyof ProvidersResponse]
+  const activeModelId = providerInfo?.active_model ?? ""
+  const modelMeta = providerInfo?.models?.find(m => m.id === activeModelId)
+
+  const setProvider = useCallback(async (provider: string) => {
+    await api.post("/api/settings/provider", { provider })
+    mutate("/api/settings/provider")
+  }, [])
+
+  const setModel = useCallback(async (provider: string, modelId: string) => {
+    await api.post(`/providers/${provider}/active-model`, { model_id: modelId })
+    mutate("/providers")
+  }, [])
+
+  return {
+    activeProvider,
+    activeModelId,
+    modelName: modelMeta?.name ?? activeModelId,
+    modelTags: modelMeta?.tags ?? [],
+    providers,
+    isLoading,
+    setProvider,
+    setModel,
+  }
+}
+
+// =============================================================================
 // TOOLS HOOKS
 // Endpoint: GET /api/tools
 // =============================================================================
@@ -225,11 +283,18 @@ export function useTools() {
     fetcher
   )
 
+  const toggleTool = useCallback(async (toolId: string, enable: boolean) => {
+    const action = enable ? "enable" : "disable"
+    await api.post(`/api/tools/${toolId}/${action}`)
+    await revalidate()
+  }, [revalidate])
+
   return {
     tools: data ?? [],
     isLoading,
     error,
     revalidate,
+    toggleTool,
   }
 }
 
@@ -306,7 +371,7 @@ export function useSystemStatus() {
 
   return {
     status: data,
-    isHealthy: data?.health === "healthy",
+    isHealthy: data?.status === "healthy",
     isLoading,
     error,
   }
@@ -357,9 +422,9 @@ export function useConnectionStatus() {
   const { status, error, isLoading } = useSystemStatus()
 
   return {
-    isConnected: !error && status?.health !== undefined,
+    isConnected: !error && status?.status !== undefined,
     isLoading,
-    health: status?.health ?? "unknown",
-    services: status?.services,
+    health: status?.status ?? "unknown",
+    services: undefined,
   }
 }

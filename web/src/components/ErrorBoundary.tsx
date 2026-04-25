@@ -26,7 +26,7 @@ interface ErrorBoundaryState {
 }
 
 export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  private resetTimeout: NodeJS.Timeout | null = null
+  private resetTimeout: ReturnType<typeof setTimeout> | null = null
 
   constructor(props: ErrorBoundaryProps) {
     super(props)
@@ -38,7 +38,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     }
   }
 
-  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
+  static getDerivedStateFromError(_error: Error): Partial<ErrorBoundaryState> {
     return { hasError: true }
   }
 
@@ -99,16 +99,16 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     window.location.href = '/'
   }
 
-  render(): ReactElement {
+  render(): ReactNode {
     if (this.state.hasError) {
-      return this.props.fallback || this.renderErrorFallback()
+      return this.props.fallback ?? this.renderErrorFallback()
     }
 
     return <>{this.props.children}</>
   }
 
   private renderErrorFallback(): ReactElement {
-    const isDevelopment = process.env.NODE_ENV === 'development'
+    const isDevelopment = import.meta.env.DEV
 
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-red-50 to-orange-50">

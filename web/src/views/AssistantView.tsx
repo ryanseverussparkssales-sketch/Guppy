@@ -12,11 +12,15 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { Send, Plus, Trash2, MessageCircle, AlertCircle, Wifi, WifiOff, Clock } from 'lucide-react'
+import { Send, Plus, Trash2, MessageCircle, AlertCircle, WifiOff, Clock, Mic, MicOff } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { useChatStore, useWorkspaceStore, syncManager } from '@/store'
-import { ChatHistorySidebar } from '@/components/chat/ChatHistorySidebar'
 import { useQueueMonitoring } from '@/hooks/useMonitoring'
+import { MarkdownMessage } from '@/components/chat/MarkdownMessage'
+import { useVoice } from '@/hooks/useVoice'
+import api from '../api/client'
 
 export default function AssistantView() {
   // Store hooks
@@ -35,6 +39,24 @@ export default function AssistantView() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
+  const voice = useVoice({
+    onTranscript: (text) => setInputValue(text),
+    onError: () => {/* silently ignore — mic may be unavailable */},
+  })
+
+  const handleMicClick = async () => {
+    if (voice.isListening) {
+      voice.stopListening()
+      return
+    }
+    // Interrupt TTS if currently speaking
+    if (voice.isSpeaking) {
+      voice.stopSpeaking()
+      try { await api.post('/api/voices/stop') } catch { /* best-effort */ }
+    }
+    voice.startListening()
+  }
+
   // Get current conversation from store
   const activeConversation = conversations.find((c) => c.id === activeConversationId)
 
@@ -48,11 +70,12 @@ export default function AssistantView() {
     inputRef.current?.focus()
   }, [])
 
-  // Auto-create conversation when workspace changes
+  // Auto-create conversation when workspace becomes available
   useEffect(() => {
-    if (activeWorkspaceId && conversations.length === 0 && !loading) {
-      handleNewConversation()
-    }
+    if (!activeWorkspaceId || conversations.length > 0 || loading) return
+    syncManager
+      .createConversation(activeWorkspaceId, `Chat ${new Date().toLocaleString()}`)
+      .catch((err: any) => setLocalError(err?.message || 'Failed to create conversation'))
   }, [activeWorkspaceId])
 
   const handleNewConversation = async () => {
@@ -137,7 +160,7 @@ export default function AssistantView() {
           <div className="p-4 border-b border-border">
             <button
               onClick={handleNewConversation}
-              disabled={loading}
+              disabled={loading || !activeWorkspaceId}
               className={cn(
                 'w-full px-4 py-2 rounded-lg flex items-center gap-2 font-medium',
                 loading
@@ -245,27 +268,37 @@ export default function AssistantView() {
           )}
 
           {/* Messages */}
-          {currentMessages.map((message) => (
-            <div key={message.id} className={cn('flex', message.role === 'user' ? 'justify-end' : 'justify-start')}>
-              <div
-                className={cn(
-                  'max-w-xs lg:max-w-md px-4 py-2 rounded-lg',
-                  message.role === 'user'
-                    ? 'bg-primary text-white rounded-br-none'
-                    : 'bg-surface-container text-on-surface rounded-bl-none'
-                )}
+          <AnimatePresence initial={false}>
+            {currentMessages.map((message) => (
+              <motion.div
+                key={message.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+                className={cn('flex', message.role === 'user' ? 'justify-end' : 'justify-start')}
               >
-                <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
-                <p className="text-xs mt-1 opacity-70">{new Date(message.created_at).toLocaleTimeString()}</p>
-              </div>
-            </div>
-          ))}
+                <div
+                  className={cn(
+                    'max-w-xs lg:max-w-2xl px-4 py-2 rounded-lg',
+                    message.role === 'user'
+                      ? 'bg-primary text-white rounded-br-none'
+                      : 'bg-surface-container text-on-surface rounded-bl-none'
+                  )}
+                >
+                  <MarkdownMessage content={message.content} isUser={message.role === 'user'} />
+                  <p className="text-xs mt-1 opacity-70">
+                    {format(new Date(message.created_at), 'HH:mm')}
+                  </p>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
 
           {/* Live streaming bubble */}
           {streamingContent && (
             <div className="flex justify-start">
-              <div className="max-w-xs lg:max-w-md px-4 py-2 rounded-lg bg-surface-container text-on-surface rounded-bl-none">
-                <p className="text-sm whitespace-pre-wrap break-words">{streamingContent}</p>
+              <div className="max-w-xs lg:max-w-2xl px-4 py-2 rounded-lg bg-surface-container text-on-surface rounded-bl-none">
+                <MarkdownMessage content={streamingContent} />
                 <div className="flex gap-1 mt-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:0ms]" />
                   <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:150ms]" />
@@ -313,15 +346,30 @@ export default function AssistantView() {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Type a message... (Shift+Enter for new line)"
+                placeholder={voice.isListening ? 'Listening…' : 'Type a message… (Shift+Enter for new line)'}
                 disabled={isSending}
                 className={cn(
                   'flex-1 px-4 py-2 rounded-lg border border-outline bg-background text-on-background',
                   'resize-none max-h-32 focus:outline-none focus:border-primary transition-colors',
-                  isSending && 'opacity-50 cursor-not-allowed'
+                  isSending && 'opacity-50 cursor-not-allowed',
+                  voice.isListening && 'border-error'
                 )}
                 rows={3}
               />
+              {voice.isSupported && (
+                <button
+                  onClick={handleMicClick}
+                  title={voice.isListening ? 'Stop listening' : 'Voice input'}
+                  className={cn(
+                    'px-3 py-2 rounded-lg flex items-center transition-colors',
+                    voice.isListening
+                      ? 'bg-error text-white animate-pulse'
+                      : 'bg-surface-variant text-on-surface-variant hover:bg-surface-container'
+                  )}
+                >
+                  {voice.isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </button>
+              )}
               <button
                 onClick={handleSendMessage}
                 disabled={isSending || !inputValue.trim()}

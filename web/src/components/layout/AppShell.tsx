@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react"
-import { cn } from "@/lib/utils"
+import { useHotkeys } from "react-hotkeys-hook"
 import { Sidebar } from "./Sidebar"
 import { TopBar } from "./TopBar"
-import { CommandPalette } from "./CommandPalette"
+import { CommandPalette } from "@/components/CommandPalette"
 
 interface AppShellProps {
   children: React.ReactNode
@@ -27,20 +27,8 @@ export function AppShell({ children }: AppShellProps) {
     localStorage.setItem("guppy-sidebar-collapsed", JSON.stringify(sidebarCollapsed))
   }, [sidebarCollapsed])
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault()
-        setCommandPaletteOpen(true)
-      }
-      if (e.key === "Escape") {
-        setCommandPaletteOpen(false)
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [])
+  useHotkeys("ctrl+k, meta+k", () => setCommandPaletteOpen(true), { preventDefault: true })
+  useHotkeys("escape", () => setCommandPaletteOpen(false))
 
   return (
     <div className="flex h-screen bg-surface text-on-surface overflow-hidden">
@@ -51,12 +39,7 @@ export function AppShell({ children }: AppShellProps) {
       />
 
       {/* Main Content Area */}
-      <div 
-        className={cn(
-          "flex flex-1 flex-col overflow-hidden transition-all duration-300 ease-viscous",
-          sidebarCollapsed ? "ml-20" : "ml-72"
-        )}
-      >
+      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         <TopBar onOpenCommandPalette={() => setCommandPaletteOpen(true)} />
         <main className="flex-1 overflow-auto custom-scrollbar">
           {children}

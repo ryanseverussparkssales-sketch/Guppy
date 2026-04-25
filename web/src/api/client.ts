@@ -22,7 +22,7 @@ import { telemetry } from '../utils/telemetry'
  */
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://127.0.0.1:8081',
+  baseURL: import.meta.env.VITE_API_URL || '',
   timeout: 30000,
 })
 
@@ -82,8 +82,12 @@ api.interceptors.request.use((config) => {
   // Record request start time
   requestStartTimes.set(endpoint, Date.now())
 
+  // Skip circuit breaker for local API — always true when using relative URLs
+  // through the Vite proxy (dev) or served from the same origin (prod).
+  const isLocalApi = true
+
   // Check if circuit is open
-  if (breaker.isOpen()) {
+  if (!isLocalApi && breaker.isOpen()) {
     // Queue the request instead of sending it
     const fingerprint = generateRequestFingerprint(
       endpoint,
@@ -433,7 +437,7 @@ export function getQueueStats() {
   return requestQueue.getStats()
 }
 
-const _BASE_URL = (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8081') as string
+const _BASE_URL = (import.meta.env.VITE_API_URL || '') as string
 
 /**
  * SSE streaming chat. Calls /api/chat/stream and invokes onToken for each token.

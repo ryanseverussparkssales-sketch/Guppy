@@ -1,12 +1,14 @@
 import { useState } from "react"
+import { useLocation } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import { Tooltip } from "@/components/ui/tooltip"
 import {
   Sparkles,
-  Search,
+  MessageSquare,
   LayoutGrid,
-  FileText,
+  Cpu,
   BookOpen,
+  BookText,
   Plus,
   HelpCircle,
   LogOut,
@@ -15,6 +17,8 @@ import {
   Mic,
   Activity,
   Settings,
+  Monitor,
+  Plug,
 } from "lucide-react"
 
 /**
@@ -31,18 +35,21 @@ interface NavItem {
 }
 
 const primaryNavItems: NavItem[] = [
-  { id: "intelligence", label: "Intelligence", icon: <Sparkles className="w-5 h-5" />, view: "dashboard" },
-  { id: "research", label: "Research", icon: <Search className="w-5 h-5" />, view: "assistant" },
-  { id: "workspace", label: "Workspace", icon: <LayoutGrid className="w-5 h-5" />, view: "instances" },
-  { id: "briefings", label: "Briefings", icon: <FileText className="w-5 h-5" />, view: "models" },
-  { id: "library", label: "Library", icon: <BookOpen className="w-5 h-5" />, view: "library" },
+  { id: "dashboard",  label: "Dashboard",  icon: <Sparkles className="w-5 h-5" />,   view: "dashboard" },
+  { id: "chat",       label: "Chat",       icon: <MessageSquare className="w-5 h-5" />, view: "assistant" },
+  { id: "instances",  label: "Instances",  icon: <LayoutGrid className="w-5 h-5" />,   view: "instances" },
+  { id: "models",     label: "Models",     icon: <Cpu className="w-5 h-5" />,           view: "models" },
+  { id: "library",      label: "Library",      icon: <BookOpen className="w-5 h-5" />,      view: "library" },
+  { id: "instructions", label: "Instructions", icon: <BookText className="w-5 h-5" />,  view: "instructions" },
 ]
 
 const secondaryNavItems: NavItem[] = [
-  { id: "tools", label: "Tools", icon: <Wrench className="w-5 h-5" />, view: "tools" },
-  { id: "voices", label: "Voices", icon: <Mic className="w-5 h-5" />, view: "voices" },
-  { id: "status", label: "Status", icon: <Activity className="w-5 h-5" />, view: "status" },
-  { id: "settings", label: "Settings", icon: <Settings className="w-5 h-5" />, view: "settings" },
+  { id: "tools",   label: "Tools",   icon: <Wrench className="w-5 h-5" />,  view: "tools" },
+  { id: "voices",  label: "Voices",  icon: <Mic className="w-5 h-5" />,     view: "voices" },
+  { id: "desktop", label: "Desktop", icon: <Monitor className="w-5 h-5" />, view: "desktop" },
+  { id: "mcp",     label: "MCP",     icon: <Plug className="w-5 h-5" />,    view: "mcp" },
+  { id: "status",  label: "Status",  icon: <Activity className="w-5 h-5" />, view: "status" },
+  { id: "settings",label: "Settings",icon: <Settings className="w-5 h-5" />, view: "settings" },
 ]
 
 interface SidebarProps {
@@ -50,12 +57,28 @@ interface SidebarProps {
   onToggleCollapse: () => void
 }
 
+const ROUTE_TO_VIEW: Record<string, string> = {
+  '/':          'dashboard',
+  '/assistant': 'assistant',
+  '/instances': 'instances',
+  '/models':    'models',
+  '/library':       'library',
+  '/instructions':  'instructions',
+  '/tools':     'tools',
+  '/voices':    'voices',
+  '/desktop':   'desktop',
+  '/mcp':       'mcp',
+  '/status':    'status',
+  '/settings':  'settings',
+  '/admin':     'admin',
+}
+
 export function Sidebar({ collapsed }: SidebarProps) {
-  const [activeView, setActiveView] = useState("dashboard")
+  const location = useLocation()
+  const activeView = ROUTE_TO_VIEW[location.pathname] ?? 'dashboard'
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
 
   const handleNavClick = (view: string) => {
-    setActiveView(view)
     window.dispatchEvent(new CustomEvent("guppy:navigate", { detail: { view } }))
   }
 

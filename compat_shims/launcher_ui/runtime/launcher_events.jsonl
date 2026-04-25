@@ -11,3 +11,25 @@
 {"ts": "2026-04-22T02:29:26", "source": "launcher", "event": "startup_phase", "uptime_s": 0.063, "phase": "window_init_enter"}
 {"event": "command_response", "ok": true, "chars": 2, "seq": 1, "idempotency_key": "launcher-95202d8e091246f796799ac39307d16a"}
 {"event": "command_response", "ok": true, "chars": 2, "seq": 1, "idempotency_key": "launcher-8e6db5d4dc774fd6821f0fad24524a17"}
+{"ts": "2026-04-22T22:59:21", "source": "launcher", "event": "startup_phase", "uptime_s": 0.047, "phase": "window_init_enter"}
+{"ts": "2026-04-22T22:59:34", "source": "launcher", "event": "startup_phase", "uptime_s": 0.031, "phase": "window_init_enter"}
+{"ts": "2026-04-22T22:59:48", "source": "launcher", "event": "startup_phase", "uptime_s": 0.032, "phase": "window_init_enter"}
+{"ts": "2026-04-22T23:00:03", "source": "launcher", "event": "startup_phase", "uptime_s": 0.016, "phase": "window_init_enter"}
+{"event": "command_response", "ok": true, "chars": 2, "seq": 1, "idempotency_key": "launcher-d04961431e1046da9fe1e00c38cb1743"}
+{"event": "command_response", "ok": true, "chars": 2, "seq": 1, "idempotency_key": "launcher-15ac0b8eea9542eebaeec08c8df6dc4c"}
+{"event": "command_response", "ok": true, "chars": 2, "seq": 1, "idempotency_key": "launcher-12e60992b413421eba37fdfb409afd36"}
+{"event": "command_response", "ok": true, "chars": 2, "seq": 1, "idempotency_key": "launcher-2dcba7e4ce404126b48f0a4298897c36"}
+{"ts": "2026-04-25T12:56:54", "source": "launcher", "event": "startup_phase", "uptime_s": 0.187, "phase": "window_init_enter"}
+{"ts": "2026-04-25T12:56:57", "source": "launcher", "event": "chat_session_rotated", "uptime_s": 2.906, "reason": "instance_bootstrap", "session_id": "launcher-1777139817-guppy-primary", "instance": "guppy-primary", "mode": "", "persona": ""}
+{"ts": "2026-04-25T12:56:57", "source": "launcher", "event": "startup_phase", "uptime_s": 3.312, "phase": "personalization_scaffold_thread_start"}
+{"ts": "2026-04-25T12:56:57", "source": "launcher", "event": "personalization_scaffold_created", "uptime_s": 3.312, "created": ["persona", "providers", "voice"]}
+{"ts": "2026-04-25T12:56:57", "source": "launcher", "event": "startup_phase", "uptime_s": 3.312, "phase": "personalization_scaffold_thread_complete"}
+{"ts": "2026-04-25T12:56:59", "source": "launcher", "event": "startup_phase_duration", "uptime_s": 5.094, "phase": "build_ui", "duration_ms": 4907, "budget_ms": 3000, "over_budget": true}
+{"ts": "2026-04-25T12:56:59", "source": "launcher", "event": "startup_phase_over_budget", "uptime_s": 5.094, "phase": "build_ui", "duration_ms": 4907, "budget_ms": 3000}
+{"ts": "2026-04-25T12:56:59", "source": "launcher", "event": "startup_phase", "uptime_s": 5.094, "phase": "window_build_ui_complete"}
+{"ts": "2026-04-25T12:56:59", "source": "launcher", "event": "startup_phase_duration", "uptime_s": 5.094, "phase": "status_poll_start", "duration_ms": 0, "budget_ms": 3000, "over_budget": false}
+{"ts": "2026-04-25T12:56:59", "source": "launcher", "event": "startup_phase", "uptime_s": 5.094, "phase": "window_status_poll_started"}
+{"ts": "2026-04-25T12:57:00", "source": "launcher", "event": "startup_phase_duration", "uptime_s": 6.0, "phase": "first_status_poll", "duration_ms": 5812, "budget_ms": 3000, "over_budget": true}
+{"ts": "2026-04-25T12:57:00", "source": "launcher", "event": "startup_phase_over_budget", "uptime_s": 6.0, "phase": "first_status_poll", "duration_ms": 5812, "budget_ms": 3000}
+{"ts": "2026-04-25T12:57:00", "source": "launcher", "event": "startup_phase", "uptime_s": 6.0, "phase": "first_status_poll_complete"}
+{"ts": "2026-04-25T12:57:00", "source": "launcher", "event": "auth_self_check", "uptime_s": 6.015, "ok": true, "mode": "dev", "user_id": "launcher_local", "token_source": "jwt_helper"}

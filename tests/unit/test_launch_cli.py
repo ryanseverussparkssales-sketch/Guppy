@@ -80,17 +80,15 @@ class LaunchCliTests(unittest.TestCase):
             launch_cli, "start_hub_background"
         ) as start_hub, patch.object(
             launch_cli, "_launch_gui_surface", return_value=0
-        ) as launch_gui, patch("builtins.print") as print_mock:
+        ) as launch_gui, patch.object(launch_cli._console, "print") as print_mock:
             rc = launch_cli.main(["launcher"])
 
         self.assertEqual(rc, 0)
         setup_env.assert_called_once()
         start_hub.assert_not_called()
         launch_gui.assert_called_once()
-        self.assertIn(
-            call("[launch] Launcher surface manages hub bootstrap internally; skipping pre-launch hub spawn"),
-            print_mock.mock_calls,
-        )
+        printed = " ".join(str(a) for call_args in print_mock.call_args_list for a in call_args.args)
+        self.assertIn("Launcher surface manages hub bootstrap internally", printed)
 
     def test_hub_surface_uses_detached_gui_launch_path(self):
         with patch.object(launch_cli, "setup_env") as setup_env, patch.object(
@@ -127,17 +125,16 @@ class LaunchCliTests(unittest.TestCase):
             os.environ.pop("GUPPY_START_DESTINATION", None)
             with patch.object(launch_cli, "setup_env") as setup_env, patch.object(
                 launch_cli, "_launch_gui_surface", return_value=0
-            ) as launch_gui, patch("builtins.print") as print_mock:
+            ) as launch_gui, patch.object(launch_cli._console, "print") as print_mock:
                 rc = launch_cli.main(["hub", "--start", "automation-test", "--no-hub"])
 
             self.assertEqual(rc, 0)
             self.assertNotIn("GUPPY_START_DESTINATION", os.environ)
             setup_env.assert_called_once()
             launch_gui.assert_called_once()
-            self.assertIn(
-                call("[launch] WARNING: --start only applies to launcher surfaces; ignoring 'automation-test' for hub"),
-                print_mock.mock_calls,
-            )
+            printed = " ".join(str(a) for call_args in print_mock.call_args_list for a in call_args.args)
+            self.assertIn("--start only applies to launcher surfaces", printed)
+            self.assertIn("automation-test", printed)
         finally:
             if prior is None:
                 os.environ.pop("GUPPY_START_DESTINATION", None)
