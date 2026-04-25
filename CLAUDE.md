@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-04-22
+**Last updated:** 2026-04-25
 
 ---
 
@@ -22,18 +22,35 @@ launcher_app.py              hub_app.py              server.py
 ```
 
 ### Key Modules
-- **`src/guppy/cli/launch.py`** — Single entrypoint for all launch modes (launcher, guppyprime, hub, api, agent)
+- **`src/guppy/cli/launch.py`** — Single entrypoint for all launch modes (launcher, guppyprime, hub, api, agent, **fishbowl**)
+- **`src/guppy/config.py`** — Centralised pydantic-settings `GuppySettings`; import `settings` instead of `os.environ.get()`
+- **`src/guppy/logging_setup.py`** — Loguru configuration + stdlib intercept; call `configure_logging()` at API startup
 - **`src/guppy/launcher_application/`** — Shared workflow catalog, launcher services, state contracts
 - **`src/guppy/api/`** — REST API with JWT auth, repair token, dev mode
+- **`src/guppy/api/routes_tools.py`** — SQLite-backed tools registry (`GET /tools`, `POST /tools/:id/enable|disable`)
+- **`src/guppy/api/routes_mcp.py`** — MCP server registry (`/api/mcp/servers`, test, tools listing)
+- **`src/guppy/api/routes_providers.py`** — Provider/model management; checks env + settings DB; `POST /providers/{p}/active-model`
+- **`src/guppy/mcp/manager.py`** — MCPPluginManager: SQLite registry, 11 preset servers, lazy client pool
 - **`src/guppy/experience_config/`** — Runtime persona, provider selection, voice settings
-- **`src/guppy/apps/`** — UI surfaces (launcher_app.py, hub_app.py)
+- **`src/guppy/apps/`** — UI surfaces (launcher_app.py, hub_app.py, **fishbowl_app.py**)
+
+### Web UI Key Files (`web/src/`)
+- **`api/schemas.ts`** — Zod v4 schemas for all API responses; use `z.record(z.string(), ...)` (two-arg form required in v4)
+- **`api/queries.ts`** — All TanStack Query hooks (`useQuery`/`useMutation`); query key registry `QK`
+- **`api/client.ts`** — Axios client, baseURL `http://127.0.0.1:8081`
+- **`themes/index.ts`** — Theme registry + `applyTheme(id)` / `initTheme()`; V0 adds `[data-theme="id"]` CSS block
+- **`themes/dark.css`** — Dark theme override block (imported in index.css)
+- **`components/CommandPalette.tsx`** — `Ctrl+K` / `Cmd+K` command palette (cmdk); navigate, switch provider, toggle tools
+- **`views/MCPView.tsx`** — MCP server management UI
 
 ### Known Architecture Seams
 1. **UI Launcher is a re-export shim** — `ui/launcher/__init__.py` delegates to `compat_shims/launcher_ui/ui/launcher/`. Real code lives in compat_shims. This is intentional (cleanup in progress).
 
 2. **Legacy code quarantined** — `compat_shims/legacy_surfaces/` is empty (candidate for removal). `src/guppy/merlin/` holds old specialist material (not active launcher).
 
-3. **Multiple /repair endpoints** — `/repair` and `/repair-token/refresh` declared in three files (`routes_ops.py`, `snapshot_misc_routes.py`, `_server_fragment_routes_core.py`). Verify if these are alternative mount points or dead code.
+3. **Multiple /repair endpoints** — Consolidated. Only `routes_ops.py` / `ServerContext` path is active.
+
+4. **os.environ.get() migration in progress** — `src/guppy/config.py` (GuppySettings) is the target; `server_runtime.py` and `auth.py` still use direct env reads for some values not yet in the schema.
 
 ---
 
@@ -69,7 +86,8 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - **`tests/smoke/`** — Runtime smoke tests (launcher, API, security)
 - **`tests/unit/`** — Fast unit tests
 - **`tests/integration/`** — Slower integration tests
-- Note: Some tests resolve via `compat_shims/launcher_ui/tests/` (pytest compiles them correctly, but literal path `tests/unit/test_...` may be imprecise)
+- **`web/src/__tests__/`** — Vitest component tests (`npm test`); Playwright E2E (`npm run playwright`)
+- Note: `asyncio_mode = auto` set in pytest.ini — async tests need no `@pytest.mark.asyncio` decorator
 
 ---
 
@@ -94,7 +112,16 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 
 ### 🔴 Code Cleanup
 - [x] `compat_shims/legacy_surfaces/` — Intentionally empty quarantine marker (enforced by `tools/check_wrapper_integrity.py`); not a cleanup target
-- [x] Multiple `/repair` implementations — Consolidated. Only `routes_ops.py` / `ServerContext` path is active. Legacy files (`_server_fragment_routes_core.py`, `server_runtime_snapshot.py`, `snapshot_misc_routes.py` and related snapshot support files) removed.
+- [x] Multiple `/repair` implementations — Consolidated. Only `routes_ops.py` / `ServerContext` path is active.
+- [x] `routes_settings.py:168` — Extra arg passed to `set_active_provider()` (only accepts 1). Fixed 2026-04-24.
+- [x] `store/index.ts` — `Provider` type not re-exported, causing TS error in SettingsView. Fixed 2026-04-24.
+- [x] `api/schemas.ts` — Zod v4 `z.record()` required two-arg form; all calls fixed 2026-04-25.
+- [ ] `os.environ.get()` migration — `server_runtime.py` and `auth.py` still use direct env reads; migrate to `settings` from `config.py`
+- [ ] Migrate remaining views to TanStack Query hooks — `ModelsView`, `SettingsView`, `MCPView`, `ToolsView` still use manual `useState`/`useEffect` fetch patterns
+
+### 🟡 Pending Features (installed, not yet wired)
+- [ ] **Recharts** — installed; AdminPanel metrics dashboard charts not built yet (requests over time, latency sparklines)
+- [ ] **react-resizable-panels** — installed; chat sidebar + desktop split not built yet
 
 ### 🟡 Documentation
 - [x] Add one-line clarification to `instructions/OPERATIONS.md` §2 explaining that `ui/launcher/` is a re-export shim — done
@@ -102,11 +129,29 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - [ ] Add architecture diagram to README.md
 
 ### 🟢 Verified Working
-- ✅ CLI launcher paths (launcher, guppyprime, hub, api, agent)
+- ✅ CLI launcher paths (launcher, guppyprime, hub, api, agent, fishbowl)
 - ✅ JWT and repair token auth flows
-- ✅ Database pragmas and hardening
+- ✅ Database pragmas and hardening — also Alembic migrations at `migrations/` (head = 0001)
 - ✅ All documented tool scripts and test files
-- ✅ `GUPPY_DEV_MODE` env var and logging
+- ✅ `GUPPY_DEV_MODE` env var and logging (loguru via `logging_setup.py`)
+- ✅ Tools API (`GET /tools`, toggle enable/disable) — SQLite-backed, seeded with 8 tools
+- ✅ MCP server registry — 11 presets, custom server CRUD, tool listing, test endpoint
+- ✅ Fishbowl companion widget — always-on-top PySide6 app, Ctrl+Space hotkey, chat panel
+- ✅ Web UI: markdown rendering (shiki + DOMPurify), Sonner toasts, framer-motion animations
+- ✅ Web UI: TanStack Query wired — `QueryClientProvider` in main.tsx; AdminPanel fully migrated
+- ✅ Web UI: Zod v4 schemas for all API responses (`web/src/api/schemas.ts`)
+- ✅ Web UI: Theme system — `data-theme` attribute, `initTheme()` FOUC prevention, dark.css override
+- ✅ Web UI: Command palette — `Ctrl+K` / `Cmd+K`, navigate + switch provider + toggle tools
+- ✅ Web UI: Security hardening — CSP meta tag, Vite security headers, FastAPI security middleware
+- ✅ Web UI: Provider model switching — `POST /providers/{p}/active-model`, active model persisted in settings DB
+- ✅ Vitest running — 5 MarkdownMessage tests pass; `npm test` works; TypeScript clean (`npx tsc --noEmit`)
+
+### 🎨 Theme System for V0
+- Theme CSS lives in `web/src/themes/` — one file per theme
+- Register theme in `web/src/themes/index.ts` `THEMES` array
+- V0 output: a single `[data-theme="your-theme-id"] { --color-primary: ...; ... }` CSS block
+- **Never** modify `@theme` block in `index.css` — that's the default; override only via `[data-theme]`
+- Import new theme CSS in `web/src/themes/index.ts` or `index.css`
 
 ---
 

@@ -1,22 +1,25 @@
 import { Routes, Route, useNavigate } from 'react-router-dom'
-import { useEffect } from 'react'
-import { AppShell } from './components/layout'
+import { useEffect, useState, useCallback } from 'react'
+import { AppShell } from './components/layout/index'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ErrorToastContainer } from './components/ErrorToast'
+import { CommandPalette } from './components/CommandPalette'
 import AssistantView from './views/AssistantView'
 import InstancesView from './views/InstancesView'
 import LibraryView from './views/LibraryView'
 import ModelsView from './views/ModelsView'
 import ToolsView from './views/ToolsView'
 import VoicesView from './views/VoicesView'
+import DesktopView from './views/DesktopView'
+import MCPView from './views/MCPView'
 import SettingsView from './views/SettingsView'
 import StatusView from './views/StatusView'
 import AdminPanel from './views/AdminPanel'
 import DashboardView from './views/DashboardView'
 import LoginView from './views/LoginView'
-import { useAppStore, useWorkspaceStore, syncManager } from './store'
+import { useWorkspaceStore, syncManager } from './store'
 import { useErrorStore } from './store/errorStore'
-import api from './api/client'
+import { Toaster } from 'sonner'
 import './index.css'
 
 /**
@@ -51,6 +54,9 @@ function AppContent() {
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { errors, removeError } = useErrorStore()
+  const [paletteOpen, setPaletteOpen] = useState(false)
+
+  const closePalette = useCallback(() => setPaletteOpen(false), [])
 
   // Initialize app data on mount
   useEffect(() => {
@@ -77,6 +83,19 @@ function AppContent() {
     }
   }, [activeWorkspaceId])
 
+  // Cmd+K / Ctrl+K opens command palette
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setPaletteOpen((prev) => !prev)
+      }
+      if (e.key === 'Escape') setPaletteOpen(false)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [])
+
   // Listen for navigation events from sidebar/command palette
   useEffect(() => {
     const handleNavigate = (e: CustomEvent<{ view: string }>) => {
@@ -88,6 +107,8 @@ function AppContent() {
         models: '/models',
         tools: '/tools',
         voices: '/voices',
+        desktop: '/desktop',
+        mcp: '/mcp',
         settings: '/settings',
         status: '/status',
         admin: '/admin',
@@ -111,6 +132,8 @@ function AppContent() {
           <Route path="/models" element={<ModelsView />} />
           <Route path="/tools" element={<ToolsView />} />
           <Route path="/voices" element={<VoicesView />} />
+          <Route path="/desktop" element={<DesktopView />} />
+          <Route path="/mcp" element={<MCPView />} />
           <Route path="/settings" element={<SettingsView />} />
           <Route path="/status" element={<StatusView />} />
           <Route path="/admin" element={<AdminPanel />} />
@@ -129,6 +152,8 @@ function AppContent() {
         onDismiss={removeError}
         position="bottom-right"
       />
+      <Toaster position="top-right" richColors closeButton />
+      <CommandPalette open={paletteOpen} onClose={closePalette} />
     </>
   )
 }

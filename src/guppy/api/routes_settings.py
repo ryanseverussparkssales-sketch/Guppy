@@ -152,37 +152,52 @@ def build_settings_router(ctx: ServerContext) -> APIRouter:
     router = APIRouter(prefix="/api/settings")
 
     @router.get("")
-    async def get_settings(user_id: str = Depends(ctx.require_rate_limit)):
+    async def get_settings(_user_id: str = Depends(ctx.require_rate_limit)):
         """Get all settings and credential status."""
-        del user_id
         active_provider = await asyncio.to_thread(_settings_db.get_active_provider)
         credentials = await asyncio.to_thread(_settings_db.get_credentials_status)
-        return {"active_provider": active_provider, "credentials": credentials}
+        temperature_raw = await asyncio.to_thread(_settings_db.get_setting, "temperature")
+        max_tokens_raw = await asyncio.to_thread(_settings_db.get_setting, "max_tokens")
+        return {
+            "active_provider": active_provider,
+            "credentials": credentials,
+            "model_params": {
+                "temperature": float(temperature_raw) if temperature_raw else 0.7,
+                "max_tokens": int(max_tokens_raw) if max_tokens_raw else 4096,
+            },
+        }
 
     @router.put("")
     async def update_settings(
         payload: Dict[str, Any],
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
-        """Bulk-update settings (theme, language, etc)."""
-        del user_id
+        """Bulk-update settings (provider, temperature, max_tokens, etc)."""
         if "active_provider" in payload:
-            await asyncio.to_thread(_settings_db.set_active_provider, payload["active_provider"], payload.get("active_model", ""))
+            await asyncio.to_thread(_settings_db.set_active_provider, payload["active_provider"])
+        if "temperature" in payload:
+            t = float(payload["temperature"])
+            if not (0.0 <= t <= 2.0):
+                raise HTTPException(status_code=422, detail="temperature must be 0.0–2.0")
+            await asyncio.to_thread(_settings_db.set_setting, "temperature", str(t))
+        if "max_tokens" in payload:
+            mt = int(payload["max_tokens"])
+            if not (1 <= mt <= 128000):
+                raise HTTPException(status_code=422, detail="max_tokens must be 1–128000")
+            await asyncio.to_thread(_settings_db.set_setting, "max_tokens", str(mt))
         return {"ok": True}
 
     @router.get("/credentials")
-    async def get_credentials_status(user_id: str = Depends(ctx.require_rate_limit)):
+    async def get_credentials_status(_user_id: str = Depends(ctx.require_rate_limit)):
         """Get credential configuration status (no keys exposed)."""
-        del user_id
         return await asyncio.to_thread(_settings_db.get_credentials_status)
 
     @router.post("/credentials")
     async def store_credential(
         payload: Dict[str, str],
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
         """Store API credentials."""
-        del user_id
         provider = payload.get("provider", "").strip().lower()
         api_key = payload.get("api_key", "").strip()
 
@@ -200,25 +215,22 @@ def build_settings_router(ctx: ServerContext) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(e))
 
     @router.delete("/credentials/{provider}")
-    async def delete_credential(provider: str, user_id: str = Depends(ctx.require_rate_limit)):
+    async def delete_credential(provider: str, _user_id: str = Depends(ctx.require_rate_limit)):
         """Delete credentials for a provider."""
-        del user_id
         await asyncio.to_thread(_settings_db.delete_credential, provider)
         return {"deleted": provider}
 
     @router.get("/provider")
-    async def get_provider(user_id: str = Depends(ctx.require_rate_limit)):
+    async def get_provider(_user_id: str = Depends(ctx.require_rate_limit)):
         """Get active provider."""
-        del user_id
         return {"active_provider": await asyncio.to_thread(_settings_db.get_active_provider)}
 
     @router.post("/provider")
     async def set_provider(
         payload: Dict[str, str],
-        user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(ctx.require_rate_limit),
     ):
         """Set active provider."""
-        del user_id
         provider = payload.get("provider", "").strip().lower()
         if not provider:
             raise HTTPException(status_code=400, detail="provider required")

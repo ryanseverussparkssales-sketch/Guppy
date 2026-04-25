@@ -1,0 +1,59 @@
+/*
+ * DARK THEME — "Atoll Editorial Dark"
+ * Deep slate surfaces with teal primary, warm coral secondary.
+ *
+ * Applied when: <html data-theme="dark">
+ * All values override the @theme defaults in index.css.
+ */
+
+[data-theme="dark"] {
+  /* Core palette */
+  --color-primary: #4cc9c9;
+  --color-primary-container: #006a6a;
+  --color-on-primary: #003737;
+  --color-on-primary-container: #9ef0f0;
+
+  --color-secondary: #fe9065;
+  --color-secondary-container: #7a2500;
+  --color-on-secondary: #3d1400;
+  --color-on-secondary-container: #ffb89c;
+
+  --color-tertiary: #4fb3b3;
+  --color-tertiary-container: #004f4f;
+
+  /* Surfaces — dark slate */
+  --color-surface: #0f1415;
+  --color-surface-dim: #0a0e0f;
+  --color-surface-bright: #1e2728;
+  --color-surface-container-lowest: #080c0d;
+  --color-surface-container-low: #131a1b;
+  --color-surface-container: #1a2224;
+  --color-surface-container-high: #22292b;
+  --color-surface-container-highest: #2b3335;
+  --color-surface-variant: #2e3a3a;
+
+  /* Text */
+  --color-on-surface: #e0e8e8;
+  --color-on-surface-variant: #8fa8a8;
+
+  /* Borders */
+  --color-outline: #4a5e5e;
+  --color-outline-variant: #2e3a3a;
+
+  /* Semantic status */
+  --color-success: #66bb6a;
+  --color-warning: #ffa726;
+  --color-destructive: #ef5350;
+  --color-error: #ef5350;
+  --color-coral: #ef5350;
+  --color-info: #42a5f5;
+
+  /* Signature gradient */
+  --color-gradient-start: #006a6a;
+  --color-gradient-end: #4cc9c9;
+
+  /* Shadows — heavier in dark mode */
+  --shadow-ghost: 0 0 0 1px rgba(76, 201, 201, 0.12);
+  --shadow-soft: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+  --shadow-soft-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.25);
+}

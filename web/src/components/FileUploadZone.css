@@ -18,8 +18,8 @@
 }
 
 .drop-zone.dragging {
-  border-color: var(--color-accent);
-  background-color: rgba(59, 130, 246, 0.1);
+  border-color: var(--color-primary);
+  background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
 }
 
 .upload-icon {

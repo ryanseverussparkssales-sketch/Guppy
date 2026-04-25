@@ -1,5 +1,11 @@
-import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios'
-import { CircuitBreaker, getCircuitBreaker } from '../utils/circuitBreaker'
+import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
+import { CircuitBreaker, getCircuitBreaker, getAllCircuitBreakerStates } from '../utils/circuitBreaker'
+
+declare module 'axios' {
+  interface InternalAxiosRequestConfig {
+    _authRetry?: boolean
+  }
+}
 import { RequestQueue, generateRequestFingerprint } from '../utils/requestQueue'
 import { telemetry } from '../utils/telemetry'
 
@@ -81,7 +87,7 @@ api.interceptors.request.use((config) => {
     // Queue the request instead of sending it
     const fingerprint = generateRequestFingerprint(
       endpoint,
-      config.method || 'GET',
+      (config.method?.toUpperCase() || 'GET') as any,
       config.data
     )
 
@@ -163,7 +169,7 @@ api.interceptors.response.use(
 
     return response
   },
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
     const config = error.config as InternalAxiosRequestConfig
     if (!config) {
       return Promise.reject(error)
@@ -214,8 +220,24 @@ api.interceptors.response.use(
       details: { statusCode: error.response?.status, message: error.message },
     })
 
-    // Handle auth errors specially
+    // Handle auth errors: try silent re-auth before forcing login
     if (error.response?.status === 401) {
+      const originalRequest = error.config
+      // Don't retry auth endpoints themselves — that would loop
+      if (originalRequest && !originalRequest._authRetry && !originalRequest.url?.includes('/auth/')) {
+        originalRequest._authRetry = true
+        try {
+          const refreshResp = await api.post('/auth/local')
+          const newToken = refreshResp.data?.access_token
+          if (newToken) {
+            localStorage.setItem('accessToken', newToken)
+            originalRequest.headers.Authorization = `Bearer ${newToken}`
+            return api(originalRequest)
+          }
+        } catch {
+          // refresh failed — fall through to login redirect
+        }
+      }
       localStorage.removeItem('accessToken')
       window.location.href = '/login'
       return Promise.reject(error)
@@ -230,7 +252,7 @@ api.interceptors.response.use(
     if (isRetryableError(error)) {
       const fingerprint = generateRequestFingerprint(
         endpoint,
-        config.method || 'GET',
+        (config.method?.toUpperCase() || 'GET') as any,
         config.data
       )
 
@@ -267,9 +289,9 @@ api.interceptors.response.use(
  */
 const monitoredEndpoints = new Set<string>()
 
-function monitorCircuitBreaker(endpoint: string): void {
+function monitorCircuitBreaker(endpoint: string): CircuitBreaker {
   if (monitoredEndpoints.has(endpoint)) {
-    return
+    return getCircuitBreaker(endpoint)
   }
 
   monitoredEndpoints.add(endpoint)
@@ -285,8 +307,8 @@ function monitorCircuitBreaker(endpoint: string): void {
       telemetry.recordCircuitBreakerStateChange(
         endpoint,
         to,
-        breaker.getFailureCount?.() || 0,
-        breaker.getSuccessCount?.() || 0
+        breaker.getDiagnostics().failureCount,
+        breaker.getDiagnostics().successCount
       )
 
       // When circuit closes, attempt to flush queued requests
@@ -387,7 +409,7 @@ export function setupCircuitBreakerMonitoring(endpoint: string): CircuitBreaker 
  * Public API to get circuit breaker diagnostics
  */
 export function getCircuitBreakerDiagnostics(): Record<string, any> {
-  const states = require('../utils/circuitBreaker').getAllCircuitBreakerStates()
+  const states = getAllCircuitBreakerStates()
   const queueStats = requestQueue.getStats()
 
   return {

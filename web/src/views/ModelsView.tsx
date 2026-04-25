@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Download, Trash2, RefreshCw, CheckCircle, XCircle, Brain, Cloud, Cpu, Activity, Info } from 'lucide-react'
+import { Download, Trash2, RefreshCw, CheckCircle, XCircle, Brain, Cloud, Cpu, Activity, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '../api/client'
 
@@ -61,6 +61,7 @@ export default function ModelsView() {
   const [pullJobId, setPullJobId] = useState<string | null>(null)
   const [pullStatus, setPullStatus] = useState<PullStatus | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [activating, setActivating] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const fetchProviders = async () => {
@@ -120,6 +121,21 @@ export default function ModelsView() {
       setError(`Failed to delete ${modelId}`)
     } finally {
       setDeleting(null)
+    }
+  }
+
+  const handleActivate = async (provider: Tab, modelId: string) => {
+    setActivating(modelId)
+    try {
+      await api.post(`/providers/${provider}/active-model`, { model_id: modelId })
+      setProviders((prev) => {
+        if (!prev) return prev
+        return { ...prev, [provider]: { ...prev[provider], active_model: modelId } }
+      })
+    } catch {
+      setError(`Failed to activate ${modelId}`)
+    } finally {
+      setActivating(null)
     }
   }
 
@@ -300,7 +316,9 @@ export default function ModelsView() {
                       model={model}
                       isActive={providers.local.active_model === model.id}
                       onDelete={() => handleDelete(model.id)}
+                      onActivate={() => handleActivate('local', model.id)}
                       deleting={deleting === model.id}
+                      activating={activating === model.id}
                       statusBadge={getStatusBadge(model.tier)}
                       showDelete
                     />
@@ -321,17 +339,18 @@ export default function ModelsView() {
             <>
               {!providers[activeTab].configured && (
                 <div className="bg-secondary/10 border border-secondary/20 rounded-xl p-6 flex items-center gap-4">
-                  <Info className="w-8 h-8 text-secondary flex-shrink-0" />
+                  <Settings className="w-8 h-8 text-secondary flex-shrink-0" />
                   <div>
                     <p className="font-headline font-bold text-on-surface">Provider Not Configured</p>
                     <p className="text-sm text-on-surface-variant mt-1">
-                      Add{' '}
-                      <code className="px-2 py-0.5 bg-surface-container rounded text-xs font-mono">
-                        {activeTab === 'anthropic' && 'ANTHROPIC_API_KEY'}
-                        {activeTab === 'openai' && 'OPENAI_API_KEY'}
-                        {activeTab === 'google' && 'GOOGLE_API_KEY'}
-                      </code>{' '}
-                      to your environment and restart the server.
+                      Add your API key in{' '}
+                      <button
+                        onClick={() => window.dispatchEvent(new CustomEvent('guppy:navigate', { detail: { view: 'settings' } }))}
+                        className="text-primary underline hover:no-underline"
+                      >
+                        Settings → Providers &amp; Credentials
+                      </button>
+                      .
                     </p>
                   </div>
                 </div>
@@ -343,6 +362,8 @@ export default function ModelsView() {
                     key={model.id}
                     model={model}
                     isActive={providers[activeTab].active_model === model.id}
+                    onActivate={() => handleActivate(activeTab, model.id)}
+                    activating={activating === model.id}
                     statusBadge={getStatusBadge(model.tier)}
                   />
                 ))}
@@ -365,12 +386,14 @@ interface ModelCardProps {
   model: { id: string; name: string; tier: string }
   isActive: boolean
   onDelete?: () => void
+  onActivate?: () => void
   deleting?: boolean
+  activating?: boolean
   statusBadge: string
   showDelete?: boolean
 }
 
-function ModelCard({ model, isActive, onDelete, deleting, statusBadge, showDelete }: ModelCardProps) {
+function ModelCard({ model, isActive, onDelete, onActivate, deleting, activating, statusBadge, showDelete }: ModelCardProps) {
   return (
     <div className={cn(
       "bg-surface-container-lowest rounded-xl p-6 ghost-border transition-all duration-300 hover:shadow-soft-lg hover:-translate-y-1",
@@ -390,9 +413,22 @@ function ModelCard({ model, isActive, onDelete, deleting, statusBadge, showDelet
         {isActive ? (
           <span className="badge-verified">Active</span>
         ) : (
-          <span className="text-xs text-on-surface-variant/60">Inactive</span>
+          <button
+            onClick={onActivate}
+            disabled={activating}
+            className={cn(
+              "text-xs px-3 py-1 rounded-lg font-medium transition-all",
+              activating
+                ? "bg-surface-container text-on-surface-variant"
+                : "bg-primary/10 text-primary hover:bg-primary/20"
+            )}
+          >
+            {activating ? (
+              <span className="flex items-center gap-1"><RefreshCw className="w-3 h-3 animate-spin" /> Activating…</span>
+            ) : 'Activate'}
+          </button>
         )}
-        
+
         {showDelete && onDelete && (
           <button
             onClick={onDelete}

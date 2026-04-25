@@ -83,11 +83,34 @@ def build_runtime_app(
         CORSMiddleware,
         allow_origins=allowed_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "DELETE", "PUT", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Repair-Token", "X-Turnstile-Token"],
     )
     app.middleware("http")(request_timing_middleware)
+    app.middleware("http")(_security_headers_middleware)
     return app
+
+
+async def _security_headers_middleware(request: Any, call_next: Any) -> Any:
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src https://fonts.gstatic.com data:; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self' http://127.0.0.1:8081 ws://127.0.0.1:8081; "
+        "worker-src 'self' blob:; "
+        "frame-ancestors 'none'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self';"
+    )
+    return response
 
 
 def build_server_context(

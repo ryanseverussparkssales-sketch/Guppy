@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react'
+import { toast } from 'sonner'
 import {
   Eye,
   EyeOff,
@@ -94,9 +95,9 @@ interface DeleteConfirmation {
 }
 
 export default function SettingsView() {
-  const { settings, loading, error, fetchSettings, storeCredential, deleteCredential, setActiveProvider } =
+  const { settings, loading, fetchSettings, storeCredential, deleteCredential, setActiveProvider, saveModelParams } =
     useSettings()
-  const { toggleTheme, resolvedTheme } = useTheme()
+  const { resolvedTheme, activeTheme, setTheme, themes } = useTheme()
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'providers' | 'diagnostics'>('providers')
@@ -111,39 +112,24 @@ export default function SettingsView() {
     visible: false,
   })
   const [apiError, setApiError] = useState<string | null>(null)
-  const [apiSuccess, setApiSuccess] = useState<string | null>(null)
 
-  // Model parameters state
+  // Model parameters state — seeded from backend once settings load
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState('4096')
-  const [saved, setSaved] = useState(false)
+  const [savingParams, setSavingParams] = useState(false)
 
   // Fetch settings on mount
   useEffect(() => {
     fetchSettings()
   }, [fetchSettings])
 
-  // Load saved settings
+  // Populate model params from backend response
   useEffect(() => {
-    const saved = localStorage.getItem('guppy-settings')
-    if (saved) {
-      try {
-        const { temperature: t, maxTokens: mt } = JSON.parse(saved)
-        setTemperature(t)
-        setMaxTokens(mt)
-      } catch {
-        // Ignore parse errors
-      }
+    if (settings?.model_params) {
+      setTemperature(settings.model_params.temperature)
+      setMaxTokens(String(settings.model_params.max_tokens))
     }
-  }, [])
-
-  // Clear success/error messages after 4 seconds
-  useEffect(() => {
-    if (apiSuccess) {
-      const timeout = setTimeout(() => setApiSuccess(null), 4000)
-      return () => clearTimeout(timeout)
-    }
-  }, [apiSuccess])
+  }, [settings?.model_params])
 
   useEffect(() => {
     if (apiError) {
@@ -177,7 +163,6 @@ export default function SettingsView() {
 
       setSavingProvider(provider)
       setApiError(null)
-      setApiSuccess(null)
 
       try {
         await storeCredential(provider, apiKey)
@@ -185,7 +170,7 @@ export default function SettingsView() {
           ...prev,
           [provider]: '',
         }))
-        setApiSuccess(`Successfully saved ${PROVIDERS[provider].label} credentials`)
+        toast.success(`${PROVIDERS[provider].label} credentials saved`)
       } catch (err) {
         setApiError(`Failed to save ${PROVIDERS[provider].label} credentials`)
         console.error('Save credential error:', err)
@@ -210,11 +195,10 @@ export default function SettingsView() {
     setDeletingProvider(provider)
     setDeleteConfirm({ provider: null, visible: false })
     setApiError(null)
-    setApiSuccess(null)
 
     try {
       await deleteCredential(provider)
-      setApiSuccess(`Deleted ${PROVIDERS[provider].label} credentials`)
+      toast.success(`${PROVIDERS[provider].label} credentials deleted`)
     } catch (err) {
       setApiError(`Failed to delete ${PROVIDERS[provider].label} credentials`)
       console.error('Delete credential error:', err)
@@ -227,11 +211,10 @@ export default function SettingsView() {
     async (provider: Provider) => {
       setSavingProvider(provider)
       setApiError(null)
-      setApiSuccess(null)
 
       try {
         await setActiveProvider(provider)
-        setApiSuccess(`Switched to ${PROVIDERS[provider].label}`)
+        toast.success(`Switched to ${PROVIDERS[provider].label}`)
       } catch (err) {
         setApiError(`Failed to switch to ${PROVIDERS[provider].label}`)
         console.error('Set provider error:', err)
@@ -242,10 +225,23 @@ export default function SettingsView() {
     [setActiveProvider]
   )
 
-  const handleSaveSettings = () => {
-    localStorage.setItem('guppy-settings', JSON.stringify({ temperature, maxTokens }))
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+  const handleSaveSettings = async () => {
+    const mt = parseInt(maxTokens, 10)
+    if (isNaN(mt) || mt < 1) {
+      setApiError('Max tokens must be a positive integer')
+      return
+    }
+    setSavingParams(true)
+    try {
+      await saveModelParams(temperature, mt)
+      // keep localStorage in sync for offline use
+      localStorage.setItem('guppy-settings', JSON.stringify({ temperature, maxTokens: mt }))
+      toast.success('Settings saved')
+    } catch {
+      setApiError('Failed to save settings')
+    } finally {
+      setSavingParams(false)
+    }
   }
 
   const isProviderConfigured = (provider: Provider): boolean => {
@@ -304,15 +300,6 @@ export default function SettingsView() {
             </div>
           )}
 
-          {apiSuccess && (
-            <div className="p-4 rounded-lg bg-success/10 border border-success/20 text-success flex items-start gap-3">
-              <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-medium">Success</p>
-                <p className="text-sm">{apiSuccess}</p>
-              </div>
-            </div>
-          )}
 
           {/* Provider Selection & Credentials */}
           <Card>
@@ -480,7 +467,7 @@ export default function SettingsView() {
                           {/* Security Note */}
                           <div className="flex items-start gap-2 p-3 bg-surface-container rounded text-xs text-on-surface-variant">
                             <Lock className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                            <p>API keys are encrypted and stored securely. Never share your key.</p>
+                            <p>API keys are stored locally in your Guppy data directory. Never share your key.</p>
                           </div>
                         </div>
                       )}
@@ -502,32 +489,34 @@ export default function SettingsView() {
                 )}
                 Appearance
               </CardTitle>
-              <CardDescription>Customize the look and feel</CardDescription>
+              <CardDescription>Choose a theme — drop V0 packs into <code className="text-xs font-mono">web/src/themes/</code> to add more</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-on-surface">Theme</p>
-                  <p className="text-sm text-on-surface-variant">Switch between light and dark mode</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant={resolvedTheme === 'light' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => resolvedTheme === 'dark' && toggleTheme()}
+            <CardContent>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {themes.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTheme(t.id)}
+                    className={cn(
+                      'flex items-center gap-3 p-3 rounded-lg border-2 text-left transition-all',
+                      activeTheme === t.id
+                        ? 'border-primary bg-primary/5'
+                        : 'border-outline-variant hover:border-outline'
+                    )}
                   >
-                    <Sun className="w-4 h-4 mr-1" />
-                    Light
-                  </Button>
-                  <Button
-                    variant={resolvedTheme === 'dark' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => resolvedTheme === 'light' && toggleTheme()}
-                  >
-                    <Moon className="w-4 h-4 mr-1" />
-                    Dark
-                  </Button>
-                </div>
+                    {/* Swatch */}
+                    <div className="flex shrink-0 rounded overflow-hidden w-8 h-8 border border-outline-variant">
+                      <div style={{ background: t.preview[1] }} className="w-1/2" />
+                      <div style={{ background: t.preview[0] }} className="w-1/2" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-on-surface truncate">{t.label}</p>
+                      {activeTheme === t.id && (
+                        <p className="text-[10px] text-primary font-bold uppercase tracking-wide">Active</p>
+                      )}
+                    </div>
+                  </button>
+                ))}
               </div>
             </CardContent>
           </Card>
@@ -586,9 +575,11 @@ export default function SettingsView() {
 
           {/* Save Button */}
           <div className="flex justify-end">
-            <Button onClick={handleSaveSettings} size="lg">
-              <Save className="w-4 h-4 mr-2" />
-              {saved ? 'Saved!' : 'Save Settings'}
+            <Button onClick={handleSaveSettings} size="lg" disabled={savingParams}>
+              {savingParams
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <Save className="w-4 h-4 mr-2" />}
+              {savingParams ? 'Saving…' : 'Save Settings'}
             </Button>
           </div>
         </>
@@ -624,33 +615,6 @@ export default function SettingsView() {
             </CardContent>
           </Card>
 
-          {/* Documentation Links */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Documentation</CardTitle>
-              <CardDescription>Learn about error codes and best practices</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <a
-                href="/docs/ERROR_CODE_REFERENCE.md"
-                className="block p-3 border border-outline rounded-lg hover:bg-surface-container transition-colors"
-              >
-                <p className="font-medium text-on-surface">Error Code Reference</p>
-                <p className="text-sm text-on-surface-variant mt-1">
-                  Complete enumeration of all error codes with user messages and recovery actions
-                </p>
-              </a>
-              <a
-                href="/docs/ERROR_HANDLING_BEST_PRACTICES.md"
-                className="block p-3 border border-outline rounded-lg hover:bg-surface-container transition-colors"
-              >
-                <p className="font-medium text-on-surface">Error Handling Best Practices</p>
-                <p className="text-sm text-on-surface-variant mt-1">
-                  Guidelines for handling errors, patterns, testing approaches, and debugging tips
-                </p>
-              </a>
-            </CardContent>
-          </Card>
         </div>
       )}
 
