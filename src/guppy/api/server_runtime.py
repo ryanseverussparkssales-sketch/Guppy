@@ -502,10 +502,20 @@ app.include_router(build_pipeline_router(_server_context))          # /api/pipel
 # Serve static web UI files
 try:
     from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import FileResponse
     from pathlib import Path as PathlibPath
     _static_path = PathlibPath(__file__).parent.parent.parent.parent / "static"
     if _static_path.exists():
-        app.mount("/", StaticFiles(directory=str(_static_path), html=True), name="static")
+        # Serve asset files (JS/CSS/etc.) from /assets/*
+        app.mount("/assets", StaticFiles(directory=str(_static_path / "assets")), name="assets")
+
+        # SPA catch-all: serve index.html for any path not matched by an API route
+        _spa_index = str(_static_path / "index.html")
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def serve_spa(full_path: str):
+            return FileResponse(_spa_index)
+
 except Exception as e:
     logger.warning(f"Could not mount static files: {e}")
 if __name__ == "__main__":

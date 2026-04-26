@@ -3,7 +3,7 @@ $log  = Join-Path $PSScriptRoot 'launch_webui.log'
 $root   = Split-Path $PSScriptRoot -Parent
 $port   = 8081
 $url    = "http://127.0.0.1:$port/index.html"
-$health = "http://127.0.0.1:$port/"
+$health = "http://127.0.0.1:$port/health"
 
 function Test-ApiReady {
     try {
