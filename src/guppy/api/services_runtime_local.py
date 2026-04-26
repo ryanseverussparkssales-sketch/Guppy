@@ -575,7 +575,8 @@ def call_selected_local_runtime(
                 raise RuntimeError(
                     f"llama.cpp backend '{llamacpp_backend}' returned an empty response."
                 )
-            return content
+            from src.guppy.api.realtime_inference_support import _clean_llamacpp_response
+            return _clean_llamacpp_response(content)
 
     backend = owner._selected_local_runtime_backend()
     warm_status = owner._local_runtime_warm_cached_or_unknown()

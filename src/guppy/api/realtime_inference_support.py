@@ -5,11 +5,36 @@ import logging
 import urllib.request
 from typing import Any, AsyncGenerator, Optional
 
+import re as _re
+
 from src.guppy.inference.local_client import (
     _LLAMACPP_MODEL_ROUTE as _LOCAL_LLAMACPP_ROUTES,
     _BACKENDS as _LOCAL_BACKENDS,
     _resolve_url as _local_resolve_url,
 )
+
+# Matches Hermes / Gemma-style inline tool call markup:
+#   <tool_call>call:name{args}</tool_call>
+# We strip these from llama.cpp responses because the format is non-standard
+# and there's no execution loop to actually run them.
+_TOOL_CALL_TAG_RE = _re.compile(r"<tool_call>.*?</tool_call>", _re.DOTALL)
+
+
+def _clean_llamacpp_response(text: str) -> str:
+    """Strip raw tool-call markup from llama.cpp model output."""
+    cleaned = _TOOL_CALL_TAG_RE.sub("", text).strip()
+    if cleaned == text.strip():
+        return text  # nothing stripped
+    if not cleaned:
+        return (
+            "I don't have access to live web search or external tools in local mode. "
+            "Please ask me to answer from what I already know, or switch to a cloud "
+            "model (Anthropic / OpenAI) for tool-enabled responses."
+        )
+    return cleaned + (
+        "\n\n_(Note: tool calls are not supported for local llama.cpp models — "
+        "the above is based on the model's training knowledge only.)_"
+    )
 
 _log = logging.getLogger(__name__)
 
@@ -553,7 +578,11 @@ async def _stream_llamacpp_tokens(
     messages: list[dict],
     timeout: float = 180.0,
 ) -> AsyncGenerator[str, None]:
-    """Yield content tokens from a llama.cpp OpenAI-compatible SSE stream."""
+    """Yield content tokens from a llama.cpp OpenAI-compatible SSE stream.
+
+    Buffers the full response and strips Hermes/Gemma-style tool-call markup
+    before yielding, since llama.cpp models can't execute tools at this time.
+    """
     import httpx
 
     cfg = _LOCAL_BACKENDS.get(backend, {})
@@ -566,6 +595,7 @@ async def _stream_llamacpp_tokens(
         "temperature": 0.8,
         "top_p": 0.95,
     }
+    full_response = ""
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", url, json=payload) as response:
@@ -587,7 +617,7 @@ async def _stream_llamacpp_tokens(
                     delta = choices[0].get("delta", {})
                     content = delta.get("content") or ""
                     if content:
-                        yield content
+                        full_response += content
     except httpx.HTTPStatusError as exc:
         raise RuntimeError(
             f"llama.cpp backend '{backend}' returned HTTP {exc.response.status_code}"
@@ -596,6 +626,8 @@ async def _stream_llamacpp_tokens(
         raise RuntimeError(
             f"Cannot reach llama.cpp backend '{backend}'. Is the server running?"
         ) from exc
+
+    yield _clean_llamacpp_response(full_response)
 
 
 async def _stream_ollama_tokens(
