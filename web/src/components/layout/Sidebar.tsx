@@ -18,7 +18,8 @@ import {
   Activity,
   Settings,
   Monitor,
-  Plug,
+  Rocket,
+  Users,
 } from "lucide-react"
 
 /**
@@ -37,6 +38,7 @@ interface NavItem {
 const primaryNavItems: NavItem[] = [
   { id: "dashboard",  label: "Dashboard",  icon: <Sparkles className="w-5 h-5" />,   view: "dashboard" },
   { id: "chat",       label: "Chat",       icon: <MessageSquare className="w-5 h-5" />, view: "assistant" },
+  { id: "agents",     label: "Agents",     icon: <Users className="w-5 h-5" />,       view: "agents" },
   { id: "instances",  label: "Instances",  icon: <LayoutGrid className="w-5 h-5" />,   view: "instances" },
   { id: "models",     label: "Models",     icon: <Cpu className="w-5 h-5" />,           view: "models" },
   { id: "library",      label: "Library",      icon: <BookOpen className="w-5 h-5" />,      view: "library" },
@@ -44,12 +46,12 @@ const primaryNavItems: NavItem[] = [
 ]
 
 const secondaryNavItems: NavItem[] = [
-  { id: "tools",   label: "Tools",   icon: <Wrench className="w-5 h-5" />,  view: "tools" },
-  { id: "voices",  label: "Voices",  icon: <Mic className="w-5 h-5" />,     view: "voices" },
-  { id: "desktop", label: "Desktop", icon: <Monitor className="w-5 h-5" />, view: "desktop" },
-  { id: "mcp",     label: "MCP",     icon: <Plug className="w-5 h-5" />,    view: "mcp" },
-  { id: "status",  label: "Status",  icon: <Activity className="w-5 h-5" />, view: "status" },
-  { id: "settings",label: "Settings",icon: <Settings className="w-5 h-5" />, view: "settings" },
+  { id: "tools",          label: "Tools",          icon: <Wrench className="w-5 h-5" />,  view: "tools" },
+  { id: "voices",         label: "Voices",         icon: <Mic className="w-5 h-5" />,     view: "voices" },
+  { id: "desktop",        label: "Desktop",        icon: <Monitor className="w-5 h-5" />, view: "desktop" },
+  { id: "launch-control", label: "Launch Control", icon: <Rocket className="w-5 h-5" />, view: "launch-control" },
+  { id: "status",         label: "Status",         icon: <Activity className="w-5 h-5" />, view: "status" },
+  { id: "settings",       label: "Settings",       icon: <Settings className="w-5 h-5" />, view: "settings" },
 ]
 
 interface SidebarProps {
@@ -60,17 +62,18 @@ interface SidebarProps {
 const ROUTE_TO_VIEW: Record<string, string> = {
   '/':          'dashboard',
   '/assistant': 'assistant',
+  '/agents':    'agents',
   '/instances': 'instances',
   '/models':    'models',
   '/library':       'library',
   '/instructions':  'instructions',
-  '/tools':     'tools',
-  '/voices':    'voices',
-  '/desktop':   'desktop',
-  '/mcp':       'mcp',
-  '/status':    'status',
-  '/settings':  'settings',
-  '/admin':     'admin',
+  '/tools':          'tools',
+  '/voices':         'voices',
+  '/desktop':        'desktop',
+  '/launch-control': 'launch-control',
+  '/status':         'status',
+  '/settings':       'settings',
+  '/admin':          'admin',
 }
 
 export function Sidebar({ collapsed }: SidebarProps) {

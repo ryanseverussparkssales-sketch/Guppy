@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en" data-tab="services">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Guppy Launcher Platform</title>
+<style>
+:root {
+  --bg:       #0a0a10;
+  --surface:  #12121a;
+  --surface2: #1a1a26;
+  --border:   #252535;
+  --accent:   #7c6cff;
+  --accent2:  #00d4ff;
+  --green:    #22c55e;
+  --yellow:   #f59e0b;
+  --red:      #ef4444;
+  --muted:    #52526a;
+  --text:     #dde1f0;
+  --text2:    #9090b0;
+  --radius:   10px;
+  --font:     'Inter', system-ui, sans-serif;
+  --mono:     'Cascadia Code', 'JetBrains Mono', 'Consolas', monospace;
+}
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0 }
+html, body { height: 100%; background: var(--bg); color: var(--text); font: 14px/1.5 var(--font); }
+
+/* ── layout ─────────────────────────────────────────────── */
+.shell { display: flex; flex-direction: column; height: 100vh; }
+
+header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 20px; height: 52px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.logo { font-size: 15px; font-weight: 700; letter-spacing: -.3px; color: var(--text); }
+.logo span { color: var(--accent); }
+.health-badge {
+  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 100px;
+  border: 1px solid; margin-left: 4px;
+}
+.health-badge.healthy  { color: var(--green);  border-color: var(--green);  background: rgba(34,197,94,.1); }
+.health-badge.degraded { color: var(--yellow); border-color: var(--yellow); background: rgba(245,158,11,.1); }
+.health-badge.down     { color: var(--red);    border-color: var(--red);    background: rgba(239,68,68,.1); }
+.spacer { flex: 1 }
+.hdr-actions { display: flex; gap: 8px; }
+
+/* ── nav tabs ───────────────────────────────────────────── */
+nav {
+  display: flex; gap: 2px; padding: 0 20px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.tab-btn {
+  padding: 10px 14px; font-size: 13px; font-weight: 500;
+  color: var(--muted); background: none; border: none; cursor: pointer;
+  border-bottom: 2px solid transparent; transition: color .15s;
+}
+.tab-btn:hover { color: var(--text2) }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ── content panels ─────────────────────────────────────── */
+.panel { display: none; flex: 1; overflow: auto; padding: 20px; }
+[data-tab="services"]  .panel-services,
+[data-tab="health"]    .panel-health,
+[data-tab="logs"]      .panel-logs,
+[data-tab="debug"]     .panel-debug { display: block; }
+
+/* ── service grid ───────────────────────────────────────── */
+.service-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 14px;
+}
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; display: flex; flex-direction: column; gap: 10px;
+  transition: border-color .2s;
+}
+.card.running  { border-left: 3px solid var(--green); }
+.card.stopped  { border-left: 3px solid var(--muted); }
+.card.external { border-left: 3px solid var(--accent2); }
+
+.card-header { display: flex; align-items: center; gap: 8px; }
+.dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--muted);
+}
+.running  .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.up       .dot { background: var(--green); }
+.degraded .dot { background: var(--yellow); }
+
+.card-name { font-weight: 600; font-size: 14px; flex: 1 }
+.card-port { font-size: 11px; color: var(--accent2); font-family: var(--mono); }
+.card-desc { font-size: 12px; color: var(--text2); line-height: 1.4; }
+
+.card-meta { display: flex; gap: 12px; font-size: 11px; color: var(--muted); }
+.card-meta .health-up    { color: var(--green); }
+.card-meta .health-down  { color: var(--red); }
+.card-meta .health-deg   { color: var(--yellow); }
+.card-meta .health-unk   { color: var(--muted); }
+
+.card-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+
+/* ── buttons ────────────────────────────────────────────── */
+button { cursor: pointer; border: none; border-radius: 6px; font: inherit; transition: opacity .15s; }
+button:hover:not(:disabled) { opacity: .85 }
+button:disabled { opacity: .4; cursor: default }
+
+.btn-primary   { background: var(--accent);  color: #fff; padding: 5px 12px; font-size: 12px; font-weight: 600; }
+.btn-secondary { background: var(--surface2); color: var(--text); padding: 5px 12px; font-size: 12px; border: 1px solid var(--border); }
+.btn-danger    { background: rgba(239,68,68,.15); color: var(--red); padding: 5px 12px; font-size: 12px; border: 1px solid rgba(239,68,68,.3); }
+.btn-ghost     { background: transparent; color: var(--text2); padding: 5px 10px; font-size: 12px; border: 1px solid var(--border); }
+.btn-sm        { padding: 3px 10px; font-size: 11px; }
+.btn-icon      { padding: 5px 8px; font-size: 14px; }
+
+/* ── health panel ───────────────────────────────────────── */
+.health-summary {
+  display: flex; gap: 16px; margin-bottom: 20px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px;
+}
+.health-stat { text-align: center; }
+.health-stat .num { font-size: 28px; font-weight: 700; line-height: 1; }
+.health-stat .lbl { font-size: 11px; color: var(--text2); margin-top: 4px; }
+.health-table { width: 100%; border-collapse: collapse; }
+.health-table th { text-align: left; padding: 8px 12px; font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); }
+.health-table td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid var(--border); }
+.health-table tr:last-child td { border-bottom: none }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 100px; font-size: 11px; font-weight: 600; }
+.pill-up      { background: rgba(34,197,94,.15); color: var(--green); }
+.pill-down    { background: rgba(239,68,68,.15); color: var(--red); }
+.pill-degraded { background: rgba(245,158,11,.15); color: var(--yellow); }
+.pill-unknown  { background: rgba(82,82,106,.15); color: var(--muted); }
+
+/* ── logs panel ─────────────────────────────────────────── */
+.logs-header { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.logs-header select {
+  background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 10px; font: inherit; font-size: 13px;
+}
+.log-output {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px; font: 13px/1.6 var(--mono); color: var(--text2);
+  height: calc(100vh - 200px); overflow: auto; white-space: pre-wrap; word-break: break-all;
+}
+.log-output .err  { color: var(--red); }
+.log-output .warn { color: var(--yellow); }
+.log-output .info { color: var(--accent2); }
+
+/* ── debug panel ────────────────────────────────────────── */
+.debug-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.debug-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.debug-card h3 { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
+.kv-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 12px; border-bottom: 1px solid var(--border); gap: 12px; }
+.kv-row:last-child { border-bottom: none }
+.kv-row .k { color: var(--text2); }
+.kv-row .v { color: var(--text); font-family: var(--mono); font-size: 11px; text-align: right; }
+.port-open  { color: var(--green); }
+.port-closed { color: var(--muted); }
+.errors-list { font: 11px/1.6 var(--mono); color: var(--red); max-height: 200px; overflow: auto; }
+
+/* ── misc ───────────────────────────────────────────────── */
+.section-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
+.spinning { animation: spin 1s linear infinite; display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg) } }
+.last-refresh { font-size: 11px; color: var(--muted); margin-left: auto; }
+.empty-msg { color: var(--muted); font-size: 13px; padding: 20px 0; }
+</style>
+</head>
+<body>
+<div class="shell" id="app">
+
+  <header>
+    <div class="logo">Guppy <span>Platform</span></div>
+    <div class="health-badge healthy" id="overall-badge">● Checking...</div>
+    <div class="spacer"></div>
+    <div class="hdr-actions">
+      <button class="btn-primary btn-sm" onclick="startAll()">▶ Start All</button>
+      <button class="btn-secondary btn-sm" onclick="stopAll()">■ Stop All</button>
+      <button class="btn-ghost btn-icon" onclick="refresh()" title="Refresh">↻</button>
+    </div>
+  </header>
+
+  <nav>
+    <button class="tab-btn active" onclick="switchTab('services')">Services</button>
+    <button class="tab-btn" onclick="switchTab('health')">Health</button>
+    <button class="tab-btn" onclick="switchTab('logs')">Logs</button>
+    <button class="tab-btn" onclick="switchTab('debug')">Debug</button>
+  </nav>
+
+  <!-- SERVICES TAB -->
+  <div class="panel panel-services">
+    <div id="services-grid" class="service-grid">
+      <div class="empty-msg">Loading services...</div>
+    </div>
+  </div>
+
+  <!-- HEALTH TAB -->
+  <div class="panel panel-health">
+    <div class="health-summary" id="health-summary">
+      <div class="health-stat"><div class="num" id="h-up" style="color:var(--green)">-</div><div class="lbl">Up</div></div>
+      <div class="health-stat"><div class="num" id="h-total" style="color:var(--text)">-</div><div class="lbl">Total</div></div>
+      <div class="health-stat"><div class="num" id="h-down" style="color:var(--red)">-</div><div class="lbl">Down</div></div>
+    </div>
+    <table class="health-table">
+      <thead><tr><th>Service</th><th>Status</th><th>Latency</th><th>Detail</th></tr></thead>
+      <tbody id="health-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- LOGS TAB -->
+  <div class="panel panel-logs">
+    <div class="logs-header">
+      <select id="log-service-select" onchange="loadLogs()">
+        <option value="">— select service —</option>
+      </select>
+      <button class="btn-secondary btn-sm" onclick="loadLogs()">Refresh</button>
+      <button class="btn-ghost btn-sm" onclick="clearLogs()">Clear</button>
+      <span class="last-refresh" id="log-ts"></span>
+    </div>
+    <pre class="log-output" id="log-output">Select a service to view its logs.</pre>
+  </div>
+
+  <!-- DEBUG TAB -->
+  <div class="panel panel-debug">
+    <div class="debug-grid" id="debug-grid">
+      <div class="empty-msg">Loading debug info...</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── state ────────────────────────────────────────────────────────────────────
+let _services = [];
+let _refreshTimer = null;
+
+// ── tabs ─────────────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('app').dataset.tab = tab;
+  document.querySelectorAll('.tab-btn').forEach((b, i) => {
+    b.classList.toggle('active', ['services','health','logs','debug'][i] === tab);
+  });
+  if (tab === 'health') refreshHealth();
+  if (tab === 'debug')  refreshDebug();
+}
+
+// ── api helpers ───────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  if (!r.ok) {
+    const err = await r.text().catch(() => r.statusText);
+    throw new Error(err);
+  }
+  return r.json();
+}
+
+// ── services tab ──────────────────────────────────────────────────────────────
+async function refresh() {
+  try {
+    const services = await api('GET', '/api/services');
+    _services = services;
+    renderServices(services);
+    updateOverallBadge(services);
+    populateLogSelect(services);
+  } catch (e) {
+    console.error('refresh failed', e);
+  }
+}
+
+function updateOverallBadge(services) {
+  const up = services.filter(s => s.health === 'up').length;
+  const total = services.length;
+  const badge = document.getElementById('overall-badge');
+  if (up === total) {
+    badge.textContent = `● All healthy (${up}/${total})`;
+    badge.className = 'health-badge healthy';
+  } else if (up > 0) {
+    badge.textContent = `● Degraded (${up}/${total} up)`;
+    badge.className = 'health-badge degraded';
+  } else {
+    badge.textContent = `● Services down`;
+    badge.className = 'health-badge down';
+  }
+}
+
+function renderServices(services) {
+  const grid = document.getElementById('services-grid');
+  grid.innerHTML = services.map(s => cardHTML(s)).join('');
+}
+
+function cardHTML(s) {
+  const running = s.state === 'running';
+  const ext = s.type === 'external';
+  const cls = ext ? 'external' : (running ? 'running' : 'stopped');
+  const dotCls = running ? 'running' : '';
+  const portBadge = s.port ? `<span class="card-port">:${s.port}</span>` : '';
+  const healthCls = s.health === 'up' ? 'health-up' : s.health === 'down' ? 'health-down' : s.health === 'degraded' ? 'health-deg' : 'health-unk';
+  const healthTxt = s.latency_ms ? `${s.health} · ${s.latency_ms}ms` : s.health;
+  const pid = running && s.pid ? `PID ${s.pid}` : '';
+  const uptime = running && s.started_at ? `· started ${reltime(s.started_at)}` : '';
+
+  const startBtn  = `<button class="btn-primary btn-sm" onclick="action('${s.name}','start')" ${running?'disabled':''}>Start</button>`;
+  const stopBtn   = `<button class="btn-danger btn-sm"  onclick="action('${s.name}','stop')"  ${!running?'disabled':''}>Stop</button>`;
+  const restartBtn= `<button class="btn-secondary btn-sm" onclick="action('${s.name}','restart')" ${!running?'disabled':''}>↺ Restart</button>`;
+  const resetBtn  = `<button class="btn-ghost btn-sm" onclick="action('${s.name}','reset')">⟳ Reset</button>`;
+  const logsBtn   = s.has_logs ? `<button class="btn-ghost btn-sm" onclick="showLogs('${s.name}')">Logs →</button>` : '';
+  const extNote   = ext ? `<span style="font-size:11px;color:var(--muted)">external</span>` : '';
+
+  return `
+<div class="card ${cls}" id="card-${s.name}">
+  <div class="card-header">
+    <span class="dot ${dotCls}"></span>
+    <span class="card-name">${s.label}</span>
+    ${portBadge}
+  </div>
+  <div class="card-desc">${s.description}</div>
+  <div class="card-meta">
+    <span>${pid} ${uptime}</span>
+    <span class="${healthCls}">${healthTxt}</span>
+  </div>
+  <div class="card-actions">
+    ${ext ? extNote + logsBtn : startBtn + stopBtn + restartBtn + resetBtn + logsBtn}
+  </div>
+</div>`;
+}
+
+function reltime(iso) {
+  const diff = (Date.now() - new Date(iso)) / 1000;
+  if (diff < 60) return `${Math.round(diff)}s ago`;
+  if (diff < 3600) return `${Math.round(diff/60)}m ago`;
+  return `${Math.round(diff/3600)}h ago`;
+}
+
+async function action(name, act) {
+  const card = document.getElementById(`card-${name}`);
+  if (card) card.style.opacity = '0.5';
+  try {
+    await api('POST', `/api/services/${name}/${act}`);
+    await refresh();
+  } catch (e) {
+    alert(`${act} ${name} failed:\n${e.message}`);
+    if (card) card.style.opacity = '';
+  }
+}
+
+async function startAll() {
+  try { await api('POST', '/api/start-all'); await refresh(); }
+  catch (e) { alert('Start all failed: ' + e.message); }
+}
+
+async function stopAll() {
+  if (!confirm('Stop all managed services?')) return;
+  try { await api('POST', '/api/stop-all'); await refresh(); }
+  catch (e) { alert('Stop all failed: ' + e.message); }
+}
+
+// ── health tab ────────────────────────────────────────────────────────────────
+async function refreshHealth() {
+  try {
+    const h = await api('GET', '/api/health');
+    document.getElementById('h-up').textContent = h.up;
+    document.getElementById('h-total').textContent = h.total;
+    document.getElementById('h-down').textContent = h.total - h.up;
+    const tbody = document.getElementById('health-tbody');
+    tbody.innerHTML = h.services.map(s => {
+      const pillCls = `pill-${s.health}`;
+      const lat = s.latency_ms ? `${s.latency_ms}ms` : '—';
+      return `<tr>
+        <td><strong>${s.name}</strong></td>
+        <td><span class="pill ${pillCls}">${s.health}</span></td>
+        <td style="font-family:var(--mono)">${lat}</td>
+        <td style="color:var(--text2);font-size:12px">${s.detail||'—'}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) { console.error(e); }
+}
+
+// ── logs tab ──────────────────────────────────────────────────────────────────
+function populateLogSelect(services) {
+  const sel = document.getElementById('log-service-select');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— select service —</option>' +
+    services.filter(s => s.has_logs).map(s =>
+      `<option value="${s.name}" ${s.name===cur?'selected':''}>${s.label}</option>`
+    ).join('');
+}
+
+async function loadLogs() {
+  const name = document.getElementById('log-service-select').value;
+  if (!name) return;
+  try {
+    const data = await api('GET', `/api/services/${name}/logs?lines=200`);
+    const out = document.getElementById('log-output');
+    const colored = (data.lines || []).map(l => {
+      if (/ERROR|CRITICAL/i.test(l)) return `<span class="err">${esc(l)}</span>`;
+      if (/WARNING|WARN/i.test(l))   return `<span class="warn">${esc(l)}</span>`;
+      if (/INFO/i.test(l))           return `<span class="info">${esc(l)}</span>`;
+      return esc(l);
+    }).join('\n');
+    out.innerHTML = colored || '<span style="color:var(--muted)">No log entries.</span>';
+    out.scrollTop = out.scrollHeight;
+    document.getElementById('log-ts').textContent = `${data.total||0} total lines · ${new Date().toLocaleTimeString()}`;
+  } catch (e) { document.getElementById('log-output').textContent = 'Error: ' + e.message; }
+}
+
+function showLogs(name) {
+  switchTab('logs');
+  document.getElementById('log-service-select').value = name;
+  loadLogs();
+}
+
+async function clearLogs() {
+  const name = document.getElementById('log-service-select').value;
+  if (!name) return;
+  await fetch(`/api/services/${name}/logs`, { method: 'DELETE' });
+  loadLogs();
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── debug tab ─────────────────────────────────────────────────────────────────
+async function refreshDebug() {
+  try {
+    const d = await api('GET', '/api/debug');
+    const grid = document.getElementById('debug-grid');
+    const kvRows = obj => Object.entries(obj).map(([k,v]) =>
+      `<div class="kv-row"><span class="k">${k}</span><span class="v">${v}</span></div>`
+    ).join('');
+    const portRows = Object.entries(d.ports).map(([p,open]) =>
+      `<div class="kv-row"><span class="k">:${p}</span><span class="v ${open?'port-open':'port-closed'}">${open?'● open':'○ closed'}</span></div>`
+    ).join('');
+    const errHTML = d.recent_errors.length
+      ? `<div class="errors-list">${d.recent_errors.slice(-10).map(esc).join('\n')}</div>`
+      : '<div style="color:var(--muted);font-size:12px">No recent errors ✓</div>';
+
+    grid.innerHTML = `
+      <div class="debug-card">
+        <h3>System</h3>
+        ${kvRows({ Platform: esc(d.platform), Python: esc(d.python), CWD: esc(d.cwd) })}
+      </div>
+      <div class="debug-card">
+        <h3>Port Status</h3>
+        ${portRows}
+      </div>
+      <div class="debug-card">
+        <h3>Environment</h3>
+        ${kvRows(d.env)}
+      </div>
+      <div class="debug-card">
+        <h3>Recent API Errors</h3>
+        ${errHTML}
+      </div>`;
+  } catch (e) { document.getElementById('debug-grid').innerHTML = `<div class="empty-msg">Error loading debug info: ${e.message}</div>`; }
+}
+
+// ── init ─────────────────────────────────────────────────────────────────────
+refresh();
+_refreshTimer = setInterval(refresh, 5000);
+</script>
+</body>
+</html>

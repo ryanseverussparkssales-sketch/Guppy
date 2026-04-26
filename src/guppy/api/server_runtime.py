@@ -291,6 +291,11 @@ from src.guppy.api.routes_voice import build_voice_router
 from src.guppy.api.routes_desktop import build_desktop_router
 from src.guppy.api.routes_mcp import build_mcp_router
 from src.guppy.api.routes_booklet import build_booklet_router
+from src.guppy.api.routes_agents import build_agents_router
+from src.guppy.api.routes_inference_metrics import build_inference_metrics_router
+from src.guppy.api.routes_launcher import build_launcher_router
+from src.guppy.api.routes_provider_management import build_provider_management_router
+from src.guppy.api.routes_queue import build_queue_router
 from src.guppy.api.runtime_state import ServerRuntimeState
 from src.guppy.api.server_paths import ServerPathConfig
 from src.guppy.api.server_runtime_startup_support import (
@@ -501,6 +506,12 @@ app.include_router(_mcp_router)                    # /api/mcp
 
 _booklet_router = build_booklet_router(_server_context)
 app.include_router(_booklet_router)                # /api/booklet
+
+app.include_router(build_agents_router(_server_context))            # /api/agents
+app.include_router(build_inference_metrics_router(_server_context)) # /api/inference/metrics
+app.include_router(build_launcher_router(_server_context))          # /api/launcher
+app.include_router(build_provider_management_router(_server_context)) # /api/providers/health|config
+app.include_router(build_queue_router(_server_context))             # /api/queue
 
 # Serve static web UI files
 try:

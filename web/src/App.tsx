@@ -10,13 +10,14 @@ import ModelsView from './views/ModelsView'
 import ToolsView from './views/ToolsView'
 import VoicesView from './views/VoicesView'
 import DesktopView from './views/DesktopView'
-import MCPView from './views/MCPView'
 import SettingsView from './views/SettingsView'
+import LauncherView from './views/LauncherView'
 import StatusView from './views/StatusView'
 import AdminPanel from './views/AdminPanel'
 import InstructionsView from './views/InstructionsView'
 import DashboardView from './views/DashboardView'
 import LoginView from './views/LoginView'
+import AgentsView from './views/AgentsView'
 import { useWorkspaceStore, syncManager } from './store'
 import { useErrorStore } from './store/errorStore'
 import { Toaster } from 'sonner'
@@ -86,13 +87,14 @@ function AppContent() {
       const viewToRoute: Record<string, string> = {
         dashboard: '/',
         assistant: '/assistant',
+        agents: '/agents',
         instances: '/instances',
         library: '/library',
         models: '/models',
         tools: '/tools',
         voices: '/voices',
         desktop: '/desktop',
-        mcp: '/mcp',
+        'launch-control': '/launch-control',
         settings: '/settings',
         status: '/status',
         admin:        '/admin',
@@ -112,13 +114,14 @@ function AppContent() {
         <Routes>
           <Route path="/" element={<DashboardView />} />
           <Route path="/assistant" element={<AssistantView />} />
+          <Route path="/agents" element={<AgentsView />} />
           <Route path="/instances" element={<InstancesView />} />
           <Route path="/library" element={<LibraryView />} />
           <Route path="/models" element={<ModelsView />} />
           <Route path="/tools" element={<ToolsView />} />
           <Route path="/voices" element={<VoicesView />} />
           <Route path="/desktop" element={<DesktopView />} />
-          <Route path="/mcp" element={<MCPView />} />
+          <Route path="/launch-control" element={<LauncherView />} />
           <Route path="/settings" element={<SettingsView />} />
           <Route path="/status" element={<StatusView />} />
           <Route path="/admin" element={<AdminPanel />} />

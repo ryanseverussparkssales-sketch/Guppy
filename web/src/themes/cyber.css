@@ -1,0 +1,61 @@
+/*
+ * CYBER THEME — "Neon Operator"
+ * Deep black with electric purple primary, cyan accent.
+ *
+ * Applied when: <html data-theme="cyber">
+ */
+
+[data-theme="cyber"] {
+  /* Core palette */
+  --color-primary: #b24bff;
+  --color-primary-container: #4a0080;
+  --color-on-primary: #0a0010;
+  --color-on-primary-container: #e0b8ff;
+
+  --color-secondary: #00d4ff;
+  --color-secondary-container: #003d4d;
+  --color-on-secondary: #001a20;
+  --color-on-secondary-container: #99eeff;
+
+  --color-tertiary: #ff4baa;
+  --color-tertiary-container: #4d0030;
+
+  /* Surfaces — deep black */
+  --color-surface: #060608;
+  --color-surface-dim: #020204;
+  --color-surface-bright: #111118;
+  --color-surface-container-lowest: #030305;
+  --color-surface-container-low: #0c0c14;
+  --color-surface-container: #12121e;
+  --color-surface-container-high: #1a1a28;
+  --color-surface-container-highest: #222234;
+  --color-surface-variant: #1e1e30;
+
+  /* Text */
+  --color-on-surface: #e8e0ff;
+  --color-on-surface-variant: #9988cc;
+
+  /* Borders */
+  --color-outline: #4a3a6e;
+  --color-outline-variant: #2a2040;
+
+  /* Background */
+  --color-background: #060608;
+
+  /* Semantic status */
+  --color-success: #39ff6a;
+  --color-warning: #ffaa00;
+  --color-destructive: #ff3355;
+  --color-error: #ff3355;
+  --color-coral: #ff4baa;
+  --color-info: #00d4ff;
+
+  /* Signature gradient */
+  --color-gradient-start: #4a0080;
+  --color-gradient-end: #b24bff;
+
+  /* Shadows — neon glow in dark */
+  --shadow-ghost: 0 0 0 1px rgba(178, 75, 255, 0.20);
+  --shadow-soft: 0 4px 12px -1px rgba(178, 75, 255, 0.25), 0 2px 6px -1px rgba(0, 0, 0, 0.5);
+  --shadow-soft-lg: 0 10px 30px -3px rgba(178, 75, 255, 0.3), 0 4px 10px -2px rgba(0, 0, 0, 0.6);
+}

@@ -1,0 +1,61 @@
+/*
+ * OCEAN THEME — "Deep Water"
+ * Deep navy surfaces, aqua primary, seafoam accent.
+ *
+ * Applied when: <html data-theme="ocean">
+ */
+
+[data-theme="ocean"] {
+  /* Core palette */
+  --color-primary: #00b4d8;
+  --color-primary-container: #003d50;
+  --color-on-primary: #001820;
+  --color-on-primary-container: #90e0ef;
+
+  --color-secondary: #48cae4;
+  --color-secondary-container: #003d4a;
+  --color-on-secondary: #001620;
+  --color-on-secondary-container: #ade8f4;
+
+  --color-tertiary: #0077b6;
+  --color-tertiary-container: #002540;
+
+  /* Surfaces — deep navy */
+  --color-surface: #070d14;
+  --color-surface-dim: #04080d;
+  --color-surface-bright: #101c28;
+  --color-surface-container-lowest: #03060a;
+  --color-surface-container-low: #0c1620;
+  --color-surface-container: #121e2c;
+  --color-surface-container-high: #1a2838;
+  --color-surface-container-highest: #223244;
+  --color-surface-variant: #1e2e3e;
+
+  /* Text */
+  --color-on-surface: #cce8f4;
+  --color-on-surface-variant: #6898b8;
+
+  /* Borders */
+  --color-outline: #2a4a64;
+  --color-outline-variant: #1a2e3e;
+
+  /* Background */
+  --color-background: #070d14;
+
+  /* Semantic status */
+  --color-success: #48cae4;
+  --color-warning: #f9c74f;
+  --color-destructive: #e63946;
+  --color-error: #e63946;
+  --color-coral: #f4a261;
+  --color-info: #00b4d8;
+
+  /* Signature gradient */
+  --color-gradient-start: #003d50;
+  --color-gradient-end: #00b4d8;
+
+  /* Shadows — deep water feel */
+  --shadow-ghost: 0 0 0 1px rgba(0, 180, 216, 0.15);
+  --shadow-soft: 0 4px 8px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -1px rgba(0, 20, 40, 0.3);
+  --shadow-soft-lg: 0 10px 20px -3px rgba(0, 0, 0, 0.55), 0 4px 8px -2px rgba(0, 20, 40, 0.4);
+}

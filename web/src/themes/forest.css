@@ -1,0 +1,61 @@
+/*
+ * FOREST THEME — "Deep Grove"
+ * Dark forest floor surfaces, moss green primary, warm amber accent.
+ *
+ * Applied when: <html data-theme="forest">
+ */
+
+[data-theme="forest"] {
+  /* Core palette */
+  --color-primary: #5a9e5a;
+  --color-primary-container: #1a3d1a;
+  --color-on-primary: #0a1a0a;
+  --color-on-primary-container: #b8e6b8;
+
+  --color-secondary: #c8a050;
+  --color-secondary-container: #4a3a10;
+  --color-on-secondary: #1a1204;
+  --color-on-secondary-container: #f0d89a;
+
+  --color-tertiary: #7ab87a;
+  --color-tertiary-container: #223822;
+
+  /* Surfaces — dark forest floor */
+  --color-surface: #0e130e;
+  --color-surface-dim: #080c08;
+  --color-surface-bright: #1a221a;
+  --color-surface-container-lowest: #070a07;
+  --color-surface-container-low: #111811;
+  --color-surface-container: #182018;
+  --color-surface-container-high: #1f281f;
+  --color-surface-container-highest: #283228;
+  --color-surface-variant: #243024;
+
+  /* Text */
+  --color-on-surface: #d8ecd8;
+  --color-on-surface-variant: #88aa88;
+
+  /* Borders */
+  --color-outline: #3a5a3a;
+  --color-outline-variant: #243024;
+
+  /* Background */
+  --color-background: #0e130e;
+
+  /* Semantic status */
+  --color-success: #5a9e5a;
+  --color-warning: #c8a050;
+  --color-destructive: #cc4444;
+  --color-error: #cc4444;
+  --color-coral: #cc7755;
+  --color-info: #5a8ab8;
+
+  /* Signature gradient */
+  --color-gradient-start: #1a3d1a;
+  --color-gradient-end: #5a9e5a;
+
+  /* Shadows — earthy tones */
+  --shadow-ghost: 0 0 0 1px rgba(90, 158, 90, 0.15);
+  --shadow-soft: 0 4px 8px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --shadow-soft-lg: 0 10px 20px -3px rgba(0, 0, 0, 0.5), 0 4px 8px -2px rgba(0, 0, 0, 0.3);
+}
