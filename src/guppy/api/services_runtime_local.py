@@ -550,6 +550,33 @@ def call_selected_local_runtime(
     instance_type: Optional[str] = None,
     model_override: Optional[str] = None,
 ) -> str:
+    # llama.cpp models: route directly to the correct OpenAI-compat backend,
+    # bypassing the Ollama/LM Studio active-backend check entirely.
+    if model_override:
+        from src.guppy.inference.local_client import (
+            _LLAMACPP_MODEL_ROUTE as _lc_routes,
+            local_chat as _local_chat,
+        )
+        llamacpp_backend = _lc_routes.get(model_override)
+        if llamacpp_backend:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_text},
+            ]
+            result = _local_chat(
+                model_override, messages, backend=llamacpp_backend, timeout=120, num_predict=2048
+            )
+            if not result:
+                raise RuntimeError(
+                    f"llama.cpp backend '{llamacpp_backend}' returned no response for model '{model_override}'."
+                )
+            content = str(result.get("response", "")).strip()
+            if not content:
+                raise RuntimeError(
+                    f"llama.cpp backend '{llamacpp_backend}' returned an empty response."
+                )
+            return content
+
     backend = owner._selected_local_runtime_backend()
     warm_status = owner._local_runtime_warm_cached_or_unknown()
     if backend == "ollama" and not bool(warm_status.get("chat_ready", False)):

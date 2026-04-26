@@ -5,7 +5,11 @@ import logging
 import urllib.request
 from typing import Any, AsyncGenerator, Optional
 
-from src.guppy.inference.local_client import _LLAMACPP_MODEL_ROUTE as _LOCAL_LLAMACPP_ROUTES
+from src.guppy.inference.local_client import (
+    _LLAMACPP_MODEL_ROUTE as _LOCAL_LLAMACPP_ROUTES,
+    _BACKENDS as _LOCAL_BACKENDS,
+    _resolve_url as _local_resolve_url,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -542,6 +546,58 @@ _OLLAMA_CHAT_URL = "http://127.0.0.1:11434/api/chat"
 _TOOL_CALL_SENTINEL = "\x00TOOL_CALLS:"
 
 
+async def _stream_llamacpp_tokens(
+    *,
+    model: str,
+    backend: str,
+    messages: list[dict],
+    timeout: float = 180.0,
+) -> AsyncGenerator[str, None]:
+    """Yield content tokens from a llama.cpp OpenAI-compatible SSE stream."""
+    import httpx
+
+    cfg = _LOCAL_BACKENDS.get(backend, {})
+    url = f"{_local_resolve_url(backend)}{cfg.get('chat_path', '/v1/chat/completions')}"
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "max_tokens": 2048,
+        "temperature": 0.8,
+        "top_p": 0.95,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", url, json=payload) as response:
+                response.raise_for_status()
+                async for raw_line in response.aiter_lines():
+                    line = raw_line.strip()
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    choices = chunk.get("choices", [])
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta", {})
+                    content = delta.get("content") or ""
+                    if content:
+                        yield content
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(
+            f"llama.cpp backend '{backend}' returned HTTP {exc.response.status_code}"
+        ) from exc
+    except httpx.ConnectError as exc:
+        raise RuntimeError(
+            f"Cannot reach llama.cpp backend '{backend}'. Is the server running?"
+        ) from exc
+
+
 async def _stream_ollama_tokens(
     *,
     model: str,
@@ -627,9 +683,23 @@ async def stream_unified_inference(
     augmented_system = await _inject_semantic_context_async(augmented_system, user_text, owner)
     requested_mode = (mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto").strip().lower()
 
-    # llama.cpp servers don't use Ollama's streaming protocol — fall through to
-    # non-streaming which routes via call_selected_local_runtime correctly.
     is_llamacpp = bool(active_local_model and active_local_model in _LOCAL_LLAMACPP_ROUTES)
+
+    # llama.cpp: stream via OpenAI-compat SSE (separate servers, not Ollama)
+    if is_llamacpp and owner.GUPPY_CORE_AVAILABLE:
+        llamacpp_backend = _LOCAL_LLAMACPP_ROUTES.get(active_local_model or "")
+        if llamacpp_backend and _LOCAL_BACKENDS.get(llamacpp_backend):
+            messages = build_router_messages(augmented_system, user_text, sanitize_chat_history(history))
+            try:
+                async for token in _stream_llamacpp_tokens(
+                    model=active_local_model,
+                    backend=llamacpp_backend,
+                    messages=messages,
+                ):
+                    yield token
+                return
+            except RuntimeError:
+                pass  # fall through to non-streaming fallback
 
     can_stream_ollama = (
         owner.GUPPY_CORE_AVAILABLE
