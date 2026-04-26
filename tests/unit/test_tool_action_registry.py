@@ -155,7 +155,8 @@ class TestGetToolStarters:
             assert starter["category"] == entry.category
 
     def test_starters_count_matches_registry(self) -> None:
-        assert len(get_tool_starters()) == len(TOOL_ACTION_REGISTRY)
+        available_count = sum(1 for e in TOOL_ACTION_REGISTRY.values() if e.availability_status != "planned")
+        assert len(get_tool_starters()) == available_count
 
     def test_no_duplicate_tool_keys(self) -> None:
         keys = [s["tool_key"] for s in get_tool_starters()]

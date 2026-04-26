@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-04-25 (session 2)
+**Last updated:** 2026-04-23
 
 ---
 
@@ -22,35 +22,20 @@ launcher_app.py              hub_app.py              server.py
 ```
 
 ### Key Modules
-- **`src/guppy/cli/launch.py`** — Single entrypoint for all launch modes (launcher, guppyprime, hub, api, agent, **fishbowl**)
-- **`src/guppy/config.py`** — Centralised pydantic-settings `GuppySettings`; import `settings` instead of `os.environ.get()`
-- **`src/guppy/logging_setup.py`** — Loguru configuration + stdlib intercept; call `configure_logging()` at API startup
+- **`src/guppy/cli/launch.py`** — Single entrypoint for all launch modes (launcher, guppyprime, hub, api, agent)
 - **`src/guppy/launcher_application/`** — Shared workflow catalog, launcher services, state contracts
 - **`src/guppy/api/`** — REST API with JWT auth, repair token, dev mode
-- **`src/guppy/api/routes_tools.py`** — SQLite-backed tools registry (`GET /tools`, `POST /tools/:id/enable|disable`)
-- **`src/guppy/api/routes_mcp.py`** — MCP server registry (`/api/mcp/servers`, test, tools listing)
-- **`src/guppy/api/routes_providers.py`** — Provider/model management; checks env + settings DB; `POST /providers/{p}/active-model`. Supports 5 cloud providers: anthropic, openai, google, **cohere**, **mistral**
-- **`src/guppy/mcp/manager.py`** — MCPPluginManager: SQLite registry, 11 preset servers, lazy client pool
 - **`src/guppy/experience_config/`** — Runtime persona, provider selection, voice settings
-- **`src/guppy/apps/`** — UI surfaces (launcher_app.py, hub_app.py, **fishbowl_app.py**)
-
-### Web UI Key Files (`web/src/`)
-- **`api/schemas.ts`** — Zod v4 schemas for all API responses; use `z.record(z.string(), ...)` (two-arg form required in v4)
-- **`api/queries.ts`** — All TanStack Query hooks (`useQuery`/`useMutation`); query key registry `QK`
-- **`api/client.ts`** — Axios client, baseURL `http://127.0.0.1:8081`
-- **`themes/index.ts`** — Theme registry + `applyTheme(id)` / `initTheme()`; V0 adds `[data-theme="id"]` CSS block
-- **`themes/dark.css`** — Dark theme override block (imported in index.css)
-- **`components/CommandPalette.tsx`** — `Ctrl+K` / `Cmd+K` command palette (cmdk); navigate, switch provider, toggle tools
-- **`views/MCPView.tsx`** — MCP server management UI
+- **`src/guppy/apps/`** — UI surfaces (launcher_app.py, hub_app.py)
 
 ### Known Architecture Seams
 1. **UI Launcher is a re-export shim** — `ui/launcher/__init__.py` delegates to `compat_shims/launcher_ui/ui/launcher/`. Real code lives in compat_shims. This is intentional (cleanup in progress).
 
-2. **Legacy code quarantined** — `compat_shims/legacy_surfaces/` is empty (candidate for removal). `src/guppy/merlin/` holds old specialist material (not active launcher).
+2. **Legacy code quarantined** — `compat_shims/legacy_surfaces/` is empty (candidate for removal). `src/guppy/merlin/` holds old specialist material (not active launcher). `.quarantine/` contains a README only — confirmed intentional archival, not dead code. Scheduled for review at P6 closeout.
 
-3. **Multiple /repair endpoints** — Consolidated. Only `routes_ops.py` / `ServerContext` path is active.
+3. **Catalog routes are all production** — `launcher_application/` catalogs (connector, workflow, instance, voice) are active production code. No experimental catalog routes exist.
 
-4. **os.environ.get() migration in progress** — `src/guppy/config.py` (GuppySettings) is the target; `server_runtime.py` and `auth.py` still use direct env reads for some values not yet in the schema.
+4. **Multiple /repair endpoints** — `/repair` and `/repair-token/refresh` declared in three files (`routes_ops.py`, `snapshot_misc_routes.py`, `_server_fragment_routes_core.py`). Verify if these are alternative mount points or dead code.
 
 ---
 
@@ -86,8 +71,7 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - **`tests/smoke/`** — Runtime smoke tests (launcher, API, security)
 - **`tests/unit/`** — Fast unit tests
 - **`tests/integration/`** — Slower integration tests
-- **`web/src/__tests__/`** — Vitest component tests (`npm test`); Playwright E2E (`npm run playwright`)
-- Note: `asyncio_mode = auto` set in pytest.ini — async tests need no `@pytest.mark.asyncio` decorator
+- Note: Some tests resolve via `compat_shims/launcher_ui/tests/` (pytest compiles them correctly, but literal path `tests/unit/test_...` may be imprecise)
 
 ---
 
@@ -111,70 +95,28 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 ## Known Issues & TODOs
 
 ### 🔴 Code Cleanup
-- [x] `compat_shims/legacy_surfaces/` — Intentionally empty quarantine marker (enforced by `tools/check_wrapper_integrity.py`); not a cleanup target
-- [x] Multiple `/repair` implementations — Consolidated. Only `routes_ops.py` / `ServerContext` path is active.
-- [x] `routes_settings.py:168` — Extra arg passed to `set_active_provider()` (only accepts 1). Fixed 2026-04-24.
-- [x] `store/index.ts` — `Provider` type not re-exported, causing TS error in SettingsView. Fixed 2026-04-24.
-- [x] `api/schemas.ts` — Zod v4 `z.record()` required two-arg form; all calls fixed 2026-04-25.
-- [x] `web/src/types/api.ts` `SystemStatus` — interface used `health` field but API returns `status`; caused permanent "Offline" badge. Fixed 2026-04-25 (session 2). Also fixed `useApi.ts` hooks + `DashboardView.tsx`.
-- [x] LM Studio `/api/status` returning MISSING/401 — fixed `local_client.py` (correct endpoint `/api/v1/models`, auth headers), `services_runtime_local.py` (lmstudio branch, model listing, warmup trigger). Fixed 2026-04-25.
-- [ ] `os.environ.get()` migration — `server_runtime.py` and `auth.py` still use direct env reads; migrate to `settings` from `config.py`
-- [ ] Migrate remaining views to TanStack Query hooks — `ModelsView`, `SettingsView`, `MCPView`, `ToolsView` still use manual `useState`/`useEffect` fetch patterns
-
-### 🟡 Pending Features (installed, not yet wired)
-- [ ] **Recharts** — installed; AdminPanel metrics dashboard charts not built yet (requests over time, latency sparklines)
-- [ ] **react-resizable-panels** — installed; chat sidebar + desktop split not built yet
-- [ ] **Theme customization packs** — system is ready (see 🎨 Theme System below); co-worker handover in progress (2026-04-25)
+*(none open — all resolved below)*
 
 ### 🟡 Documentation
-- [x] Add one-line clarification to `instructions/OPERATIONS.md` §2 explaining that `ui/launcher/` is a re-export shim — done
-- [ ] Document launcher shortcut management (`tools/ensure_desktop_launcher.ps1`)
 - [ ] Add architecture diagram to README.md
 
+### 🟢 Verified / Resolved
+- ✅ **`compat_shims/legacy_surfaces/`** — Not empty; contains an intentional `__init__.py` quarantine marker (`__all__ = ()`). Guardrail in `tools/check_architecture_boundaries.py` blocks imports. Protocol documented in `docs/LEGACY_QUARANTINE_PROTOCOL.md` and `docs/LEGACY_SURFACES.md`. No action needed.
+- ✅ **`api/` root folder** — Active Vercel cloud backend (`app.py`, `auth.py`, `index.py`, `routes/`). Completely separate from the local runtime. See `docs/LIVE_ARCHITECTURE.md`. Not dead code.
+- ✅ **Multiple `/repair` endpoints** — One live implementation: `routes_ops.py` (mounted via `build_ops_router()` in `server_runtime.py:470`). `_server_fragment_routes_core.py` is a build-time source fragment for `tools/rebuild_api_server_runtime.py`; `snapshot_misc_routes.py` is registered only in the generated output (`server_runtime_snapshot.py`), not in the live server. No consolidation needed.
+- ✅ **`ui/launcher/` shim clarification** — Documented in "Known Architecture Seams" §1 above and in `docs/LIVE_ARCHITECTURE.md`. OPERATIONS.md does not exist (reference was stale); `docs/LIVE_ARCHITECTURE.md` is the canonical architecture doc.
+- ✅ **Launcher shortcut management** — `tools/ensure_desktop_launcher.ps1` updates `Desktop\Guppy Launcher.lnk` to point to dist exe or repo launcher. Documented in Tools & Utilities below.
+
 ### 🟢 Verified Working
-- ✅ CLI launcher paths (launcher, guppyprime, hub, api, agent, fishbowl)
+- ✅ CLI launcher paths (launcher, guppyprime, hub, api, agent)
 - ✅ JWT and repair token auth flows
-- ✅ Database pragmas and hardening — also Alembic migrations at `migrations/` (head = 0001)
+- ✅ Database pragmas and hardening
 - ✅ All documented tool scripts and test files
-- ✅ `GUPPY_DEV_MODE` env var and logging (loguru via `logging_setup.py`)
-- ✅ Tools API (`GET /tools`, toggle enable/disable) — SQLite-backed, seeded with 8 tools
-- ✅ MCP server registry — 11 presets, custom server CRUD, tool listing, test endpoint
-- ✅ Fishbowl companion widget — always-on-top PySide6 app, Ctrl+Space hotkey, chat panel
-- ✅ Web UI: markdown rendering (shiki + DOMPurify), Sonner toasts, framer-motion animations
-- ✅ Web UI: TanStack Query wired — `QueryClientProvider` in main.tsx; AdminPanel fully migrated
-- ✅ Web UI: Zod v4 schemas for all API responses (`web/src/api/schemas.ts`)
-- ✅ Web UI: Theme system — `data-theme` attribute, `initTheme()` FOUC prevention, dark.css override
-- ✅ Web UI: Command palette — `Ctrl+K` / `Cmd+K`, navigate + switch provider + toggle tools
-- ✅ Web UI: Security hardening — CSP meta tag, Vite security headers, FastAPI security middleware
-- ✅ Web UI: Provider model switching — `POST /providers/{p}/active-model`, active model persisted in settings DB
-- ✅ Web UI: "Connected" badge — fixed `SystemStatus` type mismatch (`health` vs `status` field); badge now reflects real API state
-- ✅ Vitest running — 5 MarkdownMessage tests pass; `npm test` works; TypeScript clean (`npx tsc --noEmit`)
-- ✅ Cohere provider — 6 models (Command A, R+, R, Light, Aya 23 35B/8B); env `COHERE_API_KEY` / settings DB
-- ✅ Mistral provider — 6 models (Large, Small, Codestral, Nemo, Pixtral 12B, Mixtral 8x22B); env `MISTRAL_API_KEY` / settings DB
-- ✅ LM Studio local runtime — state READY with 7 models; auth via `GUPPY_LMSTUDIO_API_KEY`; `/api/v1/models` endpoint
-
-### 🎨 Theme System for V0 — Handover Brief (2026-04-25)
-
-**Status:** System fully wired and working. Ready for theme pack additions.
-
-**How it works:**
-- `web/src/themes/index.ts` — theme registry (`THEMES` array) + `applyTheme(id)` + `initTheme()` (FOUC prevention via `<script>` in `index.html`)
-- `web/src/themes/dark.css` — example theme override block
-- `web/src/index.css` — contains the `@theme` baseline block. **Never touch this.** Themes override via `[data-theme="id"]` attribute on `<html>`.
-- `SettingsView.tsx` → Appearance card → `useTheme()` hook → `applyTheme()` → saves to localStorage + sets `document.documentElement.dataset.theme`
-
-**To add a theme pack:**
-1. Create `web/src/themes/my-theme.css` with a single `[data-theme="my-theme"] { --color-primary: ...; }` block
-2. Add to `THEMES` array in `web/src/themes/index.ts`: `{ id: 'my-theme', label: 'My Theme', preview: ['#hex1', '#hex2'] }`
-3. Import the CSS file in `web/src/themes/index.ts` or `web/src/index.css`
-4. Run `npm run build` — theme appears in Settings → Appearance grid automatically
-
-**CSS variables to override** (check `index.css` `@theme` block for full list):
-- `--color-primary`, `--color-secondary`, `--color-background`, `--color-surface`
-- `--color-on-surface`, `--color-on-surface-variant`
-- `--font-headline`, `--font-body`
-
-**Testing:** Open Settings → Appearance, click the new theme swatch. No restart needed.
+- ✅ `GUPPY_DEV_MODE` env var and logging
+- ✅ **Web UI parity (P6)** — Web UI fetches model inventory and workspace state entirely from the same API endpoints as the desktop. No duplicate inventories. Parity validated 2026-04-23. One known gap: `models_view.py` has a local `CLOUD_MODELS` list for the desktop library panel — must stay in sync with `src/guppy/api/routes_providers.py`. (Fixed `claude-opus-4` → `claude-opus-4-7` 2026-04-23.)
+- ✅ **Phase 3 complete (TR54-C)** — `ui/launcher/accounts/connector_remediation_paths.py`, `ui/launcher/views/settings_connector_flow.py`, `ui/launcher/config/runtime_settings_schema.py`, `ui/launcher/config/settings_io.py`, `ui/launcher/tools/tool_evidence_builder.py`, `ui/launcher/tools/tool_status_copy.py`
+- ✅ **TR54-D (Desktop Hardening) D1–D5 complete** — D1 startup orchestration, D2 process guard, D3 boot verification (`ui/launcher/diagnostics/startup_verification.py`), D4 snapshot cache, D5 diagnostics (`ui/launcher/diagnostics/launcher_diagnostics.py` + `ui/launcher/views/diagnostics_panel.py`). D3 wired into `compat_shims/launcher_ui/launcher_app.py` main(). `datetime.utcnow()` deprecation fixed across 4 API route files.
+- ✅ **Move-to-Strong roadmap S1–S6 complete (2026-04-23)** — S1: continuity spine (workspace cards + home entry hints surface continuity_summary); S2: library metadata hierarchy (timestamps, date labels, longer note previews); S3: tool clarity (availability_status on ToolActionEntry, PLANNED badge on cards, planned tools excluded from bucket counts); S4: model/voice/local runtime confidence (planned adapters clearly labeled, voice engines probed at startup); S5: web API parity (GET /api/tools endpoint backed by TOOL_ACTION_REGISTRY, ToolsView no longer falls back to mock data); S6: freeze polish (verify_voice_runtime.py validation tool, CONNECTOR/PLANNED filter fix in tools_view, CLAUDE.md updated).
 
 ---
 
@@ -189,6 +131,7 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - **`tools/pilot_exit_check.py`** — Graceful shutdown verification
 - **`tools/verify_logging_health.py`** — Log system audit
 - **`tools/verify_ollama_runtime.py`** — Ollama availability check
+- **`tools/verify_voice_runtime.py`** — Voice engine availability check (edge_tts, kokoro, pyttsx3, ElevenLabs)
 - **`tools/run_overnight_low_compute.py`** — Off-hours testing
 
 ### Desktop Launcher
@@ -240,7 +183,7 @@ Located at `config/instances.json`. Defines available runtime instances:
 
 **Before making changes:**
 1. Read `docs/PROJECT_BRIEF.md` (active status & roadmap)
-2. Check `instructions/OPERATIONS.md` / `instructions/DEVELOPMENT.md` (stable reference)
+2. Check `docs/LIVE_ARCHITECTURE.md` (canonical architecture reference)
 3. Run `python tools/dev_workflow.py dev-check --guard-scope delta` (verify your changes don't break guardrails)
 
 **When adding features:**

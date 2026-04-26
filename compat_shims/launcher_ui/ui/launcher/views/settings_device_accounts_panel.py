@@ -17,10 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.guppy.launcher_application.provider_registry import get_example_prompt, get_provider
 from src.guppy.launcher_application.settings_device_accounts_presenter import (
     build_connector_card_specs,
-    build_connector_panel_state,
     build_device_accounts_density_state,
     connector_brand,
     friendly_runtime_summary,
@@ -32,12 +30,11 @@ from .. import tokens as T
 from .settings_accounts_sections import (
     connector_card_style as _connector_card_style_fn,
     connector_grid_columns as _connector_grid_columns_fn,
+    focus_connector as _focus_connector_fn,
     mono as _mono,
+    sync_account_controls as _sync_account_controls_fn,
 )
 from .settings_device_accounts_form_support import (
-    apply_connector_action_state as _apply_connector_action_state,
-    apply_empty_connector_state as _apply_empty_connector_state,
-    apply_field_payloads as _apply_field_payloads,
     ensure_field_row_count as _ensure_field_row_count_fn,
 )
 
@@ -399,77 +396,7 @@ class SettingsDeviceAccountsPanel(QWidget):
         return resolve_field_payloads(item, selected_provider_id)
 
     def _sync_account_controls(self) -> None:
-        item = self._current_connector_payload()
-        if not item:
-            _apply_empty_connector_state(self)
-            return
-        providers = [row for row in item.get("providers", []) if isinstance(row, dict)] if isinstance(item.get("providers"), list) else []
-        accounts = [row for row in item.get("accounts", []) if isinstance(row, dict)] if isinstance(item.get("accounts"), list) else []
-        previous_provider = str(self._provider_cb.currentData() or "").strip()
-        previous_account = str(self._account_cb.currentData() or "").strip()
-        self._sync_combo(self._provider_cb, providers, previous_provider, "(choose provider)")
-        self._sync_combo(self._account_cb, accounts, previous_account, "(choose account)")
-        self._provider_cb.setVisible(bool(providers))
-        self._account_cb.setVisible(bool(accounts))
-        self._selector_row_widget.setVisible(bool(providers) or bool(accounts))
-
-        self._refresh_connector_card_styles()
-
-        field_payloads = self._current_field_payloads()
-        _apply_field_payloads(self, field_payloads)
-
-        panel_state = build_connector_panel_state(
-            item=item,
-            providers=providers,
-            accounts=accounts,
-            fields=field_payloads,
-            selected_provider_id=str(self._provider_cb.currentData() or "").strip(),
-            selected_account_id=str(self._account_cb.currentData() or "").strip(),
-        )
-        connector_label = str(item.get("label", "Connector") or "Connector")
-        auth_kind = panel_state.current_auth_kind
-        auth_state = str(item.get("auth_state", "missing") or "missing").strip().lower()
-        self._current_auth_kind = panel_state.current_auth_kind
-        self._account_status_lbl.setText(panel_state.status_text)
-        self._account_detail_lbl.setText(panel_state.detail_text)
-        self._account_step_lbl.setText(panel_state.step_text)
-        self._account_status_lbl.setToolTip(panel_state.status_text)
-        self._account_detail_lbl.setToolTip(panel_state.detail_text)
-        self._account_step_lbl.setToolTip(panel_state.step_text)
-        self._account_step_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 1px;"
-        )
-
-        connector_id = str(item.get("id", "") or "").strip().lower()
-        is_verified = auth_state in {"ready", "optional"}
-        registry_entry = get_provider(connector_id)
-        hint_text = (registry_entry.next_step_hint if registry_entry else "").strip()
-        example_prompt = get_example_prompt(connector_id).strip()
-        if is_verified and hint_text:
-            extra = f" {example_prompt}" if example_prompt else ""
-            self._next_step_hint_lbl.setText(f"Connected — {hint_text}{extra}")
-            self._next_step_hint_lbl.setVisible(True)
-            self._next_step_hint_lbl.setToolTip(self._next_step_hint_lbl.text())
-        else:
-            self._next_step_hint_lbl.setText("")
-            self._next_step_hint_lbl.setVisible(False)
-
-        supports = {str(item).strip().lower() for item in item.get("actions_supported", []) if str(item).strip()}
-        connect_hint = (registry_entry.connect_hint if registry_entry else "").strip() or f"Connect {connector_label} on this PC."
-        verify_hint = f"Verify {connector_label} on this PC."
-        if example_prompt:
-            verify_hint += f" {example_prompt}"
-        _apply_connector_action_state(
-            self,
-            connector_label=connector_label,
-            auth_kind=auth_kind,
-            auth_state=auth_state,
-            supports=supports,
-            connect_hint=connect_hint,
-            verify_hint=verify_hint,
-        )
-        if self.isVisible():
-            self._apply_density_mode(self.width())
+        _sync_account_controls_fn(self)
 
     def _base_connector_payload(self) -> dict[str, str]:
         return {
@@ -512,32 +439,4 @@ class SettingsDeviceAccountsPanel(QWidget):
         account_id: str = "",
         note: str = "",
     ) -> None:
-        normalized_connector = str(connector_id or "").strip().lower()
-        if not normalized_connector:
-            return
-        connector_index = self._connector_cb.findData(normalized_connector)
-        if connector_index >= 0:
-            self._connector_cb.setCurrentIndex(connector_index)
-        if provider:
-            provider_index = self._provider_cb.findData(str(provider or "").strip().lower())
-            if provider_index >= 0:
-                self._provider_cb.setCurrentIndex(provider_index)
-        if account_id:
-            account_index = self._account_cb.findData(str(account_id or "").strip().lower())
-            if account_index >= 0:
-                self._account_cb.setCurrentIndex(account_index)
-        self._sync_account_controls()
-        if note:
-            self.set_account_result(note, ok=None)
-        focus_target = next(
-            (
-                input_box
-                for row_widget, _label, input_box, _hint in self._field_rows
-                if row_widget.isVisible()
-            ),
-            self._provider_cb if self._provider_cb.isVisible() else self._account_cb if self._account_cb.isVisible() else self._connector_cb,
-        )
-        if focus_target is not None:
-            focus_target.setFocus(Qt.FocusReason.OtherFocusReason)
-        if self._scroll_area is not None:
-            self._scroll_area.ensureWidgetVisible(self, 0, 48)
+        _focus_connector_fn(self, connector_id, provider=provider, account_id=account_id, note=note)

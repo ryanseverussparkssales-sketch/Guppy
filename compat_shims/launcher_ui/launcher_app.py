@@ -27,6 +27,7 @@ from PySide6.QtWidgets import QApplication
 from src.guppy.apps.process_guard import acquire_process_guard
 from ui.launcher import LauncherWindow
 from ui.launcher.components import create_guppy_fish_icon
+from ui.launcher.diagnostics.startup_verification import run_startup_verification
 
 logging.basicConfig(
     level=logging.INFO,
@@ -232,6 +233,18 @@ def main() -> int:
         return 0
 
     _append_launcher_event("startup_phase", phase="launcher_enter")
+
+    _boot_report = run_startup_verification(_ROOT, skip_network=True)
+    _append_launcher_event(
+        "startup_phase",
+        phase="boot_verification",
+        passed=_boot_report.passed,
+        summary=_boot_report.summary(),
+    )
+    if not _boot_report.passed:
+        for _fail in _boot_report.failures():
+            logger.error("Boot check FAIL [%s]: %s — %s", _fail.name, _fail.detail, _fail.recovery)
+
     startup_budget_ms = int(os.environ.get("GUPPY_STARTUP_PHASE_WARN_MS", "3000"))
     try:
         app = QApplication(sys.argv)

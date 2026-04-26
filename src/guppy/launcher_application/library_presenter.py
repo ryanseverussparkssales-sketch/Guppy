@@ -9,6 +9,18 @@ from src.guppy.launcher_application.library_storage import (
     list_root_files,
 )
 
+_MONTH_ABBREV = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _format_date(raw: str) -> str:
+    """Return a short 'Mon DD' label from an ISO date string, or '' on failure."""
+    cleaned = str(raw or "").strip()[:10]
+    try:
+        year, month, day = cleaned.split("-")
+        return f"{_MONTH_ABBREV[int(month) - 1]} {int(day)}"
+    except Exception:
+        return ""
+
 
 def _truncate(text: str, limit: int = 92) -> str:
     cleaned = " ".join(str(text or "").split())
@@ -128,7 +140,7 @@ def _search_blob(*parts: object) -> str:
     return " ".join(str(part or "").strip() for part in parts if str(part or "").strip())
 
 
-def _note_preview(text: str, *, limit: int = 160) -> str:
+def _note_preview(text: str, *, limit: int = 240) -> str:
     cleaned = " ".join(str(text or "").split())
     if not cleaned:
         return "Pinned note with no body text yet."
@@ -309,6 +321,9 @@ def build_library_surface_state(
         title = str(item.get("title", "") or "").strip()
         if not title:
             continue
+        item_path_str = str(item.get("item_path", "") or "").strip()
+        media = describe_library_media_path(item_path_str)
+        updated_at = str(item.get("updated_at", "") or "").strip()
         saved_item_cards.append(
             {
                 "id": str(item.get("id", "") or "").strip(),
@@ -317,20 +332,20 @@ def build_library_surface_state(
                 "detail": _card_detail(item),
                 "source_line": _card_source_line(item),
                 "kind": kind,
-                "item_path": str(item.get("item_path", "") or "").strip(),
+                "item_path": item_path_str,
                 "context_ref": _context_ref(item),
                 "summary": str(item.get("summary", "") or "").strip(),
-                "is_media": describe_library_media_path(str(item.get("item_path", "") or "").strip()).is_media,
-                "media_kind": describe_library_media_path(str(item.get("item_path", "") or "").strip()).media_kind,
-                "media_path": describe_library_media_path(str(item.get("item_path", "") or "").strip()).path
-                if describe_library_media_path(str(item.get("item_path", "") or "").strip()).is_media
-                else "",
+                "updated_at": updated_at,
+                "date_label": _format_date(updated_at),
+                "is_media": media.is_media,
+                "media_kind": media.media_kind,
+                "media_path": media.path if media.is_media else "",
                 "source_label": _metadata_source_label(item),
                 "action_label": "USE IN CHAT",
                 "search_text": _search_blob(
                     title,
                     item.get("summary", ""),
-                    item.get("item_path", ""),
+                    item_path_str,
                     item.get("item_kind", ""),
                     _card_source_line(item),
                     item.get("source_label", ""),
@@ -347,16 +362,20 @@ def build_library_surface_state(
         title = str(item.get("title", "") or "").strip()
         if not title:
             continue
-        media = describe_library_media_path(str(item.get("item_path", "") or "").strip())
+        item_path_str = str(item.get("item_path", "") or "").strip()
+        media = describe_library_media_path(item_path_str)
+        updated_at = str(item.get("updated_at", "") or "").strip()
         recent_cards.append(
             {
                 "title": _truncate(title, limit=48),
                 "detail": _card_detail(item),
                 "source_line": _card_source_line(item),
                 "kind": str(item.get("item_kind", "file") or "file").strip().lower(),
-                "item_path": str(item.get("item_path", "") or "").strip(),
+                "item_path": item_path_str,
                 "id": str(item.get("id", "") or "").strip(),
                 "context_ref": _context_ref(item),
+                "updated_at": updated_at,
+                "date_label": _format_date(updated_at),
                 "is_media": media.is_media,
                 "media_kind": media.media_kind,
                 "media_path": media.path if media.is_media else "",
@@ -365,7 +384,7 @@ def build_library_surface_state(
                 "search_text": _search_blob(
                     title,
                     item.get("summary", ""),
-                    item.get("item_path", ""),
+                    item_path_str,
                     item.get("item_kind", ""),
                     _card_source_line(item),
                     item.get("source_label", ""),

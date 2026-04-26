@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QComboBox, QPushButton, QWidget
 
 from src.guppy.experience_config import (
     load_runtime_settings as load_app_settings,
@@ -15,14 +15,8 @@ from src.guppy.experience_config import (
 )
 from src.guppy.inference.router import LAUNCHER_MODES_DISPLAY
 from src.guppy.launcher_application.models_route_support import parse_fallback_chain, route_targets_from_registry
-from src.guppy.launcher_application.models_presenter import (
-    build_models_active_identity_text,
-    build_models_library_hint_text,
-    build_models_route_preview_hint_text,
-    build_models_runtime_identity_text,
-)
+from .models_view_builder import build_models_ui
 from .. import tokens as T
-from .models_library_panel import build_models_library_panel
 from .models_library_refresh_support import (
     on_local_runtime_result as library_refresh_on_local_result,
     on_model_selected as library_refresh_on_model_selected,
@@ -53,7 +47,7 @@ from .models_ops_support import (
     toggle_model_ops_panel as ops_toggle_model_ops_panel,
 )
 from .models_runtime_workers import ModelWarmSpawnThread
-from .models_sections import _ModelCard, build_models_route_section, build_models_runtime_section
+from .models_sections import _ModelCard
 from .models_runtime_support import (
     _DEFAULT_LEMONADE_BASE_URL,
     _DEFAULT_LMSTUDIO_BASE_URL,
@@ -103,7 +97,7 @@ except Exception:
 CLOUD_MODELS = [
     {"name": "claude-haiku-4-5-20251001", "display": "Claude Haiku 4.5", "context": "200K tokens", "tier": "CLOUD", "note": "Fast / cost-efficient"},
     {"name": "claude-sonnet-4-6", "display": "Claude Sonnet 4.6", "context": "200K tokens", "tier": "CLOUD", "note": "Balanced / recommended"},
-    {"name": "claude-opus-4", "display": "Claude Opus 4", "context": "200K tokens", "tier": "CLOUD", "note": "Maximum intelligence"},
+    {"name": "claude-opus-4-7", "display": "Claude Opus 4.7", "context": "200K tokens", "tier": "CLOUD", "note": "Maximum intelligence"},
 ]
 _RUNTIME = Path(__file__).resolve().parent.parent.parent.parent / "runtime"
 _HEARTBEAT_FRESH_SECONDS = float(os.environ.get("GUPPY_HEARTBEAT_FRESH_SECONDS", "20") or "20")
@@ -191,146 +185,15 @@ class ModelsView(QWidget):
         self._set_page_mode("library")
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        topbar = QFrame()
-        topbar.setObjectName("models_topbar")
-        topbar.setFixedHeight(52)
-        topbar.setStyleSheet(f"QFrame#models_topbar {{ background-color: {T.BG0}; border-bottom: 1px solid {T.BORDER}; }}")
-        tb = QHBoxLayout(topbar)
-        tb.setContentsMargins(28, 0, 28, 0)
-        self._title_lbl = QLabel("MODELS")
-        self._title_lbl.setStyleSheet(
-            f"color: {T.ACCENT_TEAL}; font-family: '{T.FF_HEAD}'; font-size: {T.FS_TITLE}pt; font-weight: bold; letter-spacing: 2px;"
-        )
-        self._active_lbl = QLabel(build_models_active_identity_text(self._active_model))
-        self._active_lbl.setStyleSheet(
-            f"color: {T.ACCENT_ORANGE}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;"
-        )
-        self._active_runtime_lbl = QLabel(build_models_runtime_identity_text(self._local_runtime_backend))
-        self._active_runtime_lbl.setStyleSheet(
-            f"color: {T.DIM}; font-family: '{T.FF_MONO}'; font-size: {T.FS_TINY}pt; letter-spacing: 2px;"
-        )
-        self._refresh_btn = QPushButton("REFRESH")
-        self._refresh_btn.setFixedHeight(28)
-        self._refresh_btn.setToolTip("Reload the local model list and runtime readiness from the selected backend")
-        self._refresh_btn.clicked.connect(self._refresh)
-        tb.addWidget(self._title_lbl)
-        tb.addStretch()
-        tb.addWidget(self._active_lbl)
-        tb.addSpacing(16)
-        tb.addWidget(self._active_runtime_lbl)
-        tb.addSpacing(16)
-        tb.addWidget(self._refresh_btn)
-        root.addWidget(topbar)
-
-        library_panel = build_models_library_panel(
+        build_models_ui(
+            self,
             loadout_fields=_LOADOUT_FIELDS,
             cloud_models=CLOUD_MODELS,
-            on_search_changed=self._apply_library_filter,
-            on_loadout_changed=self._on_loadout_changed,
-            on_apply_loadout=self._apply_model_loadout,
-            on_spawn_main=lambda: self._spawn_loadout_models(include_main=True, include_subs=False),
-            on_spawn_subs=lambda: self._spawn_loadout_models(include_main=False, include_subs=True),
-            on_spawn_all=lambda: self._spawn_loadout_models(include_main=True, include_subs=True),
-            on_model_selected=self._on_model_selected,
-        )
-        self._library_summary_frame = library_panel.summary_frame
-        self._library_summary_lbl = library_panel.summary_label
-        self._library_search = library_panel.search_input
-        self._library_hint_lbl = library_panel.hint_label
-        self._loadout_frame = library_panel.loadout_frame
-        self._loadout_status_lbl = library_panel.loadout_status_label
-        self._loadout_inputs = library_panel.loadout_inputs
-        self._apply_loadout_btn = library_panel.apply_loadout_button
-        self._spawn_main_btn = library_panel.spawn_main_button
-        self._spawn_subs_btn = library_panel.spawn_subs_button
-        self._spawn_all_btn = library_panel.spawn_all_button
-        self._loadout_help_lbl = library_panel.loadout_help_label
-        self._library_scroll = library_panel.scroll
-        self._grid = library_panel.grid
-        self._local_header = library_panel.local_header
-        self._cloud_header = library_panel.cloud_header
-        self._local_host = library_panel.local_host
-        self._local_layout = library_panel.local_layout
-        self._local_sections = library_panel.local_sections
-        self._local_section_layouts = library_panel.local_section_layouts
-        self._local_section_cards = library_panel.local_section_cards
-        self._local_placeholder = library_panel.local_placeholder
-        self._cloud_host = library_panel.cloud_host
-        self._cloud_layout = library_panel.cloud_layout
-        self._cloud_cards = library_panel.cloud_cards
-        self._library_hint_lbl.setText(build_models_library_hint_text())
-        root.addWidget(self._library_summary_frame)
-
-        runtime_section = build_models_runtime_section(
             lemonade_role_fields=_LEMONADE_ROLE_FIELDS,
             default_lemonade_base_url=_DEFAULT_LEMONADE_BASE_URL,
-            on_runtime_backend_changed=self._on_runtime_backend_changed,
-            on_save_runtime_settings=self._save_runtime_settings,
-            on_set_selected_runtime_role=self._set_selected_runtime_role,
-            on_refresh_runtime_library=self._refresh_runtime_library,
-        )
-        self._runtime_bar = runtime_section.frame
-        self._runtime_backend_cb = runtime_section.backend_combo
-        self._runtime_endpoint_lbl = runtime_section.endpoint_label
-        self._lemonade_base_url_input = runtime_section.lemonade_base_url_input
-        self._save_runtime_btn = runtime_section.save_button
-        self._lemonade_role_inputs = runtime_section.lemonade_role_inputs
-        self._runtime_library_frame = runtime_section.runtime_library_frame
-        self._runtime_library_title = runtime_section.runtime_library_title
-        self._runtime_library_target_lbl = runtime_section.runtime_library_target_label
-        self._runtime_library_search = runtime_section.runtime_library_search
-        self._runtime_library_summary_lbl = runtime_section.runtime_library_summary_label
-        self._runtime_library_host = runtime_section.runtime_library_host
-        self._runtime_library_grid = runtime_section.runtime_library_grid
-        self._runtime_summary_lbl = runtime_section.runtime_summary_label
-        self._runtime_policy_lbl = runtime_section.runtime_policy_label
-        self._runtime_live_lbl = runtime_section.runtime_live_label
-        self._runtime_status_lbl = runtime_section.runtime_status_label
-        root.addWidget(self._runtime_bar)
-
-        route_section = build_models_route_section(
             mix_route_fields=_MIX_ROUTE_FIELDS,
             route_modes=list(LAUNCHER_MODES_DISPLAY),
-            on_route_changed=self._refresh_route_summary,
-            on_apply_routes=self._apply_routes,
-            on_apply_mix=self._apply_mixed_loadout,
-            on_toggle_ops=self._toggle_model_ops_panel,
-            on_download=lambda: self._run_ollama_model_op("pull"),
-            on_uninstall=lambda: self._run_ollama_model_op("rm"),
-            on_check_health=self._check_model_health,
-            on_route_mode_changed=lambda _text: self._refresh_route_preview(),
-            on_route_input_changed=lambda _text: self._refresh_route_preview(),
         )
-        self._route_bar = route_section.frame
-        self._simple_route_cb = route_section.simple_route_combo
-        self._complex_route_cb = route_section.complex_route_combo
-        self._teaching_route_cb = route_section.teaching_route_combo
-        self._fallback_chain_input = route_section.fallback_chain_input
-        self._apply_routes_btn = route_section.apply_routes_button
-        self._mix_status_lbl = route_section.mix_status_label
-        self._mix_route_inputs = route_section.mix_route_inputs
-        self._apply_mix_btn = route_section.apply_mix_button
-        self._ops_toggle_btn = route_section.ops_toggle_button
-        self._ops_panel = route_section.ops_panel
-        self._ops_model_input = route_section.ops_model_input
-        self._ops_download_btn = route_section.ops_download_button
-        self._ops_uninstall_btn = route_section.ops_uninstall_button
-        self._ops_health_btn = route_section.ops_health_button
-        self._ops_status_lbl = route_section.ops_status_label
-        self._route_status_lbl = route_section.route_status_label
-        self._route_summary_lbl = route_section.route_summary_label
-        self._route_evidence_lbl = route_section.route_evidence_label
-        self._route_mode_cb = route_section.route_mode_combo
-        self._route_input = route_section.route_input
-        self._route_preview_lbl = route_section.route_preview_label
-        self._route_preview_lbl.setText(build_models_route_preview_hint_text())
-        root.addWidget(self._route_bar)
-
-        root.addWidget(self._library_scroll)
 
     @staticmethod
     def _normalize_runtime_backend(value: str) -> str:

@@ -18,7 +18,6 @@ except ImportError:  # cloud deployments without the desktop runtime tree
 
     def probe_backends(**_kw) -> dict:  # type: ignore[misc]
         return {}
-
 from utils.connector_manager import connector_inventory
 from utils.tool_registry import TOOLS
 
@@ -142,81 +141,19 @@ def _normalize_instance_status(status: str) -> str:
 
 
 def _instance_snapshot_payload() -> dict[str, Any]:
-    import json
-
-    def _load(path: Path) -> dict[str, Any]:
-        try:
-            return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-        except Exception:
-            return {}
-
-    config = _load(_CONFIG_DIR / "instances.json")
-    state = _load(_RUNTIME_DIR / "instance_state.json")
-    raw_items = config.get("instances", []) if isinstance(config, dict) else []
-    state_items = state.get("instances", {}) if isinstance(state, dict) else {}
-    active = str(
-        config.get("active_instance", state.get("active_instance", "guppy-primary"))
-        if isinstance(config, dict)
-        else "guppy-primary"
-    ).strip() or "guppy-primary"
-
-    items: list[dict[str, Any]] = []
-    for item in raw_items if isinstance(raw_items, list) else []:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name", "")).strip()
-        if not name:
-            continue
-        runtime = state_items.get(name, {}) if isinstance(state_items, dict) else {}
-        items.append({
-            "name": name,
-            "description": str(item.get("description", "")).strip(),
-            "mode": str(item.get("mode", "auto") or "auto"),
-            "persona": str(item.get("persona", "guppy") or "guppy"),
-            "type": str(item.get("type", "user_instance") or "user_instance"),
-            "created_at": item.get("created_at"),
-            "enabled": bool(item.get("enabled", True)),
-            "status": str(runtime.get("status", "idle") or "idle"),
-            "last_message": str(runtime.get("last_message", "") or ""),
-            "last_updated": runtime.get("last_updated"),
-            "message_count": int(runtime.get("message_count", 0) or 0),
-            "model_currently_using": str(
-                runtime.get("model_currently_using", item.get("mode", "auto")) or "auto"
-            ),
-        })
-
-    if not items:
-        items = [{
-            "name": "guppy-primary",
-            "description": "Primary foreground assistant instance",
-            "mode": "auto",
-            "persona": "guppy",
-            "type": "user_instance",
-            "created_at": None,
-            "enabled": True,
-            "status": "active",
-            "last_message": "",
-            "last_updated": None,
-            "message_count": 0,
-            "model_currently_using": "auto",
-        }]
-        active = "guppy-primary"
-
-    active_runtime = sum(
-        1 for i in items if str(i.get("status", "idle")).strip().lower() in {"active", "running", "busy"}
+    try:
+        mod = __import__(
+            "src.guppy.launcher_application.workspace_snapshot_support",
+            fromlist=["build_local_instance_snapshot"],
+        )
+        build_fn = mod.build_local_instance_snapshot
+    except Exception:
+        return {"instances": []}
+    return build_fn(
+        config_path=_CONFIG_DIR / "instances.json",
+        state_path=_RUNTIME_DIR / "instance_state.json",
+        include_workspace_details=True,
     )
-    return {
-        "version": int(config.get("version", 1) or 1) if isinstance(config, dict) else 1,
-        "active_instance": active,
-        "instances": items,
-        "limits": {
-            "configured": len(items),
-            "max_configured": 5,
-            "active_runtime": active_runtime,
-            "max_active_runtime": 2,
-        },
-        "warnings": [],
-    }
 
 
 def _flat_instances_payload() -> list[dict[str, Any]]:
@@ -278,8 +215,13 @@ def _tool_category(name: str) -> str:
 
 
 def _flat_tools_payload() -> list[dict[str, Any]]:
+    try:
+        tools_mod = __import__("guppy_core.tool_registry", fromlist=["TOOLS"])
+        tools_list = tools_mod.TOOLS
+    except Exception:
+        return []
     items: list[dict[str, Any]] = []
-    for tool in TOOLS:
+    for tool in tools_list:
         if not isinstance(tool, dict):
             continue
         tool_id = str(tool.get("name", "") or "").strip()
