@@ -444,7 +444,7 @@ const _BASE_URL = (import.meta.env.VITE_API_URL || '') as string
  * Throws on HTTP error or if the server sends {"error": "..."}.
  */
 export async function streamChat(
-  params: { message: string; session_id?: string; workspace_id?: string | null; mode?: string },
+  params: { message: string; session_id?: string; workspace_id?: string | null; mode?: string; history?: Array<{ role: 'user' | 'assistant'; content: string }> },
   onToken: (token: string) => void,
   signal?: AbortSignal
 ): Promise<void> {

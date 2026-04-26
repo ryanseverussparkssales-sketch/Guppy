@@ -721,7 +721,11 @@ async def stream_unified_inference(
     if is_llamacpp and owner.GUPPY_CORE_AVAILABLE:
         llamacpp_backend = _LOCAL_LLAMACPP_ROUTES.get(active_local_model or "")
         if llamacpp_backend and _LOCAL_BACKENDS.get(llamacpp_backend):
-            messages = build_router_messages(augmented_system, user_text, sanitize_chat_history(history))
+            _no_tools = (
+                "[SYSTEM NOTE: You have NO access to external tools, APIs, or the internet. "
+                "Do NOT output tool call tags or markup. Respond directly using your knowledge only.]\n\n"
+            )
+            messages = build_router_messages(_no_tools + augmented_system, user_text, sanitize_chat_history(history))
             try:
                 async for token in _stream_llamacpp_tokens(
                     model=active_local_model,

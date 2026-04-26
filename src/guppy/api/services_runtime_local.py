@@ -559,8 +559,14 @@ def call_selected_local_runtime(
         )
         llamacpp_backend = _lc_routes.get(model_override)
         if llamacpp_backend:
+            # Prepend a hard instruction so the model doesn't try tool calls
+            # (local llama.cpp servers have no execution loop for them).
+            no_tools_note = (
+                "[SYSTEM NOTE: You have NO access to external tools, APIs, or the internet. "
+                "Do NOT output tool call tags or markup. Respond directly using your knowledge only.]\n\n"
+            )
             messages = [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": no_tools_note + system_prompt},
                 {"role": "user", "content": user_text},
             ]
             result = _local_chat(

@@ -536,6 +536,13 @@ export class SyncManager {
     const store = useAppStore.getState()
     const endpoint = 'POST /api/chat'
 
+    // Build conversation history from cache (last 12 turns, user+assistant only)
+    const cachedMessages = store.messageCache.get(conversationId) || []
+    const history = cachedMessages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .slice(-12)
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+
     telemetry.recordEvent({
       type: 'request_queued',
       endpoint,
@@ -552,6 +559,7 @@ export class SyncManager {
             session_id: conversationId,
             workspace_id: store.activeWorkspaceId,
             mode: model || 'auto',
+            history,
           },
           (token) => {
             fullResponse += token
@@ -580,6 +588,7 @@ export class SyncManager {
         session_id: conversationId,
         workspace_id: store.activeWorkspaceId,
         mode: model || 'auto',
+        history,
       })
 
       const aiResponse = response.data.response
