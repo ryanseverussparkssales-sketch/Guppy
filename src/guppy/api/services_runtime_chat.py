@@ -202,21 +202,29 @@ def call_selected_local_runtime(
     model_override: Optional[str] = None,
 ) -> str:
     """Call the selected local runtime backend with automatic fallback to Ollama.
-    
+
     If LM Studio times out or fails, automatically falls back to Ollama.
     """
     import logging
     import time
-    
+    from src.guppy.inference.local_client import _LLAMACPP_MODEL_ROUTE
+
     logger = logging.getLogger(__name__)
     backend = owner._selected_local_runtime_backend()
     warm_status = owner._local_runtime_warm_cached_or_unknown()
-    
+
+    # If the requested model name maps to a llama.cpp server, route there directly
+    # without trying the active backend or falling back to Ollama.
+    llamacpp_backend = _LLAMACPP_MODEL_ROUTE.get(model_override or "", "") if model_override else ""
+
     # Determine which backends to try (in order)
-    backends_to_try = []
-    if backend != "ollama":
-        backends_to_try.append(backend)
-    backends_to_try.append("ollama")  # Always fallback to Ollama
+    if llamacpp_backend:
+        backends_to_try = [llamacpp_backend]
+    else:
+        backends_to_try = []
+        if backend != "ollama":
+            backends_to_try.append(backend)
+        backends_to_try.append("ollama")  # Always fallback to Ollama
     
     last_error = None
     

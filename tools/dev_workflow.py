@@ -102,7 +102,7 @@ def _dev_check_steps(scope: str) -> list[tuple[str, list[str]]]:
 
 
 def _test_fast_steps() -> list[tuple[str, list[str]]]:
-    return [("fast unit suite", _pytest_command("tests/unit", label="test-fast"))]
+    return [("fast unit suite", _pytest_command("tests/unit", "--cov", "--cov-report=term-missing", label="test-fast"))]
 
 
 def _test_default_steps() -> list[tuple[str, list[str]]]:

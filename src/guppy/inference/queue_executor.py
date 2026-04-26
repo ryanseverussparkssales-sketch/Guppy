@@ -27,7 +27,7 @@ from sqlalchemy import (
     and_,
     desc,
 )
-from sqlalchemy.orm import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .provider_registry import ProviderRegistry, get_provider_registry
 from .provider_client import InferenceMetadata

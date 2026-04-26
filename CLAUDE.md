@@ -31,11 +31,11 @@ launcher_app.py              hub_app.py              server.py
 ### Known Architecture Seams
 1. **UI Launcher is a re-export shim** — `ui/launcher/__init__.py` delegates to `compat_shims/launcher_ui/ui/launcher/`. Real code lives in compat_shims. This is intentional (cleanup in progress).
 
-2. **Legacy code quarantined** — `compat_shims/legacy_surfaces/` is empty (candidate for removal). `src/guppy/merlin/` holds old specialist material (not active launcher). `.quarantine/` contains a README only — confirmed intentional archival, not dead code. Scheduled for review at P6 closeout.
+2. **Legacy code quarantined** — `compat_shims/legacy_surfaces/` is empty (candidate for removal). `src/guppy/merlin/` is deprecated: `__init__.py` emits a `DeprecationWarning` and `check_architecture_boundaries.py` blocks all external imports. No active code references it. `.quarantine/` contains a README only — confirmed intentional archival, not dead code.
 
 3. **Catalog routes are all production** — `launcher_application/` catalogs (connector, workflow, instance, voice) are active production code. No experimental catalog routes exist.
 
-4. **Multiple /repair endpoints** — `/repair` and `/repair-token/refresh` declared in three files (`routes_ops.py`, `snapshot_misc_routes.py`, `_server_fragment_routes_core.py`). Verify if these are alternative mount points or dead code.
+4. **Single /repair endpoint** — `/repair` and `/repair-token/refresh` live only in `routes_ops.py`, mounted via `build_ops_router()` in `server_runtime.py`. The previously referenced `snapshot_misc_routes.py` and `_server_fragment_routes_core.py` no longer exist.
 
 ---
 
@@ -103,7 +103,7 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 ### 🟢 Verified / Resolved
 - ✅ **`compat_shims/legacy_surfaces/`** — Not empty; contains an intentional `__init__.py` quarantine marker (`__all__ = ()`). Guardrail in `tools/check_architecture_boundaries.py` blocks imports. Protocol documented in `docs/LEGACY_QUARANTINE_PROTOCOL.md` and `docs/LEGACY_SURFACES.md`. No action needed.
 - ✅ **`api/` root folder** — Active Vercel cloud backend (`app.py`, `auth.py`, `index.py`, `routes/`). Completely separate from the local runtime. See `docs/LIVE_ARCHITECTURE.md`. Not dead code.
-- ✅ **Multiple `/repair` endpoints** — One live implementation: `routes_ops.py` (mounted via `build_ops_router()` in `server_runtime.py:470`). `_server_fragment_routes_core.py` is a build-time source fragment for `tools/rebuild_api_server_runtime.py`; `snapshot_misc_routes.py` is registered only in the generated output (`server_runtime_snapshot.py`), not in the live server. No consolidation needed.
+- ✅ **`/repair` endpoints** — Single live implementation in `routes_ops.py` (mounted via `build_ops_router()`). `snapshot_misc_routes.py` and `_server_fragment_routes_core.py` no longer exist; stale references removed from CLAUDE.md and a clarifying comment added to `routes_ops.py`.
 - ✅ **`ui/launcher/` shim clarification** — Documented in "Known Architecture Seams" §1 above and in `docs/LIVE_ARCHITECTURE.md`. OPERATIONS.md does not exist (reference was stale); `docs/LIVE_ARCHITECTURE.md` is the canonical architecture doc.
 - ✅ **Launcher shortcut management** — `tools/ensure_desktop_launcher.ps1` updates `Desktop\Guppy Launcher.lnk` to point to dist exe or repo launcher. Documented in Tools & Utilities below.
 

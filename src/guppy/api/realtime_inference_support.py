@@ -5,6 +5,8 @@ import logging
 import urllib.request
 from typing import Any, AsyncGenerator, Optional
 
+from src.guppy.inference.local_client import _LLAMACPP_MODEL_ROUTE as _LOCAL_LLAMACPP_ROUTES
+
 _log = logging.getLogger(__name__)
 
 _CHAT_CONTENT_MAX_CHARS = 2000
@@ -116,6 +118,7 @@ def call_unified_inference(
     history: Optional[list[dict[str, str]]] = None,
     instance_name: Optional[str] = None,
     instance_type: Optional[str] = None,
+    active_local_model: Optional[str] = None,
 ) -> str:
     if not owner.GUPPY_CORE_AVAILABLE:
         raise RuntimeError("Guppy core not available.")
@@ -143,6 +146,11 @@ def call_unified_inference(
         mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto"
     ).strip().lower()
 
+    # If the user explicitly selected a llama.cpp model, force local routing so the
+    # router doesn't escalate to a cloud provider even in "auto" mode.
+    if active_local_model and active_local_model in _LOCAL_LLAMACPP_ROUTES and requested_mode in {"auto", ""}:
+        requested_mode = "local"
+
     try:
         if requested_mode == "local":
             response, source, metadata = _with_single_retry(
@@ -154,6 +162,7 @@ def call_unified_inference(
                 router_messages=router_messages,
                 instance_name=instance_name,
                 instance_type=instance_type,
+                active_local_model=active_local_model,
             )
         elif requested_mode == "code":
             response, source, metadata = _with_single_retry(
@@ -174,6 +183,7 @@ def call_unified_inference(
                 router_messages=router_messages,
                 instance_name=instance_name,
                 instance_type=instance_type,
+                active_local_model=active_local_model,
             )
 
         owner.logger.info(
@@ -223,9 +233,10 @@ def _run_local_mode(
     router_messages: list[dict[str, str]],
     instance_name: str | None,
     instance_type: str | None,
+    active_local_model: str | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
     task_type = router._classify_task(user_text, augmented_system_prompt)
-    model_name = router.LOCAL_TIER_MAP.get(task_type, router.LOCAL_MODEL)
+    model_name = active_local_model or router.LOCAL_TIER_MAP.get(task_type, router.LOCAL_MODEL)
     paired = owner.os.environ.get("GUPPY_LOCAL_PAIRED", "0").strip().lower() in {
         "1",
         "true",
@@ -296,6 +307,7 @@ def _run_routed_mode(
     router_messages: list[dict[str, str]],
     instance_name: str | None,
     instance_type: str | None,
+    active_local_model: str | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
     route_decision = router.resolve_ui_route(
         user_text=user_text,
@@ -353,7 +365,7 @@ def _run_routed_mode(
             augmented_system_prompt,
             instance_name=instance_name,
             instance_type=instance_type,
-            model_override=target_model or None,
+            model_override=active_local_model or target_model or None,
         )
         return response, "local", {"route_decision": route_decision}
 
@@ -598,6 +610,7 @@ async def stream_unified_inference(
     history: Optional[list[dict]] = None,
     instance_name: Optional[str] = None,
     instance_type: Optional[str] = None,
+    active_local_model: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """
     Async generator yielding content tokens for the chat response.
@@ -610,17 +623,22 @@ async def stream_unified_inference(
     augmented_system = await _inject_semantic_context_async(augmented_system, user_text, owner)
     requested_mode = (mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto").strip().lower()
 
+    # llama.cpp servers don't use Ollama's streaming protocol — fall through to
+    # non-streaming which routes via call_selected_local_runtime correctly.
+    is_llamacpp = bool(active_local_model and active_local_model in _LOCAL_LLAMACPP_ROUTES)
+
     can_stream_ollama = (
         owner.GUPPY_CORE_AVAILABLE
         and owner.INFERENCE_ROUTER_AVAILABLE
         and requested_mode in {"local", "auto", ""}
+        and not is_llamacpp
     )
 
     if can_stream_ollama:
         try:
             router = owner.get_router()
             task_type = router._classify_task(user_text, augmented_system)
-            model_name = router.LOCAL_TIER_MAP.get(task_type, router.LOCAL_MODEL)
+            model_name = active_local_model or router.LOCAL_TIER_MAP.get(task_type, router.LOCAL_MODEL)
             messages = build_router_messages(augmented_system, user_text, clean_history)
             tools = owner.core.to_ollama_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
 
@@ -673,7 +691,7 @@ async def stream_unified_inference(
         except RuntimeError:
             pass  # fall through to non-streaming fallback
 
-    # Non-streaming fallback (Claude / no router / explicit code mode)
+    # Non-streaming fallback (Claude / no router / explicit code mode / llama.cpp)
     response = call_unified_inference(
         owner=owner,
         user_text=user_text,
@@ -682,5 +700,6 @@ async def stream_unified_inference(
         history=history,
         instance_name=instance_name,
         instance_type=instance_type,
+        active_local_model=active_local_model,
     )
     yield response

@@ -6,6 +6,7 @@
 # Security and quality extras
 ruff
 mypy
+pytest-cov
 pytest-xdist
 unidiff
 pip-audit

@@ -3,6 +3,16 @@ import { Download, Trash2, RefreshCw, CheckCircle, XCircle, Brain, Cloud, Cpu, A
 import { cn } from '@/lib/utils'
 import api from '../api/client'
 
+const _BACKEND_LABELS: Record<string, string> = {
+  ollama:          'Ollama',
+  lmstudio:        'LM Studio',
+  lemonade:        'Lemonade',
+  local_harness:   'Local Harness',
+  'llamacpp-gemma': 'Gemma 4 Heretic',
+  'llamacpp-qwen3': 'Qwen3 Uncensored',
+  'llamacpp-pepe':  'Pepe 8B',
+}
+
 /**
  * Model and Provider interfaces
  * 
@@ -23,9 +33,9 @@ interface PullStatus {
 interface ProviderInfo {
   configured: boolean
   active_model: string
-  models: { id: string; name: string; tier: string }[]
+  models: { id: string; name: string; tier: string; backend?: string }[]
   backend?: string
-  backends?: Record<string, { alive: boolean }>
+  backends?: Record<string, { alive: boolean; label?: string }>
 }
 
 interface ProvidersPayload {
@@ -34,7 +44,7 @@ interface ProvidersPayload {
   google: ProviderInfo
   cohere: ProviderInfo
   mistral: ProviderInfo
-  local: ProviderInfo & { backend: string; backends: Record<string, { alive: boolean }> }
+  local: ProviderInfo & { backend: string; backends: Record<string, { alive: boolean; label?: string }> }
 }
 
 type Tab = 'local' | 'anthropic' | 'openai' | 'google' | 'cohere' | 'mistral'
@@ -242,19 +252,20 @@ export default function ModelsView() {
                       Active: <span className="font-bold text-secondary">{providers.local.backend}</span>
                     </span>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     {Object.entries(providers.local.backends || {}).map(([name, b]) => (
                       <span
                         key={name}
+                        title={name}
                         className={cn(
                           "px-3 py-1.5 rounded-full text-xs font-bold",
-                          b.alive 
-                            ? "bg-primary/10 text-primary" 
+                          b.alive
+                            ? "bg-primary/10 text-primary"
                             : "bg-surface-container text-on-surface-variant/50"
                         )}
                       >
                         {b.alive && <span className="inline-block w-2 h-2 rounded-full bg-primary mr-2 animate-pulse" />}
-                        {name}
+                        {b.label ?? name}
                       </span>
                     ))}
                   </div>
@@ -387,7 +398,7 @@ export default function ModelsView() {
 }
 
 interface ModelCardProps {
-  model: { id: string; name: string; tier: string }
+  model: { id: string; name: string; tier: string; backend?: string }
   isActive: boolean
   onDelete?: () => void
   onActivate?: () => void
@@ -411,7 +422,10 @@ function ModelCard({ model, isActive, onDelete, onActivate, deleting, activating
       </div>
 
       <h4 className="text-xl font-headline font-bold text-on-surface mb-2">{model.name || model.id}</h4>
-      <p className="text-xs text-on-surface-variant font-mono mb-4 truncate">{model.id}</p>
+      <p className="text-xs text-on-surface-variant font-mono mb-1 truncate">{model.id}</p>
+      {model.backend && (
+        <p className="text-xs text-secondary font-bold mb-3">{_BACKEND_LABELS[model.backend] ?? model.backend}</p>
+      )}
 
       <div className="flex items-center justify-between pt-4 border-t border-surface-container">
         {isActive ? (

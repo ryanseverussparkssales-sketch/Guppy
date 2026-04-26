@@ -100,6 +100,13 @@ RULES = (
         path_prefixes=ENFORCED_PREFIXES,
     ),
     BoundaryRule(
+        rule_id="deprecated-merlin-import",
+        description="imports deprecated merlin specialist module (use launcher_application/ instead)",
+        pattern=re.compile(r"^(from|import)\s+src\.guppy\.merlin\b"),
+        path_prefixes=ENFORCED_PREFIXES,
+        excluded_paths=("src/guppy/merlin/",),
+    ),
+    BoundaryRule(
         rule_id="hub-to-launcher-ui",
         description="imports ui.launcher from the hub domain",
         pattern=re.compile(r"^(from|import)\s+ui\.launcher\b"),

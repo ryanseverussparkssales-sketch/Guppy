@@ -108,6 +108,39 @@ After setup, you'll have three desktop shortcuts:
 
 ---
 
+## 🖥️ Web Frontend Development
+
+If you want to work on the Web UI source (React/TypeScript), you need Node.js in addition to Python.
+
+**Prerequisites:** Node.js 20+ and npm
+
+```powershell
+# Install web dependencies (once)
+cd C:\Users\Ryan\Guppy\web
+npm install
+
+# Start the Vite dev server (hot-reload, proxies /api to port 8081)
+npm run dev
+# → open http://localhost:3000
+```
+
+The Vite dev server proxies `/api`, `/auth`, and `/telemetry` to the Guppy API on port 8081, so you must also have the API running (`bin\launch_api.bat` or `python -m src.guppy.cli.launch api --dev`).
+
+**Other web commands:**
+
+```powershell
+npm run typecheck     # TypeScript type check (no emit)
+npm run lint          # ESLint
+npm run lint:fix      # ESLint with auto-fix
+npm run format        # Prettier (writes files)
+npm run format:check  # Prettier (check only, used in CI)
+npm run build         # Production build → outputs to ../static/
+npm run test:run      # Vitest unit tests
+npm run playwright    # Playwright E2E tests (requires dev server running)
+```
+
+---
+
 ## 📚 Next Steps
 
 - **Read TOOLS.md** for detailed setup with different LLM providers

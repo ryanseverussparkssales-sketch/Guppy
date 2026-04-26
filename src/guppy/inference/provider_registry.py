@@ -19,8 +19,10 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from utils.db_utils import open_db
 from .provider_client import (
     ProviderClient,
     LocalProviderClient,
@@ -36,6 +38,19 @@ from .provider_clients_cloud import (
 )
 
 logger = logging.getLogger(__name__)
+
+_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS provider_configs (
+    id              TEXT PRIMARY KEY,
+    is_enabled      INTEGER NOT NULL DEFAULT 1,
+    model_id        TEXT,
+    priority_order  INTEGER
+);
+"""
+
+_DEFAULT_DB_PATH = Path(
+    os.environ.get("GUPPY_PROVIDER_DB", "runtime/settings/provider_configs.sqlite3")
+)
 
 
 @dataclass
@@ -220,14 +235,22 @@ class ProviderRegistry:
         # Start with defaults
         self._configs = {k: v for k, v in self.DEFAULT_CONFIGS.items()}
 
-        # Override with settings DB if available
+        # Merge persisted overrides (is_enabled, model_id, priority_order) from settings DB.
         if self.settings_db:
             try:
-                # TODO: Implement settings DB query to load provider configs
-                # db_configs = self.settings_db.get_provider_configs()
-                # for cfg in db_configs:
-                #     self._configs[cfg.id] = cfg
-                pass
+                with open_db(self.settings_db, schema_sql=_SCHEMA_SQL) as conn:
+                    rows = conn.execute(
+                        "SELECT id, is_enabled, model_id, priority_order FROM provider_configs"
+                    ).fetchall()
+                for row_id, is_enabled, model_id, priority_order in rows:
+                    cfg = self._configs.get(row_id)
+                    if cfg is None:
+                        continue
+                    cfg.is_enabled = bool(is_enabled)
+                    if model_id is not None:
+                        cfg.model_id = model_id
+                    if priority_order is not None:
+                        cfg.priority_order = priority_order
             except Exception as e:
                 logger.warning(f"[REGISTRY] Failed to load configs from settings DB: {e}")
 
@@ -348,7 +371,17 @@ class ProviderRegistry:
                 # Pre-create client on enable
                 await self.get_client(provider_id)
 
-            # TODO: Persist to settings DB
+            if self.settings_db:
+                try:
+                    with open_db(self.settings_db, schema_sql=_SCHEMA_SQL) as conn:
+                        conn.execute(
+                            "INSERT INTO provider_configs (id, is_enabled) VALUES (?, ?)"
+                            " ON CONFLICT(id) DO UPDATE SET is_enabled=excluded.is_enabled",
+                            (provider_id, 1 if enabled else 0),
+                        )
+                        conn.commit()
+                except Exception as e:
+                    logger.warning(f"[REGISTRY] Failed to persist {provider_id} enabled={enabled}: {e}")
             return True
 
     async def health_check_all(self) -> Dict[str, bool]:
@@ -586,5 +619,5 @@ def get_provider_registry(settings_db=None) -> ProviderRegistry:
     """Get or create the global provider registry."""
     global _registry
     if _registry is None:
-        _registry = ProviderRegistry(settings_db)
+        _registry = ProviderRegistry(settings_db or _DEFAULT_DB_PATH)
     return _registry

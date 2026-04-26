@@ -14,7 +14,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.guppy.api.server_context import ServerContext
-from src.guppy.inference.local_client import active_backend, list_local_models, probe_backends
+from src.guppy.inference.local_client import (
+    active_backend,
+    list_local_models,
+    probe_backends,
+    _BACKEND_DEFAULT_MODELS,
+)
 
 # Known model catalogs per provider (no discovery needed — models don't change often)
 _ANTHROPIC_MODELS = [
@@ -97,6 +102,20 @@ _LOCAL_MODEL_METADATA: Dict[str, Dict[str, Any]] = {
     "assistant-pepe-8b":    {"display": "Assistant Pepe 8B",          "tags": ["fast", "uncensored"]},
 }
 
+# Human-readable labels for the backends status pill in the UI
+_BACKEND_LABELS: Dict[str, str] = {
+    "ollama":          "Ollama",
+    "lmstudio":        "LM Studio",
+    "lemonade":        "Lemonade",
+    "local_harness":   "Local Harness",
+    "llamacpp-gemma":  "Gemma 4 Heretic",
+    "llamacpp-qwen3":  "Qwen3 Uncensored",
+    "llamacpp-pepe":   "Pepe 8B",
+}
+
+# llama.cpp backend names (to distinguish from Ollama/LM Studio when injecting models)
+_LLAMACPP_BACKENDS = {"llamacpp-gemma", "llamacpp-qwen3", "llamacpp-pepe"}
+
 
 def _get_settings_db():
     """Import lazily to avoid circular dependency at module load."""
@@ -160,6 +179,7 @@ def _provider_status() -> Dict[str, Any]:
 
     local_models_filtered = [m for m in local_models_raw if _should_include_model(m)]
     local_models = []
+    seen_model_ids: set = set()
     for m in local_models_filtered:
         # Exact match first, then prefix/substring match for long LM Studio IDs
         meta = _LOCAL_MODEL_METADATA.get(m) or next(
@@ -173,7 +193,26 @@ def _provider_status() -> Dict[str, Any]:
             "name": meta.get("display", display_fallback),
             "tier": "local",
             "tags": meta.get("tags", []),
+            "backend": local_backend,
         })
+        seen_model_ids.add(m)
+
+    # Inject models from alive llama.cpp servers that aren't already listed
+    for backend_name in _LLAMACPP_BACKENDS:
+        if not local_liveness.get(backend_name):
+            continue
+        canonical = _BACKEND_DEFAULT_MODELS.get(backend_name, "")
+        if not canonical or canonical in seen_model_ids:
+            continue
+        meta = _LOCAL_MODEL_METADATA.get(canonical, {})
+        local_models.append({
+            "id": canonical,
+            "name": meta.get("display", canonical),
+            "tier": "local",
+            "tags": meta.get("tags", []),
+            "backend": backend_name,
+        })
+        seen_model_ids.add(canonical)
 
     local_active = _get_active_model("local", local_models_raw[0] if local_models_raw else "")
 
@@ -208,7 +247,10 @@ def _provider_status() -> Dict[str, Any]:
             "backend": local_backend,
             "active_model": local_active,
             "models": local_models,
-            "backends": {name: {"alive": alive} for name, alive in local_liveness.items()},
+            "backends": {
+                name: {"alive": alive, "label": _BACKEND_LABELS.get(name, name)}
+                for name, alive in local_liveness.items()
+            },
         },
     }
 

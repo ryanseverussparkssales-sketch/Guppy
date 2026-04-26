@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import select, update, and_
-from sqlalchemy.orm import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .queue_executor import QueueExecutor
 from .provider_registry import ProviderRegistry, get_provider_registry

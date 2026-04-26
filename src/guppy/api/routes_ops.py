@@ -109,6 +109,7 @@ def build_ops_router(ctx: ServerContext) -> APIRouter:
             "report": report,
         }
 
+    # Sole live /repair implementation — mounted via build_ops_router() in server_runtime.py.
     @router.get("/repair-token/refresh")
     async def repair_token_refresh(
         _req: Request,
