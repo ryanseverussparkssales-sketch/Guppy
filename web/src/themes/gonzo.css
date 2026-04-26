@@ -1,0 +1,76 @@
+/*
+ * GONZO THEME — "Fear & Loathing"
+ * Void-black surfaces, acid-green primary, blood-red secondary, parchment text.
+ * Inspired by: gonzo-dark-inspo.html (Steadman ink / Hunter S. Thompson)
+ *
+ * Applied when: <html data-theme="gonzo">
+ * Fonts: Bebas Neue (headlines) · Courier Prime (body)
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Abril+Fatface&family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&family=Special+Elite&display=swap');
+
+[data-theme="gonzo"] {
+  /* ── Core palette ─────────────────────────────────────────────────── */
+  /* Acid green is the primary interactive color — unexpected, alive */
+  --color-primary: #B8E04A;
+  --color-primary-container: #1C1A14;   /* asphalt */
+  --color-on-primary: #0A0804;          /* void black */
+  --color-on-primary-container: #D4F076;
+
+  /* Blood red is the dangerous secondary */
+  --color-secondary: #CC2200;
+  --color-secondary-container: #2A2620; /* smog */
+  --color-on-secondary: #E2D5BE;        /* bone */
+  --color-on-secondary-container: #E8620A;
+
+  --color-tertiary: #E8620A;            /* ember orange */
+  --color-tertiary-container: #3D3428;  /* ink-brown */
+
+  /* ── Surfaces — void dark ─────────────────────────────────────────── */
+  --color-surface: #0A0804;
+  --color-surface-dim: #060503;
+  --color-surface-bright: #1C1A14;
+  --color-surface-container-lowest: #0A0804;
+  --color-surface-container-low: #111009;
+  --color-surface-container: #1C1A14;
+  --color-surface-container-high: #2A2620;
+  --color-surface-container-highest: #3D3428;
+  --color-surface-variant: #3D3428;
+
+  /* ── Text ─────────────────────────────────────────────────────────── */
+  --color-on-surface: #C8B89A;          /* parchment */
+  --color-on-surface-variant: #E2D5BE;  /* bone */
+
+  /* ── Borders ──────────────────────────────────────────────────────── */
+  --color-outline: #3D3428;             /* ink-brown */
+  --color-outline-variant: #2A2620;     /* smog */
+
+  /* ── Semantic status ──────────────────────────────────────────────── */
+  --color-success: #B8E04A;             /* acid green */
+  --color-warning: #C9A84C;             /* gold-sick */
+  --color-destructive: #CC2200;         /* blood */
+  --color-error: #CC2200;
+  --color-coral: #E8620A;               /* ember */
+  --color-info: #2A8B7A;                /* teal-dead */
+
+  /* ── Signature gradient — blood to acid ──────────────────────────── */
+  --color-gradient-start: #CC2200;
+  --color-gradient-end: #B8E04A;
+
+  /* ── Shadows — dark pit, no glow (hard-boiled) ────────────────────── */
+  --shadow-ghost: 0 0 0 1px rgba(184, 224, 74, 0.14);
+  --shadow-soft: 0 4px 14px -2px rgba(0, 0, 0, 0.65), 0 2px 6px -1px rgba(0, 0, 0, 0.55);
+  --shadow-soft-lg: 0 12px 32px -4px rgba(0, 0, 0, 0.75), 0 6px 12px -2px rgba(0, 0, 0, 0.65);
+
+  /* ── Border radius — razor sharp ─────────────────────────────────── */
+  --radius-sm: 0;
+  --radius-md: 0.125rem;
+  --radius-lg: 0.25rem;
+  --radius-xl: 0.375rem;
+  --radius-2xl: 0.5rem;
+  --radius-full: 0.25rem;              /* even "full" rounds are blunt */
+
+  /* ── Typography ───────────────────────────────────────────────────── */
+  --font-family-headline: 'Bebas Neue', 'Abril Fatface', Impact, 'Arial Black', sans-serif;
+  --font-family-body: 'Courier Prime', 'Special Elite', 'Courier New', monospace;
+}

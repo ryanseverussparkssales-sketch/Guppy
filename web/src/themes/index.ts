@@ -24,7 +24,10 @@
  */
 
 import './dark.css'
-// import './cyber.css'   ← drop V0 themes here
+import './occult.css'
+import './gonzo.css'
+import './rockmag.css'
+// import './cyber.css'
 // import './forest.css'
 // import './ocean.css'
 
@@ -48,6 +51,24 @@ export const THEMES: ThemeDefinition[] = [
     label: 'Dark',
     description: 'Deep slate surfaces, bright teal primary',
     preview: ['#4cc9c9', '#0f1415'],
+  },
+  {
+    id: 'occult',
+    label: 'Liber Designatum',
+    description: 'Abyss-black, gold primary, crimson accent — occult editorial',
+    preview: ['#C8A84B', '#020103'],
+  },
+  {
+    id: 'gonzo',
+    label: 'Fear & Loathing',
+    description: 'Void-black, acid-green primary, blood-red secondary — gonzo dark',
+    preview: ['#B8E04A', '#0A0804'],
+  },
+  {
+    id: 'rockmag',
+    label: 'Creem × Rolling Stone',
+    description: 'Newsprint cream, rust primary, goldenrod accent — vintage rock press',
+    preview: ['#C4420A', '#F5F0E8'],
   },
   // { id: 'cyber', label: 'Cyber', description: '...', preview: ['#...', '#...'] },
 ]

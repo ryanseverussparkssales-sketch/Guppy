@@ -1,0 +1,74 @@
+/*
+ * OCCULT THEME — "Liber Designatum"
+ * Abyss-black surfaces, gold primary, crimson accent, bone text.
+ * Inspired by: occult-dark-inspo.html
+ *
+ * Applied when: <html data-theme="occult">
+ * Fonts: Cinzel Decorative (headlines) · Cormorant Garamond (body)
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400;1,600&display=swap');
+
+[data-theme="occult"] {
+  /* ── Core palette ─────────────────────────────────────────────────── */
+  /* Gold is the primary interactive color — links, buttons, focus rings */
+  --color-primary: #C8A84B;
+  --color-primary-container: #241E2C;   /* ash — dark purple-charcoal */
+  --color-on-primary: #020103;          /* abyss black */
+  --color-on-primary-container: #E8C96A;
+
+  /* Crimson is the dramatic secondary accent */
+  --color-secondary: #C41E1E;
+  --color-secondary-container: #16111C; /* charcoal */
+  --color-on-secondary: #D4C5A9;        /* bone */
+  --color-on-secondary-container: #E03030;
+
+  --color-tertiary: #A8A0B8;            /* silver */
+  --color-tertiary-container: #2A1040;  /* purple-deep */
+
+  /* ── Surfaces — abyss dark ────────────────────────────────────────── */
+  --color-surface: #020103;
+  --color-surface-dim: #020103;
+  --color-surface-bright: #16111C;
+  --color-surface-container-lowest: #020103;
+  --color-surface-container-low: #08050A;
+  --color-surface-container: #0E0A12;
+  --color-surface-container-high: #16111C;
+  --color-surface-container-highest: #241E2C;
+  --color-surface-variant: #2A1040;
+
+  /* ── Text ─────────────────────────────────────────────────────────── */
+  --color-on-surface: #D4C5A9;          /* bone */
+  --color-on-surface-variant: #A8A0B8;  /* silver */
+
+  /* ── Borders ──────────────────────────────────────────────────────── */
+  --color-outline: #3A3044;             /* dust */
+  --color-outline-variant: #241E2C;     /* ash */
+
+  /* ── Semantic status ──────────────────────────────────────────────── */
+  --color-success: #6ab04c;
+  --color-warning: #C8A84B;             /* gold doubles as warning */
+  --color-destructive: #C41E1E;
+  --color-error: #C41E1E;
+  --color-coral: #E03030;
+  --color-info: #A8A0B8;
+
+  /* ── Signature gradient — blood to gold ──────────────────────────── */
+  --color-gradient-start: #8B0000;
+  --color-gradient-end: #C8A84B;
+
+  /* ── Shadows — crimson glow ───────────────────────────────────────── */
+  --shadow-ghost: 0 0 0 1px rgba(196, 30, 30, 0.18), 0 0 10px rgba(139, 0, 0, 0.10);
+  --shadow-soft: 0 4px 14px -2px rgba(139, 0, 0, 0.28), 0 2px 6px -1px rgba(2, 1, 3, 0.85);
+  --shadow-soft-lg: 0 12px 32px -4px rgba(139, 0, 0, 0.38), 0 6px 12px -2px rgba(2, 1, 3, 0.92);
+
+  /* ── Border radius — slightly sharper, more architectural ─────────── */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+
+  /* ── Typography ───────────────────────────────────────────────────── */
+  --font-family-headline: 'Cinzel Decorative', 'Cinzel', Georgia, serif;
+  --font-family-body: 'Cormorant Garamond', Georgia, serif;
+}
