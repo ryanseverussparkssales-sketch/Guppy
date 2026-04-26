@@ -22,6 +22,16 @@ def _get_active_local_model() -> Optional[str]:
         return None
 
 
+def _get_active_cloud_model(provider: str = "anthropic") -> Optional[str]:
+    """Read the user-selected cloud model from the settings DB."""
+    try:
+        from src.guppy.api.routes_settings import _settings_db
+        val = _settings_db.get_setting(f"{provider}_active_model")
+        return val.strip() if val and val.strip() else None
+    except Exception:
+        return None
+
+
 def build_realtime_router(ctx: ServerContext) -> APIRouter:
     router = APIRouter()
     owner = ctx.owner
@@ -193,6 +203,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 instance_name=active_instance_name,
                 instance_type=active_instance_type,
                 active_local_model=_get_active_local_model(),
+                active_cloud_model=_get_active_cloud_model(),
                 timeout_seconds=owner.CHAT_TIMEOUT_SECONDS,
             )
 
@@ -273,6 +284,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
         )
 
         _active_local_model = _get_active_local_model()
+        _active_cloud_model = _get_active_cloud_model()
 
         async def _generate():
             full_response = ""
@@ -286,6 +298,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     instance_name=active_instance_name,
                     instance_type=active_instance_type,
                     active_local_model=_active_local_model,
+                    active_cloud_model=_active_cloud_model,
                 ):
                     full_response += token
                     yield f"data: {json.dumps({'token': token})}\n\n"

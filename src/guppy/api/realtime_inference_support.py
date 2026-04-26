@@ -119,6 +119,7 @@ def call_unified_inference(
     instance_name: Optional[str] = None,
     instance_type: Optional[str] = None,
     active_local_model: Optional[str] = None,
+    active_cloud_model: Optional[str] = None,
 ) -> str:
     if not owner.GUPPY_CORE_AVAILABLE:
         raise RuntimeError("Guppy core not available.")
@@ -184,6 +185,7 @@ def call_unified_inference(
                 instance_name=instance_name,
                 instance_type=instance_type,
                 active_local_model=active_local_model,
+                active_cloud_model=active_cloud_model,
             )
 
         owner.logger.info(
@@ -308,6 +310,7 @@ def _run_routed_mode(
     instance_name: str | None,
     instance_type: str | None,
     active_local_model: str | None = None,
+    active_cloud_model: str | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
     route_decision = router.resolve_ui_route(
         user_text=user_text,
@@ -334,7 +337,7 @@ def _run_routed_mode(
             augmented_system_prompt,
             instance_name=instance_name,
             instance_type=instance_type,
-            preferred_model=target_model or None,
+            preferred_model=active_cloud_model or target_model or None,
             backup_model=backup_model or None,
         )
         source = "haiku" if "haiku" in (target_model or "").lower() else "sonnet"
@@ -611,6 +614,7 @@ async def stream_unified_inference(
     instance_name: Optional[str] = None,
     instance_type: Optional[str] = None,
     active_local_model: Optional[str] = None,
+    active_cloud_model: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """
     Async generator yielding content tokens for the chat response.
@@ -701,5 +705,6 @@ async def stream_unified_inference(
         instance_name=instance_name,
         instance_type=instance_type,
         active_local_model=active_local_model,
+        active_cloud_model=active_cloud_model,
     )
     yield response

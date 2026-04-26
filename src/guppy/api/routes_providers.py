@@ -19,7 +19,9 @@ from src.guppy.inference.local_client import (
     list_local_models,
     probe_backends,
     _BACKEND_DEFAULT_MODELS,
+    _LLAMACPP_MODEL_ROUTE,
 )
+from src.guppy.inference.provider_registry import reload_provider_model
 
 # Known model catalogs per provider (no discovery needed — models don't change often)
 _ANTHROPIC_MODELS = [
@@ -303,6 +305,12 @@ def build_providers_router(ctx: ServerContext) -> APIRouter:
                 )
         db = _get_settings_db()
         await asyncio.to_thread(db.set_setting, f"{provider}_active_model", model_id)
+        # Hot-reload the registry so the next inference call uses the new model immediately.
+        # For "local", llamacpp models map to their specific provider (e.g. llamacpp-pepe).
+        registry_provider = provider
+        if provider == "local" and model_id in _LLAMACPP_MODEL_ROUTE:
+            registry_provider = _LLAMACPP_MODEL_ROUTE[model_id]
+        reload_provider_model(registry_provider, model_id)
         return {"provider": provider, "active_model": model_id}
 
     return router

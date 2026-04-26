@@ -610,6 +610,20 @@ class ProviderRegistry:
             },
         }
 
+    def reload_model(self, provider_id: str, model_id: str) -> bool:
+        """Update the active model for a provider and evict the cached client.
+
+        The next call to get_client() builds a fresh client with the new model.
+        Safe to call at runtime — no lock needed since dict mutation is atomic in CPython.
+        """
+        cfg = self._configs.get(provider_id)
+        if cfg is None:
+            return False
+        cfg.model_id = model_id
+        self._clients.pop(provider_id, None)
+        logger.info(f"[REGISTRY] hot-reloaded: {provider_id} → {model_id}")
+        return True
+
 
 # Global registry instance
 _registry: Optional[ProviderRegistry] = None
@@ -621,3 +635,10 @@ def get_provider_registry(settings_db=None) -> ProviderRegistry:
     if _registry is None:
         _registry = ProviderRegistry(settings_db or _DEFAULT_DB_PATH)
     return _registry
+
+
+def reload_provider_model(provider_id: str, model_id: str) -> bool:
+    """Update model for a provider in the global registry (no-op if not yet initialized)."""
+    if _registry is not None:
+        return _registry.reload_model(provider_id, model_id)
+    return False
