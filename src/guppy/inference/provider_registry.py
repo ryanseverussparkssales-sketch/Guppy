@@ -85,6 +85,18 @@ class ProviderRegistry:
     and manages the provider client instance pool.
     """
 
+    # Task-type → ordered list of preferred provider IDs.
+    # The registry uses this to front-load the best provider for the job
+    # before falling back through the priority-order chain.
+    TASK_TYPE_PREFERRED_PROVIDERS: Dict[str, List[str]] = {
+        "simple":   ["llamacpp-pepe",  "local", "anthropic", "openai", "google"],
+        "complex":  ["llamacpp-qwen3", "local", "anthropic", "openai", "google"],
+        "teaching": ["local", "llamacpp-qwen3", "anthropic", "openai"],
+        "code":     ["local", "llamacpp-qwen3", "anthropic", "openai"],
+        "vision":   ["llamacpp-gemma", "local", "anthropic", "openai"],
+        "vault":    ["local", "llamacpp-qwen3"],
+    }
+
     # Default provider configurations (can be overridden by settings DB)
     DEFAULT_CONFIGS = {
         "local": ProviderConfig(
@@ -96,6 +108,39 @@ class ProviderRegistry:
             retry_limit=0,  # Local doesn't fall back
             cost_per_1k_tokens=0.0,
             model_id=os.environ.get("OLLAMA_MODEL", "guppy"),
+        ),
+        # ── llama.cpp (ROCm/HIP) servers — one per model ──────────────────────
+        # is_enabled=True; servers not running will fail health checks and be
+        # skipped automatically — no manual toggling needed.
+        "llamacpp-gemma": ProviderConfig(
+            id="llamacpp-gemma",
+            name="llama.cpp — Gemma 4 E4B Heretic ARA",
+            is_enabled=True,
+            priority_order=11,
+            timeout_seconds=90.0,
+            retry_limit=0,
+            cost_per_1k_tokens=0.0,
+            model_id=os.environ.get("LLAMACPP_GEMMA_MODEL", "gemma-4-heretic-ara"),
+        ),
+        "llamacpp-qwen3": ProviderConfig(
+            id="llamacpp-qwen3",
+            name="llama.cpp — Qwen3 35B MoE (Uncensored)",
+            is_enabled=True,
+            priority_order=12,
+            timeout_seconds=120.0,
+            retry_limit=0,
+            cost_per_1k_tokens=0.0,
+            model_id=os.environ.get("LLAMACPP_QWEN3_MODEL", "qwen3-35b-uncensored"),
+        ),
+        "llamacpp-pepe": ProviderConfig(
+            id="llamacpp-pepe",
+            name="llama.cpp — Assistant Pepe 8B",
+            is_enabled=True,
+            priority_order=13,
+            timeout_seconds=60.0,
+            retry_limit=0,
+            cost_per_1k_tokens=0.0,
+            model_id=os.environ.get("LLAMACPP_PEPE_MODEL", "assistant-pepe-8b"),
         ),
         "anthropic": ProviderConfig(
             id="anthropic",
@@ -220,6 +265,13 @@ class ProviderRegistry:
                     client = LocalProviderClient(
                         model=config.model_id or "guppy",
                         timeout=config.timeout_seconds,
+                        backend="ollama",
+                    )
+                elif provider_id in {"llamacpp-gemma", "llamacpp-qwen3", "llamacpp-pepe"}:
+                    client = LocalProviderClient(
+                        model=config.model_id or provider_id,
+                        timeout=config.timeout_seconds,
+                        backend=provider_id,  # routes to correct llama.cpp server
                     )
                 elif provider_id == "anthropic":
                     # Cloud providers need API key
@@ -359,6 +411,25 @@ class ProviderRegistry:
 
             return healthy
 
+    def get_preferred_for_task(self, task_type: str) -> Optional[str]:
+        """Return the highest-priority *healthy* preferred provider for a task type.
+
+        Scans TASK_TYPE_PREFERRED_PROVIDERS in order and returns the first that is
+        both enabled and healthy (from the last cached health check).  Returns None
+        if no preferred provider is currently available.
+        """
+        preferred = self.TASK_TYPE_PREFERRED_PROVIDERS.get(task_type, [])
+        for provider_id in preferred:
+            config = self._configs.get(provider_id)
+            if not config or not config.is_enabled:
+                continue
+            health = self._health.get(provider_id)
+            # Accept providers with no health record yet (will be checked on first use)
+            # or those that are healthy.
+            if health is None or health.is_healthy:
+                return provider_id
+        return None
+
     def build_fallback_chain(
         self,
         task_type: str = "simple",
@@ -366,10 +437,11 @@ class ProviderRegistry:
     ) -> List[str]:
         """Build provider fallback chain for a task type.
 
-        Returns list of provider IDs sorted by priority, filtered by:
-        - is_enabled = True
-        - is_healthy (from last check)
-        - not in exclude set
+        Returns list of provider IDs ordered by:
+          1. Task-type preference (TASK_TYPE_PREFERRED_PROVIDERS)
+          2. Priority order (lower number = higher priority)
+
+        Filtered by: is_enabled, not excluded, not repeatedly failing.
 
         Args:
             task_type: Task classification (simple, complex, teaching, etc.)
@@ -379,27 +451,25 @@ class ProviderRegistry:
             List of provider IDs in fallback order
         """
         exclude = exclude or set()
-        candidates = []
 
+        # Collect eligible providers, honouring health / enable state
+        eligible: List[str] = []
         for provider_id, config in sorted(
             self._configs.items(),
             key=lambda x: x[1].priority_order,
         ):
-            # Skip disabled, excluded, or unhealthy
-            if not config.is_enabled:
+            if not config.is_enabled or provider_id in exclude:
                 continue
-            if provider_id in exclude:
-                continue
-
             health = self._health.get(provider_id)
-            if health and not health.is_healthy:
-                # Skip providers with consecutive failures
-                if health.consecutive_failures > 2:
-                    continue
+            if health and not health.is_healthy and health.consecutive_failures > 2:
+                continue
+            eligible.append(provider_id)
 
-            candidates.append(provider_id)
-
-        return candidates
+        # Re-order so that task-type preferred providers come first
+        preferred_order = self.TASK_TYPE_PREFERRED_PROVIDERS.get(task_type, [])
+        preferred_eligible = [p for p in preferred_order if p in eligible]
+        rest = [p for p in eligible if p not in preferred_eligible]
+        return preferred_eligible + rest
 
     async def infer_with_fallback(
         self,

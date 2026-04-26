@@ -1,13 +1,17 @@
-"""Unified local inference client: Ollama, LM Studio, Lemonade.
+"""Unified local inference client: Ollama, LM Studio, Lemonade, llama.cpp (ROCm/HIP).
 
 Circuit breaker: 3 consecutive failures → 30 s cooldown before retrying.
 Retry: up to 2 retries with exponential backoff (0.5 s, 1.0 s).
 
 Backend selection (GUPPY_LOCAL_RUNTIME_BACKEND env var):
-  auto      — probe Ollama (11434) then LM Studio (1234), use whichever answers (default)
-  ollama    — Ollama at 127.0.0.1:11434 (override with GUPPY_OLLAMA_BASE_URL)
-  lmstudio  — LM Studio at 127.0.0.1:1234 (override with GUPPY_LMSTUDIO_BASE_URL)
-  lemonade  — Lemonade at 127.0.0.1:8000 (override with GUPPY_LEMONADE_BASE_URL)
+  auto           — probe Ollama (11434) then LM Studio (1234), use whichever answers (default)
+  ollama         — Ollama at 127.0.0.1:11434 (override with GUPPY_OLLAMA_BASE_URL)
+  lmstudio       — LM Studio at 127.0.0.1:1234 (override with GUPPY_LMSTUDIO_BASE_URL)
+  lemonade       — Lemonade at 127.0.0.1:8000 (override with GUPPY_LEMONADE_BASE_URL)
+  llamacpp-gemma — llama.cpp Gemma 4 E4B Heretic ARA at 127.0.0.1:8080 (GUPPY_LLAMACPP_GEMMA_URL)
+  llamacpp-qwen3 — llama.cpp Qwen3 35B-A3B MoE at 127.0.0.1:8083 (GUPPY_LLAMACPP_QWEN3_URL)
+  llamacpp-pepe  — llama.cpp Assistant Pepe 8B at 127.0.0.1:8082 (GUPPY_LLAMACPP_PEPE_URL)
+  local_harness  — Generic OpenAI-compat harness at 127.0.0.1:8001 (GUPPY_LOCAL_HARNESS_BASE_URL)
 
 LM Studio model resolution:
   LM Studio exposes long model IDs (e.g. "org/model-GGUF/file.gguf").
@@ -80,12 +84,71 @@ _BACKENDS: Dict[str, Dict[str, Any]] = {
         "delete_path": None,
         "format": "openai",
     },
+    # ── llama.cpp (ROCm/HIP) — one server per model, OpenAI-compatible ────────
+    "llamacpp-gemma": {
+        "default_url": "http://127.0.0.1:8080",
+        "chat_path": "/v1/chat/completions",
+        "tags_path": "/v1/models",
+        "pull_path": None,
+        "delete_path": None,
+        "format": "openai",
+    },
+    "llamacpp-qwen3": {
+        "default_url": "http://127.0.0.1:8083",
+        "chat_path": "/v1/chat/completions",
+        "tags_path": "/v1/models",
+        "pull_path": None,
+        "delete_path": None,
+        "format": "openai",
+    },
+    "llamacpp-pepe": {
+        "default_url": "http://127.0.0.1:8082",
+        "chat_path": "/v1/chat/completions",
+        "tags_path": "/v1/models",
+        "pull_path": None,
+        "delete_path": None,
+        "format": "openai",
+    },
+    # ── Generic local harness (any OpenAI-compat server) ─────────────────────
+    "local_harness": {
+        "default_url": "http://127.0.0.1:8001",
+        "chat_path": "/v1/chat/completions",
+        "tags_path": "/v1/models",
+        "pull_path": None,
+        "delete_path": None,
+        "format": "openai",
+    },
 }
 
 _ENV_URL_KEYS: Dict[str, str] = {
-    "ollama": "GUPPY_OLLAMA_BASE_URL",
-    "lmstudio": "GUPPY_LMSTUDIO_BASE_URL",
-    "lemonade": "GUPPY_LEMONADE_BASE_URL",
+    "ollama":          "GUPPY_OLLAMA_BASE_URL",
+    "lmstudio":        "GUPPY_LMSTUDIO_BASE_URL",
+    "lemonade":        "GUPPY_LEMONADE_BASE_URL",
+    "llamacpp-gemma":  "GUPPY_LLAMACPP_GEMMA_URL",
+    "llamacpp-qwen3":  "GUPPY_LLAMACPP_QWEN3_URL",
+    "llamacpp-pepe":   "GUPPY_LLAMACPP_PEPE_URL",
+    "local_harness":   "GUPPY_LOCAL_HARNESS_BASE_URL",
+}
+
+# Model-name → backend routing for llamacpp servers.
+# Allows local_chat(model="gemma-4-heretic-ara") without specifying backend=.
+_LLAMACPP_MODEL_ROUTE: Dict[str, str] = {
+    "gemma-4-heretic-ara":      "llamacpp-gemma",
+    "gemma-4-e4b-heretic":      "llamacpp-gemma",
+    "qwen3-35b-uncensored":     "llamacpp-qwen3",
+    "qwen3-35b":                "llamacpp-qwen3",
+    "qwen3-moe":                "llamacpp-qwen3",
+    "assistant-pepe-8b":        "llamacpp-pepe",
+    "pepe-8b":                  "llamacpp-pepe",
+    "pepe":                     "llamacpp-pepe",
+}
+
+# Canonical model name for each llamacpp backend (first/preferred alias).
+# Used by the registry and router when they know the backend but not the model name.
+_BACKEND_DEFAULT_MODELS: Dict[str, str] = {
+    "llamacpp-gemma": "gemma-4-heretic-ara",
+    "llamacpp-qwen3": "qwen3-35b-uncensored",
+    "llamacpp-pepe":  "assistant-pepe-8b",
 }
 
 # ── circuit breakers ──────────────────────────────────────────────────────────
@@ -359,7 +422,8 @@ def local_chat(
     """
     resolved = (backend or _resolve_backend()).strip().lower()
     if resolved not in _BACKENDS:
-        resolved = "ollama"
+        # Try routing by model name (covers llamacpp-* servers)
+        resolved = _LLAMACPP_MODEL_ROUTE.get(model, "ollama")
 
     cb = _get_cb(resolved)
     if cb.is_open:

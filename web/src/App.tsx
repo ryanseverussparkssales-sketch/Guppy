@@ -11,7 +11,7 @@ import ToolsView from './views/ToolsView'
 import VoicesView from './views/VoicesView'
 import DesktopView from './views/DesktopView'
 import SettingsView from './views/SettingsView'
-import LauncherView from './views/LauncherView'
+import LaunchpadView from './views/LaunchpadView'
 import StatusView from './views/StatusView'
 import AdminPanel from './views/AdminPanel'
 import InstructionsView from './views/InstructionsView'
@@ -121,7 +121,7 @@ function AppContent() {
           <Route path="/tools" element={<ToolsView />} />
           <Route path="/voices" element={<VoicesView />} />
           <Route path="/desktop" element={<DesktopView />} />
-          <Route path="/launch-control" element={<LauncherView />} />
+          <Route path="/launch-control" element={<LaunchpadView />} />
           <Route path="/settings" element={<SettingsView />} />
           <Route path="/status" element={<StatusView />} />
           <Route path="/admin" element={<AdminPanel />} />

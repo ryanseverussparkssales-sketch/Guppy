@@ -1,16 +1,15 @@
 """InferenceRouter V2 — Extended router with ProviderRegistry integration.
 
 Extends the core InferenceRouter with:
-- Dynamic provider registry integration
-- Automatic fallback chain building
+- Dynamic provider registry integration (llamacpp-gemma/qwen3/pepe + cloud)
+- Task-type-aware backend selection via registry.TASK_TYPE_PREFERRED_PROVIDERS
+- TTL-cached liveness probes so healthy servers get priority automatically
+- Automatic fallback chain: preferred local backend → Ollama → Haiku → Sonnet
 - Health check coordination
-- Metrics tracking to database
+- Metrics tracking to database (stub — wired, not yet persisted)
 
-This module coexists with _router_fragment_core.py during migration.
-Gradual migration pattern:
-    Phase 1 (weeks 1-2): Run both in parallel, registry as optional
-    Phase 2 (week 3): Make registry primary, core as fallback
-    Phase 3 (week 4+): Remove core, registry only
+Migration status: Phase 2 — registry is PRIMARY, core is fallback.
+    get_router() in _router_fragment_api.py returns InferenceRouterV2.
 """
 
 from __future__ import annotations
@@ -25,6 +24,10 @@ from .provider_registry import ProviderRegistry, get_provider_registry
 from ._router_fragment_core import InferenceRouter
 
 logger = logging.getLogger(__name__)
+
+# Liveness probe cache: {backend_id: (is_live, expires_at)}
+_LIVENESS_CACHE: Dict[str, Tuple[bool, float]] = {}
+_LIVENESS_TTL = 10.0  # seconds between full re-probes
 
 
 class InferenceRouterV2(InferenceRouter):
@@ -163,6 +166,108 @@ class InferenceRouterV2(InferenceRouter):
             pass
         except Exception as e:
             logger.warning(f"[ROUTERV2] Failed to record metrics: {e}")
+
+    # ── Sync query_smart override (Phase 2: registry-first) ──────────────────
+
+    def query_smart(
+        self,
+        system_prompt: str,
+        user_text: str,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+    ) -> Tuple[str, str, Dict[str, Any]]:
+        """Registry-aware smart dispatch.
+
+        Priority:
+          1. Preferred llamacpp backend for this task type (if server is live)
+          2. Core query_smart() — Ollama → Haiku → Sonnet fallback chain
+
+        The liveness check is TTL-cached (10 s) so there is no per-request HTTP
+        overhead once the cache is warm.
+        """
+        task_type = self._classify_task(user_text, system_prompt)
+
+        if self.use_registry and self.registry:
+            preferred_backend = self._get_preferred_llamacpp_backend(task_type)
+            if preferred_backend and self._check_backend_live(preferred_backend):
+                logger.info(
+                    "[V2] task=%s → preferred backend=%s", task_type, preferred_backend
+                )
+                result = self._call_llamacpp_backend(
+                    preferred_backend, system_prompt, user_text, tools
+                )
+                if result:
+                    source = f"local/{preferred_backend}"
+                    meta = result.get("metadata", {})
+                    meta["backend"] = preferred_backend
+                    meta["task_type"] = task_type
+                    return result["response"], source, meta
+
+        # Fallback: original Ollama → Haiku → Sonnet chain
+        logger.debug("[V2] No live llamacpp backend for task=%s — using core chain", task_type)
+        return super().query_smart(system_prompt, user_text, tools, messages)
+
+    def _get_preferred_llamacpp_backend(self, task_type: str) -> Optional[str]:
+        """Ask registry for the preferred provider; return it only if it's a llamacpp server."""
+        if not self.registry:
+            return None
+        preferred = self.registry.get_preferred_for_task(task_type)
+        # Only intercept llamacpp backends here; "local" (Ollama) is handled by super()
+        if preferred and preferred.startswith("llamacpp-"):
+            return preferred
+        return None
+
+    def _check_backend_live(self, backend: str) -> bool:
+        """Return cached liveness for *backend*, refreshing when TTL expires."""
+        global _LIVENESS_CACHE
+        now = time.monotonic()
+        entry = _LIVENESS_CACHE.get(backend)
+        if entry and entry[1] > now:
+            return entry[0]
+
+        # Re-probe all llamacpp backends in one pass (cheap — just a TCP connect)
+        from .local_client import probe_backends
+        try:
+            results = probe_backends(timeout=0.8)
+        except Exception:
+            results = {}
+        expires = now + _LIVENESS_TTL
+        for name, live in results.items():
+            _LIVENESS_CACHE[name] = (live, expires)
+        return bool(results.get(backend, False))
+
+    def _call_llamacpp_backend(
+        self,
+        backend: str,
+        system_prompt: str,
+        user_text: str,
+        tools: Optional[list],
+    ) -> Optional[Dict[str, Any]]:
+        """Call a llamacpp server synchronously via local_client.local_chat()."""
+        from .local_client import local_chat, _BACKEND_DEFAULT_MODELS
+        from ._router_fragment_execution import _filter_tools
+
+        model = _BACKEND_DEFAULT_MODELS.get(backend, backend)
+        filtered_tools = _filter_tools(tools)
+        messages: List[Dict[str, Any]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": user_text})
+
+        try:
+            return local_chat(
+                model,
+                messages,
+                tools=filtered_tools or None,
+                backend=backend,
+                timeout=int(self.registry.get_config(backend).timeout_seconds if self.registry else 90),
+                num_predict=self.local_num_predict,
+            )
+        except Exception as e:
+            logger.warning("[V2] %s call failed: %s", backend, e)
+            return None
+
+    # ── Registry management helpers ───────────────────────────────────────────
 
     def get_registry_status(self) -> Dict[str, Any]:
         """Get provider registry status for diagnostics."""

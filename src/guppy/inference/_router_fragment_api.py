@@ -3,15 +3,26 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Tuple
 
 from ._router_fragment_core import InferenceRouter
+from ._router_fragment_v2 import InferenceRouterV2
 
-# Global router instance
-_router_instance = None
+# Global router instance — V2 with registry integration
+_router_instance: Optional[InferenceRouterV2] = None
 
-def get_router() -> InferenceRouter:
-    """Get or create the global router instance."""
+
+def get_router() -> InferenceRouterV2:
+    """Get or create the global router instance (InferenceRouterV2).
+
+    V2 adds:
+    - Task-type-aware llamacpp routing (Pepe for simple, Qwen3 for complex, …)
+    - TTL-cached liveness probes — no per-request overhead
+    - Full backward compatibility with InferenceRouter interface
+
+    Falls back to core Ollama → Haiku → Sonnet chain when no llamacpp
+    server is running for the current task type.
+    """
     global _router_instance
     if _router_instance is None:
-        _router_instance = InferenceRouter()
+        _router_instance = InferenceRouterV2(use_registry=True)
     return _router_instance
 
 

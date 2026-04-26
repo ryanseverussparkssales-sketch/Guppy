@@ -158,6 +158,40 @@ def call_textgen_webui_chat(
     raise RuntimeError("text-generation-webui returned no valid response.")
 
 
+def call_llamacpp_chat(
+    owner: Any,
+    user_text: str,
+    system_prompt: str,
+    *,
+    backend: str,
+    model_override: Optional[str] = None,
+) -> str:
+    """Call a llama.cpp server (OpenAI-compatible) via local_client.local_chat().
+
+    Args:
+        backend: One of "llamacpp-gemma", "llamacpp-qwen3", "llamacpp-pepe".
+        model_override: Optional model name override (ignored by llama.cpp server
+                        since it uses whatever model was loaded at startup, but
+                        recorded in metadata for logging).
+    """
+    from src.guppy.inference.local_client import local_chat as _local_chat, _BACKEND_DEFAULT_MODELS
+
+    model = str(model_override or "").strip() or _BACKEND_DEFAULT_MODELS.get(backend, backend)
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": user_text})
+    timeout = int(getattr(owner, "CHAT_TIMEOUT_SECONDS", 90))
+
+    result = _local_chat(model, messages, backend=backend, timeout=timeout, num_predict=1024)
+    if result is None:
+        raise RuntimeError(f"{backend} returned no response (server may not be running).")
+    content = str(result.get("response", "") or "").strip()
+    if not content:
+        raise RuntimeError(f"{backend} returned an empty response.")
+    return content
+
+
 def call_selected_local_runtime(
     owner: Any,
     user_text: str,
@@ -226,6 +260,10 @@ def call_selected_local_runtime(
                     if attempt_backend == backends_to_try[-1]:
                         raise  # Re-raise if this was the last backend
                     continue
+
+            elif attempt_backend in {"llamacpp-gemma", "llamacpp-qwen3", "llamacpp-pepe"}:
+                return call_llamacpp_chat(owner, user_text, system_prompt,
+                                          backend=attempt_backend, model_override=model_override)
         
         except Exception as e:
             logger.warning(f"[CHAT] {attempt_backend} failed: {e}")

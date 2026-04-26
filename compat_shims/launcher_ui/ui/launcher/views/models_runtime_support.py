@@ -27,6 +27,12 @@ def normalize_runtime_backend(value: str) -> str:
         return "lmstudio"
     if cleaned in {"local harness", "local_harness", "harness"}:
         return "local_harness"
+    if cleaned in {"llamacpp-gemma", "llamacpp_gemma", "gemma-llamacpp"}:
+        return "llamacpp-gemma"
+    if cleaned in {"llamacpp-qwen3", "llamacpp_qwen3", "qwen3-llamacpp"}:
+        return "llamacpp-qwen3"
+    if cleaned in {"llamacpp-pepe", "llamacpp_pepe", "pepe-llamacpp"}:
+        return "llamacpp-pepe"
     return "ollama"
 
 

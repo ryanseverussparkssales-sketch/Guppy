@@ -37,7 +37,11 @@ class GuppySettings(BaseSettings):
         default="local",
         description="Default inference backend: local (Ollama) or cloud (Anthropic).",
     )
-    guppy_local_runtime_backend: Literal["ollama", "lmstudio", "lemonade", "vllm", "auto"] = Field(
+    guppy_local_runtime_backend: Literal[
+        "ollama", "lmstudio", "lemonade", "vllm",
+        "llamacpp-gemma", "llamacpp-qwen3", "llamacpp-pepe",
+        "local_harness", "auto",
+    ] = Field(
         default="ollama",
         description="Local inference backend.",
     )
@@ -54,6 +58,11 @@ class GuppySettings(BaseSettings):
     ollama_teach_model: str = Field(default="guppy-teach")
     ollama_code_model: str = Field(default="guppy-code")
     ollama_vault_model: str = Field(default="vault-scraper")
+
+    # ── llama.cpp (ROCm/HIP) model names ─────────────────────────────────────
+    llamacpp_gemma_model: str = Field(default="gemma-4-heretic-ara",    description="Model ID for llamacpp-gemma server.")
+    llamacpp_qwen3_model: str = Field(default="qwen3-35b-uncensored",   description="Model ID for llamacpp-qwen3 server.")
+    llamacpp_pepe_model:  str = Field(default="assistant-pepe-8b",      description="Model ID for llamacpp-pepe server.")
 
     # ── Feature flags ─────────────────────────────────────────────────────────
     guppy_haiku_boost: bool = Field(default=False)

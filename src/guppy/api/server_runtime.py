@@ -292,6 +292,7 @@ from src.guppy.api.routes_inference_metrics import build_inference_metrics_route
 from src.guppy.api.routes_launcher import build_launcher_router
 from src.guppy.api.routes_provider_management import build_provider_management_router
 from src.guppy.api.routes_queue import build_queue_router
+from src.guppy.api.routes_pipeline import build_pipeline_router
 from src.guppy.api.runtime_state import ServerRuntimeState
 from src.guppy.api.server_paths import ServerPathConfig
 from src.guppy.api.server_runtime_startup_support import (
@@ -496,6 +497,7 @@ app.include_router(build_inference_metrics_router(_server_context)) # /api/infer
 app.include_router(build_launcher_router(_server_context))          # /api/launcher
 app.include_router(build_provider_management_router(_server_context)) # /api/providers/health|config
 app.include_router(build_queue_router(_server_context))             # /api/queue
+app.include_router(build_pipeline_router(_server_context))          # /api/pipeline
 
 # Serve static web UI files
 try:

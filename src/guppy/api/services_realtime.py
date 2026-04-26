@@ -123,6 +123,14 @@ def build_chat_system_prompt(
         include_memory_context=use_rich_prompt_context,
         include_semantic_context=use_rich_prompt_context,
     )
+    # Inject user-authored instructions (booklet sections with mode="always")
+    try:
+        from src.guppy.api.routes_booklet import compile_booklet
+        booklet_text = compile_booklet()
+        if booklet_text:
+            system_prompt += "\n\n" + booklet_text
+    except Exception:
+        pass
     try:
         _persona_payload, overlay = owner.build_persona_prompt_overlay(
             requested_persona=str(persona or "").strip(),

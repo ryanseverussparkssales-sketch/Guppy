@@ -91,6 +91,10 @@ _LOCAL_MODEL_METADATA: Dict[str, Dict[str, Any]] = {
     "google/gemma-4-26b-a4b":      {"display": "Gemma 4 26B",     "tags": ["fast", "reasoning", "vision"]},
     "gemma-3-4b-it":               {"display": "Gemma 3 4B",      "tags": ["fast"]},
     "text-embedding-nomic-embed-text-v1.5": {"display": "Nomic Embed v1.5", "tags": ["embeddings"]},
+    # llama.cpp (ROCm/HIP) — served via OpenAI-compatible endpoints, one server per model
+    "gemma-4-heretic-ara":  {"display": "Gemma 4 E4B Heretic ARA",    "tags": ["vision", "fast", "uncensored"]},
+    "qwen3-35b-uncensored": {"display": "Qwen3 35B MoE (Uncensored)", "tags": ["powerful", "reasoning", "uncensored"]},
+    "assistant-pepe-8b":    {"display": "Assistant Pepe 8B",          "tags": ["fast", "uncensored"]},
 }
 
 

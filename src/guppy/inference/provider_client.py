@@ -156,26 +156,36 @@ class ProviderClient(ABC):
 
 
 class LocalProviderClient(ProviderClient):
-    """Ollama local inference provider."""
+    """Unified local inference provider — delegates to local_client for all backends.
 
-    OLLAMA_API_BASE = "http://127.0.0.1:11434/api"
+    Supports every backend registered in local_client._BACKENDS:
+      - "ollama"         — Ollama (default, native format)
+      - "lmstudio"       — LM Studio (OpenAI-compat)
+      - "lemonade"       — Lemonade (OpenAI-compat)
+      - "llamacpp-gemma" — llama.cpp Gemma 4 E4B server (port 8080)
+      - "llamacpp-qwen3" — llama.cpp Qwen3 35B server (port 8083)
+      - "llamacpp-pepe"  — llama.cpp Pepe 8B server (port 8082)
+      - "local_harness"  — Generic OpenAI-compat harness
+
+    All HTTP logic, circuit breaking, retries, and payload formatting live in
+    local_client.py — this class is a thin async wrapper over that sync API.
+    """
 
     def __init__(
         self,
         model: str = "guppy",
         timeout: float = 60.0,
-        ollama_base_url: Optional[str] = None,
+        backend: str = "ollama",
     ):
-        """Initialize Ollama client.
+        """Initialise local backend client.
 
         Args:
-            model: Model name (e.g., "guppy", "guppy-fast", "guppy-teach")
-            timeout: Request timeout in seconds (local models can take longer)
-            ollama_base_url: Override default Ollama base URL
+            model:   Model name to request (or logical name like "gemma-4-heretic-ara").
+            timeout: Request timeout in seconds.
+            backend: Backend key from local_client._BACKENDS (e.g. "llamacpp-qwen3").
         """
         super().__init__("local", model, timeout)
-        self.ollama_base_url = ollama_base_url or self.OLLAMA_API_BASE
-        self._local_models_cache: Optional[List[str]] = None
+        self.backend = backend
 
     async def infer(
         self,
@@ -184,148 +194,97 @@ class LocalProviderClient(ProviderClient):
         task_type: str = "simple",
         **kwargs,
     ) -> Tuple[str, InferenceMetadata]:
-        """Call Ollama via HTTP API."""
+        """Execute inference via local_client.local_chat()."""
+        from .local_client import local_chat
+
         start_time = time.time()
         metadata = InferenceMetadata(
-            provider="local",
+            provider=f"local/{self.backend}",
             model=self.model,
             task_type=task_type,
             latency_ms=0.0,
         )
 
+        messages: List[Dict[str, Any]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        num_predict = int(kwargs.get("num_predict", kwargs.get("max_tokens", 512)))
+
         try:
-            # Ollama chat endpoint
-            url = f"{self.ollama_base_url}/chat"
-            request_payload = {
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": system_prompt} if system_prompt else None,
-                    {"role": "user", "content": prompt},
-                ],
-                "stream": False,
-                "temperature": kwargs.get("temperature", 0.7),
-                "num_predict": kwargs.get("num_predict", 512),
-            }
-            # Remove None messages
-            request_payload["messages"] = [m for m in request_payload["messages"] if m]
-
-            request_data = json.dumps(request_payload).encode("utf-8")
-            request = urllib.request.Request(
-                url,
-                data=request_data,
-                headers={"Content-Type": "application/json"},
-            )
-
-            # Execute with timeout
             loop = asyncio.get_event_loop()
-            response_text = await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 loop.run_in_executor(
                     None,
-                    self._make_request,
-                    request,
+                    lambda: local_chat(
+                        self.model,
+                        messages,
+                        backend=self.backend,
+                        timeout=int(self.timeout),
+                        num_predict=num_predict,
+                    ),
                 ),
-                timeout=self.timeout,
+                timeout=self.timeout + 5,  # outer guard slightly above inner
             )
 
+            if result is None:
+                raise RuntimeError(f"[{self.backend}] no response (circuit open or parse failure)")
+
+            response_text = str(result.get("response", "") or "")
             metadata.success = True
             metadata.latency_ms = (time.time() - start_time) * 1000
             return response_text, metadata
 
         except asyncio.TimeoutError:
             metadata.success = False
-            metadata.error = f"Ollama timeout after {self.timeout}s"
+            metadata.error = f"{self.backend} timeout after {self.timeout}s"
             metadata.latency_ms = (time.time() - start_time) * 1000
-            logger.warning(f"[LOCAL] {metadata.error}")
+            logger.warning(f"[LOCAL/{self.backend}] {metadata.error}")
             raise TimeoutError(metadata.error)
 
         except Exception as e:
             metadata.success = False
             metadata.error = str(e)
             metadata.latency_ms = (time.time() - start_time) * 1000
-            logger.error(f"[LOCAL] Inference failed: {e}")
-            raise RuntimeError(f"Ollama inference error: {e}")
-
-    @staticmethod
-    def _make_request(request: urllib.request.Request) -> str:
-        """Execute HTTP request (sync wrapper for executor)."""
-        with urllib.request.urlopen(request, timeout=10) as response:
-            data = json.loads(response.read().decode("utf-8"))
-            # Ollama returns message.content
-            if "message" in data and "content" in data["message"]:
-                return data["message"]["content"]
-            return ""
+            logger.error(f"[LOCAL/{self.backend}] Inference failed: {e}")
+            raise RuntimeError(f"{self.backend} inference error: {e}")
 
     async def health_check(self) -> bool:
-        """Check if Ollama is responding via lightweight endpoint.
-
-        Uses GET /api/v1/models (model listing) instead of inference.
-        Expected latency: 20-50ms vs 500-2000ms for minimal inference.
-        """
+        """Probe backend liveness via probe_backends() (lightweight, no inference)."""
         cached = self._get_cached_health()
         if cached is not None:
             return cached
 
         try:
-            # Phase 4a: Use lightweight /api/v1/models endpoint instead of inference
-            url = f"{self.ollama_base_url}/v1/models"
-            request = urllib.request.Request(url)
+            from .local_client import probe_backends
             loop = asyncio.get_event_loop()
-            result = await asyncio.wait_for(
-                loop.run_in_executor(None, self._make_health_request, request),
-                timeout=2.0,
+            results = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: probe_backends(timeout=1.5)),
+                timeout=3.0,
             )
-            self._cache_health(result)
-            return result
+            healthy = bool(results.get(self.backend, False))
+            self._cache_health(healthy)
+            return healthy
         except Exception:
             self._cache_health(False)
             return False
 
-    @staticmethod
-    def _make_health_request(request: urllib.request.Request) -> bool:
-        """Execute health check (sync wrapper for executor).
-
-        Phase 4a: Check connectivity via lightweight endpoint.
-        """
-        try:
-            with urllib.request.urlopen(request, timeout=2) as response:
-                return response.status == 200
-        except Exception:
-            return False
-
     async def list_models(self) -> List[str]:
-        """List available models from Ollama."""
-        if self._local_models_cache is not None:
-            return self._local_models_cache
-
+        """List models available on this backend."""
         try:
-            url = f"{self.ollama_base_url}/tags"
-            request = urllib.request.Request(url)
+            from .local_client import list_local_models
             loop = asyncio.get_event_loop()
-            models = await asyncio.wait_for(
-                loop.run_in_executor(None, self._fetch_models, request),
-                timeout=2.0,
+            return await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: list_local_models(backend=self.backend)),
+                timeout=3.0,
             )
-            self._local_models_cache = models
-            return models
         except Exception as e:
-            logger.warning(f"[LOCAL] Failed to list models: {e}")
-            return []
-
-    @staticmethod
-    def _fetch_models(request: urllib.request.Request) -> List[str]:
-        """Fetch model list from Ollama (sync wrapper)."""
-        try:
-            with urllib.request.urlopen(request, timeout=2) as response:
-                data = json.loads(response.read().decode("utf-8"))
-                # Ollama returns {"models": [{"name": "...", "size": ..., ...}]}
-                if "models" in data:
-                    return [m["name"] for m in data["models"]]
-                return []
-        except Exception:
+            logger.warning(f"[LOCAL/{self.backend}] list_models failed: {e}")
             return []
 
     def estimate_cost(self, prompt_tokens: int, completion_tokens: int) -> float:
-        """Local inference is free."""
+        """Local inference is always free."""
         return 0.0
 
 
