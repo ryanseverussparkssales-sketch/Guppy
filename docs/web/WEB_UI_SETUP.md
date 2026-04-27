@@ -31,51 +31,27 @@ This creates optimized static files in the `static/` directory.
 
 ## Features
 
-### Core Views
+### Navigation (current as of 2026-04-27)
 
-1. **Assistant (Chat)** - Main conversational AI interface
-   - Send/receive messages
-   - Voice input/output support
-   - Message history
-   - Real-time typing indicators
+1. **Chat** (`AssistantView`) — Main conversational AI interface
+   - Streaming SSE responses with Stop/Steer/TTS controls
+   - Mode selector (auto / local / claude / code / steer)
+   - Voice input/output (TTS toggle)
+   - Message history with markdown rendering
 
-2. **Instances** - Manage AI instances
-   - Create new instances
-   - Configure instance settings
-   - Monitor instance health
+2. **Launch Control** (`LauncherView`) — All local runtime management in one hub
+   - **Agents tab** — Create/manage agent instances, assign models
+   - **Models tab** — Local model inventory (Ollama + all 5 llamacpp backends with alive/offline state)
+   - **Backends tab** — llamacpp server start/stop, VRAM bar, backend health
+   - **Cloud tab** — Cloud provider status
 
-3. **Library** - Save and organize content
-   - Collections and artifacts
-   - Quick search and retrieval
-   - Tagging and categorization
+3. **Personas** (`PersonasView`) — Persona configuration and switching
 
-4. **Models** - Manage LLM configurations
-   - Local models (Ollama)
-   - Cloud providers (Claude, GPT-4)
-   - Model switching and settings
+4. **Instructions** (`InstructionsView`) — System prompt / instruction management
 
-5. **Tools** - Available actions and integrations
-   - Web search
-   - Code execution
-   - File operations
-   - API integrations
+5. **Tools** (`ToolsView`) — Available tool registry, enable/disable per workspace
 
-6. **Voices** - TTS and STT settings
-   - Voice provider selection
-   - Voice preferences
-   - Audio testing
-
-7. **Settings** - User preferences and configuration
-   - API keys
-   - Model selection
-   - Advanced parameters
-   - Personalization
-
-8. **Status** - System health and monitoring
-   - API status
-   - Performance metrics
-   - Resource usage
-   - Uptime tracking
+6. **Settings** (`SettingsView`) — API keys (all 5 cloud providers), active provider, preferences
 
 ### Design Features
 
@@ -91,41 +67,47 @@ This creates optimized static files in the `static/` directory.
 ```
 web/
 ├── src/
-│   ├── components/              # Reusable components
-│   │   ├── Layout.tsx          # Main layout wrapper
-│   │   ├── Sidebar.tsx         # Navigation sidebar
-│   │   ├── TopBar.tsx          # Header bar
-│   │   └── StatusBar.tsx       # Footer status
+│   ├── components/
+│   │   ├── layout/
+│   │   │   ├── AppShell.tsx    # Root layout (Sidebar + TopBar + outlet)
+│   │   │   ├── Sidebar.tsx     # Navigation sidebar (Chat/LaunchControl/Personas/Instructions/Tools/Settings)
+│   │   │   └── TopBar.tsx      # Header: workspace switcher + model picker (all providers) + status
+│   │   └── chat/
+│   │       └── MarkdownMessage.tsx  # Markdown renderer for chat messages
 │   │
 │   ├── views/                  # Page components (one per route)
-│   │   ├── AssistantView.tsx   # Chat interface
-│   │   ├── InstancesView.tsx   # Instance management
-│   │   ├── LibraryView.tsx     # Content library
-│   │   ├── ModelsView.tsx      # Model management
-│   │   ├── ToolsView.tsx       # Available tools
-│   │   ├── VoicesView.tsx      # Voice settings
-│   │   ├── SettingsView.tsx    # User settings
-│   │   └── StatusView.tsx      # System status
+│   │   ├── AssistantView.tsx   # /chat — streaming chat, mode selector, TTS
+│   │   ├── LauncherView.tsx    # /launch — Agents + Models + Backends + Cloud tabs
+│   │   ├── PersonasView.tsx    # /personas
+│   │   ├── InstructionsView.tsx # /instructions
+│   │   ├── ToolsView.tsx       # /tools
+│   │   ├── SettingsView.tsx    # /settings — API keys, provider selection
+│   │   ├── ModelsView.tsx      # (accessible but not primary nav)
+│   │   └── VoicesView.tsx      # (accessible but not primary nav)
+│   │
+│   ├── hooks/
+│   │   ├── useApi.ts           # SWR-backed hooks: useProviders, useActiveModel, useConnectionStatus
+│   │   ├── useWorkspaces.ts    # Workspace CRUD and active workspace state
+│   │   ├── useVoice.ts         # TTS playback and STT recording
+│   │   └── useReminders.ts     # Reminders API
 │   │
 │   ├── api/
-│   │   └── client.ts           # Axios API client
+│   │   └── client.ts           # Axios client (base URL = window.location.origin)
 │   │
-│   ├── App.tsx                 # Main app component
-│   ├── store.ts                # Zustand state management
+│   ├── App.tsx                 # React Router routes
 │   ├── main.tsx                # Entry point
-│   └── index.css               # Global styles
+│   └── index.css               # Global styles + Tailwind config
 │
-├── index.html                  # HTML template
-├── vite.config.ts              # Vite configuration
-├── tsconfig.json               # TypeScript config
-└── package.json                # Dependencies
-
-static/                         # Built output (generated)
 ├── index.html
-├── assets/
-│   ├── *.js                    # Bundled JavaScript
-│   └── *.css                   # Bundled styles
-└── favicon.ico
+├── vite.config.ts              # Dev proxy: /api/* and /providers → localhost:8081
+├── tsconfig.json
+└── package.json
+
+static/                         # Built output (committed, served by FastAPI)
+├── index.html
+└── assets/
+    ├── index-*.js
+    └── index-*.css
 ```
 
 ## Configuration
@@ -328,5 +310,5 @@ For issues or questions:
 
 ---
 
-**Version**: 1.0.0  
-**Last Updated**: 2024
+**Version**: 2.0.0  
+**Last Updated**: 2026-04-27

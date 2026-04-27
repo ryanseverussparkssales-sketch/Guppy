@@ -1,6 +1,19 @@
 # Live Architecture Map
 
-Last updated: 2026-04-18
+Last updated: 2026-04-18 _(seam module section still accurate; see note below for web/inference additions)_
+
+> **⚠️ Partial update needed (2026-04-27):** This doc accurately describes the Qt launcher seam architecture
+> and dependency rules, but does **not** cover:
+> - **Web UI** (React/Vite, `web/`) — now the primary user surface; served at `http://localhost:8081`
+>   by the FastAPI hub process. Nav: Chat → Launch Control → Personas → Instructions → Tools → Settings.
+> - **Inference routing** (`src/guppy/api/realtime_inference_support.py`, `src/guppy/inference/`) —
+>   agentic tier (Qwen3 35B → Claude), free-tier cloud routing (Mistral → Cohere → Claude), full
+>   llamacpp SSE streaming with tool-call loop.
+> - **llamacpp backends** — 5 named backends (pepe/gemma/qwen3/minicpm/dispatch) on fixed ports,
+>   managed via `src/guppy/api/routes_backends.py`; dispatch auto-starts at boot.
+> - **Provider/settings API** — `GET /providers`, `POST /providers/{p}/active-model`,
+>   `/api/settings/*` credential and provider management.
+> - **CLAUDE.md** has the authoritative current-state record for all of the above.
 
 ## Live Domains
 

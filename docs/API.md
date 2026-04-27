@@ -379,11 +379,18 @@ Repair token notes:
 - Body:
   - `message` (string)
   - `session_id` (optional)
-  - `mode` (optional: `auto | claude | ollama | local | code | teaching | vault`)
+  - `mode` (optional: `auto | claude | ollama | local | code | teaching | vault | steer`)
   - `persona` (optional)
   - `history` (optional list of `{role, content}` items)
   - `use_claude` (optional bool)
   - `idempotency_key` (optional string)
+
+### `POST /chat/stream`
+
+- Header: `Authorization: Bearer <jwt>`
+- Same body as `POST /chat`
+- Returns: `text/event-stream` (SSE) — each event is a JSON object `{"token": "..."}`, terminated with `{"done": true}`
+- This is the primary path used by the Web UI chat interface
 
 ### `POST /chat/voice`
 
@@ -398,3 +405,125 @@ Repair token notes:
 - Client first message: `{ "token": "<jwt>" }`
 - Then send chat events with `message`, `session_id` (optional), `use_claude` (optional)
 - Server emits chunk events and `{ "done": true }`
+
+## Providers & Model Selection
+
+### `GET /providers`
+
+- No auth required (rate-limited)
+- Returns all configured AI providers with model catalogs, active model, and liveness state
+- Response shape:
+  ```json
+  {
+    "anthropic": { "configured": true, "active_model": "claude-sonnet-4-6", "models": [...] },
+    "openai":    { "configured": false, "active_model": "gpt-4o-mini", "models": [...] },
+    "google":    { "configured": true,  "active_model": "gemini-2.0-flash", "models": [...] },
+    "cohere":    { "configured": true,  "active_model": "command-r7b-12-2024", "models": [...] },
+    "mistral":   { "configured": true,  "active_model": "ministral-8b-latest", "models": [...] },
+    "local": {
+      "configured": true,
+      "backend": "ollama",
+      "active_model": "guppy:latest",
+      "models": [{ "id": "...", "name": "...", "tier": "local", "tags": [...], "alive": true }],
+      "backends": { "ollama": { "alive": true, "label": "Ollama" }, "llamacpp-pepe": { "alive": false, "label": "Pepe 8B" } }
+    }
+  }
+  ```
+- Model entries may include `"free": true` for free-tier API models
+
+### `GET /providers/models`
+
+- No auth required (rate-limited)
+- Returns a flat list of every model across all configured providers
+- Response: `{ "models": [{ "provider": "...", "id": "...", "name": "...", "tier": "...", "configured": true }], "total": N }`
+
+### `POST /providers/{provider}/active-model`
+
+- No auth required (rate-limited)
+- Path: `provider` in `anthropic | openai | google | cohere | mistral | local`
+- Body: `{ "model_id": "claude-sonnet-4-6" }`
+- Persists the selected model and hot-reloads the inference registry
+
+## Settings & Credentials
+
+### `GET /api/settings`
+
+- No auth required (rate-limited)
+- Returns `{ "active_provider": "local", "credentials": { "anthropic": { "configured": false }, ... } }`
+
+### `PUT /api/settings`
+
+- No auth required (rate-limited)
+- Body: `{ "active_provider": "mistral" }` (or other settings keys)
+
+### `GET /api/settings/credentials`
+
+- No auth required (rate-limited)
+- Returns configured status for all 5 cloud providers (no API keys exposed)
+
+### `POST /api/settings/credentials`
+
+- No auth required (rate-limited)
+- Body: `{ "provider": "mistral", "api_key": "sk-..." }`
+- Valid providers: `anthropic | openai | google | cohere | mistral`
+- Stores the key in the local SQLite settings DB (encrypted at rest in production)
+
+### `DELETE /api/settings/credentials/{provider}`
+
+- No auth required (rate-limited)
+- Removes stored credentials for the named provider
+
+### `GET /api/settings/provider`
+
+- No auth required (rate-limited)
+- Returns `{ "active_provider": "local" }`
+
+### `POST /api/settings/provider`
+
+- No auth required (rate-limited)
+- Body: `{ "provider": "mistral" }`
+- Sets the globally active inference provider
+
+## llamacpp Backends
+
+### `GET /api/backends/llamacpp`
+
+- No auth required (rate-limited)
+- Returns all known llama.cpp backend configurations with liveness state
+- Response includes per-backend: `name`, `label`, `alive`, `port`, `default_url`, `vram_gb`, `auto_start`, `mode`
+
+### `POST /api/backends/llamacpp/{backend}/start`
+
+- No auth required (rate-limited)
+- Starts the named llama.cpp backend process (launches the `.bat` file)
+- Returns `{ "started": true, "backend": "llamacpp-pepe" }` or error if already running
+
+### `POST /api/backends/llamacpp/{backend}/stop`
+
+- No auth required (rate-limited)
+- Stops the named backend process
+
+### `GET /api/backends/llamacpp/vram`
+
+- No auth required (rate-limited)
+- Returns VRAM usage per running backend and total free VRAM
+- Response: `{ "total_gb": 24, "used_gb": 8.5, "free_gb": 15.5, "backends": { "llamacpp-pepe": { "vram_gb": 8.5, "alive": true } } }`
+
+## Workspaces
+
+### `GET /workspaces`
+
+- No auth required (rate-limited)
+- Returns all workspaces with `id`, `name`, `created_at`
+- Response: `{ "workspaces": [...], "active_workspace_id": "..." }`
+
+### `POST /workspaces`
+
+- No auth required (rate-limited)
+- Body: `{ "name": "My Workspace" }`
+- Creates a new workspace
+
+### `POST /workspaces/{workspace_id}/activate`
+
+- No auth required (rate-limited)
+- Makes the named workspace the active one

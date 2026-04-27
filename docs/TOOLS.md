@@ -1,6 +1,6 @@
 # Guppy: Local Tools & LLM Setup Guide
 
-**Last updated:** 2026-04-22
+**Last updated:** 2026-04-27
 
 This guide walks you through setting up local LLM services and integrating them with Guppy for smooth, responsive desktop control and chat.
 
@@ -61,18 +61,18 @@ curl http://127.0.0.1:3001/api/health
 # Navigate to repo
 cd C:\Users\Ryan\Guppy
 
-# Run quick start
-.\bin\quick_start.bat
+# Launch Web UI + API (serves on http://localhost:8081)
+bin\launch_hub.bat
 
 # OR manually:
 .venv\Scripts\activate
-set GUPPY_DEV_MODE=1
-python -m src.guppy.cli.launch api --dev
+$env:GUPPY_DEV_MODE = "1"
+python -m src.guppy.cli.launch hub --dev
 ```
 
 ### 4. Access Web UI
 
-Open browser to: `http://localhost:3000`
+Open browser to: `http://localhost:8081`
 
 ---
 
@@ -337,7 +337,7 @@ $env:Path += ";C:\Users\Ryan\AppData\Local\Programs\Ollama"
 netsh advfirewall firewall add rule name="Ollama" dir=in action=allow program="C:\Users\Ryan\AppData\Local\Programs\Ollama\ollama.exe"
 ```
 
-### "API not responding on :8000"
+### "API not responding on :8081"
 
 **Check if venv is activated:**
 ```powershell
@@ -362,7 +362,7 @@ python -m src.guppy.cli.launch api --dev --verbose
 
 ### "Web UI shows blank chat"
 
-1. **Check API is running:** `curl http://localhost:8000/api/health`
+1. **Check API is running:** `curl http://localhost:8081/`
 2. **Check browser console:** F12 → Console tab → Look for errors
 3. **Check API logs:** Should show incoming requests
 4. **Verify LLM service:** `curl http://127.0.0.1:11434/api/tags`
@@ -381,9 +381,9 @@ python -m src.guppy.cli.launch api --dev --verbose
 
 3. **Refresh Web UI:** Press Ctrl+Shift+R (hard refresh)
 
-4. **Check API response:**
+4. **Check API providers response:**
    ```powershell
-   curl http://localhost:8000/api/providers
+   curl http://localhost:8081/providers
    ```
 
 ---
@@ -442,7 +442,7 @@ For **smooth desktop control and chat**:
 | **Model (Fast)** | qwen2.5:7b | mistral:7b |
 | **Model (Accurate)** | qwen2.5:32b | llama2:70b |
 | **GPU** | NVIDIA or ROCm | CPU (slower) |
-| **Guppy UI** | Web UI (localhost:3000) | Desktop Launcher |
+| **Guppy UI** | Web UI (localhost:8081) | Desktop Launcher |
 | **Port** | 11434 (Ollama) | 1234 (LMStudio) |
 
 ---
@@ -451,8 +451,8 @@ For **smooth desktop control and chat**:
 
 1. **Start Ollama:** `ollama serve`
 2. **Pull models:** `ollama pull qwen2.5:7b`
-3. **Start Guppy:** `.\bin\quick_start.bat`
-4. **Open Web UI:** `http://localhost:3000`
+3. **Start Guppy:** `bin\launch_hub.bat`
+4. **Open Web UI:** `http://localhost:8081`
 5. **Chat & test models**
 
 ---
@@ -462,5 +462,5 @@ For **smooth desktop control and chat**:
 For issues or questions:
 - Check CLAUDE.md for architecture
 - Review logs in `src/guppy/api/auth.py` (line 464)
-- Run diagnostic: `powershell -File tools/diagnose_and_setup.ps1`
+- Run diagnostic: `.venv\Scripts\python.exe tools/verify_ollama_runtime.py`
 

@@ -1,6 +1,6 @@
 # Guppy: Getting Started
 
-**Last updated:** 2026-04-22
+**Last updated:** 2026-04-27
 
 This guide walks you through the simplest possible setup to get Guppy running with one-click desktop launchers.
 
@@ -24,23 +24,24 @@ This guide walks you through the simplest possible setup to get Guppy running wi
 
 ## 🚀 Quick Setup (3 min)
 
-### Run One-Time Setup
+### Run One-Time Bootstrap
 
 Open PowerShell in the Guppy directory and run:
 
 ```powershell
 cd C:\Users\Ryan\Guppy
-powershell -ExecutionPolicy Bypass -File tools/setup_all.ps1
+powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 ```
 
 **What this does:**
 - ✅ Checks Python installation
-- ✅ Creates virtual environment (if needed)
-- ✅ Installs dependencies
-- ✅ Creates desktop shortcuts
-- ✅ Runs diagnostics
+- ✅ Creates virtual environment
+- ✅ Installs all dependencies (dev extras included)
 
-**Output:** Three new shortcuts appear on your Desktop
+**Then update the desktop shortcut:**
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/ensure_desktop_launcher.ps1
+```
 
 ---
 
@@ -49,14 +50,14 @@ powershell -ExecutionPolicy Bypass -File tools/setup_all.ps1
 After setup, you'll have three desktop shortcuts:
 
 ### 1. **Guppy - API Server**
-- Starts backend API on `http://localhost:8000`
+- Starts backend API on `http://localhost:8081`
 - For: Advanced users, CLI testing, API integration
 - Terminal stays open showing logs
 
 ### 2. **Guppy - Web UI** ⭐ (Recommended)
-- Starts API + Web interface on `http://localhost:3000`
+- Starts API + serves the built Web UI on `http://localhost:8081`
 - For: Full chat, model selection, workspaces, settings
-- Open browser to `http://localhost:3000`
+- Open browser to `http://localhost:8081`
 
 ### 3. **Guppy - Desktop Launcher**
 - Starts native desktop application
@@ -73,11 +74,11 @@ After setup, you'll have three desktop shortcuts:
    ```
    Leave this terminal open.
 
-2. **Click "Guppy - Web UI"** on your Desktop
+2. **Click "Guppy - Web UI"** on your Desktop (or run `bin\launch_hub.bat`)
    - Terminal opens and shows startup logs
    - Wait ~3 seconds for "Listening on..."
 
-3. **Open browser** to: `http://localhost:3000`
+3. **Open browser** to: `http://localhost:8081`
    - You should see the Web UI with chat interface
 
 4. **Select a model** from dropdown and test chat:
@@ -103,7 +104,7 @@ After setup, you'll have three desktop shortcuts:
 
 ### "API crashes on startup"
 - Check virtual environment: `.venv\Scripts\activate`
-- Check dependencies: `pip install -e .`
+- Reinstall deps: `python -m pip install -e .[dev]`
 - Check logs in terminal window
 
 ---
@@ -112,7 +113,7 @@ After setup, you'll have three desktop shortcuts:
 
 - **Read TOOLS.md** for detailed setup with different LLM providers
 - **Read CLAUDE.md** for architecture and development
-- **Explore Web UI:** Models → Workspaces → Chat History → Settings
+- **Explore Web UI:** Chat → Launch Control → Personas → Instructions → Tools → Settings
 
 ---
 
@@ -128,23 +129,26 @@ ollama pull qwen2.5:32b   # Accurate (20GB)
 
 # From Guppy directory:
 
-# One-time setup
-powershell -File tools/setup_all.ps1
+# One-time bootstrap (creates .venv and installs deps)
+powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 
 # Run diagnostics
-powershell -File tools/diagnose_and_setup.ps1
+.venv\Scripts\python.exe tools/verify_ollama_runtime.py
+.venv\Scripts\python.exe tools/dev_workflow.py dev-check
 
-# Manual API start (after venv setup)
-.venv\Scripts\activate
-python -m src.guppy.cli.launch api --dev
-
-# Manual Web UI start
+# Manual Web UI + API start (serves on http://localhost:8081)
 .venv\Scripts\activate
 python -m src.guppy.cli.launch hub --dev
 
-# Manual Desktop Launcher start
+# OR use the launcher batch file
+bin\launch_hub.bat
+
+# Manual API-only start
 .venv\Scripts\activate
-python -m src.guppy.cli.launch launcher --dev
+python -m src.guppy.cli.launch api --dev
+
+# Dev Web UI with hot-reload (serves on http://localhost:5173, proxies to :8081)
+cd web && npm run dev
 ```
 
 ---
@@ -172,7 +176,7 @@ python -m src.guppy.cli.launch launcher --dev
 
 ## 🆘 Getting Help
 
-1. **Check diagnostics:** `powershell -File tools/diagnose_and_setup.ps1`
+1. **Run diagnostics:** `.venv\Scripts\python.exe tools/verify_ollama_runtime.py`
 2. **Read detailed guide:** `TOOLS.md` (LLM setup by provider)
 3. **Architecture reference:** `CLAUDE.md`
 4. **Check API logs:** Look at terminal window running API
