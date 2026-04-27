@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/api/client'
 import { toast } from 'sonner'
@@ -366,10 +366,15 @@ function KVRow({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
 
 // ── backends tab ──────────────────────────────────────────────────────────────
 
-const LLAMACPP_META: Record<string, { port: number; mode: 'A' | 'B'; note: string }> = {
-  'llamacpp-pepe':  { port: 8082, mode: 'A', note: 'Fast · Pepe 8B' },
-  'llamacpp-gemma': { port: 8080, mode: 'A', note: 'Vision · Gemma 4 E4B Heretic' },
-  'llamacpp-qwen3': { port: 8083, mode: 'B', note: 'Reasoning · Qwen3 35B MoE' },
+interface LlamacppBackend {
+  name:    string
+  label:   string
+  port:    number
+  mode:    'A' | 'B'
+  note:    string
+  alive:   boolean
+  tracked: boolean
+  pid:     number | null
 }
 
 const OTHER_BACKEND_PORTS: Record<string, number> = {
@@ -377,21 +382,84 @@ const OTHER_BACKEND_PORTS: Record<string, number> = {
   lmstudio:      1234,
   lemonade:      8000,
   local_harness: 8001,
-  vllm:          8001,
 }
 
+// How long (ms) to keep a backend in "starting" state before giving up
+const STARTING_TIMEOUT_MS = 150_000
+
 function BackendsTab({ onRefresh }: { onRefresh: () => void }) {
-  const { data: providers, isLoading, isFetching } = useProviders({ refetchInterval: 10_000 })
+  const qc = useQueryClient()
 
+  // ── providers probe (for Ollama/LMStudio/etc. status in the other-backends list)
+  const { data: providers, isFetching: provFetching } = useProviders({ refetchInterval: 8_000 })
+
+  // ── dedicated llamacpp status endpoint (faster probe, start/stop aware)
+  const { data: llamacppData = [], isLoading: llcLoading, isFetching: llcFetching } = useQuery<LlamacppBackend[]>({
+    queryKey: ['backends', 'llamacpp'],
+    queryFn:  () => apiClient.get('/api/backends/llamacpp').then((r: { data: LlamacppBackend[] }) => r.data),
+    refetchInterval: 4_000,
+  })
+
+  // Local "starting" state: name → timestamp when Start was pressed
+  const [startingAt, setStartingAt] = useState<Record<string, number>>({})
+
+  // Clear starting state when backend becomes alive, or after timeout
+  const prevAlive = useRef<Record<string, boolean>>({})
+  useEffect(() => {
+    const now = Date.now()
+    setStartingAt(prev => {
+      const next = { ...prev }
+      let changed = false
+      for (const name of Object.keys(next)) {
+        const b = llamacppData.find(x => x.name === name)
+        const wasAlive = prevAlive.current[name]
+        const isAlive = b?.alive ?? false
+        if (isAlive && !wasAlive) { delete next[name]; changed = true }
+        else if (now - next[name] > STARTING_TIMEOUT_MS) { delete next[name]; changed = true }
+      }
+      return changed ? next : prev
+    })
+    for (const b of llamacppData) prevAlive.current[b.name] = b.alive
+  }, [llamacppData])
+
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ['backends', 'llamacpp'] })
+    qc.invalidateQueries({ queryKey: PQKK.providers })
+  }
+
+  // ── mutations
+  const startMut = useMutation({
+    mutationFn: (name: string) => apiClient.post(`/api/backends/llamacpp/${name}/start`),
+    onMutate: (name) => setStartingAt(prev => ({ ...prev, [name]: Date.now() })),
+    onSuccess: (_d, name) => {
+      toast.success(`Starting ${name.replace('llamacpp-', '')} — loading model…`)
+      // Poll more frequently while starting
+      qc.invalidateQueries({ queryKey: ['backends', 'llamacpp'] })
+    },
+    onError: (e: { response?: { data?: { detail?: string } }; message: string }, name) => {
+      setStartingAt(prev => { const n = { ...prev }; delete n[name]; return n })
+      toast.error(e.response?.data?.detail ?? e.message)
+    },
+  })
+
+  const stopMut = useMutation({
+    mutationFn: (name: string) => apiClient.post(`/api/backends/llamacpp/${name}/stop`),
+    onSuccess: (_d, name) => {
+      toast.success(`Stopped ${name.replace('llamacpp-', '')}`)
+      invalidateAll()
+    },
+    onError: (e: { response?: { data?: { detail?: string } }; message: string }) =>
+      toast.error(e.response?.data?.detail ?? e.message),
+  })
+
+  const isFetching = provFetching || llcFetching
+  const isLoading  = llcLoading
+
+  // Other (non-llamacpp) backends from providers
   const rawBackends = providers?.local?.backends ?? {}
-  const allBackends = Object.entries(rawBackends).map(([name, info]) => ({
-    name,
-    alive: info.alive,
-    label: info.label ?? name,
-  }))
-
-  const llamacppList = allBackends.filter(b => b.name.startsWith('llamacpp'))
-  const otherList    = allBackends.filter(b => !b.name.startsWith('llamacpp'))
+  const otherList = Object.entries(rawBackends)
+    .filter(([name]) => !name.startsWith('llamacpp'))
+    .map(([name, info]) => ({ name, alive: info.alive, label: info.label ?? name }))
 
   return (
     <div className="flex flex-col gap-6">
@@ -399,10 +467,12 @@ function BackendsTab({ onRefresh }: { onRefresh: () => void }) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-sm font-bold text-slate-200">Backend Connections</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Live probe status — auto-refreshes every 10 s</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            llama.cpp servers probed every 4 s · other backends every 8 s
+          </p>
         </div>
         <button
-          onClick={onRefresh}
+          onClick={() => { invalidateAll(); onRefresh() }}
           disabled={isFetching}
           className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-[#1e1e2a] border border-[#252535] text-slate-300 hover:bg-[#252535] transition-colors disabled:opacity-50"
         >
@@ -413,77 +483,109 @@ function BackendsTab({ onRefresh }: { onRefresh: () => void }) {
 
       {isLoading && <div className="text-slate-500 text-sm">Probing backends…</div>}
 
-      {/* llama.cpp servers */}
-      {llamacppList.length > 0 && (
+      {/* ── llama.cpp servers ─────────────────────────────────────────────── */}
+      {llamacppData.length > 0 && (
         <div className="flex flex-col gap-3">
           <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            llama.cpp Servers <span className="text-slate-600 normal-case font-normal">— local GPU inference (ROCm)</span>
+            llama.cpp Servers
+            <span className="text-slate-600 normal-case font-normal ml-1">— local GPU inference (ROCm · RX 7900 XTX)</span>
           </h3>
 
-          {/* VRAM layout hint */}
+          {/* VRAM budget hint */}
           <div className="bg-[#0e0e18] border border-[#252535] rounded-xl p-3 flex flex-wrap gap-2 items-center text-xs text-slate-500">
-            <span className="font-semibold text-slate-400">RX 7900 XTX (24 GB):</span>
+            <span className="font-semibold text-slate-400">24 GB budget:</span>
             <span className="px-2 py-0.5 rounded bg-orange-500/10 text-orange-400 font-semibold">Mode A</span>
-            <span>Pepe 8B + Gemma 4 E4B  ~17 GB · run together</span>
+            <span>Pepe + Gemma together  ~17 GB</span>
             <span className="mx-1 text-slate-600">|</span>
             <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 font-semibold">Mode B</span>
-            <span>Qwen3 35B MoE  ~19 GB · run alone</span>
+            <span>Qwen3 alone  ~19 GB — cannot share</span>
           </div>
 
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))' }}>
-            {llamacppList.map(b => {
-              const meta = LLAMACPP_META[b.name]
-              const modeColor = meta?.mode === 'A' ? 'orange' : 'purple'
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))' }}>
+            {llamacppData.map(b => {
+              const isStarting  = b.name in startingAt && !b.alive
+              const modeOrange  = b.mode === 'A'
+              const isStopping  = stopMut.isPending && stopMut.variables === b.name
+              const isLaunching = startMut.isPending && startMut.variables === b.name
+
+              const statusLabel = b.alive
+                ? '● connected'
+                : isStarting
+                  ? '◌ loading model…'
+                  : '○ offline'
+              const statusColor = b.alive
+                ? 'text-green-400'
+                : isStarting
+                  ? 'text-yellow-400'
+                  : 'text-slate-500'
+
               return (
                 <div
                   key={b.name}
-                  className={`bg-[#12121a] border rounded-xl p-4 flex flex-col gap-2.5 transition-all ${
+                  className={`bg-[#12121a] border rounded-xl p-4 flex flex-col gap-3 transition-all ${
                     b.alive
                       ? 'border-l-[3px] border-l-green-500 border-[#252535]'
-                      : 'border-[#252535]'
+                      : isStarting
+                        ? 'border-l-[3px] border-l-yellow-500 border-[#252535]'
+                        : 'border-[#252535]'
                   }`}
                 >
+                  {/* name + port */}
                   <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${b.alive ? 'bg-green-400 shadow-[0_0_6px_#22c55e]' : 'bg-slate-600'}`} />
+                    {isStarting
+                      ? <RefreshCw className="w-2 h-2 text-yellow-400 animate-spin flex-shrink-0" />
+                      : <span className={`w-2 h-2 rounded-full flex-shrink-0 ${b.alive ? 'bg-green-400 shadow-[0_0_6px_#22c55e]' : 'bg-slate-600'}`} />
+                    }
                     <span className="font-semibold text-sm flex-1">{b.label}</span>
-                    {meta && <span className="text-xs text-cyan-400 font-mono">:{meta.port}</span>}
+                    <span className="text-xs text-cyan-400 font-mono">:{b.port}</span>
                   </div>
-                  {meta && (
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                        modeColor === 'orange'
-                          ? 'bg-orange-500/15 text-orange-400'
-                          : 'bg-purple-500/15 text-purple-400'
-                      }`}>
-                        MODE {meta.mode}
+
+                  {/* mode badge + note */}
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                      modeOrange ? 'bg-orange-500/15 text-orange-400' : 'bg-purple-500/15 text-purple-400'
+                    }`}>
+                      MODE {b.mode}
+                    </span>
+                    <span className="text-slate-500">{b.note}</span>
+                  </div>
+
+                  {/* status + pid */}
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className={`font-semibold ${statusColor}`}>{statusLabel}</span>
+                    {b.pid && <span className="text-slate-600">pid {b.pid}</span>}
+                    {isStarting && (
+                      <span className="text-slate-600 ml-auto">
+                        {Math.round((STARTING_TIMEOUT_MS - (Date.now() - startingAt[b.name])) / 1000)}s max
                       </span>
-                      <span className="text-slate-500">{meta.note}</span>
-                    </div>
-                  )}
-                  <span className={`text-xs font-semibold ${b.alive ? 'text-green-400' : 'text-slate-500'}`}>
-                    {b.alive ? '● connected' : '○ offline'}
-                  </span>
+                    )}
+                  </div>
+
+                  {/* start / stop buttons */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => startMut.mutate(b.name)}
+                      disabled={b.alive || isStarting || isLaunching || isStopping}
+                      className="flex-1 text-xs py-1.5 rounded-md font-semibold transition-colors bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40 disabled:cursor-default"
+                    >
+                      {isLaunching ? '▶ Starting…' : '▶ Start'}
+                    </button>
+                    <button
+                      onClick={() => stopMut.mutate(b.name)}
+                      disabled={!b.alive && !isStarting && !b.tracked}
+                      className="flex-1 text-xs py-1.5 rounded-md font-semibold transition-colors bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/30 disabled:opacity-40 disabled:cursor-default"
+                    >
+                      {isStopping ? '■ Stopping…' : '■ Stop'}
+                    </button>
+                  </div>
                 </div>
               )
             })}
           </div>
-
-          {/* launch instructions */}
-          <div className="bg-[#12121a] border border-[#252535] rounded-xl p-4">
-            <p className="text-xs font-semibold text-slate-400 mb-2">Start llama.cpp servers from a terminal:</p>
-            <div className="flex flex-wrap gap-2">
-              <code className="text-xs bg-[#1e1e2a] text-orange-300 px-3 py-2 rounded-lg font-mono border border-[#252535]">
-                bin\start_llm_backends.bat  →  A
-              </code>
-              <code className="text-xs bg-[#1e1e2a] text-purple-300 px-3 py-2 rounded-lg font-mono border border-[#252535]">
-                bin\start_llm_backends.bat  →  B
-              </code>
-            </div>
-          </div>
         </div>
       )}
 
-      {/* other backends */}
+      {/* ── other backends ─────────────────────────────────────────────────── */}
       {otherList.length > 0 && (
         <div className="flex flex-col gap-2">
           <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Other Backends</h3>
@@ -507,7 +609,7 @@ function BackendsTab({ onRefresh }: { onRefresh: () => void }) {
         </div>
       )}
 
-      {!isLoading && allBackends.length === 0 && (
+      {!isLoading && llamacppData.length === 0 && otherList.length === 0 && (
         <div className="text-slate-500 text-sm">No backend data — click Check All to probe.</div>
       )}
     </div>
