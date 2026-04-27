@@ -71,6 +71,42 @@ def _clean_local_response(text: str) -> str:
 # Keep the old name as an alias so existing call-sites don't break.
 _clean_llamacpp_response = _clean_local_response
 
+
+def _to_openai_tools(anthropic_tools: Any) -> list[dict]:
+    """Convert Anthropic-format tool definitions to OpenAI/llamacpp JSON format.
+
+    Anthropic uses ``input_schema``; OpenAI/llamacpp uses ``parameters`` inside
+    ``{"type": "function", "function": {...}}``.  Handles both plain dicts and
+    Anthropic SDK ``ToolParam`` objects.
+    """
+    result = []
+    for tool in (anthropic_tools or []):
+        if isinstance(tool, dict):
+            name = str(tool.get("name") or "")
+            desc = str(tool.get("description") or "")
+            params = tool.get("input_schema", {})
+        else:
+            name = str(getattr(tool, "name", "") or "")
+            desc = str(getattr(tool, "description", "") or "")
+            params = getattr(tool, "input_schema", {})
+            # Coerce SDK model objects to plain dicts
+            if not isinstance(params, dict):
+                try:
+                    params = dict(params)
+                except Exception:
+                    params = {}
+        if not name:
+            continue
+        result.append({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": desc,
+                "parameters": params if isinstance(params, dict) else {},
+            },
+        })
+    return result
+
 _log = logging.getLogger(__name__)
 
 _CHAT_CONTENT_MAX_CHARS = 2000
@@ -622,57 +658,171 @@ async def _stream_llamacpp_tokens(
     backend: str,
     messages: list[dict],
     timeout: float = 180.0,
+    tools: list[dict] | None = None,
+    tool_runner: Any | None = None,
+    max_tool_rounds: int = 6,
 ) -> AsyncGenerator[str, None]:
-    """Yield content tokens from a llama.cpp OpenAI-compatible SSE stream.
+    """Yield content from a llama.cpp OpenAI-compatible SSE stream.
 
-    Buffers the full response and strips Hermes/Gemma-style tool-call markup
-    before yielding, since llama.cpp models can't execute tools at this time.
+    Implements a full agentic tool-call loop (requires ``--jinja`` on the
+    llama-server, which is the default since llama.cpp b5000+):
+
+    1.  Send the Guppy tool catalogue in OpenAI format alongside the chat.
+    2.  Accumulate streaming delta chunks; detect ``finish_reason == "tool_calls"``.
+    3.  Execute each tool synchronously via ``tool_runner`` and append results.
+    4.  Repeat until the model stops calling tools or ``max_tool_rounds`` hit.
+    5.  Yield the final cleaned text to the caller.
+
+    Degrades gracefully when:
+    - ``tool_runner`` is None → text-only, strips markup as before.
+    - Model has no tool-use Jinja template → no ``tool_calls`` in deltas;
+      text-embedded markup is stripped by ``_clean_llamacpp_response``.
     """
     import httpx
 
     cfg = _LOCAL_BACKENDS.get(backend, {})
     url = f"{_local_resolve_url(backend)}{cfg.get('chat_path', '/v1/chat/completions')}"
-    payload = {
-        "model": model,
-        "messages": messages,
-        "stream": True,
-        "max_tokens": 2048,
-        "temperature": 0.8,
-        "top_p": 0.95,
-    }
-    full_response = ""
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream("POST", url, json=payload) as response:
-                response.raise_for_status()
-                async for raw_line in response.aiter_lines():
-                    line = raw_line.strip()
-                    if not line or not line.startswith("data: "):
-                        continue
-                    data_str = line[6:]
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
-                    choices = chunk.get("choices", [])
-                    if not choices:
-                        continue
-                    delta = choices[0].get("delta", {})
-                    content = delta.get("content") or ""
-                    if content:
-                        full_response += content
-    except httpx.HTTPStatusError as exc:
-        raise RuntimeError(
-            f"llama.cpp backend '{backend}' returned HTTP {exc.response.status_code}"
-        ) from exc
-    except httpx.ConnectError as exc:
-        raise RuntimeError(
-            f"Cannot reach llama.cpp backend '{backend}'. Is the server running?"
-        ) from exc
 
-    yield _clean_llamacpp_response(full_response)
+    current_messages = list(messages)
+    last_full_content = ""
+
+    for _round in range(max_tool_rounds + 1):
+        payload: dict = {
+            "model": model,
+            "messages": current_messages,
+            "stream": True,
+            "max_tokens": 2048,
+            "temperature": 0.8,
+            "top_p": 0.95,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        full_content = ""
+        tool_calls_acc: dict[int, dict] = {}   # delta index → accumulated call
+        finish_reason: str | None = None
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("POST", url, json=payload) as response:
+                    response.raise_for_status()
+                    async for raw_line in response.aiter_lines():
+                        line = raw_line.strip()
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        choices = chunk.get("choices", [])
+                        if not choices:
+                            continue
+                        choice = choices[0]
+                        if choice.get("finish_reason"):
+                            finish_reason = choice["finish_reason"]
+                        delta = choice.get("delta", {})
+
+                        # Accumulate text content
+                        content = delta.get("content") or ""
+                        if content:
+                            full_content += content
+
+                        # Accumulate tool_call deltas (OpenAI streaming format)
+                        for tc_delta in (delta.get("tool_calls") or []):
+                            idx = tc_delta.get("index", 0)
+                            if idx not in tool_calls_acc:
+                                tool_calls_acc[idx] = {
+                                    "id": tc_delta.get("id", f"call_{_round}_{idx}"),
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""},
+                                }
+                            tc = tool_calls_acc[idx]
+                            fn_delta = tc_delta.get("function", {})
+                            if fn_delta.get("name"):
+                                tc["function"]["name"] += fn_delta["name"]
+                            if fn_delta.get("arguments"):
+                                tc["function"]["arguments"] += fn_delta["arguments"]
+                            if tc_delta.get("id"):
+                                tc["id"] = tc_delta["id"]
+
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"llama.cpp backend '{backend}' returned HTTP {exc.response.status_code}"
+            ) from exc
+        except httpx.ConnectError as exc:
+            raise RuntimeError(
+                f"Cannot reach llama.cpp backend '{backend}'. Is the server running?"
+            ) from exc
+
+        last_full_content = full_content
+        tool_calls_list = [tool_calls_acc[i] for i in sorted(tool_calls_acc)]
+
+        # ── Structured tool call detected ─────────────────────────────────────
+        _is_tool_turn = (
+            finish_reason in {"tool_calls", "tool"}
+            or (tool_calls_list and finish_reason is None)
+        )
+        if _is_tool_turn and tool_calls_list and tool_runner:
+            if _round >= max_tool_rounds:
+                _log.warning(
+                    "llama.cpp tool loop hit max_tool_rounds=%d — stopping", max_tool_rounds
+                )
+                break
+
+            # Append the assistant turn (may carry partial text + tool_calls)
+            asst_msg: dict = {
+                "role": "assistant",
+                "content": full_content if full_content else None,
+                "tool_calls": tool_calls_list,
+            }
+            current_messages.append(asst_msg)
+
+            # Execute each requested tool and collect results
+            for tc in tool_calls_list:
+                fn = tc.get("function", {})
+                name = fn.get("name", "")
+                args_raw = fn.get("arguments", "{}")
+                try:
+                    args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
+                except Exception:
+                    args = {}
+
+                try:
+                    result = tool_runner(name, args if isinstance(args, dict) else {})
+                    result_str = str(result)
+                except Exception as exc:
+                    result_str = f"[tool error: {exc}]"
+                    _log.warning("llamacpp tool_runner(%r) error: %s", name, exc)
+
+                # Truncate very large results (screenshots, file dumps) so the
+                # model's context window isn't blown out.
+                if len(result_str) > 6000:
+                    result_str = result_str[:6000] + "\n...[truncated for context]"
+
+                _log.info(
+                    "llamacpp tool call round=%d: %s → %d chars", _round, name, len(result_str)
+                )
+                current_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.get("id", ""),
+                    "content": result_str,
+                })
+
+            continue  # send tool results back to the model
+
+        # ── No tool calls (or no runner) — yield cleaned text and finish ──────
+        # _clean_llamacpp_response handles text-embedded markup from models that
+        # don't have a tool-use Jinja template (older / non-instruct GGUFs).
+        yield _clean_llamacpp_response(full_content)
+        return
+
+    # Fell through max rounds without a clean finish — yield whatever we have
+    _log.warning("llamacpp tool loop exhausted after %d rounds", max_tool_rounds)
+    yield _clean_llamacpp_response(last_full_content)
 
 
 async def _stream_ollama_tokens(
@@ -760,22 +910,49 @@ async def stream_unified_inference(
     augmented_system = await _inject_semantic_context_async(augmented_system, user_text, owner)
     requested_mode = (mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto").strip().lower()
 
+    # Steer mode: prepend a redirection directive then route normally so
+    # streaming paths work without a special code path.
+    if requested_mode == "steer":
+        augmented_system = (
+            "The user's next message is a steering directive or correction. "
+            "Adjust your approach and direction accordingly, "
+            "then continue helpfully from where you left off.\n\n"
+        ) + augmented_system
+        requested_mode = "auto"
+
     is_llamacpp = bool(active_local_model and active_local_model in _LOCAL_LLAMACPP_ROUTES)
 
-    # llama.cpp: stream via OpenAI-compat SSE (separate servers, not Ollama)
+    # llama.cpp: stream via OpenAI-compat SSE with full tool-call loop.
+    # Requires --jinja on the server (default since llama.cpp b5000).
+    # Falls back gracefully when the model has no tool-use template.
     if is_llamacpp and owner.GUPPY_CORE_AVAILABLE:
         llamacpp_backend = _LOCAL_LLAMACPP_ROUTES.get(active_local_model or "")
         if llamacpp_backend and _LOCAL_BACKENDS.get(llamacpp_backend):
-            _no_tools = (
-                "[SYSTEM NOTE: You have NO access to external tools, APIs, or the internet. "
-                "Do NOT output tool call tags or markup. Respond directly using your knowledge only.]\n\n"
+            messages = build_router_messages(
+                augmented_system, user_text, sanitize_chat_history(history)
             )
-            messages = build_router_messages(_no_tools + augmented_system, user_text, sanitize_chat_history(history))
+            # Convert Guppy's Anthropic-format tool catalogue to OpenAI format
+            _openai_tools = (
+                _to_openai_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
+            )
+
+            def _llamacpp_tool_runner(name: str, args: dict) -> str:
+                return str(
+                    owner.core.run_tool(
+                        name,
+                        args,
+                        instance_name=instance_name,
+                        instance_type=instance_type,
+                    )
+                )
+
             try:
                 async for token in _stream_llamacpp_tokens(
                     model=active_local_model,
                     backend=llamacpp_backend,
                     messages=messages,
+                    tools=_openai_tools,
+                    tool_runner=_llamacpp_tool_runner,
                 ):
                     yield token
                 return
