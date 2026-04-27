@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -33,6 +34,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Strip text-embedded tool call markers that Qwen/Hermes-family models emit
+# when structured tool_calls aren't supported by the local backend.
+_TEXT_TOOL_CALL_RE = re.compile(
+    r"<\|tool_call\|>.*?<\|tool_call\|>|<tool_call>.*?</tool_call>",
+    re.DOTALL,
+)
 
 # ---------------------------------------------------------------------------
 # Self-contained .env bootstrap for env vars this module needs.
@@ -394,6 +402,10 @@ def _parse_openai(data: Dict[str, Any], model: str, backend: str) -> Optional[Di
     # visible answer goes in content. If content is empty the model ran out of tokens mid-think.
     if not content.strip():
         content = str(msg.get("reasoning_content") or "")
+    # Strip text-embedded tool call markers (<|tool_call|>...<|tool_call|> or
+    # <tool_call>...</tool_call>) that Qwen/Hermes-family models emit when they
+    # can't use structured tool_calls.  These must never reach the UI as raw text.
+    content = _TEXT_TOOL_CALL_RE.sub("", content).strip()
     return {
         "response": content,
         "model": model,

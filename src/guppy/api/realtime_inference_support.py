@@ -13,28 +13,63 @@ from src.guppy.inference.local_client import (
     _resolve_url as _local_resolve_url,
 )
 
-# Matches Hermes / Gemma-style inline tool call markup:
-#   <tool_call>call:name{args}</tool_call>
-# We strip these from llama.cpp responses because the format is non-standard
-# and there's no execution loop to actually run them.
-_TOOL_CALL_TAG_RE = _re.compile(r"<tool_call>.*?</tool_call>", _re.DOTALL)
+# Strip raw text-embedded tool call blocks that some local models emit when they
+# can't use (or don't parse) structured tool_calls.  Two common formats:
+#
+#   Hermes / Gemma:   <tool_call>call:name{args}</tool_call>
+#   Qwen / Pepe:      <|tool_call|>call:name{args}<|tool_call|>
+#
+# The pipe-delimited variant uses special tokenizer boundary tokens that look
+# like angle-bracket tags but aren't HTML.  Both must be stripped so they
+# never reach the user as visible response text.
+_TOOL_CALL_TAG_RE = _re.compile(
+    r"<\|tool_call\|>.*?<\|tool_call\|>"   # Qwen3 / Pepe pipe-variant
+    r"|<tool_call>.*?</tool_call>",          # Hermes / Gemma tag-variant
+    _re.DOTALL,
+)
+
+_TOOL_CALLS_ONLY_RE = _re.compile(
+    r"^\s*(<\|tool_call\|>.*?<\|tool_call\|>\s*|<tool_call>.*?</tool_call>\s*)+$",
+    _re.DOTALL,
+)
+
+_NO_TOOLS_FALLBACK = (
+    "I don't have access to live tools in local mode. "
+    "Ask me to answer from my training knowledge, or switch to a cloud model "
+    "(Anthropic / OpenAI) for tool-enabled responses."
+)
 
 
-def _clean_llamacpp_response(text: str) -> str:
-    """Strip raw tool-call markup from llama.cpp model output."""
-    cleaned = _TOOL_CALL_TAG_RE.sub("", text).strip()
+def _strip_tool_call_markers(text: str) -> str:
+    """Remove raw text-embedded tool call blocks from a model response.
+
+    Returns the cleaned text (may be empty string if the whole response was
+    a tool call block).
+    """
+    return _TOOL_CALL_TAG_RE.sub("", text).strip()
+
+
+def _clean_local_response(text: str) -> str:
+    """Strip tool call markup and return a user-friendly string.
+
+    Applied to non-streaming local model (llamacpp and Ollama) responses when
+    the model tries to invoke tools via text delimiters instead of the
+    structured tool_calls field.
+    """
+    cleaned = _strip_tool_call_markers(text)
     if cleaned == text.strip():
-        return text  # nothing stripped
+        return text  # nothing was stripped — return unchanged
     if not cleaned:
-        return (
-            "I don't have access to live web search or external tools in local mode. "
-            "Please ask me to answer from what I already know, or switch to a cloud "
-            "model (Anthropic / OpenAI) for tool-enabled responses."
-        )
-    return cleaned + (
-        "\n\n_(Note: tool calls are not supported for local llama.cpp models — "
-        "the above is based on the model's training knowledge only.)_"
+        return _NO_TOOLS_FALLBACK
+    return (
+        cleaned
+        + "\n\n_(Note: tool calls are not supported in local mode — "
+        "this answer is based on the model's training knowledge only.)_"
     )
+
+
+# Keep the old name as an alias so existing call-sites don't break.
+_clean_llamacpp_response = _clean_local_response
 
 _log = logging.getLogger(__name__)
 
@@ -532,7 +567,7 @@ def call_ollama_with_tools(
             data = json.loads(response.read().decode())
 
         msg = data.get("message", {})
-        content = (msg.get("content") or "").strip()
+        content = _strip_tool_call_markers((msg.get("content") or "").strip())
         if content:
             final_text = content
 
@@ -754,7 +789,10 @@ async def stream_unified_inference(
 
             tool_calls_accumulated: list = []
             all_messages = list(messages)
-            assistant_content = ""
+            # Buffer tokens so we can strip text-embedded tool call markers
+            # before anything reaches the UI.  The latency cost for local
+            # models is negligible compared to their generation time.
+            buffered_tokens: list[str] = []
 
             async for token in _stream_ollama_tokens(
                 model=model_name,
@@ -764,8 +802,22 @@ async def stream_unified_inference(
                 if token.startswith(_TOOL_CALL_SENTINEL):
                     tool_calls_accumulated = json.loads(token[len(_TOOL_CALL_SENTINEL):])
                 else:
-                    assistant_content += token
-                    yield token
+                    buffered_tokens.append(token)
+
+            assistant_content = "".join(buffered_tokens)
+
+            # Strip text-format tool call markers (Qwen/Pepe <|tool_call|> style)
+            # before streaming any content to the UI.
+            if _TOOL_CALL_TAG_RE.search(assistant_content):
+                cleaned = _clean_local_response(assistant_content)
+                if cleaned:
+                    yield cleaned
+                # Text-format tool calls have no execution loop — don't recurse.
+                return
+
+            # No markers — yield buffered tokens to preserve streaming feel.
+            for token in buffered_tokens:
+                yield token
 
             if tool_calls_accumulated:
                 clean_assistant: dict = {"role": "assistant", "content": assistant_content}
