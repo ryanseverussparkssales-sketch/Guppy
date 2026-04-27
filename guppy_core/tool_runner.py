@@ -271,12 +271,12 @@ def run_tool(
 
     state = "success"
     error_msg = ""
-    inline_tools = {"semantic_remember", "semantic_recall"}
+    inline_tools = {"semantic_remember", "semantic_recall", "query_instance"}
     try:
         if name in inline_tools:
-            result = _exec_tool(name, inp)
+            result = _exec_tool(name, inp, instance_name=instance_name)
         else:
-            fut = _TOOL_EXECUTOR.submit(_exec_tool, name, inp)
+            fut = _TOOL_EXECUTOR.submit(_exec_tool, name, inp, instance_name=instance_name)
             result = fut.result(timeout=TOOL_EXEC_TIMEOUT_SECONDS)
     except FuturesTimeoutError:
         state = "timeout"
@@ -321,6 +321,33 @@ def run_tool(
         "result": str(result)[:150] if not isinstance(result, dict) else str(result.get("size", "screenshot")),
     })
     return result
+
+
+def _make_internal_query_token() -> str:
+    """Generate a short-lived HS256 JWT for internal instance-to-instance queries.
+
+    Uses GUPPY_JWT_SECRET from the environment — the same secret the API uses.
+    Returns an empty string if the secret is unavailable (API will still accept
+    the call from localhost in dev mode via the DEV_MODE bypass).
+    """
+    secret = os.environ.get("GUPPY_JWT_SECRET", "").strip()
+    if not secret:
+        return ""
+    try:
+        from jose import jwt as _jose_jwt
+        return str(
+            _jose_jwt.encode(
+                {
+                    "sub": "internal_tool_runner",
+                    "iat": int(time.time()),
+                    "exp": int(time.time()) + 60,
+                },
+                secret,
+                algorithm="HS256",
+            )
+        )
+    except Exception:
+        return ""
 
 
 def _morning_brief(include_gmail: bool = True, notify: bool = False) -> str:
@@ -488,7 +515,7 @@ def _morning_brief(include_gmail: bool = True, notify: bool = False) -> str:
     return brief
 
 
-def _exec_tool(name: str, inp: dict):
+def _exec_tool(name: str, inp: dict, *, instance_name: str | None = None):
     """Internal tool executor — called by run_tool."""
     try:
         if name == "execute_command":
@@ -708,6 +735,29 @@ def _exec_tool(name: str, inp: dict):
                     webbrowser.open(f"https://www.google.com/search?q={urllib.parse.quote(query)}")
                     return f"Perplexity error ({e}) — opened Google search for: {query}"
             else:
+                # Fallback: DuckDuckGo programmatic search (no API key needed)
+                try:
+                    from ddgs import DDGS as _DDGS
+                except ImportError:
+                    try:
+                        from duckduckgo_search import DDGS as _DDGS  # type: ignore
+                    except ImportError:
+                        _DDGS = None  # type: ignore
+                if _DDGS is not None:
+                    try:
+                        max_r = int(inp.get("max_results", 8))
+                        _results = list(_DDGS().text(query, max_results=max_r))
+                        if _results:
+                            lines = [f"Search results for: {query!r}\n"]
+                            for i, r in enumerate(_results, 1):
+                                lines.append(
+                                    f"{i}. {r.get('title', '')}\n"
+                                    f"   URL: {r.get('href') or r.get('url', '')}\n"
+                                    f"   {r.get('body') or r.get('snippet', '')}\n"
+                                )
+                            return "\n".join(lines)
+                    except Exception:
+                        pass  # fall through to browser
                 webbrowser.open(f"https://www.google.com/search?q={urllib.parse.quote(query)}")
                 return f"Opened Google search for: {query}  (set PERPLEXITY_API_KEY for AI answers)"
 
@@ -1040,40 +1090,68 @@ def _exec_tool(name: str, inp: dict):
 
         # ── Reminders & Tasks ──────────────────────────────────────────────────
         elif name == "remind_me":
-            if not DAEMON:
-                return "Error: Daemon not available. Reminders require background service."
+            # Always use the persistent DB-backed reminder system so the web UI can deliver it
             try:
-                from src.guppy.daemon.daemon import get_daemon_manager
-                manager = get_daemon_manager()
-                result = manager.task_scheduler.schedule_reminder(inp["message"], inp["time"])
-                return result
+                from src.guppy.api.routes_reminders import create_reminder as _create_reminder
+                msg = str(inp.get("message", "")).strip()
+                if not msg:
+                    return "Error: 'message' is required for reminders."
+                # Accept either 'time' (natural like '30 minutes') or 'delay_minutes'
+                delay_raw = inp.get("delay_minutes") or inp.get("time", "30")
+                delay_minutes = 30.0
+                if delay_raw:
+                    import re as _re
+                    m = _re.search(r"(\d+(?:\.\d+)?)", str(delay_raw))
+                    if m:
+                        delay_minutes = float(m.group(1))
+                        # If the value looks like hours (e.g. "2 hours"), multiply
+                        if "hour" in str(delay_raw).lower():
+                            delay_minutes *= 60
+                result = _create_reminder(msg, delay_minutes=delay_minutes)
+                from datetime import datetime, timezone
+                due_local = result["due_at"][:16].replace("T", " ")
+                return (
+                    f"Reminder set! I'll ping you in {int(delay_minutes)} minute(s) via browser notification.\n"
+                    f"Message: \"{msg}\"\nDue at: {due_local} UTC\nID: {result['id']}"
+                )
             except Exception as e:
                 return f"Error scheduling reminder: {e}"
 
         elif name == "get_reminders":
-            if not DAEMON:
-                return "Error: Daemon not available. Reminders require background service."
             try:
-                from src.guppy.daemon.daemon import get_daemon_manager
-                manager = get_daemon_manager()
-                reminders = manager.task_scheduler.get_scheduled_reminders()
-                if not reminders:
+                import sqlite3 as _sq, os as _os
+                _os.makedirs("runtime", exist_ok=True)
+                conn = _sq.connect("runtime/reminders.db")
+                conn.row_factory = _sq.Row
+                try:
+                    conn.execute("CREATE TABLE IF NOT EXISTS reminders (id TEXT, message TEXT, due_at TEXT, delivered INTEGER, created_at TEXT)")
+                    rows = conn.execute("SELECT * FROM reminders WHERE delivered=0 ORDER BY due_at").fetchall()
+                finally:
+                    conn.close()
+                if not rows:
                     return "No active reminders scheduled."
                 result = "Active reminders:\n"
-                for rid, rem in reminders.items():
-                    result += f"  [{rid}] {rem['message']} — scheduled for {rem['trigger']}\n"
+                for row in rows:
+                    result += f"  [{row['id'][:8]}] {row['message']} — due {row['due_at'][:16]} UTC\n"
                 return result
             except Exception as e:
                 return f"Error retrieving reminders: {e}"
 
         elif name == "cancel_reminder":
-            if not DAEMON:
-                return "Error: Daemon not available. Reminders require background service."
             try:
-                from src.guppy.daemon.daemon import get_daemon_manager
-                manager = get_daemon_manager()
-                result = manager.task_scheduler.cancel_reminder(inp["reminder_id"])
-                return result
+                import sqlite3 as _sq, os as _os
+                _os.makedirs("runtime", exist_ok=True)
+                rid = str(inp.get("reminder_id", "")).strip()
+                if not rid:
+                    return "Error: reminder_id required."
+                conn = _sq.connect("runtime/reminders.db")
+                try:
+                    r = conn.execute("DELETE FROM reminders WHERE id=? OR id LIKE ?", (rid, f"{rid}%"))
+                    conn.commit()
+                    deleted = r.rowcount
+                finally:
+                    conn.close()
+                return f"Reminder {'cancelled' if deleted else 'not found (may have already fired)'}."
             except Exception as e:
                 return f"Error canceling reminder: {e}"
 
@@ -1534,6 +1612,59 @@ def _exec_tool(name: str, inp: dict):
                     return f"Error: win11toast not installed and fallback failed: {e2}"
             except Exception as e:
                 return f"Error sending notification: {e}"
+
+        # ── Cross-instance query ──────────────────────────────────────────────
+        elif name == "query_instance":
+            import json as _json
+            import urllib.request as _ureq
+            target = (inp.get("instance") or inp.get("target") or "").strip()
+            message = (inp.get("message") or "").strip()
+            timeout_s = float(inp.get("timeout_s") or 30.0)
+            timeout_s = max(1.0, min(timeout_s, 120.0))
+            # Optional routing mode: "auto", "local", "claude", "code"
+            routing_mode = (inp.get("mode") or "").strip().lower() or None
+            source = (instance_name or "tool_runner").strip()
+            if not target:
+                return "Error: 'instance' is required. Example: query_instance(instance='guppy-primary', message='...')"
+            if not message:
+                return "Error: 'message' is required."
+            api_port = int(os.environ.get("GUPPY_API_PORT", "8081"))
+            api_url = f"http://127.0.0.1:{api_port}/instances/{urllib.parse.quote(target)}/query"
+            token = _make_internal_query_token()
+            headers: dict = {"Content-Type": "application/json"}
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            body: dict = {
+                "message": message,
+                "source_instance": source,
+                "timeout_s": timeout_s,
+            }
+            if routing_mode:
+                body["mode"] = routing_mode
+            payload = _json.dumps(body).encode()
+            try:
+                req = _ureq.Request(api_url, data=payload, headers=headers, method="POST")
+                with _ureq.urlopen(req, timeout=int(timeout_s) + 5) as r:
+                    data = _json.loads(r.read().decode())
+                status = data.get("status", "unknown")
+                if status == "busy":
+                    return f"Instance '{target}' is currently busy handling another query. Retry in a moment."
+                if status == "timeout":
+                    return f"Instance '{target}' did not respond within {timeout_s:.0f}s."
+                response = str(data.get("response", "") or "").strip()
+                if not response:
+                    return f"Instance '{target}' returned an empty response."
+                ms = int(data.get("duration_ms", 0) or 0)
+                model = str(data.get("model", "") or "")
+                suffix = f" [model={model}, {ms}ms]" if model else f" [{ms}ms]"
+                return f"[{target}]{suffix}\n{response}"
+            except _ureq.HTTPError as e:
+                body = e.read().decode("utf-8", errors="replace")[:300]
+                return f"Error querying '{target}': HTTP {e.code} — {body}"
+            except _ureq.URLError as e:
+                return f"Error: Guppy API not reachable on port {api_port}. Is the server running? ({e.reason})"
+            except Exception as e:
+                return f"Error querying instance '{target}': {e}"
 
         # ── Web Summarize ────────────────────────────────────────────────────
         elif name == "web_summarize":

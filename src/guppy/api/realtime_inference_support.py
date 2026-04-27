@@ -10,6 +10,7 @@ import re as _re
 from src.guppy.inference.local_client import (
     _LLAMACPP_MODEL_ROUTE as _LOCAL_LLAMACPP_ROUTES,
     _BACKENDS as _LOCAL_BACKENDS,
+    _BACKEND_DEFAULT_MODELS as _LOCAL_BACKEND_DEFAULT_MODELS,
     _resolve_url as _local_resolve_url,
 )
 
@@ -257,10 +258,21 @@ def call_unified_inference(
         ) + augmented_system_prompt
         requested_mode = "auto"
 
-    # If the user explicitly selected a llama.cpp model, force local routing so the
-    # router doesn't escalate to a cloud provider even in "auto" mode.
+    # If the user explicitly selected a llama.cpp model AND it's reachable, force
+    # local routing so the router doesn't escalate to cloud in "auto" mode.
+    # If the backend isn't running, keep "auto" so Ollama is tried instead —
+    # this prevents a hard 500 when the saved model selection is stale.
     if active_local_model and active_local_model in _LOCAL_LLAMACPP_ROUTES and requested_mode in {"auto", ""}:
-        requested_mode = "local"
+        from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
+        _backend_name = _LOCAL_LLAMACPP_ROUTES.get(active_local_model, "")
+        _backend_url  = (_LOCAL_BACKENDS.get(_backend_name) or {}).get("default_url", "")
+        _backend_port = int(_backend_url.rsplit(":", 1)[-1]) if ":" in _backend_url else 0
+        if _backend_port and _llc_port_alive(_backend_port):
+            requested_mode = "local"
+        # else: backend offline — fall through as "auto" so Ollama is used
+
+    # Track whether the active model is a llamacpp-backed key (used in the except block)
+    is_llamacpp = bool(active_local_model and active_local_model in _LOCAL_LLAMACPP_ROUTES)
 
     try:
         if requested_mode == "local":
@@ -307,6 +319,27 @@ def call_unified_inference(
 
     except Exception as exc:
         if requested_mode in {"local", "code", "claude", "ollama"}:
+            # For local mode: if the failure came from a specific llamacpp backend that's
+            # offline, try Ollama before hard-failing.  This avoids a 500 just because
+            # the user's saved active_local_model points to an offline backend.
+            if requested_mode == "local" and is_llamacpp:
+                owner.logger.warning(
+                    "llamacpp backend offline for '%s'; falling back to Ollama. Error: %s",
+                    active_local_model, exc,
+                )
+                try:
+                    return owner._call_selected_local_runtime(
+                        user_text,
+                        augmented_system_prompt,
+                        instance_name=instance_name,
+                        instance_type=instance_type,
+                        model_override=None,  # let Ollama pick its default model
+                    )
+                except Exception as _oll_exc:
+                    owner.logger.error(
+                        "Ollama fallback also failed after llamacpp offline: %s", _oll_exc
+                    )
+                    # fall through to the hard raise below
             owner.logger.error("Inference failed in explicit mode '%s': %s", requested_mode, exc)
             raise
         if not owner.os.environ.get("ANTHROPIC_API_KEY"):
@@ -348,7 +381,13 @@ def _run_local_mode(
     active_local_model: str | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
     task_type = router._classify_task(user_text, augmented_system_prompt)
-    model_name = active_local_model or router.LOCAL_TIER_MAP.get(task_type, router.LOCAL_MODEL)
+    # Ignore active_local_model if it's a llamacpp key — those are handled upstream
+    _ollama_model = (
+        active_local_model
+        if (active_local_model and active_local_model not in _LOCAL_LLAMACPP_ROUTES)
+        else None
+    )
+    model_name = _ollama_model or router.LOCAL_TIER_MAP.get(task_type, router.LOCAL_MODEL)
     paired = owner.os.environ.get("GUPPY_LOCAL_PAIRED", "0").strip().lower() in {
         "1",
         "true",
@@ -651,6 +690,134 @@ def call_ollama_with_tools(
 _OLLAMA_CHAT_URL = "http://127.0.0.1:11434/api/chat"
 _TOOL_CALL_SENTINEL = "\x00TOOL_CALLS:"
 
+# ── Free-tier cloud provider constants ────────────────────────────────────────
+# Must be kept in sync with routes_providers.py model catalogs.
+_MISTRAL_MODEL_IDS: frozenset = frozenset({
+    "mistral-large-latest", "mistral-medium-latest", "mistral-small-latest",
+    "codestral-latest", "ministral-8b-latest", "ministral-3b-latest",
+    "open-mistral-nemo", "pixtral-large-latest", "pixtral-12b-2409",
+    "open-mixtral-8x22b",
+})
+_COHERE_MODEL_IDS: frozenset = frozenset({
+    "command-a-03-2025", "command-r-plus-08-2024", "command-r-08-2024",
+    "command-r7b-12-2024", "command-light", "aya-23-35b", "aya-23-8b",
+})
+# Best free-tier models to try when auto-routing without local resources
+_FREE_MISTRAL_MODEL = "ministral-8b-latest"
+_FREE_COHERE_MODEL  = "command-r7b-12-2024"
+
+
+def _get_cloud_api_key(provider: str, owner: Any) -> str:
+    """Return API key for provider: env var first, then settings DB."""
+    _env_map = {
+        "mistral":   "MISTRAL_API_KEY",
+        "cohere":    "COHERE_API_KEY",
+        "google":    "GOOGLE_API_KEY",
+        "openai":    "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+    }
+    key = owner.os.environ.get(_env_map.get(provider, ""), "").strip()
+    if key:
+        return key
+    try:
+        from src.guppy.api.routes_settings import _settings_db
+        return _settings_db.get_credential(provider) or ""
+    except Exception:
+        return ""
+
+
+async def _stream_openai_compat_tokens(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    messages: list[dict],
+    timeout: float = 120.0,
+) -> AsyncGenerator[str, None]:
+    """Yield content from any OpenAI-compatible SSE streaming endpoint.
+
+    Used for Mistral (native OpenAI-compat API) and Cohere (via their
+    /compatibility endpoint).  No tool-call loop — text streaming only.
+    """
+    import httpx
+
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    payload: dict = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "max_tokens": 2048,
+        "temperature": 0.7,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", url, json=payload, headers=headers) as response:
+                response.raise_for_status()
+                async for raw_line in response.aiter_lines():
+                    line = raw_line.strip()
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    choices = chunk.get("choices", [])
+                    if not choices:
+                        continue
+                    content = (choices[0].get("delta") or {}).get("content") or ""
+                    if content:
+                        yield content
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(
+            f"Cloud API returned HTTP {exc.response.status_code}"
+        ) from exc
+    except httpx.ConnectError as exc:
+        raise RuntimeError("Cannot reach cloud provider API") from exc
+
+
+async def _stream_mistral_tokens(
+    *,
+    api_key: str,
+    model: str,
+    messages: list[dict],
+    timeout: float = 120.0,
+) -> AsyncGenerator[str, None]:
+    """Yield content tokens from Mistral's OpenAI-compatible streaming API."""
+    async for token in _stream_openai_compat_tokens(
+        base_url="https://api.mistral.ai/v1",
+        api_key=api_key,
+        model=model,
+        messages=messages,
+        timeout=timeout,
+    ):
+        yield token
+
+
+async def _stream_cohere_tokens(
+    *,
+    api_key: str,
+    model: str,
+    messages: list[dict],
+    timeout: float = 120.0,
+) -> AsyncGenerator[str, None]:
+    """Yield content tokens from Cohere's OpenAI-compatible streaming endpoint."""
+    async for token in _stream_openai_compat_tokens(
+        base_url="https://api.cohere.com/compatibility/v1",
+        api_key=api_key,
+        model=model,
+        messages=messages,
+        timeout=timeout,
+    ):
+        yield token
+
 
 async def _stream_llamacpp_tokens(
     *,
@@ -920,7 +1087,122 @@ async def stream_unified_inference(
         ) + augmented_system
         requested_mode = "auto"
 
+    # Classify task type early so agentic routing can intercept before llamacpp/Ollama.
+    # Only meaningful for auto mode — explicit mode selections bypass this.
+    _early_task_type: str = ""
+    if requested_mode in {"auto", ""} and owner.GUPPY_CORE_AVAILABLE and owner.INFERENCE_ROUTER_AVAILABLE:
+        try:
+            _early_task_type = owner.get_router()._classify_task(user_text, augmented_system)
+        except Exception:
+            _early_task_type = ""
+
+    # ── Explicit Mistral / Cohere cloud routing ────────────────────────────────
+    # When the user has picked a Mistral or Cohere model in the model picker,
+    # skip local models entirely and stream from that provider's API.
+    # Only active for cloud-compatible modes (not local/code).
+    if active_cloud_model and requested_mode not in {"local", "code"}:
+        if active_cloud_model in _MISTRAL_MODEL_IDS:
+            _mk = _get_cloud_api_key("mistral", owner)
+            if _mk:
+                _log.info("Explicit cloud: streaming from Mistral model %s", active_cloud_model)
+                _msgs = build_router_messages(augmented_system, user_text, clean_history)
+                try:
+                    async for token in _stream_mistral_tokens(
+                        api_key=_mk, model=active_cloud_model, messages=_msgs
+                    ):
+                        yield token
+                    return
+                except Exception as _merr:
+                    _log.warning(
+                        "Mistral explicit model %s failed: %s — falling back",
+                        active_cloud_model, _merr,
+                    )
+        elif active_cloud_model in _COHERE_MODEL_IDS:
+            _ck = _get_cloud_api_key("cohere", owner)
+            if _ck:
+                _log.info("Explicit cloud: streaming from Cohere model %s", active_cloud_model)
+                _msgs = build_router_messages(augmented_system, user_text, clean_history)
+                try:
+                    async for token in _stream_cohere_tokens(
+                        api_key=_ck, model=active_cloud_model, messages=_msgs
+                    ):
+                        yield token
+                    return
+                except Exception as _cerr:
+                    _log.warning(
+                        "Cohere explicit model %s failed: %s — falling back",
+                        active_cloud_model, _cerr,
+                    )
+
+    # ── Agentic routing: Qwen3 35B → Claude Sonnet ────────────────────────────
+    # Multi-step tool-loop tasks (read all files, collect data, iterate over sets)
+    # need a capable model. 8B models hallucinate fake results instead of calling
+    # tools. Qwen3 35B-A3B MoE is the strongest local option (port 8083); Claude
+    # Sonnet is the cloud fallback when Qwen3 is offline. Pepe is never tried
+    # for agentic tasks.
+    if _early_task_type == "agentic" and requested_mode in {"auto", ""} and owner.GUPPY_CORE_AVAILABLE:
+        from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
+        _QWEN3_BACKEND = "llamacpp-qwen3"
+        _qwen3_cfg = _LOCAL_BACKENDS.get(_QWEN3_BACKEND, {})
+        _qwen3_url = _qwen3_cfg.get("default_url", "")
+        _qwen3_port = int(_qwen3_url.rsplit(":", 1)[-1]) if ":" in _qwen3_url else 0
+        if _qwen3_port and _llc_port_alive(_qwen3_port):
+            _qwen3_model = _LOCAL_BACKEND_DEFAULT_MODELS.get(_QWEN3_BACKEND, "")
+            if _qwen3_model:
+                _log.info("Agentic task → routing to Qwen3 35B (port %d)", _qwen3_port)
+                _agentic_messages = build_router_messages(
+                    augmented_system, user_text, sanitize_chat_history(history)
+                )
+                _agentic_tools = (
+                    _to_openai_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
+                )
+                def _qwen3_tool_runner(name: str, args: dict) -> str:
+                    return str(owner.core.run_tool(
+                        name, args,
+                        instance_name=instance_name,
+                        instance_type=instance_type,
+                    ))
+                try:
+                    async for token in _stream_llamacpp_tokens(
+                        model=_qwen3_model,
+                        backend=_QWEN3_BACKEND,
+                        messages=_agentic_messages,
+                        tools=_agentic_tools,
+                        tool_runner=_qwen3_tool_runner,
+                        max_tool_rounds=10,  # agentic tasks may need more rounds
+                    ):
+                        yield token
+                    return
+                except RuntimeError as _qwen3_err:
+                    _log.warning(
+                        "Qwen3 agentic route failed: %s — escalating to Claude Sonnet",
+                        _qwen3_err,
+                    )
+
+        # Qwen3 offline (or failed) — escalate directly to Claude Sonnet.
+        # Never fall through to Pepe for agentic tasks.
+        if owner.os.environ.get("ANTHROPIC_API_KEY"):
+            _log.info("Agentic task: Qwen3 offline, routing to Claude Sonnet (last resort)")
+            try:
+                _agentic_response = call_claude_with_tools(
+                    owner, user_text, augmented_system,
+                    instance_name=instance_name,
+                    instance_type=instance_type,
+                    preferred_model="claude-sonnet-4-6",
+                )
+                yield _agentic_response
+                return
+            except Exception as _cloud_err:
+                _log.warning(
+                    "Claude Sonnet agentic fallback failed: %s — continuing to local models",
+                    _cloud_err,
+                )
+        # else: no API key or cloud failed — fall through to best available local
+
     is_llamacpp = bool(active_local_model and active_local_model in _LOCAL_LLAMACPP_ROUTES)
+    # Tracks whether llamacpp was attempted but the backend was not reachable,
+    # so we can gracefully fall through to Ollama instead of hard-failing.
+    llamacpp_failed = False
 
     # llama.cpp: stream via OpenAI-compat SSE with full tool-call loop.
     # Requires --jinja on the server (default since llama.cpp b5000).
@@ -928,49 +1210,118 @@ async def stream_unified_inference(
     if is_llamacpp and owner.GUPPY_CORE_AVAILABLE:
         llamacpp_backend = _LOCAL_LLAMACPP_ROUTES.get(active_local_model or "")
         if llamacpp_backend and _LOCAL_BACKENDS.get(llamacpp_backend):
+            # Quick liveness check before attempting — avoids a slow timeout when
+            # the selected llamacpp model isn't running.
+            from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
+            backend_cfg = _LOCAL_BACKENDS.get(llamacpp_backend, {})
+            backend_port = int(
+                (backend_cfg.get("default_url", "") or "").rsplit(":", 1)[-1]
+            ) if ":" in (backend_cfg.get("default_url", "") or "") else 0
+            backend_alive = _llc_port_alive(backend_port) if backend_port else False
+
+            if backend_alive:
+                messages = build_router_messages(
+                    augmented_system, user_text, sanitize_chat_history(history)
+                )
+                # Convert Guppy's Anthropic-format tool catalogue to OpenAI format
+                _openai_tools = (
+                    _to_openai_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
+                )
+
+                def _llamacpp_tool_runner(name: str, args: dict) -> str:
+                    return str(
+                        owner.core.run_tool(
+                            name,
+                            args,
+                            instance_name=instance_name,
+                            instance_type=instance_type,
+                        )
+                    )
+
+                try:
+                    async for token in _stream_llamacpp_tokens(
+                        model=active_local_model,
+                        backend=llamacpp_backend,
+                        messages=messages,
+                        tools=_openai_tools,
+                        tool_runner=_llamacpp_tool_runner,
+                    ):
+                        yield token
+                    return
+                except RuntimeError:
+                    llamacpp_failed = True  # backend died mid-stream — fall through
+            else:
+                # Backend not running — silently fall through to Ollama/cloud.
+                llamacpp_failed = True
+
+    # ── llamacpp opportunistic routing ───────────────────────────────────────────
+    # Try alive Mode-A llamacpp backends when:
+    #   (a) the saved model's backend was offline (llamacpp_failed), OR
+    #   (b) no llamacpp model is saved at all (is_llamacpp=False) and mode allows local.
+    # Priority: pepe (fast general) → minicpm (vision/speech) → dispatch (lightweight).
+    # Dispatcher is intentionally last — it's an orchestrator, not a primary chat model.
+    _should_try_llamacpp_auto = (
+        owner.GUPPY_CORE_AVAILABLE
+        and requested_mode in {"local", "auto", ""}
+        and (llamacpp_failed or not is_llamacpp)
+    )
+    if _should_try_llamacpp_auto:
+        from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
+        _MODE_A_FALLBACK_ORDER = ["llamacpp-pepe", "llamacpp-minicpm", "llamacpp-dispatch"]
+        for _fb_backend in _MODE_A_FALLBACK_ORDER:
+            _fb_cfg = _LOCAL_BACKENDS.get(_fb_backend, {})
+            _fb_url = _fb_cfg.get("default_url", "")
+            _fb_port = int(_fb_url.rsplit(":", 1)[-1]) if ":" in _fb_url else 0
+            if not _fb_port or not _llc_port_alive(_fb_port):
+                continue
+            _fb_model = _LOCAL_BACKEND_DEFAULT_MODELS.get(_fb_backend, "")
+            if not _fb_model:
+                continue
             messages = build_router_messages(
                 augmented_system, user_text, sanitize_chat_history(history)
             )
-            # Convert Guppy's Anthropic-format tool catalogue to OpenAI format
             _openai_tools = (
                 _to_openai_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
             )
-
-            def _llamacpp_tool_runner(name: str, args: dict) -> str:
-                return str(
-                    owner.core.run_tool(
-                        name,
-                        args,
-                        instance_name=instance_name,
-                        instance_type=instance_type,
-                    )
-                )
-
+            def _fb_tool_runner(name: str, args: dict) -> str:
+                return str(owner.core.run_tool(name, args,
+                    instance_name=instance_name, instance_type=instance_type))
             try:
                 async for token in _stream_llamacpp_tokens(
-                    model=active_local_model,
-                    backend=llamacpp_backend,
+                    model=_fb_model,
+                    backend=_fb_backend,
                     messages=messages,
                     tools=_openai_tools,
-                    tool_runner=_llamacpp_tool_runner,
+                    tool_runner=_fb_tool_runner,
                 ):
                     yield token
                 return
             except RuntimeError:
-                pass  # fall through to non-streaming fallback
+                continue  # try next fallback
 
+    # Allow Ollama streaming when: llamacpp was never attempted OR it failed.
+    # Previously "not is_llamacpp" blocked Ollama fallback when a llamacpp model
+    # was selected but not running — now we always fall through gracefully.
     can_stream_ollama = (
         owner.GUPPY_CORE_AVAILABLE
         and owner.INFERENCE_ROUTER_AVAILABLE
         and requested_mode in {"local", "auto", ""}
-        and not is_llamacpp
+        and (not is_llamacpp or llamacpp_failed)
     )
 
     if can_stream_ollama:
         try:
             router = owner.get_router()
             task_type = router._classify_task(user_text, augmented_system)
-            model_name = active_local_model or router.LOCAL_TIER_MAP.get(task_type, router.LOCAL_MODEL)
+            # Only use active_local_model if it's an Ollama model — not a llamacpp route key.
+            # If llamacpp_failed, active_local_model is the llamacpp key (e.g. "gemma-4-heretic-ara")
+            # which Ollama doesn't know about, causing a 404.
+            _ollama_active = (
+                active_local_model
+                if (active_local_model and active_local_model not in _LOCAL_LLAMACPP_ROUTES)
+                else None
+            )
+            model_name = _ollama_active or router.LOCAL_TIER_MAP.get(task_type, router.LOCAL_MODEL)
             messages = build_router_messages(augmented_system, user_text, clean_history)
             tools = owner.core.to_ollama_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
 
@@ -1039,6 +1390,37 @@ async def stream_unified_inference(
 
         except RuntimeError:
             pass  # fall through to non-streaming fallback
+
+    # ── Free-tier cloud: prefer Mistral → Cohere before paying for Claude ───────
+    # Reached only when local/llamacpp/Ollama all failed or aren't available.
+    # In auto mode, try free-tier cloud providers before escalating to paid
+    # Anthropic Claude.  Explicit local/code/claude modes bypass this entirely.
+    if requested_mode in {"auto", ""}:
+        _mk = _get_cloud_api_key("mistral", owner)
+        if _mk:
+            _log.info("Free cloud: routing to Mistral %s", _FREE_MISTRAL_MODEL)
+            _msgs = build_router_messages(augmented_system, user_text, clean_history)
+            try:
+                async for token in _stream_mistral_tokens(
+                    api_key=_mk, model=_FREE_MISTRAL_MODEL, messages=_msgs
+                ):
+                    yield token
+                return
+            except Exception as _merr:
+                _log.warning("Mistral free-tier (%s) failed: %s — trying Cohere", _FREE_MISTRAL_MODEL, _merr)
+
+        _ck = _get_cloud_api_key("cohere", owner)
+        if _ck:
+            _log.info("Free cloud: routing to Cohere %s", _FREE_COHERE_MODEL)
+            _msgs = build_router_messages(augmented_system, user_text, clean_history)
+            try:
+                async for token in _stream_cohere_tokens(
+                    api_key=_ck, model=_FREE_COHERE_MODEL, messages=_msgs
+                ):
+                    yield token
+                return
+            except Exception as _cerr:
+                _log.warning("Cohere free-tier (%s) failed: %s — escalating to Claude", _FREE_COHERE_MODEL, _cerr)
 
     # Non-streaming fallback (Claude / no router / explicit code mode / llama.cpp)
     response = call_unified_inference(

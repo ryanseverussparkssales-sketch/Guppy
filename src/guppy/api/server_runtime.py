@@ -294,6 +294,7 @@ from src.guppy.api.routes_provider_management import build_provider_management_r
 from src.guppy.api.routes_queue import build_queue_router
 from src.guppy.api.routes_pipeline import build_pipeline_router
 from src.guppy.api.routes_backends import build_backends_router
+from src.guppy.api.routes_voice import build_voice_router
 from src.guppy.api.runtime_state import ServerRuntimeState
 from src.guppy.api.server_paths import ServerPathConfig
 from src.guppy.api.server_runtime_startup_support import (
@@ -500,22 +501,36 @@ app.include_router(build_provider_management_router(_server_context)) # /api/pro
 app.include_router(build_queue_router(_server_context))             # /api/queue
 app.include_router(build_pipeline_router(_server_context))          # /api/pipeline
 app.include_router(build_backends_router(_server_context))          # /api/backends/llamacpp
+app.include_router(build_voice_router(_server_context))             # /api/voices
+
+from src.guppy.api.routes_reminders import build_reminders_router
+app.include_router(build_reminders_router(_server_context))         # /api/reminders
 
 # Serve static web UI files
 try:
     from fastapi.staticfiles import StaticFiles
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, JSONResponse
     from pathlib import Path as PathlibPath
     _static_path = PathlibPath(__file__).parent.parent.parent.parent / "static"
     if _static_path.exists():
         # Serve asset files (JS/CSS/etc.) from /assets/*
         app.mount("/assets", StaticFiles(directory=str(_static_path / "assets")), name="assets")
 
-        # SPA catch-all: serve index.html for any path not matched by an API route
+        # SPA fallback via 404 exception handler — this is safer than a
+        # /{full_path:path} catch-all route because it never competes with
+        # registered API routes for path matching priority (Starlette 1.x).
+        # API 404s keep their JSON shape; only unknown non-API paths get the SPA.
         _spa_index = str(_static_path / "index.html")
+        _NON_SPA_PREFIXES = (
+            "/api/", "/providers/", "/metrics/", "/status",
+            "/logs/", "/telemetry/", "/repair", "/auth/",
+        )
 
-        @app.get("/{full_path:path}", include_in_schema=False)
-        async def serve_spa(full_path: str):
+        @app.exception_handler(404)
+        async def _spa_404(request: Any, exc: Any):
+            path = request.url.path
+            if any(path.startswith(p) for p in _NON_SPA_PREFIXES):
+                return JSONResponse({"detail": "Not Found"}, status_code=404)
             return FileResponse(_spa_index)
 
 except Exception as e:

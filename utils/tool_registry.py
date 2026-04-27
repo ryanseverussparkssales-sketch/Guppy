@@ -719,6 +719,50 @@ TOOLS = [
             "required": ["url"],
         },
     },
+    # ── Cross-instance query ─────────────────────────────────────────────────
+    {
+        "name": "query_instance",
+        "description": (
+            "Send a bounded question or subtask to another Guppy instance and return its response. "
+            "Use this to delegate specialised work — e.g. ask the vision instance to describe an image, "
+            "ask the code instance to review a function, or ask the reasoning instance to analyse a problem. "
+            "Only one cross-instance query may be in-flight at a time; a 'busy' status means retry shortly. "
+            "Available instances: guppy-primary (default assistant), builder-collab (when enabled). "
+            "Use 'mode' to control which model/provider handles the subtask: "
+            "'auto' (budget router picks best available — local first, cloud fallback), "
+            "'local' (force local model), 'claude' (force Anthropic Claude), 'code' (code-specialist)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "instance": {
+                    "type": "string",
+                    "description": "Name of the target instance (e.g. 'guppy-primary', 'builder-collab').",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "The question or subtask to send to the instance.",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["auto", "local", "claude", "code", "ollama"],
+                    "description": (
+                        "Routing mode for this subtask. 'auto' lets the budget router pick the best "
+                        "available provider (local → cloud). 'claude' forces Anthropic API. "
+                        "'local' forces local inference. 'code' routes to the code-specialist model. "
+                        "Default: 'auto'."
+                    ),
+                    "default": "auto",
+                },
+                "timeout_s": {
+                    "type": "number",
+                    "description": "How long to wait for a response in seconds (1–120). Default: 30.",
+                    "default": 30.0,
+                },
+            },
+            "required": ["instance", "message"],
+        },
+    },
 ]
 
 

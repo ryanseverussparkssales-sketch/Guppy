@@ -27,11 +27,18 @@ const BUDGET_MODES = [
 ]
 
 const MODEL_ROLES: Record<string, { label: string; color: string }> = {
-  'guppy-fast':    { label: 'Fast Butler', color: 'bg-success/10 text-success' },
-  'guppy-code':    { label: 'Code Review', color: 'bg-info/10 text-info' },
-  'guppy':         { label: 'Full Tasks',  color: 'bg-primary/10 text-primary' },
-  'guppy-teach':   { label: 'Teaching',    color: 'bg-secondary/10 text-secondary' },
-  'vault-scraper': { label: 'Vault Agent', color: 'bg-warning/10 text-warning' },
+  // Ollama / Guppy models
+  'guppy-fast':           { label: 'Fast Butler',    color: 'bg-success/10 text-success' },
+  'guppy-code':           { label: 'Code Review',    color: 'bg-info/10 text-info' },
+  'guppy':                { label: 'Full Tasks',     color: 'bg-primary/10 text-primary' },
+  'guppy-teach':          { label: 'Teaching',       color: 'bg-secondary/10 text-secondary' },
+  'vault-scraper':        { label: 'Vault Agent',    color: 'bg-warning/10 text-warning' },
+  // llama.cpp (local GPU — ROCm)
+  'assistant-pepe-8b':    { label: 'Fast Chat',      color: 'bg-emerald-600/10 text-emerald-400' },
+  'qwen3-35b-uncensored': { label: 'Agentic / Heavy', color: 'bg-purple-600/10 text-purple-400' },
+  'gemma-4-heretic-ara':  { label: 'Vision · Fast',  color: 'bg-orange-500/10 text-orange-400' },
+  'minicpm-o-4.5':        { label: 'Omni (V+A)',     color: 'bg-pink-500/10 text-pink-400' },
+  'qwen2.5-omni-3b':      { label: 'Dispatcher',     color: 'bg-cyan-500/10 text-cyan-400' },
 }
 
 const TASK_ROUTES_BY_MODE: Record<string, { task: string; route: string; local: boolean }[]> = {
@@ -50,11 +57,12 @@ const TASK_ROUTES_BY_MODE: Record<string, { task: string; route: string; local: 
     { task: 'Fallback',     route: 'anthropic / claude-haiku (free)',  local: false },
   ],
   balanced: [
-    { task: 'Simple query', route: 'local / guppy-fast',             local: true },
-    { task: 'Code review',  route: 'local / guppy-code',             local: true },
-    { task: 'Complex task', route: 'anthropic / claude-sonnet-4-6',  local: false },
-    { task: 'Teaching',     route: 'anthropic / claude-haiku-4-5',   local: false },
-    { task: 'Fallback',     route: 'anthropic / claude-haiku-4-5',   local: false },
+    { task: 'Simple query', route: 'pepe 8B (llamacpp)',              local: true },
+    { task: 'Agentic / Files', route: 'qwen3 35B (llamacpp) → Claude', local: true },
+    { task: 'Code review',  route: 'local / guppy-code',              local: true },
+    { task: 'Complex task', route: 'anthropic / claude-sonnet-4-6',   local: false },
+    { task: 'Teaching',     route: 'anthropic / claude-haiku-4-5',    local: false },
+    { task: 'Fallback',     route: 'anthropic / claude-haiku-4-5',    local: false },
   ],
   cloud_first: [
     { task: 'Simple query', route: 'anthropic / claude-haiku-4-5',   local: false },
@@ -293,6 +301,25 @@ export default function AgentsView() {
 
   useEffect(() => () => esRef.current?.close(), [])
 
+  // ── Dialog keyboard handling (Escape to close) ───────────────────────────
+  // IMPORTANT: we attach to `window`, never to a DOM ref, so there is
+  // no "null.addEventListener" race if the dialog hasn't painted yet.
+  // The dependency array includes both dialog states so the listener is
+  // registered/removed whenever either dialog opens or closes.
+  useEffect(() => {
+    const isOpen = !!(agentDialog || promptDialogChain)
+    if (!isOpen) return   // no dialog → nothing to do
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (agentDialog)      setAgentDialog(null)
+      if (promptDialogChain) setPromptDialogChain(null)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [agentDialog, promptDialogChain])
+
   const startPipelineMut = useMutation({
     mutationFn: (payload: { template: string; input: string }) => api.post('/api/pipeline', payload),
     onSuccess: (res) => {
@@ -507,18 +534,31 @@ export default function AgentsView() {
                 {localModels.map((model: any) => {
                   const role = MODEL_ROLES[model.id] ?? { label: 'General', color: 'bg-surface-container text-on-surface-variant' }
                   const isActive = (providers as any)?.local?.active_model === model.id
+                  const isOffline = model.alive === false
                   return (
-                    <div key={model.id} className={cn('flex items-center justify-between p-3 rounded-lg border transition-all', isActive ? 'border-primary/30 bg-primary/5' : 'border-outline-variant/20 bg-surface-container/50')}>
+                    <div key={model.id} className={cn(
+                      'flex items-center justify-between p-3 rounded-lg border transition-all',
+                      isActive ? 'border-primary/30 bg-primary/5'
+                      : isOffline ? 'border-outline-variant/10 bg-surface-container/20 opacity-60'
+                      : 'border-outline-variant/20 bg-surface-container/50'
+                    )}>
                       <div className="flex items-center gap-3">
-                        {isActive ? <span className="w-2 h-2 rounded-full bg-primary animate-pulse" /> : <span className="w-2 h-2 rounded-full bg-surface-container-high" />}
+                        {isActive
+                          ? <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                          : isOffline
+                            ? <span className="w-2 h-2 rounded-full bg-slate-600" />
+                            : <span className="w-2 h-2 rounded-full bg-success/60" />}
                         <div>
-                          <p className="font-medium text-on-surface">{model.name || model.id}</p>
+                          <p className={cn('font-medium', isOffline ? 'text-on-surface-variant' : 'text-on-surface')}>
+                            {model.name || model.id}
+                          </p>
                           <p className="text-xs font-mono text-on-surface-variant truncate max-w-xs">{model.id}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={cn('text-xs font-bold px-2 py-0.5 rounded-full', role.color)}>{role.label}</span>
                         {isActive && <span className="text-xs font-bold text-primary">Active</span>}
+                        {isOffline && <span className="text-xs text-slate-500">offline</span>}
                       </div>
                     </div>
                   )
@@ -818,12 +858,43 @@ export default function AgentsView() {
             <div className="space-y-3">
               <div>
                 <label className="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1 block">Name</label>
-                <input value={agentForm.name} onChange={e => setAgentForm(f => ({ ...f, name: e.target.value }))} placeholder="My Specialist Agent" className="w-full bg-surface-container rounded-lg p-2.5 text-sm text-on-surface outline-none focus:ring-2 ring-primary/40" />
+                <input autoFocus value={agentForm.name} onChange={e => setAgentForm(f => ({ ...f, name: e.target.value }))} placeholder="My Specialist Agent" className="w-full bg-surface-container rounded-lg p-2.5 text-sm text-on-surface outline-none focus:ring-2 ring-primary/40" />
               </div>
               <div>
                 <label className="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1 block">Model</label>
                 <select value={agentForm.model} onChange={e => setAgentForm(f => ({ ...f, model: e.target.value }))} className="w-full bg-surface-container rounded-lg p-2.5 text-sm text-on-surface outline-none focus:ring-2 ring-primary/40">
-                  {['guppy-fast', 'guppy-code', 'guppy', 'guppy-teach', 'vault-scraper'].map(m => <option key={m} value={m}>{m}</option>)}
+                  {/* llamacpp (local GPU) — always shown, status-aware */}
+                  {localModels.filter((m: any) => (m.backend as string | undefined)?.startsWith('llamacpp')).length > 0 && (
+                    <optgroup label="llamacpp · local GPU">
+                      {localModels
+                        .filter((m: any) => (m.backend as string | undefined)?.startsWith('llamacpp'))
+                        .map((m: any) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name || m.id}{m.alive === false ? ' (offline)' : ''}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
+                  {/* Ollama models */}
+                  {localModels.filter((m: any) => !(m.backend as string | undefined)?.startsWith('llamacpp')).length > 0 && (
+                    <optgroup label="Ollama">
+                      {localModels
+                        .filter((m: any) => !(m.backend as string | undefined)?.startsWith('llamacpp'))
+                        .map((m: any) => (
+                          <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                        ))}
+                    </optgroup>
+                  )}
+                  {/* Fallback hardcoded list when providers haven't loaded yet */}
+                  {localModels.length === 0 && (
+                    <>
+                      <option value="assistant-pepe-8b">Assistant Pepe 8B</option>
+                      <option value="guppy-fast">Guppy Fast</option>
+                      <option value="guppy-code">Guppy Code</option>
+                      <option value="guppy">Guppy</option>
+                      <option value="guppy-teach">Guppy Teach</option>
+                    </>
+                  )}
                 </select>
               </div>
               <div>

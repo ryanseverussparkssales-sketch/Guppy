@@ -301,8 +301,8 @@ function monitorCircuitBreaker(endpoint: string): CircuitBreaker {
   monitoredEndpoints.add(endpoint)
 
   const breaker = getCircuitBreaker(endpoint, {
-    failureThreshold: 5,
-    resetTimeout: 30000,
+    failureThreshold: 10,   // raised from 5 — startup retries shouldn't open the circuit
+    resetTimeout: 15000,    // lowered from 30 s — recover faster after transient outage
     successThreshold: 2,
     onStateChange: (from, to) => {
       console.log(`Circuit breaker state change: ${endpoint}`, { from, to })

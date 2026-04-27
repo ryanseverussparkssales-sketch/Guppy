@@ -67,6 +67,7 @@ class InferenceRouter:
         "simple":   LOCAL_FAST_MODEL,
         "complex":  LOCAL_MODEL,
         "teaching": LOCAL_TEACH_MODEL,
+        "agentic":  LOCAL_MODEL,  # best Ollama fallback for agentic (32B)
     }
 
     # Haiku boost modes â€” targeted Haiku pass that supplements local output
@@ -122,6 +123,7 @@ class InferenceRouter:
             "simple": self.LOCAL_FAST_MODEL,
             "complex": self.LOCAL_MODEL,
             "teaching": self.LOCAL_TEACH_MODEL,
+            "agentic": self.LOCAL_MODEL,  # best Ollama fallback for agentic (32B)
         }
 
         default_predict = "320" if self.low_compute_mode else "512"
@@ -190,12 +192,12 @@ class InferenceRouter:
         """Classify task into simple/complex/teaching using semantic + fallback heuristic."""
         cache_key = ((user_text or "").strip(), (system_prompt or "")[:400].strip())
         cached = self._classification_cache.get(cache_key)
-        if cached in {"simple", "complex", "teaching"}:
+        if cached in {"simple", "complex", "teaching", "agentic"}:
             return cached
 
         if self.semantic_classifier_enabled and self.anthropic_available:
             task = self._classify_task_semantic(user_text=user_text, system_prompt=system_prompt)
-            if task in {"simple", "complex", "teaching"}:
+            if task in {"simple", "complex", "teaching", "agentic"}:
                 self._classification_cache[cache_key] = task
                 if len(self._classification_cache) > self._classification_cache_max:
                     self._classification_cache.pop(next(iter(self._classification_cache)))
@@ -210,12 +212,13 @@ class InferenceRouter:
         """Use Haiku to classify intent with strict JSON output."""
         try:
             prompt = (
-                "Classify this request for routing into exactly one label: simple, complex, teaching.\n"
+                "Classify this request for routing into exactly one label: simple, complex, agentic, teaching.\n"
                 "Rules:\n"
                 "- simple: factual lookups, reminders, short transforms, status checks, lightweight Q&A\n"
                 "- complex: multi-step reasoning, architecture/debugging/code planning, deep analysis\n"
+                "- agentic: requires multiple sequential tool calls — reading/scanning files, collecting data across sources, iterating over a set, building profiles from many inputs\n"
                 "- teaching: user explicitly wants instruction/tutoring/concept walkthrough\n"
-                "Return JSON only: {\"task_type\":\"simple|complex|teaching\",\"confidence\":0..1}\n"
+                "Return JSON only: {\"task_type\":\"simple|complex|agentic|teaching\",\"confidence\":0..1}\n"
                 f"System context: {system_prompt[:400]}\n"
                 f"User text: {user_text[:1200]}"
             )
@@ -230,7 +233,7 @@ class InferenceRouter:
             raw = re.sub(r"\s*```$", "", raw)
             data = json.loads(raw)
             task_type = str(data.get("task_type", "")).strip().lower()
-            if task_type in {"simple", "complex", "teaching"}:
+            if task_type in {"simple", "complex", "teaching", "agentic"}:
                 logger.info(f"[CLASSIFIER] semantic={task_type}")
                 return task_type
         except Exception as e:
@@ -243,6 +246,21 @@ class InferenceRouter:
         text_lower = (user_text or "").lower()
         system_lower = (system_prompt or "").lower()
         combined_lower = text_lower + " " + system_lower
+
+        # Agentic keywords (multi-step tool execution over collections)
+        # These tasks must never land on small 7–8B models — they hallucinate
+        # fake results instead of actually calling tools.
+        agentic_keywords = {
+            "read all", "scan all", "every file", "all files", "all folders",
+            "read every", "scan every", "go through all", "go through every",
+            "for each file", "for each folder", "for each item",
+            "collect all", "gather all", "process all", "iterate over",
+            "build a profile", "index all", "list and read",
+            "walk through all", "loop through", "analyze all files", "review all files",
+            "check all files", "check every file", "read each", "scan each",
+        }
+        if any(k in combined_lower for k in agentic_keywords):
+            return "agentic"
 
         # Complex keywords (needs Sonnet reasoning)
         complex_keywords = {

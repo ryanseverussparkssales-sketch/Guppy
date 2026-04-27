@@ -77,7 +77,11 @@
 
 <script>
 const OLLAMA = 'http://127.0.0.1:11434';
-const API    = 'http://127.0.0.1:8081';
+// Use a relative URL so the Vite dev-server proxy forwards to port 8081
+// regardless of which port Vite itself is running on (3000, 3003, etc.).
+// In production the static files are served by the API at 8081, so relative
+// URLs work there too.
+const API    = '';
 
 function log(msg) {
   const el = document.getElementById('log');

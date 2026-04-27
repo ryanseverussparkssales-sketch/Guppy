@@ -144,42 +144,56 @@ export function TopBar({ title = "Guppy", onOpenCommandPalette }: TopBarProps) {
                   <div className="px-2 py-1 text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider flex items-center gap-1">
                     <Cpu className="w-3 h-3" /> Local
                   </div>
-                  {providers.local.models.map(m => (
-                    <button
-                      key={m.id}
-                      onClick={async () => {
-                        await setProvider("local")
-                        await setModel("local", m.id)
-                        setModelDropdownOpen(false)
-                      }}
-                      className={cn(
-                        "w-full text-left px-3 py-2 rounded-lg text-xs transition-colors flex items-center justify-between gap-2",
-                        providers.local.active_model === m.id && activeProvider === "local"
-                          ? "bg-primary/10 text-primary"
-                          : "text-on-surface hover:bg-surface-container-high"
-                      )}
-                    >
-                      <span className="font-medium truncate">{m.name}</span>
-                      <div className="flex gap-1 shrink-0">
-                        {(m.tags ?? []).map(tag => (
-                          <span key={tag} className="px-1.5 py-0.5 rounded bg-surface-variant text-on-surface-variant text-[10px]">{tag}</span>
-                        ))}
-                      </div>
-                    </button>
-                  ))}
+                  {providers.local.models.map((m: any) => {
+                    const isOffline = m.alive === false
+                    const isActive = providers.local.active_model === m.id && activeProvider === "local"
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={isOffline ? undefined : async () => {
+                          await setProvider("local")
+                          await setModel("local", m.id)
+                          setModelDropdownOpen(false)
+                        }}
+                        disabled={isOffline}
+                        className={cn(
+                          "w-full text-left px-3 py-2 rounded-lg text-xs transition-colors flex items-center justify-between gap-2",
+                          isActive
+                            ? "bg-primary/10 text-primary"
+                            : isOffline
+                              ? "text-on-surface-variant/40 cursor-not-allowed"
+                              : "text-on-surface hover:bg-surface-container-high"
+                        )}
+                      >
+                        <span className="font-medium truncate">{m.name}</span>
+                        <div className="flex gap-1 shrink-0">
+                          {isOffline && (
+                            <span className="px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-500 text-[10px]">offline</span>
+                          )}
+                          {!isOffline && (m.tags ?? []).slice(0, 2).map((tag: string) => (
+                            <span key={tag} className="px-1.5 py-0.5 rounded bg-surface-variant text-on-surface-variant text-[10px]">{tag}</span>
+                          ))}
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               )}
               {/* Cloud providers */}
-              {(["anthropic", "openai", "google"] as const).map(p => {
+              {(["anthropic", "openai", "google", "cohere", "mistral"] as const).map(p => {
                 const info = providers[p]
                 if (!info?.configured) return null
-                const label = p === "anthropic" ? "Anthropic" : p === "openai" ? "OpenAI" : "Google"
+                const label =
+                  p === "anthropic" ? "Anthropic" :
+                  p === "openai"    ? "OpenAI"    :
+                  p === "google"    ? "Google"    :
+                  p === "cohere"    ? "Cohere"    : "Mistral"
                 return (
                   <div key={p} className="p-2 border-t border-outline-variant/10">
                     <div className="px-2 py-1 text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider flex items-center gap-1">
                       <Cloud className="w-3 h-3" /> {label}
                     </div>
-                    {info.models.map(m => (
+                    {info.models.map((m: any) => (
                       <button
                         key={m.id}
                         onClick={async () => {
@@ -195,7 +209,12 @@ export function TopBar({ title = "Guppy", onOpenCommandPalette }: TopBarProps) {
                         )}
                       >
                         <span className="font-medium truncate">{m.name}</span>
-                        <span className="px-1.5 py-0.5 rounded bg-surface-variant text-on-surface-variant text-[10px]">{m.tier}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {m.free && (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[10px] font-semibold">free</span>
+                          )}
+                          <span className="px-1.5 py-0.5 rounded bg-surface-variant text-on-surface-variant text-[10px]">{m.tier}</span>
+                        </div>
                       </button>
                     ))}
                   </div>

@@ -265,8 +265,11 @@ def _build_local_runtime_status() -> dict[str, Any]:
             "chat_model": str(warm_status.get("model", "") or active_chat_model),
         }
 
-    available_roles = sorted([role for role, model in role_models.items() if model and model in model_ids])
-    missing_roles = sorted([role for role, model in role_models.items() if model and model not in model_ids])
+    # Normalize for Ollama's ":latest" suffix — "guppy-fast" matches "guppy-fast:latest"
+    def _model_present(m: str) -> bool:
+        return m in model_ids or f"{m}:latest" in model_ids
+    available_roles = sorted([role for role, model in role_models.items() if model and _model_present(model)])
+    missing_roles = sorted([role for role, model in role_models.items() if model and not _model_present(model)])
     if available_roles and not missing_roles:
         state = "READY"
     elif available_roles:

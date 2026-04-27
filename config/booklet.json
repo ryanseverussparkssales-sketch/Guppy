@@ -19,7 +19,7 @@
       "title": "User Context",
       "mode": "always",
       "sort_order": 2,
-      "content": "Name: Ryan Sparks\nRole: Technical founder and builder\nEnvironment: Windows 11, PowerShell, VS Code, Chrome\nStack: Python (FastAPI), React + TypeScript, Tailwind CSS, Vite\nLocal AI: Ollama at localhost:11434\n\nPreferences:\n- Concise answers; skip preamble\n- Code over explanation when possible\n- No unnecessary emojis or filler phrases"
+      "content": "Name: Ryan Sparks\nRole: Technical founder and builder\nEnvironment: Windows 11, PowerShell, VS Code, Chrome\nStack: Python (FastAPI), React + TypeScript, Tailwind CSS, Vite\nLocal AI: llamacpp servers (ports 8080-8085) — Pepe 8B (fast), Gemma 4 (vision), Qwen3 35B (reasoning), MiniCPM-o 4.5 (omni), Qwen2.5-Omni-3B (dispatch/orchestrator). Ollama also available at localhost:11434.\nCloud AI: Anthropic (Claude), OpenAI, Google — routed via budget router when local is unavailable or insufficient.\n\nPreferences:\n- Concise answers; skip preamble\n- Code over explanation when possible\n- No unnecessary emojis or filler phrases"
     },
     {
       "id": "tool_guidance",
@@ -33,7 +33,7 @@
       "title": "Active Projects",
       "mode": "always",
       "sort_order": 4,
-      "content": "## Guppy (Active)\nLocal AI assistant platform with web UI and desktop companion.\nStack: React + TypeScript + Vite (port 3000), FastAPI (port 8081), Ollama (port 11434)\nKey paths: web/src/ (frontend), src/guppy/api/ (backend)\n\n## Digital Seed Vault (Active)\nPersonal media archiving and metadata extraction.\nAgent: vault-scraper (qwen2.5:7b)\nPurpose: Structured metadata extraction from personal media files."
+      "content": "## Guppy (Active)\nLocal AI assistant platform with web UI and desktop companion.\nStack: React + TypeScript + Vite (port 3000), FastAPI (port 8081)\nKey paths: web/src/ (frontend), src/guppy/api/ (backend)\nLocal backends: llamacpp (ports 8080-8085), Ollama (11434). Cloud: Anthropic, OpenAI, Google.\nMulti-agent: query_instance tool dispatches subtasks across instances with optional mode override (auto/local/claude/code).\n\n## Digital Seed Vault (Active)\nPersonal media archiving and metadata extraction.\nAgent: vault-scraper (qwen2.5:7b)\nPurpose: Structured metadata extraction from personal media files."
     }
   ]
 }

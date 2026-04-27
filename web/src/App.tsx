@@ -5,19 +5,16 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { ErrorToastContainer } from './components/ErrorToast'
 import AssistantView from './views/AssistantView'
 import InstancesView from './views/InstancesView'
-import LibraryView from './views/LibraryView'
+import PersonasView from './views/PersonasView'
 import ModelsView from './views/ModelsView'
 import ToolsView from './views/ToolsView'
-import VoicesView from './views/VoicesView'
-import DesktopView from './views/DesktopView'
 import SettingsView from './views/SettingsView'
 import LaunchpadView from './views/LaunchpadView'
-import StatusView from './views/StatusView'
 import AdminPanel from './views/AdminPanel'
 import InstructionsView from './views/InstructionsView'
-import DashboardView from './views/DashboardView'
 import LoginView from './views/LoginView'
 import AgentsView from './views/AgentsView'
+import { Navigate } from 'react-router-dom'
 import { useWorkspaceStore, syncManager } from './store'
 import { useErrorStore } from './store/errorStore'
 import { Toaster } from 'sonner'
@@ -47,6 +44,34 @@ import './index.css'
  *    - Custom events from sidebar/command palette trigger navigation
  */
 
+// ── Module-level init guard ────────────────────────────────────────────────────
+// Lives outside the component so React strict-mode double-invoke can't race it.
+let _initDone = false
+let _initInFlight = false
+let _retryTimer: ReturnType<typeof setTimeout> | null = null
+
+const RETRY_DELAYS = [3000, 6000, 12000, 20000, 30000]
+
+async function _tryInit(attempt = 0): Promise<void> {
+  if (_initInFlight) return
+  _initInFlight = true
+  try {
+    console.log(`[App] Initializing application${attempt > 0 ? ` (retry ${attempt})` : ''}...`)
+    await syncManager.initializeApp()
+    _initDone = true
+    console.log('[App] App initialization complete')
+  } catch (err) {
+    console.error('[App] Failed to initialize app:', err)
+    if (attempt < RETRY_DELAYS.length) {
+      const delay = RETRY_DELAYS[attempt]
+      console.log(`[App] Will retry in ${delay / 1000}s...`)
+      _retryTimer = setTimeout(() => _tryInit(attempt + 1), delay)
+    }
+  } finally {
+    _initInFlight = false
+  }
+}
+
 /**
  * AppContent - Inner component wrapped by ErrorBoundary
  * Separated to allow error boundary to catch initialization errors
@@ -56,20 +81,19 @@ function AppContent() {
   const { activeWorkspaceId } = useWorkspaceStore()
   const { errors, removeError } = useErrorStore()
 
-  // Initialize app data on mount
+  // Fire init exactly once per page load (module-level guard prevents strict-mode races)
   useEffect(() => {
-    const initializeApp = async () => {
-      try {
-        console.log('[App] Initializing application...')
-        await syncManager.initializeApp()
-        console.log('[App] App initialization complete')
-      } catch (error) {
-        console.error('[App] Failed to initialize app:', error)
-        // Don't crash - user can still navigate and try again
+    if (!_initDone && !_initInFlight) _tryInit()
+    // Re-initialize on tab focus if workspaces still empty (API was down at load time)
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return
+      if (!_initDone && !_initInFlight) {
+        if (_retryTimer) { clearTimeout(_retryTimer); _retryTimer = null }
+        _tryInit()
       }
     }
-
-    initializeApp()
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [])
 
   // Load workspace data when active workspace changes
@@ -85,20 +109,21 @@ function AppContent() {
   useEffect(() => {
     const handleNavigate = (e: CustomEvent<{ view: string }>) => {
       const viewToRoute: Record<string, string> = {
-        dashboard: '/',
-        assistant: '/assistant',
-        agents: '/agents',
-        instances: '/instances',
-        library: '/library',
-        models: '/models',
-        tools: '/tools',
-        voices: '/voices',
-        desktop: '/desktop',
+        assistant:       '/assistant',
+        chat:            '/assistant',
         'launch-control': '/launch-control',
-        settings: '/settings',
-        status: '/status',
-        admin:        '/admin',
-        instructions: '/instructions',
+        personas:        '/personas',
+        library:         '/personas',
+        instructions:    '/instructions',
+        tools:           '/tools',
+        voices:          '/tools',
+        desktop:         '/tools',
+        settings:        '/settings',
+        status:          '/settings',
+        admin:           '/admin',
+        agents:          '/launch-control',
+        instances:       '/launch-control',
+        models:          '/launch-control',
       }
       const route = viewToRoute[e.detail.view] || '/'
       navigate(route)
@@ -112,20 +137,21 @@ function AppContent() {
     <>
       <AppShell>
         <Routes>
-          <Route path="/" element={<DashboardView />} />
+          <Route path="/" element={<Navigate to="/assistant" replace />} />
           <Route path="/assistant" element={<AssistantView />} />
+          <Route path="/launch-control" element={<LaunchpadView />} />
+          <Route path="/personas" element={<PersonasView />} />
+          <Route path="/library" element={<Navigate to="/personas" replace />} />
+          <Route path="/instructions" element={<InstructionsView />} />
+          <Route path="/tools" element={<ToolsView />} />
+          <Route path="/voices" element={<Navigate to="/tools" replace />} />
+          <Route path="/desktop" element={<Navigate to="/tools" replace />} />
+          <Route path="/settings" element={<SettingsView />} />
+          <Route path="/status" element={<Navigate to="/settings" replace />} />
           <Route path="/agents" element={<AgentsView />} />
           <Route path="/instances" element={<InstancesView />} />
-          <Route path="/library" element={<LibraryView />} />
           <Route path="/models" element={<ModelsView />} />
-          <Route path="/tools" element={<ToolsView />} />
-          <Route path="/voices" element={<VoicesView />} />
-          <Route path="/desktop" element={<DesktopView />} />
-          <Route path="/launch-control" element={<LaunchpadView />} />
-          <Route path="/settings" element={<SettingsView />} />
-          <Route path="/status" element={<StatusView />} />
           <Route path="/admin" element={<AdminPanel />} />
-          <Route path="/instructions" element={<InstructionsView />} />
           <Route path="/login" element={<LoginView />} />
         </Routes>
       </AppShell>

@@ -3,6 +3,13 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
+// Allow the dev-server port to be overridden via VITE_PORT so that Playwright
+// (and any scripts that need a predictable URL) can stay in sync when the
+// default port 3000 is busy.  strictPort stays false — Vite will still
+// auto-increment if the chosen port is taken, but callers can pin a port they
+// know is free by exporting VITE_PORT=3003 before running `npm run dev`.
+const DEV_PORT = parseInt(process.env.VITE_PORT ?? '3000', 10)
+
 export default defineConfig({
   plugins: [react()],
   test: {
@@ -23,7 +30,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    port: DEV_PORT,
     strictPort: false,
     host: true,
     headers: {

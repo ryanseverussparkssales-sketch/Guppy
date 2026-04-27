@@ -4,13 +4,15 @@ import { cn } from '@/lib/utils'
 import api from '../api/client'
 
 const _BACKEND_LABELS: Record<string, string> = {
-  ollama:          'Ollama',
-  lmstudio:        'LM Studio',
-  lemonade:        'Lemonade',
-  local_harness:   'Local Harness',
-  'llamacpp-gemma': 'Gemma 4 Heretic',
-  'llamacpp-qwen3': 'Qwen3 Uncensored',
-  'llamacpp-pepe':  'Pepe 8B',
+  ollama:              'Ollama',
+  lmstudio:            'LM Studio',
+  lemonade:            'Lemonade',
+  local_harness:       'Local Harness',
+  'llamacpp-gemma':    'Gemma 4 Heretic',
+  'llamacpp-qwen3':    'Qwen3 Uncensored',
+  'llamacpp-pepe':     'Pepe 8B',
+  'llamacpp-minicpm':  'MiniCPM-o 4.5',
+  'llamacpp-dispatch': 'Qwen2.5-Omni 3B',
 }
 
 /**

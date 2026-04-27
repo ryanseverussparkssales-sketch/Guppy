@@ -46,6 +46,17 @@ WAIVED_PATHS: dict[str, Waiver] = {
         max_lines=800,
         rationale="Pure data file: 78 tool JSON schemas. Splitting would add indirection with no benefit.",
     ),
+    "src/guppy/api/realtime_inference_support.py": Waiver(
+        max_lines=1060,
+        rationale=(
+            "Unified streaming inference pipeline: agentic tool-call loop, "
+            "multi-backend SSE fan-out, steer/vision/TTS modes. "
+            "Single cohesive boundary — split would scatter the control flow "
+            "across multiple files with no clean seam. "
+            "Pinned 2026-04-26; refactor to sub-modules (stream_llamacpp.py, "
+            "stream_ollama.py, stream_anthropic.py) planned."
+        ),
+    ),
 }
 
 

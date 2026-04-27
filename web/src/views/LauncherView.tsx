@@ -115,9 +115,7 @@ export default function LauncherView() {
     <div className="flex flex-col h-full bg-[#0a0a10] text-slate-200">
       {/* header */}
       <div className="flex items-center gap-3 px-5 h-13 bg-[#12121a] border-b border-[#252535] shrink-0">
-        <h1 className="font-bold text-sm tracking-tight">
-          Guppy <span className="text-indigo-400">Platform</span>
-        </h1>
+        <h1 className="font-bold text-sm tracking-tight text-slate-300">Launch Control</h1>
         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${overallColor} border-current`}>
           ● {up}/{total} up
         </span>
@@ -364,17 +362,132 @@ function KVRow({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
   )
 }
 
+// ── VRAM bar ──────────────────────────────────────────────────────────────────
+
+const VRAM_COLORS = [
+  '#6366f1', // indigo  — pepe
+  '#10b981', // emerald — gemma
+  '#f59e0b', // amber   — qwen3
+  '#ec4899', // pink    — minicpm
+  '#06b6d4', // cyan    — dispatch
+]
+
+function VramBar({ backends, totalGb }: { backends: LlamacppBackend[]; totalGb: number }) {
+  const alive   = backends.filter(b => b.alive)
+  const usedGb  = alive.reduce((s, b) => s + (b.vram_gb ?? 0), 0)
+  const pct     = Math.min(100, (usedGb / totalGb) * 100)
+  const warn    = pct >= 80
+  const danger  = pct >= 100
+
+  // Build stacked segments — one per alive backend in config order
+  const segments: { name: string; label: string; pct: number; color: string }[] = []
+  let colorIdx = 0
+  for (const b of backends) {
+    if (!b.alive) { colorIdx++; continue }
+    segments.push({
+      name:  b.name,
+      label: b.label,
+      pct:   Math.min(100, (b.vram_gb / totalGb) * 100),
+      color: VRAM_COLORS[colorIdx % VRAM_COLORS.length],
+    })
+    colorIdx++
+  }
+
+  return (
+    <div className="bg-[#0e0e18] border border-[#252535] rounded-xl p-4 flex flex-col gap-3">
+      {/* header row */}
+      <div className="flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-slate-300">VRAM Allocation</span>
+          <span className="text-slate-500">RX 7900 XTX · {totalGb} GB total</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`font-bold tabular-nums ${danger ? 'text-red-400' : warn ? 'text-yellow-400' : 'text-slate-200'}`}>
+            {usedGb.toFixed(1)} / {totalGb} GB
+          </span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+            danger ? 'bg-red-500/20 text-red-400' :
+            warn   ? 'bg-yellow-500/20 text-yellow-400' :
+                     'bg-indigo-500/15 text-indigo-400'
+          }`}>
+            {pct.toFixed(0)}%
+          </span>
+        </div>
+      </div>
+
+      {/* stacked bar */}
+      <div className="relative h-4 bg-[#1a1a28] rounded-full overflow-hidden">
+        {segments.length === 0 ? (
+          <div className="absolute inset-0 flex items-center justify-center text-[10px] text-slate-600">
+            no models running
+          </div>
+        ) : (
+          segments.map((seg, i) => {
+            const left = segments.slice(0, i).reduce((s, x) => s + x.pct, 0)
+            return (
+              <div
+                key={seg.name}
+                title={`${seg.label} · ${backends.find(b => b.name === seg.name)?.vram_gb ?? 0} GB`}
+                className="absolute top-0 h-full transition-all duration-500"
+                style={{ left: `${left}%`, width: `${seg.pct}%`, background: seg.color }}
+              />
+            )
+          })
+        )}
+        {/* 80% warning line */}
+        <div className="absolute top-0 h-full border-r border-yellow-500/40" style={{ left: '80%' }} title="80% threshold" />
+      </div>
+
+      {/* legend */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {backends.map((b, i) => (
+          <div key={b.name} className="flex items-center gap-1.5 text-[11px]">
+            <span
+              className="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0"
+              style={{ background: b.alive ? VRAM_COLORS[i % VRAM_COLORS.length] : '#2d2d45' }}
+            />
+            <span className={b.alive ? 'text-slate-300' : 'text-slate-600'}>
+              {b.label}
+            </span>
+            <span className={b.alive ? 'text-slate-500' : 'text-slate-700'}>
+              {b.vram_gb} GB
+            </span>
+            {b.auto_start && !b.alive && (
+              <span className="text-cyan-700 text-[9px] font-bold">AUTO</span>
+            )}
+          </div>
+        ))}
+        <div className="flex items-center gap-1.5 text-[11px] ml-auto">
+          <span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#1a1a28] border border-[#252535]" />
+          <span className="text-slate-600">free {(totalGb - usedGb).toFixed(1)} GB</span>
+        </div>
+      </div>
+
+      {/* mode legend */}
+      <div className="flex items-center gap-3 text-[11px] text-slate-600 border-t border-[#1e1e2a] pt-2">
+        <span className="px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-500 font-semibold">MODE A</span>
+        <span>models share GPU — can run together</span>
+        <span className="mx-1">·</span>
+        <span className="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-semibold">MODE B</span>
+        <span>needs full GPU — run alone</span>
+      </div>
+    </div>
+  )
+}
+
 // ── backends tab ──────────────────────────────────────────────────────────────
 
 interface LlamacppBackend {
-  name:    string
-  label:   string
-  port:    number
-  mode:    'A' | 'B'
-  note:    string
-  alive:   boolean
-  tracked: boolean
-  pid:     number | null
+  name:       string
+  label:      string
+  port:       number
+  mode:       'A' | 'B'
+  note:       string
+  vram_gb:    number
+  auto_start: boolean
+  alive:      boolean
+  tracked:    boolean
+  pid:        number | null
 }
 
 const OTHER_BACKEND_PORTS: Record<string, number> = {
@@ -455,11 +568,14 @@ function BackendsTab({ onRefresh }: { onRefresh: () => void }) {
   const isFetching = provFetching || llcFetching
   const isLoading  = llcLoading
 
-  // Other (non-llamacpp) backends from providers
+  // Other (non-llamacpp) backends from providers — guard against unexpected API shapes
   const rawBackends = providers?.local?.backends ?? {}
   const otherList = Object.entries(rawBackends)
     .filter(([name]) => !name.startsWith('llamacpp'))
-    .map(([name, info]) => ({ name, alive: info.alive, label: info.label ?? name }))
+    .map(([name, info]) => {
+      const safeInfo = info && typeof info === 'object' ? info as { alive?: boolean; label?: string } : {}
+      return { name, alive: Boolean(safeInfo.alive), label: safeInfo.label ?? name }
+    })
 
   return (
     <div className="flex flex-col gap-6">
@@ -491,15 +607,8 @@ function BackendsTab({ onRefresh }: { onRefresh: () => void }) {
             <span className="text-slate-600 normal-case font-normal ml-1">— local GPU inference (ROCm · RX 7900 XTX)</span>
           </h3>
 
-          {/* VRAM budget hint */}
-          <div className="bg-[#0e0e18] border border-[#252535] rounded-xl p-3 flex flex-wrap gap-2 items-center text-xs text-slate-500">
-            <span className="font-semibold text-slate-400">24 GB budget:</span>
-            <span className="px-2 py-0.5 rounded bg-orange-500/10 text-orange-400 font-semibold">Mode A</span>
-            <span>Pepe + Gemma together  ~17 GB</span>
-            <span className="mx-1 text-slate-600">|</span>
-            <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 font-semibold">Mode B</span>
-            <span>Qwen3 alone  ~19 GB — cannot share</span>
-          </div>
+          {/* VRAM allocation bar */}
+          <VramBar backends={llamacppData} totalGb={24} />
 
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))' }}>
             {llamacppData.map(b => {
@@ -609,8 +718,16 @@ function BackendsTab({ onRefresh }: { onRefresh: () => void }) {
         </div>
       )}
 
+      {!isLoading && llamacppData.length === 0 && (
+        <div className="bg-[#12121a] border border-[#252535] rounded-xl p-5 text-center">
+          <p className="text-slate-400 text-sm font-medium">No llama.cpp backends configured</p>
+          <p className="text-slate-600 text-xs mt-1">
+            Add backend configs to <code className="text-slate-500">routes_backends.py</code> or click Check All to re-probe
+          </p>
+        </div>
+      )}
       {!isLoading && llamacppData.length === 0 && otherList.length === 0 && (
-        <div className="text-slate-500 text-sm">No backend data — click Check All to probe.</div>
+        <div className="text-slate-500 text-sm text-center py-4">No backend data — click Check All to probe.</div>
       )}
     </div>
   )

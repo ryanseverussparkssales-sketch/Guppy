@@ -8,10 +8,12 @@ Backend selection (GUPPY_LOCAL_RUNTIME_BACKEND env var):
   ollama         — Ollama at 127.0.0.1:11434 (override with GUPPY_OLLAMA_BASE_URL)
   lmstudio       — LM Studio at 127.0.0.1:1234 (override with GUPPY_LMSTUDIO_BASE_URL)
   lemonade       — Lemonade at 127.0.0.1:8000 (override with GUPPY_LEMONADE_BASE_URL)
-  llamacpp-gemma — llama.cpp Gemma 4 E4B Heretic ARA at 127.0.0.1:8080 (GUPPY_LLAMACPP_GEMMA_URL)
-  llamacpp-qwen3 — llama.cpp Qwen3 35B-A3B MoE at 127.0.0.1:8083 (GUPPY_LLAMACPP_QWEN3_URL)
-  llamacpp-pepe  — llama.cpp Assistant Pepe 8B at 127.0.0.1:8082 (GUPPY_LLAMACPP_PEPE_URL)
-  local_harness  — Generic OpenAI-compat harness at 127.0.0.1:8001 (GUPPY_LOCAL_HARNESS_BASE_URL)
+  llamacpp-gemma    — llama.cpp Gemma 4 E4B Heretic ARA at 127.0.0.1:8080 (GUPPY_LLAMACPP_GEMMA_URL)
+  llamacpp-qwen3    — llama.cpp Qwen3 35B-A3B MoE at 127.0.0.1:8083 (GUPPY_LLAMACPP_QWEN3_URL)
+  llamacpp-pepe     — llama.cpp Assistant Pepe 8B at 127.0.0.1:8082 (GUPPY_LLAMACPP_PEPE_URL)
+  llamacpp-minicpm   — llama.cpp MiniCPM-o 4.5 Omni at 127.0.0.1:8084 (GUPPY_LLAMACPP_MINICPM_URL)
+  llamacpp-dispatch  — llama.cpp Qwen2.5-Omni-3B dispatcher at 127.0.0.1:8085 (GUPPY_LLAMACPP_DISPATCH_URL)
+  local_harness      — Generic OpenAI-compat harness at 127.0.0.1:8001 (GUPPY_LOCAL_HARNESS_BASE_URL)
 
 LM Studio model resolution:
   LM Studio exposes long model IDs (e.g. "org/model-GGUF/file.gguf").
@@ -117,6 +119,24 @@ _BACKENDS: Dict[str, Dict[str, Any]] = {
         "delete_path": None,
         "format": "openai",
     },
+    # ── MiniCPM-o 4.5 Omni (vision + speech, needs --mmproj) ────────────────
+    "llamacpp-minicpm": {
+        "default_url": "http://127.0.0.1:8084",
+        "chat_path": "/v1/chat/completions",
+        "tags_path": "/v1/models",
+        "pull_path": None,
+        "delete_path": None,
+        "format": "openai",
+    },
+    # ── Qwen2.5-Omni-3B dispatcher (tiny orchestrator, always-on Mode A) ─────
+    "llamacpp-dispatch": {
+        "default_url": "http://127.0.0.1:8085",
+        "chat_path": "/v1/chat/completions",
+        "tags_path": "/v1/models",
+        "pull_path": None,
+        "delete_path": None,
+        "format": "openai",
+    },
     # ── Generic local harness (any OpenAI-compat server) ─────────────────────
     "local_harness": {
         "default_url": "http://127.0.0.1:8001",
@@ -132,10 +152,12 @@ _ENV_URL_KEYS: Dict[str, str] = {
     "ollama":          "GUPPY_OLLAMA_BASE_URL",
     "lmstudio":        "GUPPY_LMSTUDIO_BASE_URL",
     "lemonade":        "GUPPY_LEMONADE_BASE_URL",
-    "llamacpp-gemma":  "GUPPY_LLAMACPP_GEMMA_URL",
-    "llamacpp-qwen3":  "GUPPY_LLAMACPP_QWEN3_URL",
-    "llamacpp-pepe":   "GUPPY_LLAMACPP_PEPE_URL",
-    "local_harness":   "GUPPY_LOCAL_HARNESS_BASE_URL",
+    "llamacpp-gemma":    "GUPPY_LLAMACPP_GEMMA_URL",
+    "llamacpp-qwen3":    "GUPPY_LLAMACPP_QWEN3_URL",
+    "llamacpp-pepe":     "GUPPY_LLAMACPP_PEPE_URL",
+    "llamacpp-minicpm":   "GUPPY_LLAMACPP_MINICPM_URL",
+    "llamacpp-dispatch":  "GUPPY_LLAMACPP_DISPATCH_URL",
+    "local_harness":      "GUPPY_LOCAL_HARNESS_BASE_URL",
 }
 
 # Model-name → backend routing for llamacpp servers.
@@ -149,14 +171,26 @@ _LLAMACPP_MODEL_ROUTE: Dict[str, str] = {
     "assistant-pepe-8b":        "llamacpp-pepe",
     "pepe-8b":                  "llamacpp-pepe",
     "pepe":                     "llamacpp-pepe",
+    # MiniCPM-o 4.5 — omni vision+speech
+    "minicpm-o-4.5":            "llamacpp-minicpm",
+    "minicpm-o":                "llamacpp-minicpm",
+    "minicpm":                  "llamacpp-minicpm",
+    "minicpm-omni":             "llamacpp-minicpm",
+    # Qwen2.5-Omni-3B — lightweight orchestrator / dispatcher
+    "qwen2.5-omni-3b":          "llamacpp-dispatch",
+    "qwen2.5-omni":             "llamacpp-dispatch",
+    "dispatch":                 "llamacpp-dispatch",
+    "guppy-dispatch":           "llamacpp-dispatch",
 }
 
 # Canonical model name for each llamacpp backend (first/preferred alias).
 # Used by the registry and router when they know the backend but not the model name.
 _BACKEND_DEFAULT_MODELS: Dict[str, str] = {
-    "llamacpp-gemma": "gemma-4-heretic-ara",
-    "llamacpp-qwen3": "qwen3-35b-uncensored",
-    "llamacpp-pepe":  "assistant-pepe-8b",
+    "llamacpp-gemma":    "gemma-4-heretic-ara",
+    "llamacpp-qwen3":    "qwen3-35b-uncensored",
+    "llamacpp-pepe":     "assistant-pepe-8b",
+    "llamacpp-minicpm":  "minicpm-o-4.5",
+    "llamacpp-dispatch": "qwen2.5-omni-3b",
 }
 
 # ── circuit breakers ──────────────────────────────────────────────────────────
@@ -266,19 +300,41 @@ def _resolve_backend() -> str:
     return raw if raw in _BACKENDS else "ollama"
 
 
+_probe_cache: Dict[str, Any] = {}
+_probe_cache_lock = threading.Lock()
+_PROBE_TTL_UP   = 12.0   # cache "alive"  for 12 s
+_PROBE_TTL_DOWN =  5.0   # cache "down"   for  5 s (detect startup faster)
+
+
 def probe_backends(timeout: float = 1.5) -> Dict[str, bool]:
-    """Return liveness dict for all backends — useful for status/debug endpoints."""
+    """Return liveness dict for all backends — useful for status/debug endpoints.
+
+    Results are cached per-backend with a short TTL so rapid consecutive calls
+    (e.g. every /providers request) don't each incur a full connection timeout.
+    """
+    now = time.monotonic()
     result: Dict[str, bool] = {}
     for name, cfg in _BACKENDS.items():
+        with _probe_cache_lock:
+            cached = _probe_cache.get(name)
+            if cached and now < cached[1]:
+                result[name] = cached[0]
+                continue
+
         url = f"{_resolve_url(name)}{cfg['tags_path']}"
         try:
             req = urllib.request.Request(url, headers=_probe_headers(name), method="GET")
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 r.read()
-            result[name] = True
+            alive = True
         except Exception as e:
             logger.debug(f"[LOCAL/probe] {name} unreachable at {url}: {e}")
-            result[name] = False
+            alive = False
+
+        ttl = _PROBE_TTL_UP if alive else _PROBE_TTL_DOWN
+        with _probe_cache_lock:
+            _probe_cache[name] = (alive, now + ttl)
+        result[name] = alive
     return result
 
 
@@ -498,28 +554,50 @@ def local_chat(
     return None
 
 
+_models_cache: Dict[str, Any] = {}
+_models_cache_lock = threading.Lock()
+_MODELS_TTL = 15.0   # cache model list for 15 s
+
+
 def list_local_models(backend: Optional[str] = None, timeout: float = 4.0) -> List[str]:
-    """Return available model names from the local backend."""
+    """Return available model names from the local backend.
+
+    Results are cached for 15 s per backend so repeated /providers polls don't
+    each incur a full round-trip to Ollama / LM Studio.
+    """
     resolved = (backend or _resolve_backend()).strip().lower()
     if resolved not in _BACKENDS:
         resolved = "ollama"
+
+    now = time.monotonic()
+    with _models_cache_lock:
+        cached = _models_cache.get(resolved)
+        if cached and now < cached[1]:
+            return list(cached[0])
+
     cfg = _BACKENDS[resolved]
     url = f"{_resolve_url(resolved)}{cfg['tags_path']}"
+    models: List[str] = []
     try:
         headers = _probe_headers(resolved)
         req = urllib.request.Request(url, headers=headers, method="GET")
         with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read().decode())
         if cfg["format"] == "ollama":
-            return [m.get("name", "") for m in data.get("models", []) if m.get("name")]
+            models = [m.get("name", "") for m in data.get("models", []) if m.get("name")]
         # LM Studio native: {"models": [{"key": "org/model"}]}
         # LM Studio OpenAI-compat: {"data": [{"id": "..."}]}
-        if "models" in data:
-            return [m.get("key", m.get("id", "")) for m in data.get("models", []) if m.get("key") or m.get("id")]
-        return [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+        elif "models" in data:
+            models = [m.get("key", m.get("id", "")) for m in data.get("models", []) if m.get("key") or m.get("id")]
+        else:
+            models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
     except Exception as e:
         logger.warning(f"[LOCAL/{resolved}] list_models failed: {e}")
-        return []
+        models = []
+
+    with _models_cache_lock:
+        _models_cache[resolved] = (models, now + _MODELS_TTL)
+    return list(models)
 
 
 def active_backend() -> str:

@@ -6,11 +6,17 @@ POST /api/backends/llamacpp/{name}/stop   — terminate the server + children
 GET  /api/backends/llamacpp               — list all backends with live probe status
 
 VRAM budget is enforced server-side:
-  Mode A  Pepe (8082) + Gemma (8080)  together  ~17 GB
-  Mode B  Qwen3 (8083) alone          ~19 GB
+  Mode A  Pepe (8082) + Gemma (8080) + MiniCPM (8084)  any combination  ~8-26 GB total
+           Pepe+MiniCPM = ~17 GB ✓   Pepe+Gemma = ~17 GB ✓
+           All three together = ~26 GB (tight on 24 GB card)
+  Mode B  Qwen3 (8083) alone                            ~19 GB
 
 Starting a Mode B server while a Mode A server is alive (or vice versa) returns
 HTTP 409 with a clear explanation.
+
+MiniCPM-o 4.5 note: requires TWO files — main GGUF + mmproj-model-f16.gguf.
+Launch script: C:\\llama-cpp\\launch-minicpm.bat
+Download from: https://huggingface.co/openbmb/MiniCPM-o-4_5-gguf
 """
 from __future__ import annotations
 
@@ -31,29 +37,52 @@ logger = logging.getLogger(__name__)
 
 _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
     "llamacpp-pepe": {
-        "bat":   r"C:\llama-cpp\launch-pepe.bat",
-        "port":  8082,
-        "label": "Assistant Pepe 8B",
-        "mode":  "A",
-        "note":  "Fast · ~8.5 GB VRAM",
+        "bat":     r"C:\llama-cpp\launch-pepe.bat",
+        "port":    8082,
+        "label":   "Assistant Pepe 8B",
+        "mode":    "A",
+        "note":    "Fast · ~8.5 GB VRAM",
+        "vram_gb": 8.5,
     },
     "llamacpp-gemma": {
-        "bat":   r"C:\llama-cpp\launch-gemma.bat",
-        "port":  8080,
-        "label": "Gemma 4 E4B Heretic",
-        "mode":  "A",
-        "note":  "Vision · ~8.5 GB VRAM",
+        "bat":     r"C:\llama-cpp\launch-gemma.bat",
+        "port":    8080,
+        "label":   "Gemma 4 E4B Heretic",
+        "mode":    "A",
+        "note":    "Vision · ~8.5 GB VRAM",
+        "vram_gb": 8.5,
     },
     "llamacpp-qwen3": {
-        "bat":   r"C:\llama-cpp\launch-qwen3.bat",
-        "port":  8083,
-        "label": "Qwen3 35B Uncensored",
-        "mode":  "B",
-        "note":  "Reasoning · ~19 GB VRAM — run alone",
+        "bat":     r"C:\llama-cpp\launch-qwen3.bat",
+        "port":    8083,
+        "label":   "Qwen3 35B Uncensored",
+        "mode":    "B",
+        "note":    "Reasoning · ~19 GB VRAM — run alone",
+        "vram_gb": 19.0,
+    },
+    "llamacpp-minicpm": {
+        "bat":     r"C:\llama-cpp\launch-minicpm.bat",
+        "port":    8084,
+        "label":   "MiniCPM-o 4.5 Omni",
+        "mode":    "A",
+        "note":    "Vision+Speech · ~9 GB VRAM — needs mmproj file",
+        "vram_gb": 9.0,
+    },
+    "llamacpp-dispatch": {
+        "bat":     r"C:\llama-cpp\launch-dispatch.bat",
+        "port":    8085,
+        "label":   "Qwen2.5-Omni-3B Dispatcher",
+        "mode":    "A",
+        "note":    "Orchestrator · ~2.5 GB VRAM — auto-starts with Guppy",
+        "vram_gb": 2.5,
+        "auto_start": True,
     },
 }
 
-_MODE_A = {"llamacpp-pepe", "llamacpp-gemma"}
+# Total VRAM budget for the installed GPU (RX 7900 XTX)
+_GPU_VRAM_GB: float = float(os.environ.get("GUPPY_GPU_VRAM_GB", "24"))
+
+_MODE_A = {"llamacpp-pepe", "llamacpp-gemma", "llamacpp-minicpm", "llamacpp-dispatch"}
 _MODE_B = {"llamacpp-qwen3"}
 
 # ── process registry (in-memory, survives API requests but not restarts) ──────
@@ -64,15 +93,35 @@ _procs_lock = threading.Lock()
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def _port_alive(port: int, timeout: float = 1.5) -> bool:
-    """Return True if something is answering on the given port."""
+# TTL cache for port liveness — avoids 1.5 s timeout on every request for dead ports.
+# Keyed by port number, value is (is_alive: bool, expires_at: float).
+_port_alive_cache: Dict[int, tuple] = {}
+_PORT_ALIVE_TTL_OK  = 10.0   # cache "alive"  for 10 s
+_PORT_ALIVE_TTL_DEAD =  5.0   # cache "dead"   for  5 s (re-check sooner so startup is detected)
+
+def _port_alive(port: int, timeout: float = 0.5) -> bool:
+    """Return True if something is answering on the given port.
+
+    Results are cached for a short TTL so rapid consecutive calls (e.g. fallback
+    chains) don't each incur a full connection timeout.
+    """
+    import time
     import urllib.request
-    import urllib.error
+
+    now = time.monotonic()
+    cached = _port_alive_cache.get(port)
+    if cached and now < cached[1]:
+        return cached[0]
+
     try:
         urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=timeout)
-        return True
+        alive = True
     except Exception:
-        return False
+        alive = False
+
+    ttl = _PORT_ALIVE_TTL_OK if alive else _PORT_ALIVE_TTL_DEAD
+    _port_alive_cache[port] = (alive, now + ttl)
+    return alive
 
 
 def _kill_tree(pid: int) -> None:
@@ -214,27 +263,77 @@ def _do_status_all() -> List[Dict[str, Any]]:
         tracked = proc is not None and proc.poll() is None
         alive = _port_alive(cfg["port"])
         result.append({
-            "name":    name,
-            "label":   cfg["label"],
-            "port":    cfg["port"],
-            "mode":    cfg["mode"],
-            "note":    cfg["note"],
-            "alive":   alive,
-            "tracked": tracked,
-            "pid":     proc.pid if tracked else None,
+            "name":       name,
+            "label":      cfg["label"],
+            "port":       cfg["port"],
+            "mode":       cfg["mode"],
+            "note":       cfg["note"],
+            "vram_gb":    cfg.get("vram_gb", 0.0),
+            "auto_start": cfg.get("auto_start", False),
+            "alive":      alive,
+            "tracked":    tracked,
+            "pid":        proc.pid if tracked else None,
         })
     return result
+
+
+# ── auto-start ────────────────────────────────────────────────────────────────
+
+def _run_auto_starts() -> None:
+    """Background thread: start any backend marked auto_start=True.
+
+    Waits 5 s after server boot to let the HTTP server bind, then iterates
+    over all configs with auto_start=True and calls _do_start().  Errors are
+    logged but never raised — a missing bat file or VRAM conflict just skips.
+    """
+    import time
+    time.sleep(5)
+    for name, cfg in _LLAMACPP_CONFIG.items():
+        if not cfg.get("auto_start"):
+            continue
+        if _port_alive(cfg["port"]):
+            logger.info("[backends] auto-start: %s already alive on port %d — skip", name, cfg["port"])
+            continue
+        bat = cfg.get("bat", "")
+        if not os.path.exists(bat):
+            logger.warning("[backends] auto-start: %s — bat not found: %s", name, bat)
+            continue
+        try:
+            result = _do_start(name)
+            logger.info("[backends] auto-start %s → %s", name, result.get("status"))
+        except Exception as exc:
+            logger.warning("[backends] auto-start %s failed: %s", name, exc)
 
 
 # ── router ────────────────────────────────────────────────────────────────────
 
 def build_backends_router(ctx: ServerContext) -> APIRouter:
+    # Kick off auto-starts in the background (daemon so it doesn't block shutdown)
+    t = threading.Thread(target=_run_auto_starts, daemon=True, name="backends-auto-start")
+    t.start()
+
     router = APIRouter(prefix="/api/backends")
 
     @router.get("/llamacpp")
     async def list_llamacpp(_u: str = Depends(ctx.require_rate_limit)):
         """Return live probe status for all llamacpp backends."""
         return await asyncio.to_thread(_do_status_all)
+
+    @router.get("/llamacpp/vram")
+    async def vram_budget(_u: str = Depends(ctx.require_rate_limit)):
+        """Return GPU VRAM budget and current allocation by running backends."""
+        statuses = await asyncio.to_thread(_do_status_all)
+        used = sum(s["vram_gb"] for s in statuses if s["alive"])
+        return {
+            "total_gb":   _GPU_VRAM_GB,
+            "used_gb":    used,
+            "free_gb":    max(0.0, _GPU_VRAM_GB - used),
+            "pct_used":   round(used / _GPU_VRAM_GB * 100, 1) if _GPU_VRAM_GB else 0,
+            "backends":   [
+                {"name": s["name"], "label": s["label"], "vram_gb": s["vram_gb"], "alive": s["alive"]}
+                for s in statuses
+            ],
+        }
 
     @router.post("/llamacpp/{name}/start")
     async def start_llamacpp(name: str, _u: str = Depends(ctx.require_rate_limit)):

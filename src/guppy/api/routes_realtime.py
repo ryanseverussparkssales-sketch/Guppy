@@ -22,11 +22,17 @@ def _get_active_local_model() -> Optional[str]:
         return None
 
 
-def _get_active_cloud_model(provider: str = "anthropic") -> Optional[str]:
-    """Read the user-selected cloud model from the settings DB."""
+def _get_active_cloud_model(provider: str = "") -> Optional[str]:
+    """Read the user-selected cloud model for the active provider from the settings DB.
+
+    When *provider* is empty, the function reads the active provider from settings
+    first.  This ensures that when the user has selected Mistral, Cohere, etc. as
+    their active provider, the correct model ID is returned for routing.
+    """
     try:
         from src.guppy.api.routes_settings import _settings_db
-        val = _settings_db.get_setting(f"{provider}_active_model")
+        resolved = provider or _settings_db.get_active_provider() or "anthropic"
+        val = _settings_db.get_setting(f"{resolved}_active_model")
         return val.strip() if val and val.strip() else None
     except Exception:
         return None

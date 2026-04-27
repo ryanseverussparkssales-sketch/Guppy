@@ -93,10 +93,13 @@ class SettingsDB:
             conn.row_factory = sqlite3.Row
             rows = conn.execute("SELECT provider, updated_at FROM credentials").fetchall()
 
+        configured = {r["provider"] for r in rows}
         return {
-            "anthropic": {"configured": any(r["provider"] == "anthropic" for r in rows)},
-            "openai": {"configured": any(r["provider"] == "openai" for r in rows)},
-            "google": {"configured": any(r["provider"] == "google" for r in rows)},
+            "anthropic": {"configured": "anthropic" in configured},
+            "openai":    {"configured": "openai"    in configured},
+            "google":    {"configured": "google"    in configured},
+            "cohere":    {"configured": "cohere"    in configured},
+            "mistral":   {"configured": "mistral"   in configured},
         }
 
     def delete_credential(self, provider: str) -> bool:
@@ -132,7 +135,7 @@ class SettingsDB:
 
     def set_active_provider(self, provider: str) -> Dict[str, Any]:
         """Set the active provider."""
-        valid_providers = ["local", "anthropic", "openai", "google"]
+        valid_providers = ["local", "anthropic", "openai", "google", "cohere", "mistral"]
         if provider not in valid_providers:
             raise ValueError(f"invalid provider: {provider}")
         return self.set_setting("active_provider", provider)
@@ -162,7 +165,7 @@ def build_settings_router(ctx: ServerContext) -> APIRouter:
         """Bulk-update settings (theme, language, etc)."""
         del user_id
         if "active_provider" in payload:
-            _settings_db.set_active_provider(payload["active_provider"], payload.get("active_model", ""))
+            _settings_db.set_active_provider(payload["active_provider"])
         return {"ok": True}
 
     @router.get("/credentials")
@@ -181,7 +184,7 @@ def build_settings_router(ctx: ServerContext) -> APIRouter:
         provider = payload.get("provider", "").strip().lower()
         api_key = payload.get("api_key", "").strip()
 
-        valid_providers = ["anthropic", "openai", "google"]
+        valid_providers = ["anthropic", "openai", "google", "cohere", "mistral"]
         if provider not in valid_providers:
             raise HTTPException(status_code=400, detail=f"invalid provider: {provider}")
 

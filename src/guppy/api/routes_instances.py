@@ -429,16 +429,23 @@ def build_instances_router(ctx: ServerContext) -> APIRouter:
 
         started = time.perf_counter()
         try:
-            timeout_s = max(0.5, min(float(request.timeout_s or 5.0), 5.0))
+            timeout_s = max(1.0, min(float(request.timeout_s or 30.0), 120.0))
             query_text = (request.message or "").strip()
             if not query_text:
                 raise HTTPException(status_code=400, detail="message is required")
 
+            # Determine routing mode: request override → instance config → "auto"
             mode = "auto"
             for item in config.get("instances", []):
                 if isinstance(item, dict) and str(item.get("name", "")).strip() == target:
                     mode = str(item.get("mode", "auto") or "auto").strip().lower()
                     break
+            if request.mode:
+                # Caller (e.g. dispatch agent) explicitly requested a routing mode
+                requested_override = request.mode.strip().lower()
+                _VALID_MODES = {"auto", "local", "claude", "code", "ollama", "steer"}
+                if requested_override in _VALID_MODES:
+                    mode = requested_override
 
             system_prompt = ctx.build_chat_system_prompt(
                 session_id=f"instance-{target}",

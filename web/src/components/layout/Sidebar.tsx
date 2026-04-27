@@ -3,27 +3,15 @@ import { useLocation } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import { Tooltip } from "@/components/ui/tooltip"
 import {
-  Sparkles,
   MessageSquare,
-  BookOpen,
+  Users,
   BookText,
   Plus,
   HelpCircle,
-  LogOut,
-  Brain,
   Wrench,
-  Mic,
-  Activity,
   Settings,
-  Monitor,
   Rocket,
 } from "lucide-react"
-
-/**
- * BACKEND INTEGRATION:
- * - User profile data from GET /api/user/profile
- * - Navigation state can sync with backend for workspace persistence
- */
 
 interface NavItem {
   id: string
@@ -33,18 +21,14 @@ interface NavItem {
 }
 
 const primaryNavItems: NavItem[] = [
-  { id: "dashboard",     label: "Dashboard",     icon: <Sparkles className="w-5 h-5" />,       view: "dashboard" },
-  { id: "chat",          label: "Chat",          icon: <MessageSquare className="w-5 h-5" />,   view: "assistant" },
-  { id: "launch-control", label: "Launch Control", icon: <Rocket className="w-5 h-5" />,       view: "launch-control" },
-  { id: "library",       label: "Library",       icon: <BookOpen className="w-5 h-5" />,        view: "library" },
-  { id: "instructions",  label: "Instructions",  icon: <BookText className="w-5 h-5" />,        view: "instructions" },
+  { id: "chat",          label: "Chat",          icon: <MessageSquare className="w-5 h-5" />, view: "assistant" },
+  { id: "launch-control", label: "Launch Control", icon: <Rocket className="w-5 h-5" />,      view: "launch-control" },
+  { id: "personas",      label: "Personas",      icon: <Users className="w-5 h-5" />,         view: "personas" },
+  { id: "instructions",  label: "Instructions",  icon: <BookText className="w-5 h-5" />,      view: "instructions" },
+  { id: "tools",         label: "Tools",         icon: <Wrench className="w-5 h-5" />,        view: "tools" },
 ]
 
 const secondaryNavItems: NavItem[] = [
-  { id: "tools",    label: "Tools",    icon: <Wrench className="w-5 h-5" />,   view: "tools" },
-  { id: "voices",   label: "Voices",   icon: <Mic className="w-5 h-5" />,      view: "voices" },
-  { id: "desktop",  label: "Desktop",  icon: <Monitor className="w-5 h-5" />,  view: "desktop" },
-  { id: "status",   label: "Status",   icon: <Activity className="w-5 h-5" />, view: "status" },
   { id: "settings", label: "Settings", icon: <Settings className="w-5 h-5" />, view: "settings" },
 ]
 
@@ -54,25 +38,26 @@ interface SidebarProps {
 }
 
 const ROUTE_TO_VIEW: Record<string, string> = {
-  '/':          'dashboard',
-  '/assistant': 'assistant',
-  '/agents':    'agents',
-  '/instances': 'instances',
-  '/models':    'models',
-  '/library':       'library',
-  '/instructions':  'instructions',
-  '/tools':          'tools',
-  '/voices':         'voices',
-  '/desktop':        'desktop',
+  '/':               'assistant',
+  '/assistant':      'assistant',
   '/launch-control': 'launch-control',
-  '/status':         'status',
+  '/personas':       'personas',
+  '/library':        'personas',
+  '/instructions':   'instructions',
+  '/tools':          'tools',
+  '/voices':         'tools',
+  '/desktop':        'tools',
   '/settings':       'settings',
-  '/admin':          'admin',
+  '/status':         'settings',
+  '/admin':          'settings',
+  '/agents':         'launch-control',
+  '/instances':      'launch-control',
+  '/models':         'launch-control',
 }
 
 export function Sidebar({ collapsed }: SidebarProps) {
-  const location = useLocation()
-  const activeView = ROUTE_TO_VIEW[location.pathname] ?? 'dashboard'
+  const location  = useLocation()
+  const activeView = ROUTE_TO_VIEW[location.pathname] ?? 'assistant'
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
 
   const handleNavClick = (view: string) => {
@@ -80,7 +65,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
   }
 
   const renderNavItem = (item: NavItem) => {
-    const isActive = activeView === item.view
+    const isActive  = activeView === item.view
     const isHovered = hoveredItem === item.id
 
     const button = (
@@ -118,71 +103,56 @@ export function Sidebar({ collapsed }: SidebarProps) {
     <aside
       className={cn(
         "bg-surface-container-low flex flex-col h-full py-8 gap-y-2 overflow-y-auto custom-scrollbar transition-all duration-300 ease-viscous",
-        collapsed ? "w-20" : "w-72"
+        collapsed ? "w-20" : "w-64"
       )}
     >
-      {/* Header - Curator Identity */}
-      <div className={cn("px-8 mb-10 flex items-center gap-4", collapsed && "px-4 justify-center")}>
-        <div className="w-10 h-10 rounded-lg overflow-hidden bg-primary-container flex items-center justify-center flex-shrink-0">
-          <Brain className="w-6 h-6 text-white" />
+      {/* Logo */}
+      <div className={cn("px-8 mb-10 flex items-center gap-3", collapsed && "px-4 justify-center")}>
+        <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
+          <span className="text-white font-bold text-base leading-none">G</span>
         </div>
         {!collapsed && (
-          <div>
-            <h2 className="font-body text-sm font-semibold tracking-tight text-primary">Guppy</h2>
-            <p className="text-xs text-on-surface-variant/70 uppercase tracking-wider">Technical Intelligence</p>
-          </div>
+          <h2 className="font-body text-base font-bold tracking-tight text-on-surface">Guppy</h2>
         )}
       </div>
 
       {/* Primary Navigation */}
-      <nav className="flex-1 space-y-1">
+      <nav className="flex-1 space-y-0.5">
         {primaryNavItems.map(renderNavItem)}
       </nav>
 
       {/* Secondary Navigation */}
-      <div className="space-y-1 border-t border-outline-variant/10 pt-4 mt-4">
+      <div className="space-y-0.5 border-t border-outline-variant/10 pt-3 mt-3">
         {secondaryNavItems.map(renderNavItem)}
       </div>
 
-      {/* New Briefing Button */}
-      <div className={cn("px-6 my-6", collapsed && "px-3")}>
+      {/* New Chat button */}
+      <div className={cn("px-5 my-5", collapsed && "px-3")}>
         <button
           onClick={() => handleNavClick("assistant")}
           className={cn(
-            "w-full signature-gradient text-white py-3 rounded-lg font-bold text-sm shadow-md flex items-center justify-center gap-2 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5",
+            "w-full bg-primary text-white py-2.5 rounded-xl font-semibold text-sm shadow-sm flex items-center justify-center gap-2 transition-all duration-200 hover:bg-primary/90",
             collapsed && "px-2"
           )}
         >
           <Plus className="w-4 h-4" />
-          {!collapsed && "New Briefing"}
+          {!collapsed && "New Chat"}
         </button>
       </div>
 
-      {/* Footer */}
-      <footer className="mt-auto space-y-1">
+      {/* Help footer */}
+      <footer className="space-y-0.5">
         <button
           onMouseEnter={() => setHoveredItem("help")}
           onMouseLeave={() => setHoveredItem(null)}
           className={cn(
-            "w-full flex items-center text-on-surface/70 font-body text-sm font-semibold tracking-tight hover:text-primary transition-all duration-200",
+            "w-full flex items-center text-on-surface/50 font-body text-sm font-medium hover:text-on-surface transition-all duration-200",
             collapsed ? "justify-center px-4 py-3" : "px-6 py-3",
             hoveredItem === "help" && !collapsed && "translate-x-1"
           )}
         >
           <span className={cn(collapsed ? "" : "mr-4")}><HelpCircle className="w-5 h-5" /></span>
-          {!collapsed && "Help Center"}
-        </button>
-        <button
-          onMouseEnter={() => setHoveredItem("logout")}
-          onMouseLeave={() => setHoveredItem(null)}
-          className={cn(
-            "w-full flex items-center text-on-surface/70 font-body text-sm font-semibold tracking-tight hover:text-primary transition-all duration-200",
-            collapsed ? "justify-center px-4 py-3" : "px-6 py-3",
-            hoveredItem === "logout" && !collapsed && "translate-x-1"
-          )}
-        >
-          <span className={cn(collapsed ? "" : "mr-4")}><LogOut className="w-5 h-5" /></span>
-          {!collapsed && "Log Out"}
+          {!collapsed && "Help"}
         </button>
       </footer>
     </aside>

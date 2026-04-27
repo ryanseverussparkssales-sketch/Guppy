@@ -5,8 +5,11 @@ interface UseVoiceOptions {
   onTranscript?: (text: string) => void
   onResponse?: (text: string) => void
   onError?: (error: Error) => void
-  sessionId?: string
   language?: string
+  /** Active TTS voice ID (e.g. "bm_lewis", "21m00Tcm4TlvDq8ikWAM") */
+  voiceId?: string
+  /** Active TTS provider ("auto" | "kokoro" | "elevenlabs" | "sapi") */
+  ttsProvider?: string
 }
 
 const RECORDER_MIME = (() => {
@@ -18,43 +21,43 @@ const RECORDER_MIME = (() => {
 
 export const useVoice = (options: UseVoiceOptions = {}) => {
   const [isListening, setIsListening] = useState(false)
-  const [isSpeaking, setIsSpeaking] = useState(false)
-  const [transcript, setTranscript] = useState('')
+  const [isSpeaking, setIsSpeaking]   = useState(false)
+  const [transcript, setTranscript]   = useState('')
   const [isSupported, setIsSupported] = useState(false)
 
   // Keep options in a ref so callbacks always see the latest version
-  // without needing to be in every useCallback dep array.
+  // without being in every useCallback dep array.
   const optionsRef = useRef(options)
   useEffect(() => { optionsRef.current = options })
 
   const recorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
+  const chunksRef   = useRef<Blob[]>([])
+  const audioRef    = useRef<HTMLAudioElement | null>(null)
+  const abortRef    = useRef<AbortController | null>(null)
 
   // Web Speech API fallback refs
   const recognitionRef = useRef<any>(null)
-  const synthesisRef = useRef<SpeechSynthesis | null>(
+  const synthesisRef   = useRef<SpeechSynthesis | null>(
     typeof window !== 'undefined' ? window.speechSynthesis : null
   )
 
   useEffect(() => {
-    const hasMediaRecorder = typeof MediaRecorder !== 'undefined' && !!navigator.mediaDevices
+    const hasMediaRecorder    = typeof MediaRecorder !== 'undefined' && !!navigator.mediaDevices
     const hasSpeechRecognition = !!(
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     )
     setIsSupported(hasMediaRecorder || hasSpeechRecognition)
 
-    // Init Web Speech API fallback
+    // Init Web Speech API fallback (STT)
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     if (SR) {
       const rec = new SR()
-      rec.continuous = false
-      rec.interimResults = true
-      rec.language = options.language || 'en-US'
+      rec.continuous      = false
+      rec.interimResults  = true
+      rec.language        = options.language || 'en-US'
       rec.onresult = (event: any) => {
         let interim = ''
-        let final = ''
+        let final   = ''
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const t = event.results[i][0].transcript
           if (event.results[i].isFinal) final += t + ' '
@@ -65,7 +68,7 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
         if (final && optionsRef.current.onTranscript) optionsRef.current.onTranscript(final.trim())
       }
       rec.onerror = (e: any) => optionsRef.current.onError?.(new Error(`STT error: ${e.error}`))
-      rec.onend = () => setIsListening(false)
+      rec.onend   = () => setIsListening(false)
       recognitionRef.current = rec
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -77,7 +80,7 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
 
     if (RECORDER_MIME && navigator.mediaDevices) {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        const stream   = await navigator.mediaDevices.getUserMedia({ audio: true })
         const recorder = new MediaRecorder(stream, { mimeType: RECORDER_MIME })
         chunksRef.current = []
         recorder.ondataavailable = (e) => {
@@ -92,7 +95,7 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
         recorder.start(250) // collect chunks every 250 ms
         recorderRef.current = recorder
         setIsListening(true)
-      } catch (e) {
+      } catch {
         optionsRef.current.onError?.(new Error('Microphone access denied'))
         _fallbackStartListening()
       }
@@ -110,7 +113,7 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
     }
   }, [])
 
-  // ── STT: stop recording and transcribe ────────────────────────────────────
+  // ── STT: stop recording ────────────────────────────────────────────────────
   const stopListening = useCallback(() => {
     if (!isListening) return
     if (recorderRef.current?.state === 'recording') {
@@ -122,26 +125,30 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
     setIsListening(false)
   }, [isListening])
 
+  /** Send recorded audio to /api/voices/transcribe (Deepgram → Whisper).
+   *  Falls back to /api/chat/voice only if transcribe returns 503. */
   const _transcribeBlob = useCallback(async (blob: Blob) => {
-    try {
-      const form = new FormData()
-      form.append('file', blob, 'recording.webm')
-      const sid = optionsRef.current.sessionId
-      if (sid) form.append('session_id', sid)
+    const form = new FormData()
+    form.append('file', blob, 'recording.webm')
 
-      const res = await api.post('/api/chat/voice', form, {
+    try {
+      const res = await api.post('/api/voices/transcribe', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
-      const { transcription, response } = res.data
-      if (transcription) {
-        setTranscript(transcription)
-        optionsRef.current.onTranscript?.(transcription)
+      const { transcript: text } = res.data
+      if (text) {
+        setTranscript(text)
+        optionsRef.current.onTranscript?.(text)
       }
-      if (response) optionsRef.current.onResponse?.(response)
-    } catch {
+    } catch (err: any) {
+      // If 503 (no backend), try browser Web Speech fallback instead
+      if (err?.response?.status === 503) {
+        _fallbackStartListening()
+        return
+      }
       optionsRef.current.onError?.(new Error('Transcription failed'))
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── TTS: speak via backend, fall back to Web Speech API ──────────────────
   const speak = useCallback(
@@ -149,22 +156,27 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
       stopSpeaking()
       setIsSpeaking(true)
 
-      // Try backend TTS (returns audio bytes for browser playback)
+      const voiceId    = optionsRef.current.voiceId
+      const provider   = optionsRef.current.ttsProvider || 'auto'
+
+      // Try backend TTS — returns audio bytes for browser playback
       try {
         const ctrl = new AbortController()
         abortRef.current = ctrl
         const res = await api.post(
           '/api/voices/speak',
-          { text, speed: rate },
+          {
+            text,
+            speed: rate,
+            ...(voiceId   ? { voice: voiceId }     : {}),
+            ...(provider !== 'auto' ? { provider } : {}),
+          },
           { responseType: 'blob', signal: ctrl.signal }
         )
-        const url = URL.createObjectURL(res.data)
+        const url   = URL.createObjectURL(res.data)
         const audio = new Audio(url)
         audioRef.current = audio
-        audio.onended = () => {
-          setIsSpeaking(false)
-          URL.revokeObjectURL(url)
-        }
+        audio.onended = () => { setIsSpeaking(false); URL.revokeObjectURL(url) }
         audio.onerror = () => {
           setIsSpeaking(false)
           URL.revokeObjectURL(url)
@@ -173,10 +185,7 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
         await audio.play()
         return
       } catch (err: any) {
-        if (err?.name === 'AbortError') {
-          setIsSpeaking(false)
-          return
-        }
+        if (err?.name === 'AbortError') { setIsSpeaking(false); return }
         // Backend unavailable — fall through to Web Speech API
       }
 
@@ -188,8 +197,8 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
   const _fallbackSpeak = useCallback((text: string, rate = 1) => {
     if (!synthesisRef.current) { setIsSpeaking(false); return }
     synthesisRef.current.cancel()
-    const utt = new SpeechSynthesisUtterance(text)
-    utt.rate = rate
+    const utt   = new SpeechSynthesisUtterance(text)
+    utt.rate    = rate
     utt.onstart = () => setIsSpeaking(true)
     utt.onend   = () => setIsSpeaking(false)
     utt.onerror = () => setIsSpeaking(false)

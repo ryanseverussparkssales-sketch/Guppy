@@ -1,18 +1,17 @@
 /**
- * AssistantView - Chat Interface
+ * AssistantView — Chat Interface
  *
- * Displays conversations, messages, and allows sending new messages.
- * All data comes from Zustand store, all mutations go through syncManager.
- *
- * BACKEND INTEGRATION:
- * - GET /api/chat/history - Load conversations
- * - GET /api/chat/history/{id} - Load conversation with messages
- * - POST /api/chat/history/{id}/messages - Send message
- * - DELETE /api/chat/history/{id} - Delete conversation
+ * Condensed, professional layout: conversation list panel + main chat area.
+ * No duplicate header (TopBar handles branding). All controls inline in
+ * the input bar. Auto-growing textarea.
  */
 
-import { useState, useEffect, useRef } from 'react'
-import { Send, Plus, Trash2, MessageCircle, AlertCircle, WifiOff, Clock, Mic, MicOff, StopCircle, Navigation, Volume2, VolumeX } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import {
+  PenSquare, Trash2, AlertCircle, WifiOff, Clock,
+  Mic, MicOff, StopCircle, Navigation, Volume2, VolumeX,
+  ArrowUp, Bot, Copy, Check, Pencil, RefreshCw, Timer, Sparkles,
+} from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
@@ -22,58 +21,115 @@ import { MarkdownMessage } from '@/components/chat/MarkdownMessage'
 import { useVoice } from '@/hooks/useVoice'
 import api from '../api/client'
 
+// ── Voice config loader ────────────────────────────────────────────────────────
+interface VoiceOption { id: string; name: string; lang: string }
+interface VoiceMeta {
+  provider: string
+  voiceId: string
+  options: VoiceOption[]
+}
+
+async function loadVoiceMeta(): Promise<VoiceMeta> {
+  try {
+    const res = await api.get('/api/voices')
+    const d = res.data
+    const provider = d?.tts?.active_provider || 'auto'
+    const voiceId  = d?.tts?.active_voice || 'bm_lewis'
+    const options: VoiceOption[] = d?.tts?.voices?.[provider] || d?.tts?.voices?.['kokoro'] || []
+    return { provider, voiceId, options }
+  } catch {
+    return { provider: 'auto', voiceId: 'bm_lewis', options: [] }
+  }
+}
+
+// ── auto-grow textarea height ─────────────────────────────────────────────────
+function useAutoHeight(value: string, minRows = 1, maxRows = 6) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    const lineH = parseInt(getComputedStyle(el).lineHeight) || 20
+    const min = lineH * minRows + 16  // +padding
+    const max = lineH * maxRows + 16
+    el.style.height = `${Math.min(max, Math.max(min, el.scrollHeight))}px`
+  }, [value, minRows, maxRows])
+  return ref
+}
+
+// ── copy-to-clipboard with transient ✓ ────────────────────────────────────────
+function useCopyFeedback() {
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const copy = useCallback((text: string, id: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(id)
+      setTimeout(() => setCopiedId(null), 2000)
+    }).catch(() => {})
+  }, [])
+  return { copiedId, copy }
+}
+
+// ── format elapsed seconds ────────────────────────────────────────────────────
+function fmtElapsed(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+// ── main view ─────────────────────────────────────────────────────────────────
 export default function AssistantView() {
-  // Store hooks
   const { conversations, activeConversationId, messages, loading, error } = useChatStore()
   const { activeWorkspaceId } = useWorkspaceStore()
-
-  // Monitoring hook for queue status
   const queueStatus = useQueueMonitoring(1000)
 
-  // Local state
-  const [inputValue, setInputValue] = useState('')
-  const [isSending, setIsSending] = useState(false)
-  const [showSidebar, setShowSidebar] = useState(true)
-  const [localError, setLocalError] = useState<string | null>(null)
+  const [inputValue, setInputValue]     = useState('')
+  const [isSending, setIsSending]       = useState(false)
+  const [localError, setLocalError]     = useState<string | null>(null)
   const [streamingContent, setStreamingContent] = useState('')
-  const [isSteerMode, setIsSteerMode] = useState(false)
-  const [ttsEnabled, setTtsEnabled] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
-  const abortControllerRef = useRef<AbortController | null>(null)
+  const [isSteerMode, setIsSteerMode]   = useState(false)
+  const [ttsEnabled, setTtsEnabled]     = useState(false)
+  // 'auto' | 'local' | 'claude'
+  const [forcedMode, setForcedMode]     = useState<'auto' | 'local' | 'claude'>('auto')
+
+  // Voice selector state
+  const [voiceOptions, setVoiceOptions] = useState<VoiceOption[]>([])
+  const [selectedVoiceId, setSelectedVoiceId] = useState('bm_lewis')
+  const [ttsProvider, setTtsProvider] = useState('auto')
+
+  // Follow-up suggestions shown after last assistant reply
+  const [followUps, setFollowUps] = useState<string[]>([])
+
+  // Response timing
+  const streamStartRef = useRef<number>(0)
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null)
+
+  const messagesEndRef       = useRef<HTMLDivElement>(null)
+  const abortControllerRef   = useRef<AbortController | null>(null)
+  const textareaRef          = useAutoHeight(inputValue)
+
+  const { copiedId, copy } = useCopyFeedback()
 
   const voice = useVoice({
     onTranscript: (text) => setInputValue(text),
-    onError: () => {/* silently ignore — mic may be unavailable */},
+    onError: () => {},
+    voiceId: selectedVoiceId,
+    ttsProvider: ttsProvider,
   })
 
-  const handleMicClick = async () => {
-    if (voice.isListening) {
-      voice.stopListening()
-      return
-    }
-    // Interrupt TTS if currently speaking
-    if (voice.isSpeaking) {
-      voice.stopSpeaking()
-      try { await api.post('/api/voices/stop') } catch { /* best-effort */ }
-    }
-    voice.startListening()
-  }
+  // Load voice options once
+  useEffect(() => {
+    loadVoiceMeta().then((meta) => {
+      setVoiceOptions(meta.options)
+      setSelectedVoiceId(meta.voiceId)
+      setTtsProvider(meta.provider)
+    })
+  }, [])
 
-  // Get current conversation from store
-  const activeConversation = conversations.find((c) => c.id === activeConversationId)
-
-  // Auto-scroll to bottom when messages or streaming content change
+  // scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingContent])
 
-  // Focus input on mount
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
-
-  // Auto-create conversation when workspace becomes available
+  // auto-create conversation
   useEffect(() => {
     if (!activeWorkspaceId || conversations.length > 0 || loading) return
     syncManager
@@ -81,408 +137,672 @@ export default function AssistantView() {
       .catch((err: any) => setLocalError(err?.message || 'Failed to create conversation'))
   }, [activeWorkspaceId])
 
-  const handleNewConversation = async () => {
+  // reset timing when conversation switches
+  useEffect(() => {
+    setElapsedMs(null)
+  }, [activeConversationId])
+
+  // ── actions ───────────────────────────────────────────────────────────────
+
+  const handleNewConversation = useCallback(async () => {
+    if (!activeWorkspaceId) return
     try {
       setLocalError(null)
-      if (!activeWorkspaceId) {
-        setLocalError('No active workspace')
-        return
-      }
       await syncManager.createConversation(activeWorkspaceId, `Chat ${new Date().toLocaleString()}`)
-    } catch (error: any) {
-      setLocalError(error?.message || 'Failed to create conversation')
+    } catch (err: any) {
+      setLocalError(err?.message || 'Failed to create conversation')
     }
-  }
+  }, [activeWorkspaceId])
 
-  const handleStop = () => {
+  const handleStop = useCallback(() => {
     abortControllerRef.current?.abort()
     abortControllerRef.current = null
     if (voice.isSpeaking) voice.stopSpeaking()
     setStreamingContent('')
     setIsSending(false)
-  }
+  }, [voice])
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() || !activeConversationId) {
-      return
+  const handleSend = useCallback(async (overrideText?: string) => {
+    const text = overrideText ?? inputValue
+    if (!text.trim() || !activeConversationId || isSending) return
+
+    // Build the effective routing mode: steer overrides, otherwise use forced model selection
+    const sendMode = isSteerMode ? 'steer' : forcedMode !== 'auto' ? forcedMode : undefined
+    if (!overrideText) {
+      setInputValue('')
+      setIsSteerMode(false)
     }
-
-    const messageText = inputValue
-    const sendMode = isSteerMode ? 'steer' : undefined
-    setInputValue('')
-    setIsSteerMode(false)   // auto-reset steer after send
     setIsSending(true)
     setLocalError(null)
+    setFollowUps([])
+    streamStartRef.current = Date.now()
 
-    // Create abort controller for this request
     const controller = new AbortController()
     abortControllerRef.current = controller
 
     try {
-      // Send user message (syncManager handles optimistic update)
-      await syncManager.addMessage(activeConversationId, 'user', messageText)
-
-      // Get AI response with live token streaming
+      await syncManager.addMessage(activeConversationId, 'user', text)
       setStreamingContent('')
-      const fullResponse = await syncManager.getAIResponse(
+
+      const full = await syncManager.getAIResponse(
         activeConversationId,
-        messageText,
+        text,
         sendMode,
-        (token) => {
-          setStreamingContent((prev) => prev + token)
-        },
-        controller.signal
+        (token) => setStreamingContent((p) => p + token),
+        controller.signal,
       )
       setStreamingContent('')
 
-      // TTS: speak the completed response if enabled
-      if (ttsEnabled && fullResponse && typeof fullResponse === 'string' && fullResponse.trim()) {
-        voice.speak(fullResponse)
+      // record timing — we'll show it on the last assistant message in the current render
+      const elapsed = Date.now() - streamStartRef.current
+      setElapsedMs(elapsed)
+
+      if (ttsEnabled && full && typeof full === 'string' && full.trim()) {
+        voice.speak(full)
       }
 
-      // Clear any previous errors on success
-      setLocalError(null)
-    } catch (error: any) {
-      setStreamingContent('')
-      // Abort is user-initiated — not an error
-      if (error?.name === 'AbortError') return
-      setLocalError(error?.message || 'Failed to send message')
-      // Re-populate input on error
-      setInputValue(messageText)
+      // Generate contextual follow-up suggestions from the response
+      if (full && typeof full === 'string' && full.trim()) {
+        setFollowUps(generateFollowUps(full))
+      }
 
-      // Clear error after 4 seconds to avoid stale messages
-      setTimeout(() => {
-        setLocalError(null)
-      }, 4000)
+      setLocalError(null)
+    } catch (err: any) {
+      setStreamingContent('')
+      if (err?.name === 'AbortError') return
+      setLocalError(err?.message || 'Failed to send message')
+      if (!overrideText) setInputValue(text)
+      setTimeout(() => setLocalError(null), 4000)
     } finally {
       abortControllerRef.current = null
       setIsSending(false)
-      inputRef.current?.focus()
+      textareaRef.current?.focus()
     }
-  }
-
-  const handleDeleteConversation = async (conversationId: string) => {
-    if (!window.confirm('Delete this conversation?')) {
-      return
-    }
-
-    try {
-      setLocalError(null)
-      await syncManager.deleteConversation(conversationId)
-    } catch (error: any) {
-      setLocalError(error?.message || 'Failed to delete conversation')
-    }
-  }
+  }, [inputValue, activeConversationId, isSending, isSteerMode, ttsEnabled, voice, textareaRef])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSendMessage()
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+  }
+
+  const handleMicClick = async () => {
+    if (voice.isListening) { voice.stopListening(); return }
+    if (voice.isSpeaking) {
+      voice.stopSpeaking()
+      try { await api.post('/api/voices/stop') } catch {}
+    }
+    voice.startListening()
+  }
+
+  const handleDeleteConversation = async (id: string) => {
+    if (!window.confirm('Delete this conversation?')) return
+    try {
+      await syncManager.deleteConversation(id)
+    } catch (err: any) {
+      setLocalError(err?.message || 'Failed to delete')
     }
   }
 
-  // Messages to display (from store)
+  // Edit a user message — populate textarea and focus
+  const handleEditMessage = useCallback((content: string) => {
+    setInputValue(content)
+    setTimeout(() => textareaRef.current?.focus(), 50)
+  }, [textareaRef])
+
+  // Regenerate: find the user message preceding this assistant message by index
+  const handleRegenerate = useCallback((userText: string) => {
+    handleSend(userText)
+  }, [handleSend])
+
   const currentMessages = activeConversationId ? messages : []
 
   return (
-    <div className="flex h-full bg-background">
-      {/* Sidebar */}
-      {showSidebar && (
-        <div className="w-64 border-r border-border flex flex-col bg-surface">
-          <div className="p-4 border-b border-border">
-            <button
-              onClick={handleNewConversation}
-              disabled={loading || !activeWorkspaceId}
-              className={cn(
-                'w-full px-4 py-2 rounded-lg flex items-center gap-2 font-medium',
-                loading
-                  ? 'bg-surface-variant text-on-surface-variant cursor-not-allowed'
-                  : 'bg-primary text-white hover:bg-primary/90'
-              )}
-            >
-              <Plus className="w-4 h-4" />
-              New Chat
-            </button>
-          </div>
+    <div className="flex h-full overflow-hidden bg-surface">
 
-          {/* Conversations List */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {conversations.length === 0 ? (
-              <div className="p-4 text-center text-on-surface-variant text-sm">
-                {loading ? 'Loading conversations...' : 'No conversations yet'}
-              </div>
-            ) : (
-              conversations.map((conv) => (
-                <div
-                  key={conv.id}
-                  className={cn(
-                    'p-3 rounded-lg cursor-pointer transition-colors group flex items-center justify-between',
-                    activeConversationId === conv.id
-                      ? 'bg-primary/20 text-primary'
-                      : 'hover:bg-surface-container text-on-surface'
-                  )}
-                >
-                  <button
-                    onClick={() => syncManager.loadConversation(conv.id)}
-                    className="flex-1 text-left truncate"
-                    title={conv.title}
-                  >
-                    {conv.title}
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDeleteConversation(conv.id)
-                    }}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-error/20 rounded transition-opacity"
-                  >
-                    <Trash2 className="w-4 h-4 text-error" />
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
+      {/* ── Conversation panel ──────────────────────────────────────────────── */}
+      <aside className="w-52 shrink-0 flex flex-col border-r border-outline-variant/20 bg-surface-container-low overflow-hidden">
 
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="border-b border-border p-4 flex items-center justify-between bg-surface">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowSidebar(!showSidebar)}
-              className="p-2 hover:bg-surface-container rounded-lg transition-colors"
-              title="Toggle sidebar"
-            >
-              <MessageCircle className="w-5 h-5" />
-            </button>
-            <div>
-              <h1 className="font-bold text-lg">{activeConversation?.title || 'Chat'}</h1>
-              <p className="text-xs text-on-surface-variant">
-                {activeConversation ? `${activeConversation.message_count || 0} messages` : 'No conversation selected'}
-              </p>
-            </div>
-          </div>
+        {/* New chat */}
+        <div className="p-3 shrink-0">
+          <button
+            onClick={handleNewConversation}
+            disabled={loading || !activeWorkspaceId}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold
+                       text-on-surface hover:bg-surface-container transition-colors
+                       disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <PenSquare className="w-4 h-4 shrink-0" />
+            New chat
+          </button>
         </div>
 
-        {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Loading State */}
-          {loading && currentMessages.length === 0 && (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center space-y-3">
-                <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-sm text-on-surface-variant">Loading messages...</p>
-              </div>
-            </div>
+        {/* Conversation list */}
+        <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5">
+          {loading && conversations.length === 0 && (
+            <p className="text-xs text-on-surface-variant/50 px-3 py-4">Loading…</p>
           )}
-
-          {/* Error State */}
-          {(error || localError) && (
-            <div className="p-4 rounded-lg bg-error/10 border border-error/20 flex gap-3 items-start">
-              <AlertCircle className="w-5 h-5 text-error flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-medium text-error">Error</p>
-                <p className="text-sm text-error/80">{error || localError}</p>
-              </div>
-            </div>
-          )}
-
-          {/* Empty State */}
-          {currentMessages.length === 0 && !loading && !error && activeConversationId && (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center space-y-3 text-on-surface-variant">
-                <MessageCircle className="w-12 h-12 mx-auto opacity-50" />
-                <p>No messages yet. Start the conversation!</p>
-              </div>
-            </div>
-          )}
-
-          {/* Messages */}
-          <AnimatePresence initial={false}>
-            {currentMessages.map((message) => (
-              <motion.div
-                key={message.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.18, ease: 'easeOut' }}
-                className={cn('flex', message.role === 'user' ? 'justify-end' : 'justify-start')}
+          {conversations.map((conv) => {
+            const active = conv.id === activeConversationId
+            return (
+              <div
+                key={conv.id}
+                className={cn(
+                  'group flex items-center gap-1 rounded-lg px-2 py-1.5 cursor-pointer transition-colors',
+                  active ? 'bg-primary/12 text-primary' : 'hover:bg-surface-container text-on-surface-variant'
+                )}
+                onClick={() => syncManager.loadConversation(conv.id)}
               >
-                <div
-                  className={cn(
-                    'max-w-xs lg:max-w-2xl px-4 py-2 rounded-lg',
-                    message.role === 'user'
-                      ? 'bg-primary text-white rounded-br-none'
-                      : 'bg-surface-container text-on-surface rounded-bl-none'
-                  )}
+                <span className="flex-1 text-xs font-medium truncate leading-snug">
+                  {conv.title}
+                </span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDeleteConversation(conv.id) }}
+                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-error transition-all shrink-0"
                 >
-                  <MarkdownMessage content={message.content} isUser={message.role === 'user'} />
-                  <p className="text-xs mt-1 opacity-70">
-                    {format(new Date(message.created_at), 'HH:mm')}
-                  </p>
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      </aside>
+
+      {/* ── Main chat area ──────────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+        {/* Messages scroll region */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+
+            {/* Error banner */}
+            {(error || localError) && (
+              <div className="flex gap-3 items-start p-3 rounded-xl bg-error/8 border border-error/20 text-sm">
+                <AlertCircle className="w-4 h-4 text-error shrink-0 mt-0.5" />
+                <p className="text-error">{error || localError}</p>
+              </div>
+            )}
+
+            {/* Queue status */}
+            {queueStatus.queuedCount > 0 && (
+              <div className="flex items-center gap-2 text-xs text-on-surface-variant bg-surface-container px-3 py-2 rounded-xl">
+                {queueStatus.isPaused
+                  ? <><WifiOff className="w-3.5 h-3.5 text-error" /><span>Offline · {queueStatus.queuedCount} queued</span></>
+                  : <><Clock className="w-3.5 h-3.5" /><span>{queueStatus.queuedCount} queued · {queueStatus.oldestAgeSeconds}s</span></>
+                }
+              </div>
+            )}
+
+            {/* Empty state */}
+            {currentMessages.length === 0 && !loading && !error && activeConversationId && (
+              <EmptyState onPrompt={(p) => { setInputValue(p); textareaRef.current?.focus() }} />
+            )}
+
+            {/* Loading skeleton */}
+            {loading && currentMessages.length === 0 && (
+              <div className="flex justify-center py-20">
+                <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+
+            {/* Messages */}
+            <AnimatePresence initial={false}>
+              {currentMessages.map((msg, idx) => {
+                const isUser = msg.role === 'user'
+                // Show timing only on the last assistant message in this session
+                const asstIndices = currentMessages.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i >= 0)
+                const lastAsstIdx = asstIndices.length > 0 ? asstIndices[asstIndices.length - 1] : -1
+                const isLastAsst = !isUser && idx === lastAsstIdx
+                const showTiming = isLastAsst && elapsedMs != null
+                // For regenerate: find the closest preceding user message
+                const prevUserMsg = !isUser
+                  ? [...currentMessages].slice(0, idx).reverse().find((m) => m.role === 'user')
+                  : null
+
+                return (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.15, ease: 'easeOut' }}
+                    className={cn('group flex', isUser ? 'justify-end' : 'justify-start')}
+                  >
+                    {isUser ? (
+                      /* User bubble */
+                      <div className="max-w-[78%] flex flex-col items-end gap-0.5">
+                        <div className="px-4 py-2.5 rounded-2xl rounded-tr-sm bg-primary text-white text-sm leading-relaxed">
+                          <MarkdownMessage content={msg.content} isUser />
+                        </div>
+                        {/* User message actions */}
+                        <div className="flex items-center gap-1 h-6 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <MsgAction
+                            icon={<Pencil className="w-3 h-3" />}
+                            label="Edit"
+                            onClick={() => handleEditMessage(msg.content)}
+                          />
+                          <MsgAction
+                            icon={copiedId === msg.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                            label={copiedId === msg.id ? 'Copied' : 'Copy'}
+                            onClick={() => copy(msg.content, msg.id)}
+                          />
+                          <span className="text-[11px] text-on-surface-variant/40 pl-1">
+                            {format(new Date(msg.created_at), 'HH:mm')}
+                          </span>
+                        </div>
+                        {/* Timestamp (always visible fallback when not hovered) */}
+                        <span className="text-[11px] text-on-surface-variant/40 pr-1 group-hover:hidden">
+                          {format(new Date(msg.created_at), 'HH:mm')}
+                        </span>
+                      </div>
+                    ) : (
+                      /* Assistant — no bubble, prose width */
+                      <div className="flex gap-3 max-w-full w-full">
+                        <div className="w-7 h-7 rounded-full bg-primary-container flex items-center justify-center shrink-0 mt-0.5">
+                          <Bot className="w-4 h-4 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm leading-relaxed text-on-surface prose-sm">
+                            <MarkdownMessage content={msg.content} isUser={false} />
+                          </div>
+                          {/* Assistant message footer */}
+                          <div className="flex items-center gap-2 mt-1 h-6">
+                            {/* Always-visible timestamp */}
+                            <span className="text-[11px] text-on-surface-variant/40">
+                              {format(new Date(msg.created_at), 'HH:mm')}
+                            </span>
+                            {/* Timing badge */}
+                            {showTiming && (
+                              <span className="flex items-center gap-1 text-[11px] text-on-surface-variant/40">
+                                <Timer className="w-3 h-3" />
+                                {fmtElapsed(elapsedMs!)}
+                              </span>
+                            )}
+                            {/* Hover actions */}
+                            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
+                              <MsgAction
+                                icon={copiedId === msg.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                                label={copiedId === msg.id ? 'Copied' : 'Copy'}
+                                onClick={() => copy(msg.content, msg.id)}
+                              />
+                              {prevUserMsg && !isSending && (
+                                <MsgAction
+                                  icon={<RefreshCw className="w-3 h-3" />}
+                                  label="Regenerate"
+                                  onClick={() => handleRegenerate(prevUserMsg.content)}
+                                />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
+                )
+              })}
+            </AnimatePresence>
+
+            {/* Thinking — shown before first token arrives */}
+            {isSending && !streamingContent && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="flex gap-3"
+              >
+                <div className="w-7 h-7 rounded-full bg-primary-container flex items-center justify-center shrink-0 mt-0.5 relative">
+                  <Bot className="w-4 h-4 text-primary" />
+                  {/* Pulsing ring */}
+                  <span className="absolute inset-0 rounded-full border border-primary/30 animate-ping" style={{ animationDuration: '1.6s' }} />
+                </div>
+                <div className="flex items-center gap-2 py-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-primary/50 animate-pulse" />
+                  <span className="text-sm text-on-surface-variant/60">Thinking</span>
+                  <span className="flex gap-0.5">
+                    {[0, 180, 360].map((d) => (
+                      <span
+                        key={d}
+                        className="w-1 h-1 rounded-full bg-primary/50 animate-bounce"
+                        style={{ animationDelay: `${d}ms`, animationDuration: '1s' }}
+                      />
+                    ))}
+                  </span>
                 </div>
               </motion.div>
-            ))}
-          </AnimatePresence>
+            )}
 
-          {/* Live streaming bubble */}
-          {streamingContent && (
-            <div className="flex justify-start">
-              <div className="max-w-xs lg:max-w-2xl px-4 py-2 rounded-lg bg-surface-container text-on-surface rounded-bl-none">
-                <MarkdownMessage content={streamingContent} />
-                <div className="flex gap-1 mt-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:0ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:150ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce [animation-delay:300ms]" />
+            {/* Live streaming */}
+            {streamingContent && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex gap-3"
+              >
+                <div className="w-7 h-7 rounded-full bg-primary-container flex items-center justify-center shrink-0 mt-0.5">
+                  <Bot className="w-4 h-4 text-primary" />
                 </div>
-              </div>
-            </div>
-          )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm leading-relaxed text-on-surface">
+                    <MarkdownMessage content={streamingContent} isUser={false} />
+                  </div>
+                  <div className="flex gap-1 mt-2">
+                    {[0, 150, 300].map((d) => (
+                      <span
+                        key={d}
+                        className="w-1.5 h-1.5 rounded-full bg-primary/50 animate-bounce"
+                        style={{ animationDelay: `${d}ms` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            )}
 
-          {/* Scroll anchor */}
-          <div ref={messagesEndRef} />
+            {/* Follow-up suggestions */}
+            {followUps.length > 0 && !isSending && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: 0.1 }}
+                className="flex flex-wrap gap-2 pl-10"
+              >
+                {followUps.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    onClick={() => handleSend(suggestion)}
+                    className={cn(
+                      'px-3 py-1.5 rounded-full text-xs border transition-all',
+                      'border-outline-variant/30 text-on-surface-variant',
+                      'hover:border-primary/50 hover:text-primary hover:bg-primary/5',
+                      'active:scale-95'
+                    )}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
-        {/* Input Area */}
-        {activeConversationId ? (
-          <div className="border-t border-border p-4 bg-surface space-y-3">
-            {/* Queue Status Indicator */}
-            {queueStatus.queuedCount > 0 && (
-              <div className="flex items-center gap-2 text-sm text-on-surface-variant bg-surface-container px-3 py-2 rounded-lg">
-                {queueStatus.isPaused ? (
-                  <>
-                    <WifiOff className="w-4 h-4 text-error" />
-                    <span>Offline • {queueStatus.queuedCount} request{queueStatus.queuedCount === 1 ? '' : 's'} queued</span>
-                  </>
-                ) : (
-                  <>
-                    <Clock className="w-4 h-4 text-warning" />
-                    <span>{queueStatus.queuedCount} request{queueStatus.queuedCount === 1 ? '' : 's'} queued • Oldest: {queueStatus.oldestAgeSeconds}s ago</span>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Connection Status */}
-            {queueStatus.isPaused && queueStatus.queuedCount === 0 && (
-              <div className="flex items-center gap-2 text-sm text-on-surface-variant bg-surface-container px-3 py-2 rounded-lg">
-                <WifiOff className="w-4 h-4 text-error" />
-                <span>Currently offline • Requests will be queued when you regain connection</span>
-              </div>
-            )}
-
-            {/* Mode controls: Steer + TTS toggles */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setIsSteerMode((v) => !v)}
-                title="Steer mode — send a correction or redirect to the AI"
-                disabled={isSending}
-                className={cn(
-                  'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors',
-                  isSteerMode
-                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-                    : 'bg-surface-variant text-on-surface-variant hover:bg-surface-container border border-transparent'
-                )}
-              >
-                <Navigation className="w-3.5 h-3.5" />
-                Steer
-              </button>
-              <button
-                onClick={() => {
-                  if (ttsEnabled && voice.isSpeaking) voice.stopSpeaking()
-                  setTtsEnabled((v) => !v)
-                }}
-                title={ttsEnabled ? 'Disable text-to-speech' : 'Enable text-to-speech for AI replies'}
-                className={cn(
-                  'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors',
-                  ttsEnabled
-                    ? 'bg-primary/20 text-primary border border-primary/30'
-                    : 'bg-surface-variant text-on-surface-variant hover:bg-surface-container border border-transparent'
-                )}
-              >
-                {ttsEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
-                TTS
-              </button>
-              {isSteerMode && (
-                <span className="text-xs text-amber-400/80 italic">
-                  Next message will steer the AI's direction
-                </span>
+        {/* ── Input bar ───────────────────────────────────────────────────── */}
+        <div className="shrink-0 px-4 py-3 border-t border-outline-variant/15">
+          <div className="max-w-3xl mx-auto">
+            <div
+              className={cn(
+                'rounded-2xl border transition-colors bg-surface-container-lowest shadow-sm',
+                isSteerMode
+                  ? 'border-amber-500/60 ring-1 ring-amber-500/20'
+                  : 'border-outline-variant/30 focus-within:border-primary/40 focus-within:ring-1 focus-within:ring-primary/10',
+                !activeConversationId && 'opacity-50 pointer-events-none'
               )}
-            </div>
+            >
+              {/* Steer mode label */}
+              {isSteerMode && (
+                <div className="px-4 pt-2.5 pb-0 text-[11px] text-amber-500 font-semibold tracking-wide">
+                  ↗ STEERING — next message redirects the conversation
+                </div>
+              )}
 
-            <div className="flex gap-2">
+              {/* Textarea */}
               <textarea
-                ref={inputRef}
+                ref={textareaRef}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={
-                  voice.isListening
+                  !activeConversationId
+                    ? 'Select or create a conversation…'
+                    : voice.isListening
                     ? 'Listening…'
-                    : isSteerMode
-                    ? 'Type a correction or new direction…'
-                    : 'Type a message… (Shift+Enter for new line)'
+                    : 'Send a message'
                 }
-                disabled={isSending}
+                disabled={isSending || !activeConversationId}
+                rows={1}
                 className={cn(
-                  'flex-1 px-4 py-2 rounded-lg border bg-background text-on-background',
-                  'resize-none max-h-32 focus:outline-none transition-colors',
-                  isSending && 'opacity-50 cursor-not-allowed',
-                  voice.isListening && 'border-error focus:border-error',
-                  isSteerMode
-                    ? 'border-amber-500/60 focus:border-amber-500'
-                    : 'border-outline focus:border-primary'
+                  'w-full bg-transparent px-4 pt-3 pb-1 text-sm text-on-surface',
+                  'resize-none outline-none placeholder:text-on-surface-variant/40',
+                  'transition-colors leading-relaxed',
+                  (isSending || !activeConversationId) && 'cursor-not-allowed',
+                  voice.isListening && 'placeholder:text-error'
                 )}
-                rows={3}
+                style={{ minHeight: '44px', maxHeight: '168px' }}
               />
-              {voice.isSupported && (
-                <button
-                  onClick={handleMicClick}
-                  title={voice.isListening ? 'Stop listening' : 'Voice input'}
-                  className={cn(
-                    'px-3 py-2 rounded-lg flex items-center transition-colors',
-                    voice.isListening
-                      ? 'bg-error text-white animate-pulse'
-                      : 'bg-surface-variant text-on-surface-variant hover:bg-surface-container'
+
+              {/* Bottom toolbar */}
+              <div className="flex items-center justify-between px-3 pb-2.5 gap-2">
+                {/* Left: mode toggles */}
+                <div className="flex items-center gap-1">
+                  {/* Model picker: Auto / Local / Claude */}
+                  <div className="flex items-center rounded-lg border border-outline-variant/25 bg-surface-container/60 p-0.5 gap-0.5">
+                    {(['auto', 'local', 'claude'] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setForcedMode(m)}
+                        title={m === 'auto' ? 'Auto-route (default)' : m === 'local' ? 'Force local model (Pepe)' : 'Force Claude'}
+                        className={cn(
+                          'px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors leading-tight',
+                          forcedMode === m
+                            ? m === 'local'
+                              ? 'bg-emerald-500/20 text-emerald-600'
+                              : m === 'claude'
+                              ? 'bg-violet-500/20 text-violet-600'
+                              : 'bg-surface-container-high text-on-surface'
+                            : 'text-on-surface-variant/50 hover:text-on-surface'
+                        )}
+                      >
+                        {m === 'auto' ? 'Auto' : m === 'local' ? '🏠 Local' : '☁ Claude'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Steer toggle */}
+                  <IconToggle
+                    on={isSteerMode}
+                    onClick={() => setIsSteerMode((v) => !v)}
+                    title={isSteerMode ? 'Cancel steer mode' : 'Steer — redirect the AI'}
+                    onClass="text-amber-500 bg-amber-500/10"
+                  >
+                    <Navigation className="w-3.5 h-3.5" />
+                  </IconToggle>
+
+                  {/* TTS toggle */}
+                  <IconToggle
+                    on={ttsEnabled}
+                    onClick={() => { if (ttsEnabled && voice.isSpeaking) voice.stopSpeaking(); setTtsEnabled((v) => !v) }}
+                    title={ttsEnabled ? 'Disable voice reply' : 'Speak AI replies aloud'}
+                    onClass="text-primary bg-primary/10"
+                  >
+                    {ttsEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                  </IconToggle>
+
+                  {/* Voice selector — only shown when TTS is on */}
+                  {ttsEnabled && voiceOptions.length > 0 && (
+                    <select
+                      value={selectedVoiceId}
+                      onChange={(e) => setSelectedVoiceId(e.target.value)}
+                      title="Select voice"
+                      className={cn(
+                        'text-[11px] bg-surface-container border border-outline-variant/30 rounded-lg',
+                        'text-on-surface-variant px-2 py-1 outline-none cursor-pointer',
+                        'hover:border-primary/40 transition-colors max-w-[120px] truncate'
+                      )}
+                    >
+                      {voiceOptions.map((v) => (
+                        <option key={v.id} value={v.id}>{v.name}</option>
+                      ))}
+                    </select>
                   )}
-                >
-                  {voice.isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                </button>
-              )}
-              {isSending ? (
-                <button
-                  onClick={handleStop}
-                  title="Stop generating"
-                  className="px-4 py-2 rounded-lg flex items-center gap-2 font-medium bg-error/90 text-white hover:bg-error transition-colors"
-                >
-                  <StopCircle className="w-4 h-4" />
-                  Stop
-                </button>
-              ) : (
-                <button
-                  onClick={handleSendMessage}
-                  disabled={!inputValue.trim()}
-                  className={cn(
-                    'px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors',
-                    !inputValue.trim()
-                      ? 'bg-surface-variant text-on-surface-variant cursor-not-allowed'
-                      : isSteerMode
-                      ? 'bg-amber-500 text-white hover:bg-amber-600'
-                      : 'bg-primary text-white hover:bg-primary/90'
+                </div>
+
+                {/* Right: mic + send/stop */}
+                <div className="flex items-center gap-1.5">
+                  {/* Mic */}
+                  {voice.isSupported && (
+                    <button
+                      onClick={handleMicClick}
+                      title={voice.isListening ? 'Stop listening' : 'Voice input'}
+                      className={cn(
+                        'p-1.5 rounded-lg transition-colors',
+                        voice.isListening
+                          ? 'text-error bg-error/10 animate-pulse'
+                          : 'text-on-surface-variant/60 hover:text-on-surface hover:bg-surface-container'
+                      )}
+                    >
+                      {voice.isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                    </button>
                   )}
-                >
-                  <Send className="w-4 h-4" />
-                  {isSteerMode ? 'Steer' : 'Send'}
-                </button>
-              )}
+
+                  {/* Stop / Send */}
+                  {isSending ? (
+                    <button
+                      onClick={handleStop}
+                      title="Stop generating"
+                      className="w-8 h-8 flex items-center justify-center rounded-full bg-error text-white hover:bg-error/80 transition-colors"
+                    >
+                      <StopCircle className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleSend()}
+                      disabled={!inputValue.trim() || !activeConversationId}
+                      title="Send (Enter)"
+                      className={cn(
+                        'w-8 h-8 flex items-center justify-center rounded-full transition-colors',
+                        inputValue.trim() && activeConversationId
+                          ? isSteerMode
+                            ? 'bg-amber-500 text-white hover:bg-amber-600'
+                            : 'bg-primary text-white hover:bg-primary/80'
+                          : 'bg-surface-container text-on-surface-variant/30 cursor-not-allowed'
+                      )}
+                    >
+                      <ArrowUp className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
+
+            {/* Hint */}
+            <p className="text-center text-[11px] text-on-surface-variant/35 mt-1.5">
+              Enter to send · Shift+Enter for new line
+            </p>
           </div>
-        ) : (
-          <div className="border-t border-border p-4 bg-surface text-center text-on-surface-variant">
-            <p>No conversation selected. Create or select one to start chatting.</p>
-          </div>
-        )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Small inline action button ────────────────────────────────────────────────
+function MsgAction({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-on-surface-variant/50
+                 hover:text-on-surface hover:bg-surface-container transition-colors"
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  )
+}
+
+// ── Icon toggle helper ────────────────────────────────────────────────────────
+function IconToggle({
+  on, onClick, title, onClass, children,
+}: {
+  on: boolean; onClick: () => void; title: string; onClass: string; children: React.ReactNode
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={cn(
+        'p-1.5 rounded-lg transition-colors text-xs font-medium',
+        on
+          ? onClass
+          : 'text-on-surface-variant/50 hover:text-on-surface hover:bg-surface-container'
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+// ── Follow-up suggestion generator ───────────────────────────────────────────
+function generateFollowUps(content: string): string[] {
+  const low = content.toLowerCase()
+  const hasCode     = content.includes('```') || (content.split('`').length - 1) >= 2
+  const hasSteps    = /(\d+\.\s|\n-\s)/.test(content) && content.length > 200
+  const hasError    = /\b(error|bug|fix|issue|fail|exception|crash|broken)\b/.test(low)
+  const hasOptions  = /\b(option|alternative|approach|either|instead|or you can|you could also)\b/.test(low)
+  const hasProcess  = /\b(step|process|procedure|workflow|sequence|first.*then|next)\b/.test(low)
+  const isTech      = hasCode || /\b(function|class|api|database|server|deploy|install|config|import|module)\b/.test(low)
+  const isExplainer = content.length > 400 && !hasCode
+  const hasNumbers  = /\b(\d{2,}|percent|%|price|\$|cost|budget)\b/.test(low)
+
+  const pool: string[] = []
+
+  // Contextual suggestions — most specific first
+  if (hasCode)    pool.push('Can you walk me through this code?', 'What happens if I change this?', 'Are there edge cases to handle?')
+  if (hasError)   pool.push('What\'s the most common cause of this?', 'How do I prevent this in future?', 'Can you show a fixed version?')
+  if (hasOptions) pool.push('Which option do you recommend and why?', 'What are the tradeoffs?', 'Can you compare these side by side?')
+  if (hasProcess) pool.push('What comes after this?', 'What could go wrong at each step?', 'Can you give a real-world example?')
+  if (hasNumbers) pool.push('How does this compare to industry averages?', 'What factors affect this most?')
+  if (isTech)     pool.push('What are the best practices here?', 'Are there any gotchas to watch out for?')
+  if (isExplainer)pool.push('Can you give me a simpler analogy?', 'What\'s the most important takeaway?')
+  if (hasSteps)   pool.push('Can you condense this into bullet points?', 'Which step do people usually get wrong?')
+
+  // Generic fallbacks
+  const generic = [
+    'Can you give me a concrete example?',
+    'What should I do next?',
+    'What are the alternatives?',
+    'Can you expand on that?',
+    'What\'s the most important thing to remember?',
+    'How does this work in practice?',
+  ]
+
+  // De-dup and pick 3
+  const seen = new Set<string>()
+  const picks: string[] = []
+  for (const s of [...pool, ...generic]) {
+    if (!seen.has(s) && picks.length < 3) { seen.add(s); picks.push(s) }
+  }
+  return picks
+}
+
+// ── Empty state ───────────────────────────────────────────────────────────────
+const PROMPT_SUGGESTIONS = [
+  'Summarise what we discussed last time',
+  'Help me debug some code',
+  'Explain a concept simply',
+  'Draft a quick message',
+]
+
+function EmptyState({ onPrompt }: { onPrompt: (p: string) => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 gap-6 text-center select-none">
+      <div className="w-14 h-14 rounded-2xl bg-primary-container flex items-center justify-center shadow-sm">
+        <Bot className="w-8 h-8 text-primary" />
+      </div>
+      <div>
+        <h2 className="text-xl font-semibold text-on-surface mb-1">How can I help?</h2>
+        <p className="text-sm text-on-surface-variant/70">Ask anything, or pick a suggestion below.</p>
+      </div>
+      <div className="flex flex-wrap gap-2 justify-center max-w-md">
+        {PROMPT_SUGGESTIONS.map((p) => (
+          <button
+            key={p}
+            onClick={() => onPrompt(p)}
+            className="px-3 py-1.5 rounded-full border border-outline-variant/30 text-xs text-on-surface-variant
+                       hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-colors"
+          >
+            {p}
+          </button>
+        ))}
       </div>
     </div>
   )

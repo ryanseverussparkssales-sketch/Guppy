@@ -214,7 +214,7 @@ export function useModelMutations() {
 // PROVIDER / ACTIVE MODEL HOOKS
 // =============================================================================
 
-interface LocalModelMeta { id: string; name: string; tier: string; tags: string[] }
+interface LocalModelMeta { id: string; name: string; tier: string; tags: string[]; free?: boolean }
 interface ProviderInfo {
   configured: boolean
   active_model: string
@@ -222,7 +222,14 @@ interface ProviderInfo {
   backend?: string
   tags?: string[]
 }
-interface ProvidersResponse { anthropic: ProviderInfo; openai: ProviderInfo; google: ProviderInfo; local: ProviderInfo }
+interface ProvidersResponse {
+  anthropic: ProviderInfo
+  openai: ProviderInfo
+  google: ProviderInfo
+  cohere: ProviderInfo
+  mistral: ProviderInfo
+  local: ProviderInfo
+}
 
 export function useProviders() {
   const { data, error, isLoading, mutate: revalidate } = useSWR<ProvidersResponse>(

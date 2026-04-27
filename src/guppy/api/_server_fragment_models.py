@@ -42,7 +42,8 @@ class RepairRequest(BaseModel):
 class InstanceQueryRequest(BaseModel):
     message: str
     source_instance: Optional[str] = None
-    timeout_s: float = 5.0
+    timeout_s: float = 30.0
+    mode: Optional[str] = None  # override routing: "auto", "local", "claude", "code", etc.
 
 
 class InstanceConfigRequest(BaseModel):

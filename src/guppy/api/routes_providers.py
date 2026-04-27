@@ -39,27 +39,35 @@ _OPENAI_MODELS = [
 ]
 
 _GOOGLE_MODELS = [
-    {"id": "gemini-2.0-flash",         "name": "Gemini 2.0 Flash",  "tier": "fast"},
-    {"id": "gemini-2.5-pro-preview",   "name": "Gemini 2.5 Pro",    "tier": "powerful"},
-    {"id": "gemini-2.5-flash-preview", "name": "Gemini 2.5 Flash",  "tier": "fast"},
+    {"id": "gemini-2.5-pro-preview",   "name": "Gemini 2.5 Pro",        "tier": "powerful"},
+    {"id": "gemini-2.5-flash-preview", "name": "Gemini 2.5 Flash",      "tier": "smart"},
+    {"id": "gemini-2.0-flash",         "name": "Gemini 2.0 Flash",      "tier": "fast"},
+    {"id": "gemini-2.0-flash-lite",    "name": "Gemini 2.0 Flash Lite", "tier": "fast",    "free": True},
+    {"id": "gemini-1.5-flash",         "name": "Gemini 1.5 Flash",      "tier": "fast",    "free": True},
+    {"id": "gemini-1.5-flash-8b",      "name": "Gemini 1.5 Flash 8B",   "tier": "fast",    "free": True},
 ]
 
 _COHERE_MODELS = [
-    {"id": "command-a-03-2025",      "name": "Command A",       "tier": "powerful"},
-    {"id": "command-r-plus-08-2024", "name": "Command R+",      "tier": "smart"},
-    {"id": "command-r-08-2024",      "name": "Command R",       "tier": "smart"},
-    {"id": "command-light",          "name": "Command Light",   "tier": "fast"},
-    {"id": "aya-23-35b",             "name": "Aya 23 35B",      "tier": "smart"},
-    {"id": "aya-23-8b",              "name": "Aya 23 8B",       "tier": "fast"},
+    {"id": "command-a-03-2025",      "name": "Command A",        "tier": "powerful"},
+    {"id": "command-r-plus-08-2024", "name": "Command R+",       "tier": "smart"},
+    {"id": "command-r-08-2024",      "name": "Command R",        "tier": "smart"},
+    {"id": "command-r7b-12-2024",    "name": "Command R 7B",     "tier": "fast",    "free": True},
+    {"id": "command-light",          "name": "Command Light",    "tier": "fast"},
+    {"id": "aya-23-35b",             "name": "Aya 23 35B",       "tier": "smart"},
+    {"id": "aya-23-8b",              "name": "Aya 23 8B",        "tier": "fast"},
 ]
 
 _MISTRAL_MODELS = [
-    {"id": "mistral-large-latest",   "name": "Mistral Large",   "tier": "powerful"},
-    {"id": "mistral-small-latest",   "name": "Mistral Small",   "tier": "smart"},
-    {"id": "codestral-latest",       "name": "Codestral",       "tier": "smart"},
-    {"id": "open-mistral-nemo",      "name": "Mistral Nemo",    "tier": "fast"},
-    {"id": "pixtral-12b-2409",       "name": "Pixtral 12B",     "tier": "smart"},
-    {"id": "open-mixtral-8x22b",     "name": "Mixtral 8x22B",   "tier": "powerful"},
+    {"id": "mistral-large-latest",   "name": "Mistral Large",    "tier": "powerful"},
+    {"id": "mistral-medium-latest",  "name": "Mistral Medium",   "tier": "smart"},
+    {"id": "mistral-small-latest",   "name": "Mistral Small",    "tier": "smart"},
+    {"id": "codestral-latest",       "name": "Codestral",        "tier": "smart"},
+    {"id": "ministral-8b-latest",    "name": "Ministral 8B",     "tier": "fast",    "free": True},
+    {"id": "ministral-3b-latest",    "name": "Ministral 3B",     "tier": "fast",    "free": True},
+    {"id": "open-mistral-nemo",      "name": "Mistral Nemo",     "tier": "fast"},
+    {"id": "pixtral-large-latest",   "name": "Pixtral Large",    "tier": "powerful"},
+    {"id": "pixtral-12b-2409",       "name": "Pixtral 12B",      "tier": "smart"},
+    {"id": "open-mixtral-8x22b",     "name": "Mixtral 8x22B",    "tier": "powerful"},
 ]
 
 _VALID_CLOUD_PROVIDERS = {"anthropic", "openai", "google", "cohere", "mistral"}
@@ -69,6 +77,17 @@ _PROVIDER_MODEL_IDS = {
     "google":    {m["id"] for m in _GOOGLE_MODELS},
     "cohere":    {m["id"] for m in _COHERE_MODELS},
     "mistral":   {m["id"] for m in _MISTRAL_MODELS},
+}
+# Free-tier model IDs for each cloud provider (used by inference routing)
+_FREE_TIER_MODEL_IDS: Dict[str, set] = {
+    p: {m["id"] for m in models if m.get("free")}
+    for p, models in [
+        ("anthropic", _ANTHROPIC_MODELS),
+        ("openai",    _OPENAI_MODELS),
+        ("google",    _GOOGLE_MODELS),
+        ("cohere",    _COHERE_MODELS),
+        ("mistral",   _MISTRAL_MODELS),
+    ]
 }
 
 # Display metadata for local models: display name + capability tags
@@ -99,24 +118,35 @@ _LOCAL_MODEL_METADATA: Dict[str, Dict[str, Any]] = {
     "gemma-3-4b-it":               {"display": "Gemma 3 4B",      "tags": ["fast"]},
     "text-embedding-nomic-embed-text-v1.5": {"display": "Nomic Embed v1.5", "tags": ["embeddings"]},
     # llama.cpp (ROCm/HIP) — served via OpenAI-compatible endpoints, one server per model
-    "gemma-4-heretic-ara":  {"display": "Gemma 4 E4B Heretic ARA",    "tags": ["vision", "fast", "uncensored"]},
-    "qwen3-35b-uncensored": {"display": "Qwen3 35B MoE (Uncensored)", "tags": ["powerful", "reasoning", "uncensored"]},
-    "assistant-pepe-8b":    {"display": "Assistant Pepe 8B",          "tags": ["fast", "uncensored"]},
+    "gemma-4-heretic-ara":  {"display": "Gemma 4 E4B Heretic ARA",       "tags": ["vision", "fast", "uncensored"]},
+    "qwen3-35b-uncensored": {"display": "Qwen3 35B MoE (Uncensored)",    "tags": ["powerful", "reasoning", "uncensored"]},
+    "assistant-pepe-8b":    {"display": "Assistant Pepe 8B",             "tags": ["fast", "uncensored"]},
+    "minicpm-o-4.5":        {"display": "MiniCPM-o 4.5 Omni",           "tags": ["vision", "audio", "fast"]},
+    "qwen2.5-omni-3b":      {"display": "Qwen2.5-Omni Dispatcher 3B",   "tags": ["fast", "orchestration"]},
 }
 
 # Human-readable labels for the backends status pill in the UI
 _BACKEND_LABELS: Dict[str, str] = {
-    "ollama":          "Ollama",
-    "lmstudio":        "LM Studio",
-    "lemonade":        "Lemonade",
-    "local_harness":   "Local Harness",
-    "llamacpp-gemma":  "Gemma 4 Heretic",
-    "llamacpp-qwen3":  "Qwen3 Uncensored",
-    "llamacpp-pepe":   "Pepe 8B",
+    "ollama":            "Ollama",
+    "lmstudio":          "LM Studio",
+    "lemonade":          "Lemonade",
+    "local_harness":     "Local Harness",
+    "llamacpp-gemma":    "Gemma 4 Heretic",
+    "llamacpp-qwen3":    "Qwen3 Uncensored",
+    "llamacpp-pepe":     "Pepe 8B",
+    "llamacpp-minicpm":  "MiniCPM-o 4.5",
+    "llamacpp-dispatch": "Qwen2.5-Omni 3B",
 }
 
-# llama.cpp backend names (to distinguish from Ollama/LM Studio when injecting models)
-_LLAMACPP_BACKENDS = {"llamacpp-gemma", "llamacpp-qwen3", "llamacpp-pepe"}
+# All known llama.cpp backends — we always surface these in the model list
+# even when offline so users can see them and start them from the model picker.
+_LLAMACPP_BACKENDS = {
+    "llamacpp-gemma",
+    "llamacpp-qwen3",
+    "llamacpp-pepe",
+    "llamacpp-minicpm",
+    "llamacpp-dispatch",
+}
 
 
 def _get_settings_db():
@@ -170,16 +200,16 @@ def _provider_status() -> Dict[str, Any]:
     # probe can fail transiently (timeout) while the backend is still functional.
     local_models_raw = list_local_models(local_backend, timeout=4.0)
 
-    def _should_include_model(model_name: str) -> bool:
-        clean_names = {"fast:latest", "code:latest", "main:latest"}
-        if model_name in clean_names:
-            return True
-        if model_name.startswith("guppy-") or model_name == "guppy:latest":
-            if any(cn in local_models_raw for cn in clean_names):
-                return False
-        return True
-
-    local_models_filtered = [m for m in local_models_raw if _should_include_model(m)]
+    # Only surface Ollama models that have a defined role in Guppy.
+    # This prevents random installed base models (llama3:8b, mistral:7b, etc.)
+    # from cluttering the picker with models that have no routing role.
+    # LM Studio models (contain "/") are passed through with metadata lookup.
+    local_models_filtered = [
+        m for m in local_models_raw
+        if m in _LOCAL_MODEL_METADATA                              # known Guppy model
+        or "/" in m                                                # LM Studio long IDs
+        or next((True for k in _LOCAL_MODEL_METADATA if k in m), False)  # partial match
+    ]
     local_models = []
     seen_model_ids: set = set()
     for m in local_models_filtered:
@@ -196,23 +226,26 @@ def _provider_status() -> Dict[str, Any]:
             "tier": "local",
             "tags": meta.get("tags", []),
             "backend": local_backend,
+            "alive": True,  # Ollama models that list are always reachable
         })
         seen_model_ids.add(m)
 
-    # Inject models from alive llama.cpp servers that aren't already listed
+    # Inject ALL known llama.cpp backends — alive or offline — so they always appear
+    # in the model picker and agents list.  Offline ones carry alive=False so the UI
+    # can show an indicator and the user can start them from the model dropdown.
     for backend_name in _LLAMACPP_BACKENDS:
-        if not local_liveness.get(backend_name):
-            continue
         canonical = _BACKEND_DEFAULT_MODELS.get(backend_name, "")
         if not canonical or canonical in seen_model_ids:
             continue
         meta = _LOCAL_MODEL_METADATA.get(canonical, {})
+        alive = bool(local_liveness.get(backend_name))
         local_models.append({
             "id": canonical,
             "name": meta.get("display", canonical),
             "tier": "local",
             "tags": meta.get("tags", []),
             "backend": backend_name,
+            "alive": alive,
         })
         seen_model_ids.add(canonical)
 
@@ -236,12 +269,12 @@ def _provider_status() -> Dict[str, Any]:
         },
         "cohere": {
             "configured": configured["cohere"],
-            "active_model": _get_active_model("cohere", "command-a-03-2025"),
+            "active_model": _get_active_model("cohere", "command-r7b-12-2024"),
             "models": _COHERE_MODELS,
         },
         "mistral": {
             "configured": configured["mistral"],
-            "active_model": _get_active_model("mistral", "mistral-large-latest"),
+            "active_model": _get_active_model("mistral", "ministral-8b-latest"),
             "models": _MISTRAL_MODELS,
         },
         "local": {

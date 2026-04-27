@@ -31,11 +31,15 @@ import {
   ExternalLink,
   AlertCircle,
   Plug,
+  Monitor,
+  Mic,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTools, useSetToolEnabled } from '@/api/queries'
 import type { Tool } from '@/api/schemas'
 import MCPView from './MCPView'
+import DesktopView from './DesktopView'
+import VoicesView from './VoicesView'
 
 // Category icon mapping
 const categoryIcons: Record<string, typeof Wrench> = {
@@ -140,7 +144,7 @@ const MOCK_TOOLS: Tool[] = [
   },
 ]
 
-type Tab = 'functions' | 'plugins'
+type Tab = 'functions' | 'plugins' | 'desktop' | 'voices'
 
 export default function ToolsView() {
   const toolsQuery = useTools()
@@ -181,56 +185,58 @@ export default function ToolsView() {
 
   const getToolEnabled = (tool: Tool) => tool.isEnabled
 
+  // Don't render tool list state when on non-tool tabs
+  const showToolContent = activeTab === 'functions' || activeTab === 'plugins'
+
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between p-6 border-b border-border">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">Tools & Plugins</h1>
-          <p className="text-muted-foreground mt-1">
-            Manage AI model functions and MCP server extensions
-          </p>
+      {/* Header — only for tool tabs */}
+      {showToolContent && (
+        <div className="flex items-center justify-between p-6 border-b border-border">
+          <div>
+            <h1 className="text-2xl font-semibold text-foreground">Tools & Plugins</h1>
+            <p className="text-muted-foreground mt-1">
+              Manage AI model functions and MCP server extensions
+            </p>
+          </div>
+          {activeTab === 'functions' && (
+            <button className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors">
+              <Plus className="w-4 h-4" />
+              Add Tool
+            </button>
+          )}
         </div>
-        {activeTab === 'functions' && (
-          <button className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors">
-            <Plus className="w-4 h-4" />
-            Add Tool
-          </button>
-        )}
-      </div>
+      )}
 
       {/* Tab Bar */}
-      <div className="flex items-center gap-1 px-6 pt-4 border-b border-border">
-        <button
-          onClick={() => setActiveTab('functions')}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors",
-            activeTab === 'functions'
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <Wrench className="w-4 h-4" />
-          Functions
-        </button>
-        <button
-          onClick={() => setActiveTab('plugins')}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors",
-            activeTab === 'plugins'
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <Plug className="w-4 h-4" />
-          MCP Plugins
-        </button>
+      <div className="flex items-center gap-1 px-6 pt-4 border-b border-border shrink-0">
+        {[
+          { id: 'functions' as Tab, icon: <Wrench className="w-4 h-4" />,  label: 'Functions' },
+          { id: 'plugins'  as Tab, icon: <Plug className="w-4 h-4" />,    label: 'MCP Plugins' },
+          { id: 'desktop'  as Tab, icon: <Monitor className="w-4 h-4" />, label: 'Desktop' },
+          { id: 'voices'   as Tab, icon: <Mic className="w-4 h-4" />,     label: 'Voice' },
+        ].map(t => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors',
+              activeTab === t.id
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            {t.icon}{t.label}
+          </button>
+        ))}
       </div>
 
       {/* Tab Content */}
+      {activeTab === 'desktop' && <DesktopView />}
+      {activeTab === 'voices'  && <VoicesView />}
       {activeTab === 'plugins' ? (
         <MCPView />
-      ) : (
+      ) : activeTab === 'functions' ? (
         <>
           {/* Filters */}
           <div className="flex items-center gap-4 p-4 border-b border-border">
@@ -375,7 +381,7 @@ export default function ToolsView() {
             )}
           </div>
         </>
-      )}
+      ) : null}
     </div>
   )
 }
