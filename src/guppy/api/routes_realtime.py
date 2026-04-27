@@ -390,6 +390,8 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     system_prompt,
                     instance_name=active_instance_name,
                     instance_type=active_instance_type,
+                    active_local_model=_get_active_local_model(),
+                    active_cloud_model=_get_active_cloud_model(),
                     timeout_seconds=owner.CHAT_TIMEOUT_SECONDS,
                 )
 
@@ -483,6 +485,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         instance_name=active_instance_name,
                         instance_type=active_instance_type,
                         active_local_model=_get_active_local_model(),
+                        active_cloud_model=_get_active_cloud_model(),
                         timeout_seconds=owner.CHAT_TIMEOUT_SECONDS,
                     )
                     async for chunk in ctx.stream_chunks(text):

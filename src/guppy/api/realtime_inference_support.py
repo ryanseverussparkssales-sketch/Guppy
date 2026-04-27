@@ -211,6 +211,16 @@ def call_unified_inference(
         mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto"
     ).strip().lower()
 
+    # Steer mode: user is correcting or redirecting — surface that context, then
+    # route normally so the best available model responds.
+    if requested_mode == "steer":
+        augmented_system_prompt = (
+            "The user's next message is a steering directive or correction. "
+            "Adjust your approach and direction accordingly, "
+            "then continue helpfully from where you left off.\n\n"
+        ) + augmented_system_prompt
+        requested_mode = "auto"
+
     # If the user explicitly selected a llama.cpp model, force local routing so the
     # router doesn't escalate to a cloud provider even in "auto" mode.
     if active_local_model and active_local_model in _LOCAL_LLAMACPP_ROUTES and requested_mode in {"auto", ""}:

@@ -531,7 +531,8 @@ export class SyncManager {
     conversationId: string,
     userMessage: string,
     model?: string,
-    onToken?: (token: string) => void
+    onToken?: (token: string) => void,
+    signal?: AbortSignal
   ) {
     const store = useAppStore.getState()
     const endpoint = 'POST /api/chat'
@@ -564,7 +565,8 @@ export class SyncManager {
           (token) => {
             fullResponse += token
             onToken(token)
-          }
+          },
+          signal
         )
         if (fullResponse.trim()) {
           await this.addMessage(conversationId, 'assistant', fullResponse, model)
@@ -575,7 +577,9 @@ export class SyncManager {
           })
           return fullResponse
         }
-      } catch (streamErr) {
+      } catch (streamErr: any) {
+        // User-initiated abort: bubble up, don't fall back to non-streaming
+        if (streamErr?.name === 'AbortError') throw streamErr
         console.warn('Streaming chat failed, falling back to non-streaming:', streamErr)
         // Fall through to non-streaming below
       }

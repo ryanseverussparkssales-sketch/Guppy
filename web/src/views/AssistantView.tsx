@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react'
-import { Send, Plus, Trash2, MessageCircle, AlertCircle, WifiOff, Clock, Mic, MicOff } from 'lucide-react'
+import { Send, Plus, Trash2, MessageCircle, AlertCircle, WifiOff, Clock, Mic, MicOff, StopCircle, Navigation, Volume2, VolumeX } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
@@ -36,8 +36,11 @@ export default function AssistantView() {
   const [showSidebar, setShowSidebar] = useState(true)
   const [localError, setLocalError] = useState<string | null>(null)
   const [streamingContent, setStreamingContent] = useState('')
+  const [isSteerMode, setIsSteerMode] = useState(false)
+  const [ttsEnabled, setTtsEnabled] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const voice = useVoice({
     onTranscript: (text) => setInputValue(text),
@@ -91,15 +94,29 @@ export default function AssistantView() {
     }
   }
 
+  const handleStop = () => {
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = null
+    if (voice.isSpeaking) voice.stopSpeaking()
+    setStreamingContent('')
+    setIsSending(false)
+  }
+
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !activeConversationId) {
       return
     }
 
     const messageText = inputValue
+    const sendMode = isSteerMode ? 'steer' : undefined
     setInputValue('')
+    setIsSteerMode(false)   // auto-reset steer after send
     setIsSending(true)
     setLocalError(null)
+
+    // Create abort controller for this request
+    const controller = new AbortController()
+    abortControllerRef.current = controller
 
     try {
       // Send user message (syncManager handles optimistic update)
@@ -107,14 +124,28 @@ export default function AssistantView() {
 
       // Get AI response with live token streaming
       setStreamingContent('')
-      await syncManager.getAIResponse(activeConversationId, messageText, undefined, (token) => {
-        setStreamingContent((prev) => prev + token)
-      })
+      const fullResponse = await syncManager.getAIResponse(
+        activeConversationId,
+        messageText,
+        sendMode,
+        (token) => {
+          setStreamingContent((prev) => prev + token)
+        },
+        controller.signal
+      )
       setStreamingContent('')
+
+      // TTS: speak the completed response if enabled
+      if (ttsEnabled && fullResponse && typeof fullResponse === 'string' && fullResponse.trim()) {
+        voice.speak(fullResponse)
+      }
 
       // Clear any previous errors on success
       setLocalError(null)
     } catch (error: any) {
+      setStreamingContent('')
+      // Abort is user-initiated — not an error
+      if (error?.name === 'AbortError') return
       setLocalError(error?.message || 'Failed to send message')
       // Re-populate input on error
       setInputValue(messageText)
@@ -124,6 +155,7 @@ export default function AssistantView() {
         setLocalError(null)
       }, 4000)
     } finally {
+      abortControllerRef.current = null
       setIsSending(false)
       inputRef.current?.focus()
     }
@@ -340,19 +372,67 @@ export default function AssistantView() {
               </div>
             )}
 
+            {/* Mode controls: Steer + TTS toggles */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsSteerMode((v) => !v)}
+                title="Steer mode — send a correction or redirect to the AI"
+                disabled={isSending}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors',
+                  isSteerMode
+                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                    : 'bg-surface-variant text-on-surface-variant hover:bg-surface-container border border-transparent'
+                )}
+              >
+                <Navigation className="w-3.5 h-3.5" />
+                Steer
+              </button>
+              <button
+                onClick={() => {
+                  if (ttsEnabled && voice.isSpeaking) voice.stopSpeaking()
+                  setTtsEnabled((v) => !v)
+                }}
+                title={ttsEnabled ? 'Disable text-to-speech' : 'Enable text-to-speech for AI replies'}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors',
+                  ttsEnabled
+                    ? 'bg-primary/20 text-primary border border-primary/30'
+                    : 'bg-surface-variant text-on-surface-variant hover:bg-surface-container border border-transparent'
+                )}
+              >
+                {ttsEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                TTS
+              </button>
+              {isSteerMode && (
+                <span className="text-xs text-amber-400/80 italic">
+                  Next message will steer the AI's direction
+                </span>
+              )}
+            </div>
+
             <div className="flex gap-2">
               <textarea
                 ref={inputRef}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={voice.isListening ? 'Listening…' : 'Type a message… (Shift+Enter for new line)'}
+                placeholder={
+                  voice.isListening
+                    ? 'Listening…'
+                    : isSteerMode
+                    ? 'Type a correction or new direction…'
+                    : 'Type a message… (Shift+Enter for new line)'
+                }
                 disabled={isSending}
                 className={cn(
-                  'flex-1 px-4 py-2 rounded-lg border border-outline bg-background text-on-background',
-                  'resize-none max-h-32 focus:outline-none focus:border-primary transition-colors',
+                  'flex-1 px-4 py-2 rounded-lg border bg-background text-on-background',
+                  'resize-none max-h-32 focus:outline-none transition-colors',
                   isSending && 'opacity-50 cursor-not-allowed',
-                  voice.isListening && 'border-error'
+                  voice.isListening && 'border-error focus:border-error',
+                  isSteerMode
+                    ? 'border-amber-500/60 focus:border-amber-500'
+                    : 'border-outline focus:border-primary'
                 )}
                 rows={3}
               />
@@ -370,28 +450,32 @@ export default function AssistantView() {
                   {voice.isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                 </button>
               )}
-              <button
-                onClick={handleSendMessage}
-                disabled={isSending || !inputValue.trim()}
-                className={cn(
-                  'px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors',
-                  isSending || !inputValue.trim()
-                    ? 'bg-surface-variant text-on-surface-variant cursor-not-allowed'
-                    : 'bg-primary text-white hover:bg-primary/90'
-                )}
-              >
-                {isSending ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Sending...
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-4 h-4" />
-                    Send
-                  </>
-                )}
-              </button>
+              {isSending ? (
+                <button
+                  onClick={handleStop}
+                  title="Stop generating"
+                  className="px-4 py-2 rounded-lg flex items-center gap-2 font-medium bg-error/90 text-white hover:bg-error transition-colors"
+                >
+                  <StopCircle className="w-4 h-4" />
+                  Stop
+                </button>
+              ) : (
+                <button
+                  onClick={handleSendMessage}
+                  disabled={!inputValue.trim()}
+                  className={cn(
+                    'px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors',
+                    !inputValue.trim()
+                      ? 'bg-surface-variant text-on-surface-variant cursor-not-allowed'
+                      : isSteerMode
+                      ? 'bg-amber-500 text-white hover:bg-amber-600'
+                      : 'bg-primary text-white hover:bg-primary/90'
+                  )}
+                >
+                  <Send className="w-4 h-4" />
+                  {isSteerMode ? 'Steer' : 'Send'}
+                </button>
+              )}
             </div>
           </div>
         ) : (
