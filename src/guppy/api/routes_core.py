@@ -10,6 +10,11 @@ from src.guppy.api.status_support import build_startup_check_response, build_sta
 def build_core_router(ctx: ServerContext) -> APIRouter:
     router = APIRouter()
 
+    @router.get("/")
+    async def root():
+        """Root health-check endpoint — takes priority over the SPA catch-all."""
+        return {"message": "Guppy API is running", "status": "healthy"}
+
     @router.get("/health")
     async def health():
         return {"message": "Guppy API is running", "status": "healthy"}

@@ -2,8 +2,12 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/api/client'
 import { toast } from 'sonner'
+import { RefreshCw } from 'lucide-react'
 import DesktopView from './DesktopView'
 import InstancesView from './InstancesView'
+import AgentsView from './AgentsView'
+import ModelsView from './ModelsView'
+import { useProviders, QK as PQKK } from '@/api/queries'
 
 // ── types ─────────────────────────────────────────────────────────────────────
 interface Service {
@@ -29,7 +33,7 @@ interface DebugInfo {
   registry_file: string; recent_errors: string[]
 }
 
-type TabId = 'services' | 'instances' | 'health' | 'logs' | 'debug' | 'desktop'
+type TabId = 'services' | 'instances' | 'health' | 'logs' | 'debug' | 'desktop' | 'models' | 'agents' | 'backends'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 const reltime = (iso: string) => {
@@ -97,7 +101,10 @@ export default function LauncherView() {
 
   const TABS: { id: TabId; label: string }[] = [
     { id: 'services',  label: 'Services' },
+    { id: 'backends',  label: 'Backends' },
+    { id: 'agents',    label: 'Agents' },
     { id: 'instances', label: 'Instances' },
+    { id: 'models',    label: 'Models' },
     { id: 'health',    label: 'Health' },
     { id: 'logs',      label: 'Logs' },
     { id: 'debug',     label: 'Debug' },
@@ -182,6 +189,15 @@ export default function LauncherView() {
 
         {/* INSTANCES */}
         {tab === 'instances' && <InstancesView />}
+
+        {/* AGENTS */}
+        {tab === 'agents' && <div className="-m-5"><AgentsView /></div>}
+
+        {/* MODELS */}
+        {tab === 'models' && <div className="-m-5"><ModelsView /></div>}
+
+        {/* BACKENDS */}
+        {tab === 'backends' && <BackendsTab onRefresh={() => qc.invalidateQueries({ queryKey: PQKK.providers })} />}
 
         {/* DEBUG */}
         {tab === 'debug' && debugData && <DebugTab d={debugData} />}
@@ -344,6 +360,156 @@ function KVRow({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
     <div className="flex justify-between py-1.5 text-xs border-b border-[#252535] last:border-0 gap-3">
       <span className="text-slate-400 truncate">{k}</span>
       <span className={`text-slate-200 text-right truncate max-w-48 ${mono ? 'font-mono text-[11px]' : ''}`}>{v}</span>
+    </div>
+  )
+}
+
+// ── backends tab ──────────────────────────────────────────────────────────────
+
+const LLAMACPP_META: Record<string, { port: number; mode: 'A' | 'B'; note: string }> = {
+  'llamacpp-pepe':  { port: 8082, mode: 'A', note: 'Fast · Pepe 8B' },
+  'llamacpp-gemma': { port: 8080, mode: 'A', note: 'Vision · Gemma 4 E4B Heretic' },
+  'llamacpp-qwen3': { port: 8083, mode: 'B', note: 'Reasoning · Qwen3 35B MoE' },
+}
+
+const OTHER_BACKEND_PORTS: Record<string, number> = {
+  ollama:        11434,
+  lmstudio:      1234,
+  lemonade:      8000,
+  local_harness: 8001,
+  vllm:          8001,
+}
+
+function BackendsTab({ onRefresh }: { onRefresh: () => void }) {
+  const { data: providers, isLoading, isFetching } = useProviders({ refetchInterval: 10_000 })
+
+  const rawBackends = providers?.local?.backends ?? {}
+  const allBackends = Object.entries(rawBackends).map(([name, info]) => ({
+    name,
+    alive: info.alive,
+    label: info.label ?? name,
+  }))
+
+  const llamacppList = allBackends.filter(b => b.name.startsWith('llamacpp'))
+  const otherList    = allBackends.filter(b => !b.name.startsWith('llamacpp'))
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-bold text-slate-200">Backend Connections</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Live probe status — auto-refreshes every 10 s</p>
+        </div>
+        <button
+          onClick={onRefresh}
+          disabled={isFetching}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-[#1e1e2a] border border-[#252535] text-slate-300 hover:bg-[#252535] transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+          Check All
+        </button>
+      </div>
+
+      {isLoading && <div className="text-slate-500 text-sm">Probing backends…</div>}
+
+      {/* llama.cpp servers */}
+      {llamacppList.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+            llama.cpp Servers <span className="text-slate-600 normal-case font-normal">— local GPU inference (ROCm)</span>
+          </h3>
+
+          {/* VRAM layout hint */}
+          <div className="bg-[#0e0e18] border border-[#252535] rounded-xl p-3 flex flex-wrap gap-2 items-center text-xs text-slate-500">
+            <span className="font-semibold text-slate-400">RX 7900 XTX (24 GB):</span>
+            <span className="px-2 py-0.5 rounded bg-orange-500/10 text-orange-400 font-semibold">Mode A</span>
+            <span>Pepe 8B + Gemma 4 E4B  ~17 GB · run together</span>
+            <span className="mx-1 text-slate-600">|</span>
+            <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 font-semibold">Mode B</span>
+            <span>Qwen3 35B MoE  ~19 GB · run alone</span>
+          </div>
+
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))' }}>
+            {llamacppList.map(b => {
+              const meta = LLAMACPP_META[b.name]
+              const modeColor = meta?.mode === 'A' ? 'orange' : 'purple'
+              return (
+                <div
+                  key={b.name}
+                  className={`bg-[#12121a] border rounded-xl p-4 flex flex-col gap-2.5 transition-all ${
+                    b.alive
+                      ? 'border-l-[3px] border-l-green-500 border-[#252535]'
+                      : 'border-[#252535]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${b.alive ? 'bg-green-400 shadow-[0_0_6px_#22c55e]' : 'bg-slate-600'}`} />
+                    <span className="font-semibold text-sm flex-1">{b.label}</span>
+                    {meta && <span className="text-xs text-cyan-400 font-mono">:{meta.port}</span>}
+                  </div>
+                  {meta && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        modeColor === 'orange'
+                          ? 'bg-orange-500/15 text-orange-400'
+                          : 'bg-purple-500/15 text-purple-400'
+                      }`}>
+                        MODE {meta.mode}
+                      </span>
+                      <span className="text-slate-500">{meta.note}</span>
+                    </div>
+                  )}
+                  <span className={`text-xs font-semibold ${b.alive ? 'text-green-400' : 'text-slate-500'}`}>
+                    {b.alive ? '● connected' : '○ offline'}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* launch instructions */}
+          <div className="bg-[#12121a] border border-[#252535] rounded-xl p-4">
+            <p className="text-xs font-semibold text-slate-400 mb-2">Start llama.cpp servers from a terminal:</p>
+            <div className="flex flex-wrap gap-2">
+              <code className="text-xs bg-[#1e1e2a] text-orange-300 px-3 py-2 rounded-lg font-mono border border-[#252535]">
+                bin\start_llm_backends.bat  →  A
+              </code>
+              <code className="text-xs bg-[#1e1e2a] text-purple-300 px-3 py-2 rounded-lg font-mono border border-[#252535]">
+                bin\start_llm_backends.bat  →  B
+              </code>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* other backends */}
+      {otherList.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Other Backends</h3>
+          <div className="bg-[#12121a] border border-[#252535] rounded-xl overflow-hidden">
+            {otherList.map((b, i) => (
+              <div
+                key={b.name}
+                className={`flex items-center px-4 py-3 gap-3 ${i < otherList.length - 1 ? 'border-b border-[#252535]' : ''}`}
+              >
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${b.alive ? 'bg-green-400 shadow-[0_0_6px_#22c55e]' : 'bg-slate-600'}`} />
+                <span className="text-sm flex-1">{b.label}</span>
+                {OTHER_BACKEND_PORTS[b.name] && (
+                  <span className="text-xs text-slate-500 font-mono">:{OTHER_BACKEND_PORTS[b.name]}</span>
+                )}
+                <span className={`text-xs font-semibold ${b.alive ? 'text-green-400' : 'text-slate-500'}`}>
+                  {b.alive ? 'up' : 'offline'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!isLoading && allBackends.length === 0 && (
+        <div className="text-slate-500 text-sm">No backend data — click Check All to probe.</div>
+      )}
     </div>
   )
 }

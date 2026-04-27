@@ -5,8 +5,6 @@ import { Tooltip } from "@/components/ui/tooltip"
 import {
   Sparkles,
   MessageSquare,
-  LayoutGrid,
-  Cpu,
   BookOpen,
   BookText,
   Plus,
@@ -19,7 +17,6 @@ import {
   Settings,
   Monitor,
   Rocket,
-  Users,
 } from "lucide-react"
 
 /**
@@ -36,22 +33,19 @@ interface NavItem {
 }
 
 const primaryNavItems: NavItem[] = [
-  { id: "dashboard",  label: "Dashboard",  icon: <Sparkles className="w-5 h-5" />,   view: "dashboard" },
-  { id: "chat",       label: "Chat",       icon: <MessageSquare className="w-5 h-5" />, view: "assistant" },
-  { id: "agents",     label: "Agents",     icon: <Users className="w-5 h-5" />,       view: "agents" },
-  { id: "instances",  label: "Instances",  icon: <LayoutGrid className="w-5 h-5" />,   view: "instances" },
-  { id: "models",     label: "Models",     icon: <Cpu className="w-5 h-5" />,           view: "models" },
-  { id: "library",      label: "Library",      icon: <BookOpen className="w-5 h-5" />,      view: "library" },
-  { id: "instructions", label: "Instructions", icon: <BookText className="w-5 h-5" />,  view: "instructions" },
+  { id: "dashboard",     label: "Dashboard",     icon: <Sparkles className="w-5 h-5" />,       view: "dashboard" },
+  { id: "chat",          label: "Chat",          icon: <MessageSquare className="w-5 h-5" />,   view: "assistant" },
+  { id: "launch-control", label: "Launch Control", icon: <Rocket className="w-5 h-5" />,       view: "launch-control" },
+  { id: "library",       label: "Library",       icon: <BookOpen className="w-5 h-5" />,        view: "library" },
+  { id: "instructions",  label: "Instructions",  icon: <BookText className="w-5 h-5" />,        view: "instructions" },
 ]
 
 const secondaryNavItems: NavItem[] = [
-  { id: "tools",          label: "Tools",          icon: <Wrench className="w-5 h-5" />,  view: "tools" },
-  { id: "voices",         label: "Voices",         icon: <Mic className="w-5 h-5" />,     view: "voices" },
-  { id: "desktop",        label: "Desktop",        icon: <Monitor className="w-5 h-5" />, view: "desktop" },
-  { id: "launch-control", label: "Launch Control", icon: <Rocket className="w-5 h-5" />, view: "launch-control" },
-  { id: "status",         label: "Status",         icon: <Activity className="w-5 h-5" />, view: "status" },
-  { id: "settings",       label: "Settings",       icon: <Settings className="w-5 h-5" />, view: "settings" },
+  { id: "tools",    label: "Tools",    icon: <Wrench className="w-5 h-5" />,   view: "tools" },
+  { id: "voices",   label: "Voices",   icon: <Mic className="w-5 h-5" />,      view: "voices" },
+  { id: "desktop",  label: "Desktop",  icon: <Monitor className="w-5 h-5" />,  view: "desktop" },
+  { id: "status",   label: "Status",   icon: <Activity className="w-5 h-5" />, view: "status" },
+  { id: "settings", label: "Settings", icon: <Settings className="w-5 h-5" />, view: "settings" },
 ]
 
 interface SidebarProps {

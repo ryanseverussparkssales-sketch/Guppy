@@ -142,7 +142,7 @@ def test_chat_route_forwards_active_instance_context() -> None:
             instances_config=_builder_instances_config(),
             instance_state=_builder_instance_state(),
         ):
-            def _fake_inference(message, system_prompt, mode=None, history=None, instance_name=None, instance_type=None, active_local_model=None):
+            def _fake_inference(message, system_prompt, mode=None, history=None, instance_name=None, instance_type=None, active_local_model=None, active_cloud_model=None):
                 del system_prompt, mode, history
                 calls.append((instance_name, instance_type, message))
                 return f"ok:{instance_name}:{instance_type}"

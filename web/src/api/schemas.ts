@@ -43,7 +43,7 @@ export const ProviderInfoSchema = z.object({
   active_model: z.string(),
   models:       z.array(ModelEntrySchema),
   backend:      z.string().optional(),
-  backends:     z.record(z.string(), z.object({ alive: z.boolean() })).optional(),
+  backends:     z.record(z.string(), z.object({ alive: z.boolean(), label: z.string().optional() })).optional(),
 })
 
 export const ProvidersSchema = z.object({
