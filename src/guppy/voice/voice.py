@@ -1,303 +1,380 @@
-from __future__ import annotations
+"""
+Voice Module Facade
+====================
 
+High-level async API for voice operations.
+"""
+
+import asyncio
 import logging
-import os
-import queue
-import threading
-import time
-from dataclasses import dataclass
+from typing import Optional, AsyncGenerator, AsyncContextManager
+from datetime import datetime
+from contextlib import asynccontextmanager
 
-try:
-    from utils.env_bootstrap import load_env_file
-except Exception:
-    load_env_file = None
-
-if callable(load_env_file):
-    load_env_file()
-
-try:
-    import numpy as np
-except Exception:
-    np = None
-
-try:
-    import sounddevice as sd
-except Exception:
-    sd = None
-
-try:
-    import soundfile as sf
-except Exception:
-    sf = None
-
-try:
-    import requests
-except Exception:
-    requests = None
-
-from . import voice_runtime as _runtime
-from .voice_support import (
-    build_backend_status,
-    clean_for_tts,
-    eleven_api_key,
-    eleven_model_id,
-    kokoro_speed_value,
-    preferred_sapi_voice,
-    resolve_kokoro_voice,
-    sapi_rate_value,
-    tts_provider_pref,
-    win_hidden_popen_flags,
+from guppy.voice.core import (
+    STTResult,
+    TTSResult,
+    VoiceConfig,
+    AudioEvent,
+    AudioEventType,
+    AudioQualityRating,
+    AudioQualityFeedback,
 )
-
+from guppy.voice.stt.fallback_orchestrator import FallbackChainOrchestrator
 
 logger = logging.getLogger(__name__)
-TTS_ENABLED = True
 
 
-@dataclass(slots=True)
-class VoiceConfig:
-    tts_voice: str = "en-GB-RyanNeural"
-    tts_rate: str = "+8%"
-    tts_pitch: str = "+4Hz"
-    stt_model: str = os.environ.get("GUPPY_WHISPER_MODEL", "large-v3")
-    stt_fallback: str = "google"
-    samplerate: int = 22050
-    lang_code: str = "en-us"
-    noise_reduction: bool = False
-    min_silence_threshold: int = 150
-    min_duration: float = 0.3
-    max_duration: float = 45.0
-    silence_cutoff: float = float(os.environ.get("GUPPY_SILENCE_CUTOFF", "0.7"))
-    speech_threshold: float = float(os.environ.get("GUPPY_SPEECH_THRESHOLD", "0.01"))
+_stt_orchestrator: Optional[FallbackChainOrchestrator] = None
+_tts_orchestrator = None  # TTSFallbackOrchestrator (lazy)
+_tts_cache = None  # TTSCache (lazy)
+_voice_config: Optional[VoiceConfig] = None
+_telemetry_events: list[AudioEvent] = []
+_MAX_TELEMETRY_EVENTS = 1000
 
 
-class GuppyVoice:
-    _whisper_singleton: "WhisperModel | None" = None  # type: ignore[name-defined]
-    _whisper_singleton_name: str = ""
+def _ensure_orchestrator() -> FallbackChainOrchestrator:
+    global _stt_orchestrator
+    if _stt_orchestrator is None:
+        _stt_orchestrator = FallbackChainOrchestrator()
+    return _stt_orchestrator
 
-    def __init__(
-        self,
-        config: VoiceConfig | str | None = None,
-        whisper_model: str = os.environ.get("GUPPY_WHISPER_MODEL", "large-v3"),
-        sample_rate: int = 22050,
-        lang_code: str = "en-us",
-        default_voice: str = "bm_lewis",
-    ):
-        if isinstance(config, VoiceConfig):
-            self.cfg = config
-        elif isinstance(config, str):
-            whisper_model = config
-            self.cfg = VoiceConfig(
-                stt_model=whisper_model,
-                samplerate=sample_rate,
-                lang_code=lang_code,
-                tts_voice=default_voice,
+
+def _ensure_tts_orchestrator():
+    global _tts_orchestrator
+    if _tts_orchestrator is None:
+        from guppy.voice.tts.fallback_orchestrator import TTSFallbackOrchestrator
+        _tts_orchestrator = TTSFallbackOrchestrator()
+    return _tts_orchestrator
+
+
+def _ensure_tts_cache():
+    global _tts_cache
+    if _tts_cache is None:
+        from guppy.voice.tts.cache import TTSCache
+        _tts_cache = TTSCache(max_entries=256)
+    return _tts_cache
+
+
+def _ensure_config() -> VoiceConfig:
+    global _voice_config
+    if _voice_config is None:
+        _voice_config = VoiceConfig(
+            active_stt_provider="fallback_chain",
+            active_tts_provider="kokoro",
+            active_wake_word_provider=None,
+            stt_language="en-US",
+            tts_voice="en-US-Neural2-A",
+            tts_speed=1.0,
+            tts_pitch=0.0,
+            enable_telemetry=True,
+            enable_quality_feedback=True,
+            fallback_enabled=True,
+        )
+    return _voice_config
+
+
+def record_audio_event(event: AudioEvent) -> None:
+    global _telemetry_events
+    config = _ensure_config()
+    if not config.enable_telemetry:
+        return
+    _telemetry_events.append(event)
+    if len(_telemetry_events) > _MAX_TELEMETRY_EVENTS:
+        _telemetry_events = _telemetry_events[-_MAX_TELEMETRY_EVENTS:]
+
+
+def get_audio_telemetry(limit: Optional[int] = None) -> list[AudioEvent]:
+    if limit is None:
+        return _telemetry_events.copy()
+    return _telemetry_events[-limit:].copy()
+
+
+def clear_audio_telemetry() -> None:
+    global _telemetry_events
+    _telemetry_events = []
+
+
+async def transcribe(
+    audio_data: bytes,
+    language: Optional[str] = None,
+) -> STTResult:
+    """Transcribe pre-captured audio via the STT fallback orchestrator."""
+    config = _ensure_config()
+    orchestrator = _ensure_orchestrator()
+    lang = language or config.stt_language
+
+    start_event = AudioEvent(
+        event_type=AudioEventType.STT_START,
+        provider="fallback_chain",
+        metadata={"language": lang, "audio_bytes": len(audio_data)},
+    )
+    record_audio_event(start_event)
+
+    try:
+        result = await orchestrator.transcribe(audio_data, language=lang)
+    except Exception as e:
+        logger.error(f"transcribe() unexpected error: {e}")
+        record_audio_event(AudioEvent(
+            event_type=AudioEventType.STT_ERROR,
+            provider="fallback_chain",
+            error_message=str(e),
+            metadata={"utterance_id": start_event.event_id},
+        ))
+        return STTResult(
+            text="", confidence=0.0, provider="fallback_chain",
+            duration_ms=0.0, language=lang, error=str(e),
+        )
+
+    chain = list(result.metadata.get("fallback_chain", []))
+    if result.error:
+        record_audio_event(AudioEvent(
+            event_type=AudioEventType.STT_ERROR,
+            provider=result.provider,
+            duration_ms=result.duration_ms,
+            error_message=result.error,
+            fallback_chain=chain,
+            metadata={"utterance_id": start_event.event_id},
+        ))
+    else:
+        primary_won = bool(chain) and chain[0] == result.provider
+        if chain and not primary_won:
+            record_audio_event(AudioEvent(
+                event_type=AudioEventType.STT_FALLBACK,
+                provider=result.provider,
+                duration_ms=result.duration_ms,
+                fallback_chain=chain,
+                metadata={"utterance_id": start_event.event_id},
+            ))
+        record_audio_event(AudioEvent(
+            event_type=AudioEventType.STT_SUCCESS,
+            provider=result.provider,
+            duration_ms=result.duration_ms,
+            output_text=result.text,
+            fallback_chain=chain,
+            metadata={
+                "utterance_id": start_event.event_id,
+                "confidence": result.confidence,
+                "language": result.language,
+            },
+        ))
+    return result
+
+
+async def _capture_microphone_audio() -> bytes:
+    return b""
+
+
+def _stream_microphone_audio():
+    return None
+
+
+@asynccontextmanager
+async def listen():
+    config = _ensure_config()
+    try:
+        audio_data = await _capture_microphone_audio()
+        if not audio_data:
+            yield STTResult(
+                text="", confidence=0.0, provider="microphone",
+                duration_ms=0.0, language=config.stt_language,
+                error="no_microphone",
             )
-        else:
-            self.cfg = VoiceConfig(
-                stt_model=whisper_model,
-                samplerate=sample_rate,
-                lang_code=lang_code,
-                tts_voice=default_voice,
-            )
-
-        self.sample_rate = int(self.cfg.samplerate)
-        self.default_voice = self.cfg.tts_voice or default_voice
-        self.whisper_model = None
-        self.kokoro_pipeline = None
-        self.kokoro_api_url = ""
-        self._whisper_error = ""
-        self._tts_error = ""
-        self._deepgram_available = False
-        self._sr_module = None
-        self.quiet_mode = False
-
-        self.wake_words = [
-            "guppy",
-            "hey guppy",
-            "butler",
-            "copy",
-            "gopi",
-            "goppy",
-            "gaby",
-            "gabby",
-            "hey copy",
-            "hey gopi",
-        ]
-        self.is_listening_for_wake_word = False
-        self.wake_word_thread = None
-        self.wake_word_callback = None
-        self._oww_available: bool | None = None
-
-        self._is_speaking = False
-        self.speaking_lock = threading.Lock()
-        self._listening = threading.Event()
-        self._stop_listening = threading.Event()
-        self._stop_speaking = threading.Event()
-        self._record_q: queue.Queue = queue.Queue()
-        self._tts_process = None
-
-        self._init_stt_backends()
-        self._init_tts_backend()
-
-    def _init_stt_backends(self) -> None:
-        _runtime.init_stt_backends(self, GuppyVoice)
-
-    def _init_tts_backend(self) -> None:
-        _runtime.init_tts_backend(self)
-
-    @staticmethod
-    def _tts_provider_pref() -> str:
-        return tts_provider_pref()
-
-    @staticmethod
-    def _eleven_model_id() -> str:
-        return eleven_model_id()
-
-    @staticmethod
-    def _eleven_api_key() -> str:
-        return eleven_api_key()
-
-    def backend_status(self) -> dict:
-        return build_backend_status(
-            provider=self._tts_provider_pref(),
-            eleven_ready=bool(self._eleven_api_key()) and requests is not None,
-            has_kokoro=self.kokoro_pipeline is not None,
-            has_whisper=self.whisper_model is not None,
-            has_speech_recognition=self._sr_module is not None,
-            oww_available=self._oww_available,
-            wake_enabled=self.is_listening_for_wake_word,
-            quiet_mode=self.quiet_mode,
-            whisper_model_name=self.cfg.stt_model or "",
-            tts_error=self._tts_error or "",
-            stt_error=self._whisper_error or "",
-        )
-
-    def toggle_quiet(self) -> bool:
-        self.quiet_mode = not self.quiet_mode
-        return self.quiet_mode
-
-    def _resolve_kokoro_voice(self, voice: str | None) -> str:
-        return resolve_kokoro_voice(voice, self.default_voice)
-
-    @staticmethod
-    def _sapi_rate_value(rate_text: str | None) -> int:
-        return sapi_rate_value(rate_text)
-
-    @staticmethod
-    def _preferred_sapi_voice(requested: str | None) -> str:
-        return preferred_sapi_voice(requested)
-
-    @staticmethod
-    def _kokoro_speed_value(rate_text: str | None, base_speed: float = 1.0) -> float:
-        return kokoro_speed_value(rate_text, base_speed)
-
-    def _clear_record_queue(self) -> None:
-        _runtime.clear_record_queue(self)
-
-    def _record_worker(self, timeout: float | None = None) -> None:
-        _runtime.record_worker(self, timeout=timeout)
-
-    def _transcribe_file(self, audio_path: str) -> str:
-        return _runtime.transcribe_file(self, audio_path)
-
-    def _speak_with_kokoro_api(self, text: str, voice: str, speed: float) -> None:
-        _runtime.speak_with_kokoro_api(self, text, voice, speed)
-
-    def _speak_with_kokoro(self, text: str, voice: str, speed: float) -> None:
-        _runtime.speak_with_kokoro(self, text, voice, speed)
-
-    def _speak_with_windows_tts(self, text: str, voice: str | None) -> None:
-        _runtime.speak_with_windows_tts(
-            self,
-            text,
-            voice,
-            hidden_popen_flags=win_hidden_popen_flags,
-            preferred_sapi_voice=preferred_sapi_voice,
-            sapi_rate_value=sapi_rate_value,
-        )
-
-    def _speak_with_elevenlabs(self, text: str, voice: str | None) -> None:
-        _runtime.speak_with_elevenlabs(
-            self,
-            text,
-            voice,
-            eleven_api_key=eleven_api_key,
-            eleven_model_id=eleven_model_id,
-        )
-
-    def speak(self, text, voice=None, speed=1.0):
-        if not TTS_ENABLED or self.quiet_mode:
             return
+        result = await transcribe(audio_data, language=config.stt_language)
+        yield result
+    except Exception as e:
+        logger.error(f"Error in listen(): {e}")
+        raise
 
-        text = clean_for_tts(str(text or ""))
-        if not text:
-            return
 
-        self._stop_speaking.clear()
-        with self.speaking_lock:
-            self._is_speaking = True
+async def stream_listen(language: Optional[str] = None):
+    config = _ensure_config()
+    orchestrator = _ensure_orchestrator()
+    lang = language or config.stt_language
 
-        try:
-            provider = self._tts_provider_pref()
-            if provider == "elevenlabs":
-                self._speak_with_elevenlabs(text, voice or self.default_voice)
-            elif provider == "sapi":
-                self._speak_with_windows_tts(text, voice or self.default_voice)
-            elif self.kokoro_api_url:
-                self._speak_with_kokoro_api(
-                    text,
-                    voice or self.default_voice,
-                    self._kokoro_speed_value(self.cfg.tts_rate, speed),
-                )
-            elif self.kokoro_pipeline is not None:
-                self._speak_with_kokoro(
-                    text,
-                    voice or self.default_voice,
-                    self._kokoro_speed_value(self.cfg.tts_rate, speed),
-                )
-            elif provider == "auto" and self._eleven_api_key() and requests is not None:
-                self._speak_with_elevenlabs(text, voice or self.default_voice)
-            else:
-                self._speak_with_windows_tts(text, voice or self.default_voice)
+    audio_stream = _stream_microphone_audio()
+    if audio_stream is None:
+        yield STTResult(
+            text="", confidence=0.0, provider="microphone",
+            duration_ms=0.0, language=lang, error="no_microphone",
+        )
+        return
 
-            if not self._stop_speaking.is_set():
-                time.sleep(0.2)
-        except Exception as exc:
-            self._tts_error = str(exc)
-        finally:
-            with self.speaking_lock:
-                self._is_speaking = False
-            self._stop_speaking.clear()
+    async for result in orchestrator.stream_transcribe(audio_stream, language=lang):
+        chain = list(result.metadata.get("fallback_chain", []))
+        record_audio_event(AudioEvent(
+            event_type=AudioEventType.STT_SUCCESS if not result.error else AudioEventType.STT_ERROR,
+            provider=result.provider,
+            duration_ms=result.duration_ms,
+            output_text=result.text or None,
+            error_message=result.error,
+            fallback_chain=chain,
+            metadata={"is_final": result.is_final, "language": result.language},
+        ))
+        yield result
 
-    def stop_speaking(self):
-        _runtime.stop_speaking(self)
 
-    def stop_tts(self):
-        self.stop_speaking()
+async def synthesize(
+    text: str,
+    voice: Optional[str] = None,
+    use_cache: bool = True,
+) -> TTSResult:
+    """
+    Synthesize text to speech via the TTS fallback orchestrator.
 
-    def stop_listening(self):
-        self._stop_listening.set()
+    Records TTS_START, TTS_SUCCESS / TTS_ERROR / TTS_FALLBACK events
+    with utterance_id linking. Caches successful synthesis when
+    use_cache is True (default).
+    """
+    config = _ensure_config()
+    orchestrator = _ensure_tts_orchestrator()
+    cache = _ensure_tts_cache() if use_cache else None
 
-    def listen_once(self, timeout: float | None = None) -> dict:
-        return _runtime.listen_once(self, timeout)
+    start_event = AudioEvent(
+        event_type=AudioEventType.TTS_START,
+        provider="fallback_chain",
+        input_text=text,
+        metadata={"voice": voice, "text_len": len(text)},
+    )
+    record_audio_event(start_event)
 
-    def listen(self, duration=5, silence_threshold=0.01):
-        del silence_threshold
-        result = self.listen_once(timeout=duration)
-        return result.get("text", "") if isinstance(result, dict) else ""
+    # Cache hit?
+    if cache is not None:
+        cached = cache.get(text, voice, "fallback_chain")
+        if cached is not None:
+            record_audio_event(AudioEvent(
+                event_type=AudioEventType.TTS_SUCCESS,
+                provider=cached.provider,
+                duration_ms=0.0,  # cache hit
+                input_text=text,
+                metadata={
+                    "utterance_id": start_event.event_id,
+                    "cache_hit": True,
+                    "voice": voice,
+                },
+            ))
+            return cached
 
-    def _wake_word_listener(self):
-        _runtime.wake_word_listener(self)
+    try:
+        result = await orchestrator.synthesize(text, voice=voice)
+    except Exception as e:
+        logger.error(f"synthesize() unexpected error: {e}")
+        record_audio_event(AudioEvent(
+            event_type=AudioEventType.TTS_ERROR,
+            provider="fallback_chain",
+            input_text=text,
+            error_message=str(e),
+            metadata={"utterance_id": start_event.event_id},
+        ))
+        return TTSResult(
+            audio_data=b"", provider="fallback_chain",
+            duration_ms=0.0, sample_rate=0, channels=1,
+            format="wav", playback_duration_s=0.0, error=str(e),
+        )
 
-    def _wake_word_listener_oww(self):
-        _runtime.wake_word_listener_oww(self)
+    chain = list(result.metadata.get("fallback_chain", []))
+    if result.error:
+        record_audio_event(AudioEvent(
+            event_type=AudioEventType.TTS_ERROR,
+            provider=result.provider,
+            duration_ms=result.duration_ms,
+            input_text=text,
+            error_message=result.error,
+            fallback_chain=chain,
+            metadata={"utterance_id": start_event.event_id},
+        ))
+    else:
+        primary_won = bool(chain) and chain[0] == result.provider
+        if chain and not primary_won:
+            record_audio_event(AudioEvent(
+                event_type=AudioEventType.TTS_FALLBACK,
+                provider=result.provider,
+                duration_ms=result.duration_ms,
+                fallback_chain=chain,
+                metadata={"utterance_id": start_event.event_id},
+            ))
+        record_audio_event(AudioEvent(
+            event_type=AudioEventType.TTS_SUCCESS,
+            provider=result.provider,
+            duration_ms=result.duration_ms,
+            input_text=text,
+            fallback_chain=chain,
+            metadata={
+                "utterance_id": start_event.event_id,
+                "voice": voice,
+                "playback_duration_s": result.playback_duration_s,
+            },
+        ))
+        if cache is not None:
+            cache.put(text, voice, "fallback_chain", result)
+    return result
 
-    def start_wake_word_detection(self, callback_function=None):
-        _runtime.start_wake_word_detection(self, callback_function)
 
-    def stop_wake_word_detection(self):
-        _runtime.stop_wake_word_detection(self)
+async def speak(text: str, voice: Optional[str] = None) -> TTSResult:
+    """
+    Text-to-speech with fallback support.
 
-    def hold_to_talk(self, on_result=None):
-        return _runtime.hold_to_talk(self, on_result)
+    Synthesizes text via TTS orchestrator (ElevenLabs -> Kokoro -> SAPI)
+    and returns the TTSResult. Audio playback (writing to speaker) is
+    delegated to the platform wrapper; this returns the raw audio bytes
+    in the result.
+    """
+    return await synthesize(text, voice=voice)
+
+
+async def stream_speak(text: str, voice: Optional[str] = None):
+    """Stream-based text-to-speech. Yields audio chunks."""
+    result = await synthesize(text, voice=voice)
+    if result.audio_data and not result.error:
+        yield result.audio_data
+
+
+def get_voice_config() -> VoiceConfig:
+    return _ensure_config()
+
+
+def set_voice_config(config: VoiceConfig) -> None:
+    global _voice_config
+    _voice_config = config
+
+
+def set_active_stt_provider(provider_name: str) -> None:
+    config = _ensure_config()
+    config.active_stt_provider = provider_name
+
+
+def set_active_tts_provider(provider_name: str) -> None:
+    config = _ensure_config()
+    config.active_tts_provider = provider_name
+
+
+def get_tts_cache_stats() -> dict:
+    cache = _ensure_tts_cache()
+    return cache.stats()
+
+
+def clear_tts_cache() -> None:
+    cache = _ensure_tts_cache()
+    cache.clear()
+
+
+def record_audio_quality_feedback(
+    rating: AudioQualityRating,
+    provider: str,
+    event_type: AudioEventType,
+    notes: str = "",
+) -> None:
+    config = _ensure_config()
+    if not config.enable_quality_feedback:
+        return
+    feedback = AudioQualityFeedback(
+        rating=rating, provider=provider, event_type=event_type,
+        timestamp=datetime.utcnow(), notes=notes,
+    )
+    event = AudioEvent(
+        event_type=AudioEventType.AUDIO_QUALITY_FEEDBACK,
+        provider=provider, timestamp=feedback.timestamp,
+        metadata=feedback.to_dict(),
+    )
+    record_audio_event(event)
