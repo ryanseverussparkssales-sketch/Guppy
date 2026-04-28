@@ -10,7 +10,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   PenSquare, Trash2, AlertCircle, WifiOff, Clock,
   Mic, MicOff, StopCircle, Navigation, Volume2, VolumeX,
-  ArrowUp, Bot, Copy, Check, Pencil, RefreshCw, Timer, Sparkles,
+  ArrowUp, Bot, Copy, Check, Pencil, RefreshCw, Timer, Sparkles, Search, X, Paperclip, ImageIcon,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { format } from 'date-fns'
@@ -98,9 +98,19 @@ export default function AssistantView() {
   // Follow-up suggestions shown after last assistant reply
   const [followUps, setFollowUps] = useState<string[]>([])
 
-  // Response timing
+  // Image attachment for multimodal sends
+  const [attachedImage, setAttachedImage] = useState<{ base64: string; name: string } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Conversation search
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<typeof conversations | null>(null)
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Response timing + model attribution
   const streamStartRef = useRef<number>(0)
   const [elapsedMs, setElapsedMs] = useState<number | null>(null)
+  const [lastSource, setLastSource] = useState<string | null>(null)
 
   const messagesEndRef       = useRef<HTMLDivElement>(null)
   const abortControllerRef   = useRef<AbortController | null>(null)
@@ -137,9 +147,10 @@ export default function AssistantView() {
       .catch((err: any) => setLocalError(err?.message || 'Failed to create conversation'))
   }, [activeWorkspaceId])
 
-  // reset timing when conversation switches
+  // reset timing + source when conversation switches
   useEffect(() => {
     setElapsedMs(null)
+    setLastSource(null)
   }, [activeConversationId])
 
   // ── actions ───────────────────────────────────────────────────────────────
@@ -183,13 +194,19 @@ export default function AssistantView() {
     try {
       await syncManager.addMessage(activeConversationId, 'user', text)
       setStreamingContent('')
+      setLastSource(null)
 
+      const currentImage = attachedImage
+      setAttachedImage(null)
       const full = await syncManager.getAIResponse(
         activeConversationId,
         text,
         sendMode,
         (token) => setStreamingContent((p) => p + token),
         controller.signal,
+        (replaced) => setStreamingContent(replaced),
+        (src) => setLastSource(src),
+        currentImage?.base64,
       )
       setStreamingContent('')
 
@@ -242,6 +259,34 @@ export default function AssistantView() {
     }
   }
 
+  const handleSearchChange = useCallback((q: string) => {
+    setSearchQuery(q)
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    if (!q.trim()) { setSearchResults(null); return }
+    searchDebounceRef.current = setTimeout(async () => {
+      if (!activeWorkspaceId) return
+      try {
+        const res = await api.get(`/api/chat/history/search/${activeWorkspaceId}`, { params: { q } })
+        setSearchResults(res.data?.results ?? [])
+      } catch { setSearchResults([]) }
+    }, 300)
+  }, [activeWorkspaceId])
+
+  const handleImagePick = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string
+      // Strip "data:image/...;base64," prefix
+      const base64 = dataUrl.split(',')[1] ?? ''
+      setAttachedImage({ base64, name: file.name })
+    }
+    reader.readAsDataURL(file)
+    // Reset so same file can be picked again
+    e.target.value = ''
+  }, [])
+
   // Edit a user message — populate textarea and focus
   const handleEditMessage = useCallback((content: string) => {
     setInputValue(content)
@@ -275,12 +320,34 @@ export default function AssistantView() {
           </button>
         </div>
 
+        {/* Search */}
+        <div className="px-3 pb-2 shrink-0">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface-container text-on-surface-variant">
+            <Search className="w-3.5 h-3.5 shrink-0 opacity-50" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search chats…"
+              className="flex-1 bg-transparent text-xs outline-none placeholder:text-on-surface-variant/50 min-w-0"
+            />
+            {searchQuery && (
+              <button onClick={() => { setSearchQuery(''); setSearchResults(null) }} className="opacity-60 hover:opacity-100">
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Conversation list */}
         <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5">
           {loading && conversations.length === 0 && (
             <p className="text-xs text-on-surface-variant/50 px-3 py-4">Loading…</p>
           )}
-          {conversations.map((conv) => {
+          {searchResults !== null && searchResults.length === 0 && (
+            <p className="text-xs text-on-surface-variant/50 px-3 py-2">No results</p>
+          )}
+          {(searchResults ?? conversations).map((conv) => {
             const active = conv.id === activeConversationId
             return (
               <div
@@ -415,6 +482,15 @@ export default function AssistantView() {
                                 {fmtElapsed(elapsedMs!)}
                               </span>
                             )}
+                            {/* Model source badge */}
+                            {isLastAsst && lastSource && (
+                              <span
+                                title={lastSource}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant/50 font-mono truncate max-w-[140px]"
+                              >
+                                {lastSource.length > 22 ? lastSource.slice(0, 20) + '…' : lastSource}
+                              </span>
+                            )}
                             {/* Hover actions */}
                             <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
                               <MsgAction
@@ -544,6 +620,17 @@ export default function AssistantView() {
                 </div>
               )}
 
+              {/* Image attachment preview */}
+              {attachedImage && (
+                <div className="flex items-center gap-2 px-4 pt-2">
+                  <ImageIcon className="w-3.5 h-3.5 text-primary shrink-0" />
+                  <span className="text-xs text-on-surface-variant truncate max-w-[180px]">{attachedImage.name}</span>
+                  <button onClick={() => setAttachedImage(null)} className="text-on-surface-variant/50 hover:text-error shrink-0">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+
               {/* Textarea */}
               <textarea
                 ref={textareaRef}
@@ -604,6 +691,23 @@ export default function AssistantView() {
                     onClass="text-amber-500 bg-amber-500/10"
                   >
                     <Navigation className="w-3.5 h-3.5" />
+                  </IconToggle>
+
+                  {/* Image attach (for MiniCPM-o multimodal) */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImagePick}
+                  />
+                  <IconToggle
+                    on={!!attachedImage}
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Attach image (MiniCPM-o vision)"
+                    onClass="text-primary bg-primary/10"
+                  >
+                    <Paperclip className="w-3.5 h-3.5" />
                   </IconToggle>
 
                   {/* TTS toggle */}

@@ -36,6 +36,7 @@ export const ModelEntrySchema = z.object({
   id:   z.string(),
   name: z.string(),
   tier: z.string(),
+  free: z.boolean().optional(),
 })
 
 export const ProviderInfoSchema = z.object({
@@ -50,11 +51,17 @@ export const ProvidersSchema = z.object({
   anthropic: ProviderInfoSchema,
   openai:    ProviderInfoSchema,
   google:    ProviderInfoSchema,
+  cohere:    ProviderInfoSchema.optional(),
+  mistral:   ProviderInfoSchema.optional(),
   local:     ProviderInfoSchema,
 })
 
 export type ProviderInfo = z.infer<typeof ProviderInfoSchema>
-export type Providers    = z.infer<typeof ProvidersSchema>
+export type Providers    = z.infer<typeof ProvidersSchema> & {
+  // cohere and mistral are optional in the schema but present when the API returns them
+  cohere?: ProviderInfo
+  mistral?: ProviderInfo
+}
 export type ModelEntry   = z.infer<typeof ModelEntrySchema>
 
 // ── Tools ────────────────────────────────────────────────────────────────────

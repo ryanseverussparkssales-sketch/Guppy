@@ -88,14 +88,14 @@ const PROVIDERS: Record<Provider, ProviderConfig> = {
     icon: <Cloud className="w-5 h-5" />,
     color: 'border-coral-500 bg-rose-50 dark:bg-rose-950',
     url: 'https://dashboard.cohere.com/api-keys',
-    placeholder: '...',
+    placeholder: 'Free key from dashboard.cohere.com',
   },
   mistral: {
     label: 'Mistral AI',
     icon: <Cloud className="w-5 h-5" />,
     color: 'border-amber-500 bg-amber-50 dark:bg-amber-950',
     url: 'https://console.mistral.ai/api-keys',
-    placeholder: '...',
+    placeholder: 'Free key from console.mistral.ai',
   },
 }
 

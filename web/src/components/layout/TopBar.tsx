@@ -181,31 +181,61 @@ export function TopBar({ title = "Guppy", onOpenCommandPalette }: TopBarProps) {
               )}
               {/* Cloud providers */}
               {(["anthropic", "openai", "google", "cohere", "mistral"] as const).map(p => {
-                const info = providers[p]
-                if (!info?.configured) return null
+                const info = providers[p as keyof typeof providers] as { configured: boolean; active_model: string; models: any[] } | undefined
+                if (!info) return null
+
                 const label =
                   p === "anthropic" ? "Anthropic" :
                   p === "openai"    ? "OpenAI"    :
                   p === "google"    ? "Google"    :
                   p === "cohere"    ? "Cohere"    : "Mistral"
+
+                const getKeyUrl =
+                  p === "mistral" ? "https://console.mistral.ai/api-keys" :
+                  p === "cohere"  ? "https://dashboard.cohere.com/api-keys" : ""
+
+                // Unconfigured providers: only show if they have free-tier models
+                const hasFreeModels = info.models.some((m: any) => m.free)
+                if (!info.configured && !hasFreeModels) return null
+
                 return (
                   <div key={p} className="p-2 border-t border-outline-variant/10">
                     <div className="px-2 py-1 text-[10px] font-bold text-on-surface-variant/60 uppercase tracking-wider flex items-center gap-1">
                       <Cloud className="w-3 h-3" /> {label}
+                      {!info.configured && (
+                        <span className="ml-auto px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 text-[10px] font-semibold normal-case tracking-normal">
+                          no key
+                        </span>
+                      )}
                     </div>
+                    {!info.configured && getKeyUrl && (
+                      <a
+                        href={getKeyUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() => setModelDropdownOpen(false)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-400 hover:text-amber-300 hover:bg-surface-container-high rounded-lg transition-colors"
+                      >
+                        <span>Get free API key →</span>
+                      </a>
+                    )}
                     {info.models.map((m: any) => (
                       <button
                         key={m.id}
                         onClick={async () => {
+                          if (!info.configured) return
                           await setProvider(p)
                           await setModel(p, m.id)
                           setModelDropdownOpen(false)
                         }}
+                        disabled={!info.configured}
                         className={cn(
                           "w-full text-left px-3 py-2 rounded-lg text-xs transition-colors flex items-center justify-between gap-2",
-                          info.active_model === m.id && activeProvider === p
-                            ? "bg-primary/10 text-primary"
-                            : "text-on-surface hover:bg-surface-container-high"
+                          !info.configured
+                            ? "text-on-surface-variant/40 cursor-default"
+                            : info.active_model === m.id && activeProvider === p
+                              ? "bg-primary/10 text-primary"
+                              : "text-on-surface hover:bg-surface-container-high"
                         )}
                       >
                         <span className="font-medium truncate">{m.name}</span>

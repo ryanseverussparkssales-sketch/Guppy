@@ -532,7 +532,10 @@ export class SyncManager {
     userMessage: string,
     model?: string,
     onToken?: (token: string) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    onReplace?: (text: string) => void,
+    onSource?: (source: string) => void,
+    imageBase64?: string,
   ) {
     const store = useAppStore.getState()
     const endpoint = 'POST /api/chat'
@@ -561,12 +564,18 @@ export class SyncManager {
             workspace_id: store.activeWorkspaceId,
             mode: model || 'auto',
             history,
+            ...(imageBase64 ? { image_base64: imageBase64 } : {}),
           },
           (token) => {
             fullResponse += token
             onToken(token)
           },
-          signal
+          signal,
+          (replaced) => {
+            fullResponse = replaced
+            onReplace?.(replaced)
+          },
+          onSource,
         )
         if (fullResponse.trim()) {
           await this.addMessage(conversationId, 'assistant', fullResponse, model)

@@ -617,6 +617,11 @@ function BackendsTab({ onRefresh }: { onRefresh: () => void }) {
               const isStopping  = stopMut.isPending && stopMut.variables === b.name
               const isLaunching = startMut.isPending && startMut.variables === b.name
 
+              // VRAM conflict detection: Mode B needs all other backends stopped
+              const otherAlive = llamacppData.filter(x => x.name !== b.name && x.alive)
+              const modeConflict = b.mode === 'B' && otherAlive.length > 0
+              const conflictNames = modeConflict ? otherAlive.map(x => x.label).join(', ') : ''
+
               const statusLabel = b.alive
                 ? '● connected'
                 : isStarting
@@ -636,7 +641,9 @@ function BackendsTab({ onRefresh }: { onRefresh: () => void }) {
                       ? 'border-l-[3px] border-l-green-500 border-[#252535]'
                       : isStarting
                         ? 'border-l-[3px] border-l-yellow-500 border-[#252535]'
-                        : 'border-[#252535]'
+                        : modeConflict
+                          ? 'border-l-[3px] border-l-orange-500/60 border-[#252535]'
+                          : 'border-[#252535]'
                   }`}
                 >
                   {/* name + port */}
@@ -658,6 +665,14 @@ function BackendsTab({ onRefresh }: { onRefresh: () => void }) {
                     </span>
                     <span className="text-slate-500">{b.note}</span>
                   </div>
+
+                  {/* VRAM conflict warning */}
+                  {modeConflict && !b.alive && (
+                    <div className="flex items-start gap-1.5 text-xs text-orange-400 bg-orange-500/10 border border-orange-500/20 rounded-md px-2.5 py-2">
+                      <span className="mt-0.5 flex-shrink-0">⚠</span>
+                      <span>Stop first: <span className="font-semibold">{conflictNames}</span></span>
+                    </div>
+                  )}
 
                   {/* status + pid */}
                   <div className="flex items-center gap-3 text-xs">

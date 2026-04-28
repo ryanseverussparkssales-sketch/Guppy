@@ -82,9 +82,9 @@ api.interceptors.request.use((config) => {
   // Record request start time
   requestStartTimes.set(endpoint, Date.now())
 
-  // Skip circuit breaker for local API — always true when using relative URLs
-  // through the Vite proxy (dev) or served from the same origin (prod).
-  const isLocalApi = true
+  // Skip circuit breaker when the API is same-origin (relative URL or explicit localhost).
+  // This covers: Vite proxy in dev, and FastAPI serving the built app in prod.
+  const isLocalApi = !_BASE_URL || _BASE_URL === '' || /^https?:\/\/localhost/i.test(_BASE_URL)
 
   // Check if circuit is open
   if (!isLocalApi && breaker.isOpen()) {
@@ -440,13 +440,18 @@ export function getQueueStats() {
 const _BASE_URL = (import.meta.env.VITE_API_URL || '') as string
 
 /**
- * SSE streaming chat. Calls /api/chat/stream and invokes onToken for each token.
+ * SSE streaming chat. Calls /api/chat/stream and invokes callbacks for each event.
+ * - onToken:   text chunk to append
+ * - onReplace: replace entire streamed content (e.g. post-stream marker cleanup)
+ * - onSource:  backend/model that served the response
  * Throws on HTTP error or if the server sends {"error": "..."}.
  */
 export async function streamChat(
   params: { message: string; session_id?: string; workspace_id?: string | null; mode?: string; history?: Array<{ role: 'user' | 'assistant'; content: string }> },
   onToken: (token: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onReplace?: (text: string) => void,
+  onSource?: (source: string) => void,
 ): Promise<void> {
   const token = localStorage.getItem('accessToken')
   const response = await fetch(`${_BASE_URL}/api/chat/stream`, {
@@ -482,7 +487,13 @@ export async function streamChat(
       try {
         const parsed = JSON.parse(payload)
         if (parsed.error) throw new Error(parsed.error)
-        if (parsed.token) onToken(parsed.token)
+        if (parsed.done) {
+          if (parsed.source && onSource) onSource(parsed.source)
+          return
+        }
+        if (parsed.replace !== undefined && onReplace) onReplace(parsed.replace)
+        else if (parsed.token) onToken(parsed.token)
+        if (parsed.source && onSource) onSource(parsed.source)
       } catch (e) {
         if (e instanceof SyntaxError) continue
         throw e
