@@ -8,6 +8,9 @@ import {
 } from "lucide-react"
 import { useInstances, useModels, useSystemStatus } from "@/hooks/useApi"
 
+const navigate = (view: string) =>
+  window.dispatchEvent(new CustomEvent("guppy:navigate", { detail: { view } }))
+
 /**
  * DashboardView - Editorial bento-style dashboard
  * 
@@ -273,11 +276,14 @@ function ModelCard({ name, description, status, latency, context, quantization, 
             <span className="text-sm font-bold text-secondary">{quantization}</span>
           </div>
         </div>
-        <button className={`w-full mt-6 py-3 font-bold text-xs rounded transition-all uppercase tracking-wider ${
-          isPrimary 
-            ? "signature-gradient text-white shadow-md" 
-            : "bg-surface-container-low text-on-surface hover:bg-primary hover:text-white"
-        }`}>
+        <button
+          onClick={() => navigate(isPrimary ? "settings" : "instances")}
+          className={`w-full mt-6 py-3 font-bold text-xs rounded transition-all uppercase tracking-wider ${
+            isPrimary
+              ? "signature-gradient text-white shadow-md"
+              : "bg-surface-container-low text-on-surface hover:bg-primary hover:text-white"
+          }`}
+        >
           {isPrimary ? "Configure Parameters" : "Initialize Node"}
         </button>
       </div>

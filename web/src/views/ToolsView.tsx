@@ -200,7 +200,10 @@ export default function ToolsView() {
             </p>
           </div>
           {activeTab === 'functions' && (
-            <button className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors">
+            <button
+              onClick={() => toast.info("Custom tool registration coming in Phase 2")}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+            >
               <Plus className="w-4 h-4" />
               Add Tool
             </button>
@@ -358,10 +361,18 @@ export default function ToolsView() {
                           )}
                         </button>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                          <button
+                            onClick={() => toast.info(`Settings for "${tool.name}" coming soon`)}
+                            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                            title="Tool settings"
+                          >
                             <Settings className="w-4 h-4" />
                           </button>
-                          <button className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                          <button
+                            onClick={() => toast.info(`Documentation for "${tool.name}" not yet linked`)}
+                            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                            title="Open docs"
+                          >
                             <ExternalLink className="w-4 h-4" />
                           </button>
                         </div>

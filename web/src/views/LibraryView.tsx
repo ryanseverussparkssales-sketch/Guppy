@@ -15,6 +15,7 @@
  */
 
 import { useState, useRef } from 'react'
+import { toast } from 'sonner'
 import {
   FolderOpen,
   Plus,
@@ -104,17 +105,30 @@ export default function LibraryView() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null)
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
+  const [recentOnly, setRecentOnly] = useState(false)
   const [items, setItems] = useState(MOCK_ITEMS)
-  const [collections] = useState(MOCK_COLLECTIONS)
+  const [collections, setCollections] = useState(MOCK_COLLECTIONS)
   const [showNewItem, setShowNewItem] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newContent, setNewContent] = useState('')
   const [newType, setNewType] = useState<'prompt' | 'template' | 'artifact'>('prompt')
+  const [showNewCollection, setShowNewCollection] = useState(false)
+  const [newCollectionName, setNewCollectionName] = useState('')
+  const [editingItem, setEditingItem] = useState<LibraryItem | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editContent, setEditContent] = useState('')
   const titleRef = useRef<HTMLInputElement>(null)
+  const collectionInputRef = useRef<HTMLInputElement>(null)
+
+  const clearFilters = () => {
+    setSelectedCollection(null)
+    setShowFavoritesOnly(false)
+    setRecentOnly(false)
+  }
 
   // Filter items
-  const filteredItems = items.filter(item => {
-    const matchesSearch = !searchQuery || 
+  const baseFiltered = items.filter(item => {
+    const matchesSearch = !searchQuery ||
       item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -123,10 +137,51 @@ export default function LibraryView() {
     return matchesSearch && matchesCollection && matchesFavorites
   })
 
+  const filteredItems = recentOnly
+    ? [...baseFiltered].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    : baseFiltered
+
   const toggleFavorite = (id: string) => {
-    setItems(items.map(item => 
+    setItems(items.map(item =>
       item.id === id ? { ...item, isFavorite: !item.isFavorite } : item
     ))
+  }
+
+  const handleCopy = (item: LibraryItem) => {
+    navigator.clipboard.writeText(item.content)
+    toast.success('Copied to clipboard')
+  }
+
+  const openEdit = (item: LibraryItem) => {
+    setEditingItem(item)
+    setEditTitle(item.title)
+    setEditContent(item.content)
+  }
+
+  const handleSaveEdit = () => {
+    if (!editingItem || !editTitle.trim() || !editContent.trim()) return
+    setItems(prev => prev.map(i => i.id === editingItem.id
+      ? { ...i, title: editTitle.trim(), content: editContent.trim(), updatedAt: new Date().toISOString() }
+      : i
+    ))
+    toast.success('Item updated')
+    setEditingItem(null)
+  }
+
+  const handleDelete = (id: string) => {
+    setItems(prev => prev.filter(i => i.id !== id))
+    toast.success('Item deleted')
+  }
+
+  const handleAddCollection = () => {
+    const name = newCollectionName.trim()
+    if (!name) return
+    const id = name.toLowerCase().replace(/\s+/g, '-')
+    const colors = ['bg-blue-500', 'bg-purple-500', 'bg-green-500', 'bg-orange-500', 'bg-pink-500']
+    setCollections(prev => [...prev, { id, name, itemCount: 0, color: colors[prev.length % colors.length] }])
+    setNewCollectionName('')
+    setShowNewCollection(false)
+    toast.success(`Collection "${name}" created`)
   }
 
   const formatDate = (dateStr: string) => {
@@ -136,7 +191,7 @@ export default function LibraryView() {
 
   const handleAddItem = () => {
     if (!newTitle.trim() || !newContent.trim()) return
-    const now = new Date().toISOString().slice(0, 10)
+    const now = new Date().toISOString()
     setItems(prev => [...prev, {
       id: `item-${Date.now()}`,
       title: newTitle.trim(),
@@ -153,12 +208,17 @@ export default function LibraryView() {
     setShowNewItem(false)
   }
 
+  const openNewItem = () => {
+    setShowNewItem(true)
+    setTimeout(() => titleRef.current?.focus(), 50)
+  }
+
   return (
     <div className="flex h-full">
       {/* Sidebar */}
       <div className="w-64 border-r border-border p-4 flex flex-col">
         <button
-          onClick={() => { setShowNewItem(true); setTimeout(() => titleRef.current?.focus(), 50) }}
+          onClick={openNewItem}
           className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors mb-6"
         >
           <Plus className="w-4 h-4" />
@@ -167,10 +227,10 @@ export default function LibraryView() {
 
         <div className="space-y-1 mb-6">
           <button
-            onClick={() => { setSelectedCollection(null); setShowFavoritesOnly(false); }}
+            onClick={clearFilters}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
-              !selectedCollection && !showFavoritesOnly
+              !selectedCollection && !showFavoritesOnly && !recentOnly
                 ? "bg-primary/10 text-primary"
                 : "text-muted-foreground hover:bg-muted"
             )}
@@ -180,7 +240,7 @@ export default function LibraryView() {
             <span className="ml-auto text-xs">{items.length}</span>
           </button>
           <button
-            onClick={() => { setSelectedCollection(null); setShowFavoritesOnly(true); }}
+            onClick={() => { setSelectedCollection(null); setShowFavoritesOnly(true); setRecentOnly(false) }}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
               showFavoritesOnly
@@ -192,7 +252,15 @@ export default function LibraryView() {
             Favorites
             <span className="ml-auto text-xs">{items.filter(i => i.isFavorite).length}</span>
           </button>
-          <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted transition-colors">
+          <button
+            onClick={() => { setSelectedCollection(null); setShowFavoritesOnly(false); setRecentOnly(true) }}
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+              recentOnly
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-muted"
+            )}
+          >
             <Clock className="w-4 h-4" />
             Recent
           </button>
@@ -203,7 +271,10 @@ export default function LibraryView() {
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
               Collections
             </span>
-            <button className="p-1 rounded hover:bg-muted text-muted-foreground">
+            <button
+              onClick={() => { setShowNewCollection(true); setTimeout(() => collectionInputRef.current?.focus(), 50) }}
+              className="p-1 rounded hover:bg-muted text-muted-foreground"
+            >
               <Plus className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -211,7 +282,7 @@ export default function LibraryView() {
             {collections.map(collection => (
               <button
                 key={collection.id}
-                onClick={() => { setSelectedCollection(collection.id); setShowFavoritesOnly(false); }}
+                onClick={() => { setSelectedCollection(collection.id); setShowFavoritesOnly(false); setRecentOnly(false) }}
                 className={cn(
                   "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
                   selectedCollection === collection.id
@@ -256,7 +327,10 @@ export default function LibraryView() {
                   : 'Save prompts, templates, and artifacts for quick access'}
               </p>
               {!searchQuery && (
-                <button className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2">
+                <button
+                  onClick={openNewItem}
+                  className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2"
+                >
                   <Plus className="w-4 h-4" />
                   Create your first item
                 </button>
@@ -310,13 +384,25 @@ export default function LibraryView() {
                         >
                           <Star className={cn("w-4 h-4", item.isFavorite && "fill-current")} />
                         </button>
-                        <button className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleCopy(item) }}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                          title="Copy content"
+                        >
                           <Copy className="w-4 h-4" />
                         </button>
-                        <button className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openEdit(item) }}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                          title="Edit item"
+                        >
                           <Edit className="w-4 h-4" />
                         </button>
-                        <button className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-destructive transition-colors">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDelete(item.id) }}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-destructive transition-colors"
+                          title="Delete item"
+                        >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -328,6 +414,72 @@ export default function LibraryView() {
           )}
         </div>
       </div>
+
+      {/* New Collection Modal */}
+      {showNewCollection && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowNewCollection(false)}>
+          <div className="bg-surface border border-outline-variant rounded-xl shadow-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-on-surface">New Collection</h3>
+              <button onClick={() => setShowNewCollection(false)}><X className="w-4 h-4 text-on-surface-variant" /></button>
+            </div>
+            <input
+              ref={collectionInputRef}
+              value={newCollectionName}
+              onChange={e => setNewCollectionName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAddCollection()}
+              placeholder="Collection name"
+              className="w-full px-3 py-2 rounded-lg bg-surface-variant border border-outline-variant text-sm text-on-surface placeholder:text-on-surface-variant/50 outline-none focus:border-primary"
+            />
+            <div className="flex gap-2 mt-4 justify-end">
+              <button onClick={() => setShowNewCollection(false)} className="px-4 py-2 text-sm rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-variant">Cancel</button>
+              <button
+                onClick={handleAddCollection}
+                disabled={!newCollectionName.trim()}
+                className="px-4 py-2 text-sm rounded-lg bg-primary text-on-primary hover:bg-primary/90 disabled:opacity-50"
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Item Modal */}
+      {editingItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setEditingItem(null)}>
+          <div className="bg-surface border border-outline-variant rounded-xl shadow-2xl p-6 w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-on-surface">Edit Item</h3>
+              <button onClick={() => setEditingItem(null)}><X className="w-4 h-4 text-on-surface-variant" /></button>
+            </div>
+            <div className="space-y-3">
+              <input
+                value={editTitle}
+                onChange={e => setEditTitle(e.target.value)}
+                placeholder="Title"
+                className="w-full px-3 py-2 rounded-lg bg-surface-variant border border-outline-variant text-sm text-on-surface placeholder:text-on-surface-variant/50 outline-none focus:border-primary"
+              />
+              <textarea
+                value={editContent}
+                onChange={e => setEditContent(e.target.value)}
+                rows={5}
+                className="w-full px-3 py-2 rounded-lg bg-surface-variant border border-outline-variant text-sm font-mono text-on-surface placeholder:text-on-surface-variant/50 outline-none focus:border-primary resize-none"
+              />
+            </div>
+            <div className="flex gap-2 mt-5 justify-end">
+              <button onClick={() => setEditingItem(null)} className="px-4 py-2 text-sm rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-variant">Cancel</button>
+              <button
+                onClick={handleSaveEdit}
+                disabled={!editTitle.trim() || !editContent.trim()}
+                className="px-4 py-2 text-sm rounded-lg bg-primary text-on-primary hover:bg-primary/90 disabled:opacity-50"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* New Item Modal */}
       {showNewItem && (

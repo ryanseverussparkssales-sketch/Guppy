@@ -274,10 +274,22 @@ function InstanceCard({ instance, onStart, onStop, statusVariant }: InstanceCard
               Start
             </Button>
           )}
-          <Button variant="ghost" size="icon" className="h-8 w-8">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            title="Instance settings"
+            onClick={() => toast.info(`Settings for "${instance.name}" coming in Phase 3`)}
+          >
             <Settings className="w-4 h-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            title="More options"
+            onClick={() => toast.info(`More options for "${instance.name}" coming soon`)}
+          >
             <MoreHorizontal className="w-4 h-4" />
           </Button>
         </div>

@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import {
   Search,
@@ -13,6 +14,9 @@ import {
 } from "lucide-react"
 import { useConnectionStatus, useActiveModel } from "@/hooks/useApi"
 import { useWorkspaces } from "@/hooks/useWorkspaces"
+
+const navigate = (view: string) =>
+  window.dispatchEvent(new CustomEvent("guppy:navigate", { detail: { view } }))
 
 interface TopBarProps {
   title?: string
@@ -267,12 +271,20 @@ export function TopBar({ title = "Guppy", onOpenCommandPalette }: TopBarProps) {
         <ConnectionIndicator isConnected={isConnected} />
 
         {/* Notifications */}
-        <button className="text-on-surface-variant hover:bg-surface-container p-2 rounded-md transition-all">
+        <button
+          onClick={() => toast.info("No new notifications")}
+          className="text-on-surface-variant hover:bg-surface-container p-2 rounded-md transition-all"
+          title="Notifications"
+        >
           <Bell className="w-5 h-5" />
         </button>
 
         {/* Settings */}
-        <button className="text-on-surface-variant hover:bg-surface-container p-2 rounded-md transition-all">
+        <button
+          onClick={() => navigate("settings")}
+          className="text-on-surface-variant hover:bg-surface-container p-2 rounded-md transition-all"
+          title="Settings"
+        >
           <Settings className="w-5 h-5" />
         </button>
 
