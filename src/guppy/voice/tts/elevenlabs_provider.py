@@ -33,7 +33,7 @@ class ElevenLabsTTSProvider(TTSProvider):
         model_id: str = "eleven_turbo_v2_5",
         sample_rate: int = 22050,
     ):
-        self._api_key = api_key or os.environ.get("ELEVENLABS_API_KEY", "").strip()
+        self._api_key = (api_key if api_key is not None else os.environ.get("ELEVENLABS_API_KEY", "")).strip()
         self._default_voice = default_voice_id
         self._model_id = model_id
         self._sample_rate = sample_rate
