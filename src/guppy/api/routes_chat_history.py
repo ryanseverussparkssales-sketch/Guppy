@@ -18,14 +18,19 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.guppy.api.server_context import ServerContext
+from src.guppy import paths as _paths
 from utils.db_utils import open_db as _open_db
+
+
+def _default_db_path() -> str:
+    return str(_paths.USER_DATA_DIR / "chat_history.db")
 
 
 class ChatHistoryDB:
     """SQLite-based chat history storage."""
 
-    def __init__(self, db_path: str = "chat_history.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str | None = None):
+        self.db_path = db_path if db_path is not None else _default_db_path()
         self._init_db()
 
     def _init_db(self) -> None:

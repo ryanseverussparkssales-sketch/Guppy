@@ -75,27 +75,32 @@ def query_smart(
     )
     logger.info("=" * 70)
 
-    # ── 1. Try local Ollama first (all task types) ────────────────────────
-    local_model_for_task = self.LOCAL_TIER_MAP.get(task_type, self.LOCAL_FAST_MODEL)
-    logger.info("[SMART] Trying local Ollama (%s) first", local_model_for_task)
-    result = self.query_local(system_prompt, user_text, filtered_tools, messages)
-    if result:
-        self.current_primary = "local"
-        return result["response"], result["source"], result["metadata"]
+    # Task-aware routing: teaching = local-first; complex = sonnet-first; simple = haiku-first
+    if task_type == "teaching":
+        chain = [
+            ("local",  lambda: self.query_local(system_prompt, user_text, filtered_tools, messages)),
+            ("haiku",  lambda: self.query_haiku(system_prompt, user_text, filtered_tools)),
+            ("sonnet", lambda: self.query_sonnet(system_prompt, user_text, filtered_tools)),
+        ]
+    elif task_type == "complex":
+        chain = [
+            ("sonnet", lambda: self.query_sonnet(system_prompt, user_text, filtered_tools)),
+            ("haiku",  lambda: self.query_haiku(system_prompt, user_text, filtered_tools)),
+            ("local",  lambda: self.query_local(system_prompt, user_text, filtered_tools, messages)),
+        ]
+    else:  # simple / default
+        chain = [
+            ("haiku",  lambda: self.query_haiku(system_prompt, user_text, filtered_tools)),
+            ("sonnet", lambda: self.query_sonnet(system_prompt, user_text, filtered_tools)),
+            ("local",  lambda: self.query_local(system_prompt, user_text, filtered_tools, messages)),
+        ]
 
-    # ── 2. Haiku cloud fallback ───────────────────────────────────────────
-    logger.info("[SMART] Local unavailable/failed — falling back to Haiku")
-    result = self.query_haiku(system_prompt, user_text, filtered_tools)
-    if result:
-        self.current_primary = "haiku"
-        return result["response"], result["source"], result["metadata"]
-
-    # ── 3. Sonnet last resort ─────────────────────────────────────────────
-    logger.info("[SMART] Haiku failed — last resort: Sonnet")
-    result = self.query_sonnet(system_prompt, user_text, filtered_tools)
-    if result:
-        self.current_primary = "sonnet"
-        return result["response"], result["source"], result["metadata"]
+    for backend_name, call in chain:
+        logger.info("[SMART] task=%s → trying %s", task_type, backend_name)
+        result = call()
+        if result:
+            self.current_primary = backend_name
+            return result["response"], result["source"], result["metadata"]
 
     raise RuntimeError("[SMART] All backends failed (local, haiku, sonnet)")
 

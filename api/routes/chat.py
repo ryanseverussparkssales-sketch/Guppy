@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 _SCHEMA_VERSION = 1
 
 _OPENAI_MODEL = "gpt-4o-mini"
-_ANTHROPIC_MODEL = "claude-3-5-haiku-20241022"
+_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 _MODEL_MAP = {
     "openai": _OPENAI_MODEL,
     "anthropic": _ANTHROPIC_MODEL,
@@ -129,13 +129,16 @@ async def _call_anthropic(messages: list[dict]) -> tuple[str, str]:
     import anthropic  # deferred — not available in all environments
 
     client = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-    response = await client.messages.create(
-        model=_ANTHROPIC_MODEL,
-        max_tokens=2048,
-        messages=messages,
-    )
+    system = next((m["content"] for m in messages if m["role"] == "system"), None)
+    user_messages = [m for m in messages if m["role"] != "system"]
+    kwargs: dict = {"model": _ANTHROPIC_MODEL, "max_tokens": 2048, "messages": user_messages}
+    if system:
+        kwargs["system"] = system
+    response = await client.messages.create(**kwargs)
     text = response.content[0].text if response.content else ""
-    return text, response.stop_reason or "stop"
+    raw_reason = response.stop_reason or "stop"
+    finish = "stop" if raw_reason == "end_turn" else raw_reason
+    return text, finish
 
 
 def _mock_reply(request: ChatRequest) -> str:
@@ -177,11 +180,12 @@ async def _stream_anthropic(messages: list[dict]) -> AsyncIterator[str]:
     import anthropic
 
     client = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-    async with client.messages.stream(
-        model=_ANTHROPIC_MODEL,
-        max_tokens=2048,
-        messages=messages,
-    ) as stream:
+    system = next((m["content"] for m in messages if m["role"] == "system"), None)
+    user_messages = [m for m in messages if m["role"] != "system"]
+    kwargs: dict = {"model": _ANTHROPIC_MODEL, "max_tokens": 2048, "messages": user_messages}
+    if system:
+        kwargs["system"] = system
+    async with client.messages.stream(**kwargs) as stream:
         async for text in stream.text_stream:
             if text:
                 yield text

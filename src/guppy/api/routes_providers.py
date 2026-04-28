@@ -118,11 +118,14 @@ _LOCAL_MODEL_METADATA: Dict[str, Dict[str, Any]] = {
     "gemma-3-4b-it":               {"display": "Gemma 3 4B",      "tags": ["fast"]},
     "text-embedding-nomic-embed-text-v1.5": {"display": "Nomic Embed v1.5", "tags": ["embeddings"]},
     # llama.cpp (ROCm/HIP) — served via OpenAI-compatible endpoints, one server per model
-    "gemma-4-heretic-ara":  {"display": "Gemma 4 E4B Heretic ARA",       "tags": ["vision", "fast", "uncensored"]},
-    "qwen3-35b-uncensored": {"display": "Qwen3 35B MoE (Uncensored)",    "tags": ["powerful", "reasoning", "uncensored"]},
-    "assistant-pepe-8b":    {"display": "Assistant Pepe 8B",             "tags": ["fast", "uncensored"]},
-    "minicpm-o-4.5":        {"display": "MiniCPM-o 4.5 Omni",           "tags": ["vision", "audio", "fast"]},
-    "qwen2.5-omni-3b":      {"display": "Qwen2.5-Omni Dispatcher 3B",   "tags": ["fast", "orchestration"]},
+    "gemma-4-heretic-ara":      {"display": "Gemma 4 E4B Heretic ARA",       "tags": ["vision", "fast", "uncensored"]},
+    "qwen3-35b-uncensored":     {"display": "Qwen3 35B MoE (Uncensored)",    "tags": ["powerful", "reasoning", "uncensored"]},
+    "assistant-pepe-8b":        {"display": "Assistant Pepe 8B",             "tags": ["fast", "uncensored"]},
+    "minicpm-o-4.5":            {"display": "MiniCPM-o 4.5 Omni",           "tags": ["vision", "audio", "fast"]},
+    "qwen2.5-omni-3b":          {"display": "Qwen2.5-Omni Dispatcher 3B",   "tags": ["fast", "orchestration"]},
+    "hermes-4-14b":             {"display": "Hermes 4 14B",                  "tags": ["tools", "uncensored"]},
+    "hermes-3-8b-lorablated":   {"display": "Hermes 3 8B (Lorablated)",      "tags": ["fast", "tools", "uncensored"]},
+    "rocinante-x-12b":          {"display": "Rocinante X 12B",               "tags": ["creative", "uncensored"]},
 }
 
 # Human-readable labels for the backends status pill in the UI
@@ -131,11 +134,14 @@ _BACKEND_LABELS: Dict[str, str] = {
     "lmstudio":          "LM Studio",
     "lemonade":          "Lemonade",
     "local_harness":     "Local Harness",
-    "llamacpp-gemma":    "Gemma 4 Heretic",
-    "llamacpp-qwen3":    "Qwen3 Uncensored",
-    "llamacpp-pepe":     "Pepe 8B",
-    "llamacpp-minicpm":  "MiniCPM-o 4.5",
-    "llamacpp-dispatch": "Qwen2.5-Omni 3B",
+    "llamacpp-gemma":      "Gemma 4 Heretic",
+    "llamacpp-qwen3":      "Qwen3 Uncensored",
+    "llamacpp-pepe":       "Pepe 8B",
+    "llamacpp-minicpm":    "MiniCPM-o 4.5",
+    "llamacpp-dispatch":   "Qwen2.5-Omni 3B",
+    "llamacpp-hermes4":    "Hermes 4 14B",
+    "llamacpp-hermes3":    "Hermes 3 8B",
+    "llamacpp-rocinante":  "Rocinante X 12B",
 }
 
 # All known llama.cpp backends — we always surface these in the model list
@@ -146,6 +152,9 @@ _LLAMACPP_BACKENDS = {
     "llamacpp-pepe",
     "llamacpp-minicpm",
     "llamacpp-dispatch",
+    "llamacpp-hermes4",
+    "llamacpp-hermes3",
+    "llamacpp-rocinante",
 }
 
 

@@ -211,6 +211,146 @@ async def _inject_semantic_context_async(system_prompt: str, user_text: str, own
     return await asyncio.to_thread(_inject_semantic_context, system_prompt, user_text, owner)
 
 
+# ── Tool-list injection ────────────────────────────────────────────────────────
+
+def _build_tool_context(owner: Any) -> str:
+    """Return a compact AVAILABLE TOOLS block from the owner's tool catalog.
+
+    Only the first sentence of each description is included to keep the prompt
+    token-efficient. Returns an empty string when tools are unavailable.
+    """
+    if not getattr(owner, "GUPPY_CORE_AVAILABLE", False):
+        return ""
+    tools = getattr(getattr(owner, "core", None), "TOOLS", None)
+    if not tools:
+        return ""
+    lines = [
+        "AVAILABLE TOOLS:",
+        "Only call a tool when the user's request explicitly requires it.",
+        "For general knowledge, news, or conversational questions, answer directly — do NOT call any tool.",
+    ]
+    for tool in tools:
+        if isinstance(tool, dict):
+            name = str(tool.get("name") or "").strip()
+            desc = str(tool.get("description") or "").strip()
+        else:
+            name = str(getattr(tool, "name", "") or "").strip()
+            desc = str(getattr(tool, "description", "") or "").strip()
+        if not name:
+            continue
+        first_sentence = desc.split(".")[0].strip() if desc else ""
+        lines.append(f"- {name}: {first_sentence}" if first_sentence else f"- {name}")
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
+# ── Workspace filesystem snapshot ─────────────────────────────────────────────
+
+import os as _os
+import time as _time
+from pathlib import Path as _Path
+
+_FS_SNAPSHOT_CACHE: dict[str, tuple[float, str]] = {}
+_FS_SNAPSHOT_TTL = 30.0  # seconds
+_FS_MAX_ENTRIES = 60
+_FS_MAX_DEPTH = 2
+_FS_SKIP_DIRS = {
+    ".git", ".venv", "venv", "__pycache__", "node_modules",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist", "build",
+    ".tmp", "static", "coverage", ".eggs",
+}
+_FS_CODE_EXTS = {
+    ".py", ".ts", ".tsx", ".js", ".jsx",
+    ".json", ".yaml", ".yml", ".toml",
+    ".md", ".txt", ".bat", ".ps1", ".sh",
+    ".cfg", ".ini", ".env", ".sql",
+}
+
+
+def _scan_workspace_sync(directory: str) -> str:
+    """Return a compact depth-limited file tree of *directory*, cached by TTL.
+
+    Skips non-code files and common build/cache directories to keep the
+    injected context token-efficient.
+    """
+    now = _time.monotonic()
+    cached = _FS_SNAPSHOT_CACHE.get(directory)
+    if cached and (now - cached[0]) < _FS_SNAPSHOT_TTL:
+        return cached[1]
+
+    root = _Path(directory)
+    if not root.is_dir():
+        _FS_SNAPSHOT_CACHE[directory] = (now, "")
+        return ""
+
+    entries: list[str] = []
+    try:
+        for dirpath, dirnames, filenames in _os.walk(root, topdown=True):
+            depth = len(_Path(dirpath).relative_to(root).parts)
+            if depth >= _FS_MAX_DEPTH:
+                dirnames.clear()
+                continue
+            dirnames[:] = sorted(
+                d for d in dirnames
+                if d not in _FS_SKIP_DIRS and not d.startswith(".")
+            )
+            indent = "  " * depth
+            rel = _Path(dirpath).relative_to(root)
+            if depth > 0:
+                entries.append(f"{indent}{rel.name}/")
+            child_indent = "  " * (depth + 1)
+            for fname in sorted(filenames):
+                if _Path(fname).suffix.lower() in _FS_CODE_EXTS:
+                    entries.append(f"{child_indent}{fname}")
+            if len(entries) >= _FS_MAX_ENTRIES:
+                entries.append("  ... (truncated)")
+                break
+    except (PermissionError, OSError):
+        pass
+
+    if not entries:
+        _FS_SNAPSHOT_CACHE[directory] = (now, "")
+        return ""
+
+    result = (
+        f"WORKSPACE FILE TREE ({directory}) — background context only.\n"
+        "Reference this only when the user's request involves specific files or code.\n"
+        "Do NOT explore or list these files unless explicitly asked to.\n"
+        + "\n".join(entries[:_FS_MAX_ENTRIES])
+    )
+    _FS_SNAPSHOT_CACHE[directory] = (now, result)
+    return result
+
+
+def _inject_workspace_context_sync(system_prompt: str, owner: Any) -> str:
+    """Inject tool list + filesystem snapshot into the system prompt.
+
+    Workspace directory priority:
+      1. GUPPY_WORKSPACE_DIR env var
+      2. Current working directory (where Guppy was launched)
+    """
+    parts = [system_prompt]
+
+    tool_ctx = _build_tool_context(owner)
+    if tool_ctx:
+        parts.append(tool_ctx)
+
+    workspace_dir = (
+        owner.os.environ.get("GUPPY_WORKSPACE_DIR", "").strip()
+        or str(_Path.home())
+    )
+    fs_ctx = _scan_workspace_sync(workspace_dir)
+    if fs_ctx:
+        parts.append(fs_ctx)
+
+    return "\n\n".join(parts)
+
+
+async def _inject_workspace_context_async(system_prompt: str, owner: Any) -> str:
+    """Async wrapper — filesystem walk runs in a thread pool."""
+    import asyncio
+    return await asyncio.to_thread(_inject_workspace_context_sync, system_prompt, owner)
+
+
 def call_unified_inference(
     owner: Any,
     user_text: str,
@@ -243,6 +383,7 @@ def call_unified_inference(
     clean_history = sanitize_chat_history(history)
     augmented_system_prompt = augment_system_with_history(system_prompt, clean_history)
     augmented_system_prompt = _inject_semantic_context(augmented_system_prompt, user_text, owner)
+    augmented_system_prompt = _inject_workspace_context_sync(augmented_system_prompt, owner)
     router_messages = build_router_messages(augmented_system_prompt, user_text, clean_history)
     requested_mode = (
         mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto"
@@ -638,7 +779,7 @@ def call_ollama_with_tools(
                     "temperature": 0.8,
                     "top_p": 0.95,
                     "top_k": 40,
-                    "num_predict": 512,
+                    "num_predict": 4096,
                 },
             }
         ).encode()
@@ -689,6 +830,11 @@ def call_ollama_with_tools(
 
 _OLLAMA_CHAT_URL = "http://127.0.0.1:11434/api/chat"
 _TOOL_CALL_SENTINEL = "\x00TOOL_CALLS:"
+# Sent as the final token when streamed content needs to be replaced by the UI
+# (e.g. post-stream tool-marker cleanup). Frontend checks for this prefix.
+_REPLACE_SENTINEL = "\x00REPLACE:"
+# Emitted as the last token before [DONE] so the UI knows which backend served the response.
+_SOURCE_SENTINEL = "\x00SOURCE:"
 
 # ── Free-tier cloud provider constants ────────────────────────────────────────
 # Must be kept in sync with routes_providers.py model catalogs.
@@ -819,6 +965,78 @@ async def _stream_cohere_tokens(
         yield token
 
 
+async def _stream_claude_with_tools(
+    *,
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    messages: list[dict],
+    tools: list | None = None,
+    tool_runner: Any | None = None,
+    max_tokens: int = 4096,
+    max_tool_rounds: int = 6,
+) -> AsyncGenerator[str, None]:
+    """Yield content tokens from Anthropic Claude using the async streaming SDK.
+
+    Handles multi-round tool-call loops: each round's text streams token-by-token
+    to the UI; tool execution happens between rounds in a thread pool.
+    """
+    import asyncio
+
+    try:
+        import anthropic as _ant
+        client = _ant.AsyncAnthropic(api_key=api_key)
+    except ImportError:
+        raise RuntimeError("anthropic SDK not installed or too old — pip install anthropic>=0.21")
+
+    msgs: list[dict] = list(messages)
+    for _round in range(max_tool_rounds + 1):
+        kwargs: dict = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": system_prompt,
+            "messages": msgs,
+        }
+        if tools:
+            kwargs["tools"] = tools
+
+        tool_use_blocks: list = []
+        try:
+            async with client.messages.stream(**kwargs) as stream:
+                async for text in stream.text_stream:
+                    yield text
+                final = await stream.get_final_message()
+
+            tool_use_blocks = [b for b in final.content if getattr(b, "type", None) == "tool_use"]
+
+            if not tool_use_blocks or getattr(final, "stop_reason", "") == "end_turn":
+                return
+
+        except Exception as exc:
+            raise RuntimeError(f"Claude streaming error: {exc}") from exc
+
+        if _round >= max_tool_rounds:
+            _log.warning("Claude streaming tool loop hit max_tool_rounds=%d — stopping", max_tool_rounds)
+            return
+
+        if not tool_runner:
+            return
+
+        msgs.append({"role": "assistant", "content": final.content})
+        results = []
+        for tu in tool_use_blocks:
+            try:
+                result = await asyncio.to_thread(
+                    tool_runner, tu.name, dict(tu.input) if tu.input else {}
+                )
+                result_str = str(result)
+            except Exception as exc:
+                result_str = f"[tool error: {exc}]"
+                _log.warning("Claude streaming tool_runner(%r) error: %s", tu.name, exc)
+            results.append({"type": "tool_result", "tool_use_id": tu.id, "content": result_str})
+        msgs.append({"role": "user", "content": results})
+
+
 async def _stream_llamacpp_tokens(
     *,
     model: str,
@@ -828,22 +1046,20 @@ async def _stream_llamacpp_tokens(
     tools: list[dict] | None = None,
     tool_runner: Any | None = None,
     max_tool_rounds: int = 6,
+    _loop_history: list[str] | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Yield content from a llama.cpp OpenAI-compatible SSE stream.
+    """Yield content tokens from a llama.cpp OpenAI-compatible SSE stream.
 
-    Implements a full agentic tool-call loop (requires ``--jinja`` on the
-    llama-server, which is the default since llama.cpp b5000+):
+    Tokens are yielded eagerly as they arrive so the UI updates in real time.
+    Tool-call rounds are handled transparently: the model's pre-tool text (if
+    any) streams immediately, tools execute, then the follow-up answer also
+    streams token by token.
 
-    1.  Send the Guppy tool catalogue in OpenAI format alongside the chat.
-    2.  Accumulate streaming delta chunks; detect ``finish_reason == "tool_calls"``.
-    3.  Execute each tool synchronously via ``tool_runner`` and append results.
-    4.  Repeat until the model stops calling tools or ``max_tool_rounds`` hit.
-    5.  Yield the final cleaned text to the caller.
-
-    Degrades gracefully when:
-    - ``tool_runner`` is None → text-only, strips markup as before.
-    - Model has no tool-use Jinja template → no ``tool_calls`` in deltas;
-      text-embedded markup is stripped by ``_clean_llamacpp_response``.
+    Requires ``--jinja`` on llama-server (default since llama.cpp b5000+) for
+    structured tool_calls.  On older GGUFs without a Jinja template the model
+    may emit text-embedded markup (``<tool_call>…</tool_call>``) which will
+    reach the UI as-is; that trade-off is acceptable given the eager-yield
+    goal.
     """
     import httpx
 
@@ -851,7 +1067,9 @@ async def _stream_llamacpp_tokens(
     url = f"{_local_resolve_url(backend)}{cfg.get('chat_path', '/v1/chat/completions')}"
 
     current_messages = list(messages)
-    last_full_content = ""
+    # Loop detection: track (name, args_fingerprint) per round.
+    # Two identical consecutive call-sets = model is stuck; break early.
+    _loop_history = _loop_history if _loop_history is not None else []
 
     for _round in range(max_tool_rounds + 1):
         payload: dict = {
@@ -893,10 +1111,11 @@ async def _stream_llamacpp_tokens(
                             finish_reason = choice["finish_reason"]
                         delta = choice.get("delta", {})
 
-                        # Accumulate text content
+                        # Accumulate and immediately yield text content
                         content = delta.get("content") or ""
                         if content:
                             full_content += content
+                            yield content
 
                         # Accumulate tool_call deltas (OpenAI streaming format)
                         for tc_delta in (delta.get("tool_calls") or []):
@@ -925,7 +1144,6 @@ async def _stream_llamacpp_tokens(
                 f"Cannot reach llama.cpp backend '{backend}'. Is the server running?"
             ) from exc
 
-        last_full_content = full_content
         tool_calls_list = [tool_calls_acc[i] for i in sorted(tool_calls_acc)]
 
         # ── Structured tool call detected ─────────────────────────────────────
@@ -979,17 +1197,29 @@ async def _stream_llamacpp_tokens(
                     "content": result_str,
                 })
 
+            # Loop detection: fingerprint this round's calls.
+            # If the model issues the exact same set of calls twice in a row it's
+            # stuck — break rather than burning all remaining rounds.
+            _round_fp = "|".join(
+                f"{tc['function']['name']}:{tc['function']['arguments'][:120]}"
+                for tc in tool_calls_list
+            )
+            if _loop_history and _loop_history[-1] == _round_fp:
+                _log.warning(
+                    "llamacpp tool loop detected: round %d repeated identical calls (%s) — stopping",
+                    _round, tool_calls_list[0]["function"]["name"] if tool_calls_list else "?",
+                )
+                yield "\n\n_(Loop detected: the model repeated the same tool call. Stopping to avoid cycling.)_"
+                return
+            _loop_history.append(_round_fp)
+
             continue  # send tool results back to the model
 
-        # ── No tool calls (or no runner) — yield cleaned text and finish ──────
-        # _clean_llamacpp_response handles text-embedded markup from models that
-        # don't have a tool-use Jinja template (older / non-instruct GGUFs).
-        yield _clean_llamacpp_response(full_content)
+        # ── No tool calls — content already yielded token by token above ────
         return
 
-    # Fell through max rounds without a clean finish — yield whatever we have
+    # Hit max_tool_rounds — final round's tokens were already yielded eagerly
     _log.warning("llamacpp tool loop exhausted after %d rounds", max_tool_rounds)
-    yield _clean_llamacpp_response(last_full_content)
 
 
 async def _stream_ollama_tokens(
@@ -1013,7 +1243,7 @@ async def _stream_ollama_tokens(
         "messages": messages,
         "stream": True,
         "keep_alive": "10m",
-        "options": {"temperature": 0.8, "top_p": 0.95, "top_k": 40, "num_predict": 512},
+        "options": {"temperature": 0.8, "top_p": 0.95, "top_k": 40, "num_predict": 4096},
     }
     if tools:
         payload["tools"] = tools
@@ -1065,6 +1295,7 @@ async def stream_unified_inference(
     instance_type: Optional[str] = None,
     active_local_model: Optional[str] = None,
     active_cloud_model: Optional[str] = None,
+    image_base64: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """
     Async generator yielding content tokens for the chat response.
@@ -1075,6 +1306,7 @@ async def stream_unified_inference(
     clean_history = sanitize_chat_history(history)
     augmented_system = augment_system_with_history(system_prompt, clean_history)
     augmented_system = await _inject_semantic_context_async(augmented_system, user_text, owner)
+    augmented_system = await _inject_workspace_context_async(augmented_system, owner)
     requested_mode = (mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto").strip().lower()
 
     # Steer mode: prepend a redirection directive then route normally so
@@ -1111,6 +1343,7 @@ async def stream_unified_inference(
                         api_key=_mk, model=active_cloud_model, messages=_msgs
                     ):
                         yield token
+                    yield _SOURCE_SENTINEL + f"mistral:{active_cloud_model}"
                     return
                 except Exception as _merr:
                     _log.warning(
@@ -1127,6 +1360,7 @@ async def stream_unified_inference(
                         api_key=_ck, model=active_cloud_model, messages=_msgs
                     ):
                         yield token
+                    yield _SOURCE_SENTINEL + f"cohere:{active_cloud_model}"
                     return
                 except Exception as _cerr:
                     _log.warning(
@@ -1172,6 +1406,7 @@ async def stream_unified_inference(
                         max_tool_rounds=10,  # agentic tasks may need more rounds
                     ):
                         yield token
+                    yield _SOURCE_SENTINEL + f"{_QWEN3_BACKEND}:{_qwen3_model}"
                     return
                 except RuntimeError as _qwen3_err:
                     _log.warning(
@@ -1179,18 +1414,27 @@ async def stream_unified_inference(
                         _qwen3_err,
                     )
 
-        # Qwen3 offline (or failed) — escalate directly to Claude Sonnet.
+        # Qwen3 offline (or failed) — escalate directly to Claude Sonnet (streaming).
         # Never fall through to Pepe for agentic tasks.
-        if owner.os.environ.get("ANTHROPIC_API_KEY"):
-            _log.info("Agentic task: Qwen3 offline, routing to Claude Sonnet (last resort)")
+        _ak = _get_cloud_api_key("anthropic", owner)
+        if _ak:
+            _log.info("Agentic task: Qwen3 offline, routing to Claude Sonnet (streaming)")
+            _agentic_msgs = build_router_messages(augmented_system, user_text, clean_history)
+            _claude_tools = owner.core.TOOLS if owner.GUPPY_CORE_AVAILABLE else None
+            def _claude_tool_runner(name: str, args: dict) -> str:
+                return str(owner.core.run_tool(name, args,
+                    instance_name=instance_name, instance_type=instance_type))
             try:
-                _agentic_response = call_claude_with_tools(
-                    owner, user_text, augmented_system,
-                    instance_name=instance_name,
-                    instance_type=instance_type,
-                    preferred_model="claude-sonnet-4-6",
-                )
-                yield _agentic_response
+                async for token in _stream_claude_with_tools(
+                    api_key=_ak,
+                    model="claude-sonnet-4-6",
+                    system_prompt=augmented_system,
+                    messages=_agentic_msgs,
+                    tools=_claude_tools,
+                    tool_runner=_claude_tool_runner,
+                ):
+                    yield token
+                yield _SOURCE_SENTINEL + "claude-sonnet-4-6"
                 return
             except Exception as _cloud_err:
                 _log.warning(
@@ -1223,6 +1467,18 @@ async def stream_unified_inference(
                 messages = build_router_messages(
                     augmented_system, user_text, sanitize_chat_history(history)
                 )
+                # For multimodal backends (MiniCPM-o), replace the last user message
+                # with an OpenAI vision content array when an image is attached.
+                if image_base64 and llamacpp_backend == "llamacpp-minicpm" and messages:
+                    last = messages[-1]
+                    if last.get("role") == "user":
+                        messages[-1] = {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": last["content"]},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
+                            ],
+                        }
                 # Convert Guppy's Anthropic-format tool catalogue to OpenAI format
                 _openai_tools = (
                     _to_openai_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
@@ -1247,6 +1503,7 @@ async def stream_unified_inference(
                         tool_runner=_llamacpp_tool_runner,
                     ):
                         yield token
+                    yield _SOURCE_SENTINEL + f"{llamacpp_backend}:{active_local_model}"
                     return
                 except RuntimeError:
                     llamacpp_failed = True  # backend died mid-stream — fall through
@@ -1267,7 +1524,11 @@ async def stream_unified_inference(
     )
     if _should_try_llamacpp_auto:
         from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
-        _MODE_A_FALLBACK_ORDER = ["llamacpp-pepe", "llamacpp-minicpm", "llamacpp-dispatch"]
+        _MODE_A_FALLBACK_ORDER = [
+            "llamacpp-hermes4", "llamacpp-hermes3",
+            "llamacpp-pepe", "llamacpp-rocinante",
+            "llamacpp-minicpm", "llamacpp-dispatch",
+        ]
         for _fb_backend in _MODE_A_FALLBACK_ORDER:
             _fb_cfg = _LOCAL_BACKENDS.get(_fb_backend, {})
             _fb_url = _fb_cfg.get("default_url", "")
@@ -1295,6 +1556,7 @@ async def stream_unified_inference(
                     tool_runner=_fb_tool_runner,
                 ):
                     yield token
+                yield _SOURCE_SENTINEL + f"{_fb_backend}:{_fb_model}"
                 return
             except RuntimeError:
                 continue  # try next fallback
@@ -1327,11 +1589,11 @@ async def stream_unified_inference(
 
             tool_calls_accumulated: list = []
             all_messages = list(messages)
-            # Buffer tokens so we can strip text-embedded tool call markers
-            # before anything reaches the UI.  The latency cost for local
-            # models is negligible compared to their generation time.
-            buffered_tokens: list[str] = []
+            full_content_parts: list[str] = []
 
+            # Stream tokens eagerly — no buffering. We track full_content
+            # in parallel so we can detect text-embedded tool markers after
+            # the stream ends and issue a REPLACE correction if needed.
             async for token in _stream_ollama_tokens(
                 model=model_name,
                 messages=all_messages,
@@ -1340,22 +1602,20 @@ async def stream_unified_inference(
                 if token.startswith(_TOOL_CALL_SENTINEL):
                     tool_calls_accumulated = json.loads(token[len(_TOOL_CALL_SENTINEL):])
                 else:
-                    buffered_tokens.append(token)
+                    full_content_parts.append(token)
+                    yield token
 
-            assistant_content = "".join(buffered_tokens)
+            assistant_content = "".join(full_content_parts)
 
-            # Strip text-format tool call markers (Qwen/Pepe <|tool_call|> style)
-            # before streaming any content to the UI.
+            # Post-stream: check for text-embedded tool call markers (edge case —
+            # some GGUF models emit <tool_call>…</tool_call> as plain text).
+            # Since tokens were already sent, signal the UI to replace the content.
             if _TOOL_CALL_TAG_RE.search(assistant_content):
                 cleaned = _clean_local_response(assistant_content)
-                if cleaned:
-                    yield cleaned
-                # Text-format tool calls have no execution loop — don't recurse.
+                if cleaned != assistant_content:
+                    yield _REPLACE_SENTINEL + cleaned
+                yield _SOURCE_SENTINEL + f"ollama:{model_name}"
                 return
-
-            # No markers — yield buffered tokens to preserve streaming feel.
-            for token in buffered_tokens:
-                yield token
 
             if tool_calls_accumulated:
                 clean_assistant: dict = {"role": "assistant", "content": assistant_content}
@@ -1386,10 +1646,11 @@ async def stream_unified_inference(
                 ):
                     if not token.startswith(_TOOL_CALL_SENTINEL):
                         yield token
+            yield _SOURCE_SENTINEL + f"ollama:{model_name}"
             return
 
-        except RuntimeError:
-            pass  # fall through to non-streaming fallback
+        except RuntimeError as _oll_err:
+            _log.warning("Ollama streaming failed (%s) — falling back to non-streaming", _oll_err)
 
     # ── Free-tier cloud: prefer Mistral → Cohere before paying for Claude ───────
     # Reached only when local/llamacpp/Ollama all failed or aren't available.
@@ -1405,6 +1666,7 @@ async def stream_unified_inference(
                     api_key=_mk, model=_FREE_MISTRAL_MODEL, messages=_msgs
                 ):
                     yield token
+                yield _SOURCE_SENTINEL + f"mistral:{_FREE_MISTRAL_MODEL}"
                 return
             except Exception as _merr:
                 _log.warning("Mistral free-tier (%s) failed: %s — trying Cohere", _FREE_MISTRAL_MODEL, _merr)
@@ -1418,11 +1680,38 @@ async def stream_unified_inference(
                     api_key=_ck, model=_FREE_COHERE_MODEL, messages=_msgs
                 ):
                     yield token
+                yield _SOURCE_SENTINEL + f"cohere:{_FREE_COHERE_MODEL}"
                 return
             except Exception as _cerr:
                 _log.warning("Cohere free-tier (%s) failed: %s — escalating to Claude", _FREE_COHERE_MODEL, _cerr)
 
-    # Non-streaming fallback (Claude / no router / explicit code mode / llama.cpp)
+    # ── Explicit Claude mode: stream instead of blocking ─────────────────────────
+    if requested_mode == "claude":
+        _ak = _get_cloud_api_key("anthropic", owner)
+        if _ak:
+            _log.info("Explicit claude mode: streaming via Claude SDK")
+            _claude_msgs = build_router_messages(augmented_system, user_text, clean_history)
+            _pref_model = str(active_cloud_model or owner.os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")).strip() or "claude-sonnet-4-6"
+            _claude_tools = owner.core.TOOLS if owner.GUPPY_CORE_AVAILABLE else None
+            def _explicit_claude_runner(name: str, args: dict) -> str:
+                return str(owner.core.run_tool(name, args,
+                    instance_name=instance_name, instance_type=instance_type))
+            try:
+                async for token in _stream_claude_with_tools(
+                    api_key=_ak,
+                    model=_pref_model,
+                    system_prompt=augmented_system,
+                    messages=_claude_msgs,
+                    tools=_claude_tools,
+                    tool_runner=_explicit_claude_runner,
+                ):
+                    yield token
+                yield _SOURCE_SENTINEL + _pref_model
+                return
+            except Exception as _exc:
+                _log.warning("Claude streaming failed (%s), falling back to non-streaming", _exc)
+
+    # Non-streaming fallback (code mode / no router / last resort)
     response = call_unified_inference(
         owner=owner,
         user_text=user_text,

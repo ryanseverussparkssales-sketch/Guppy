@@ -359,6 +359,18 @@ def clear_tts_cache() -> None:
     cache.clear()
 
 
+class GuppyVoice:
+    """Compatibility shim for routes that still call owner.voice.GuppyVoice().
+    Phase 6.0 will rewrite those routes to call the async facade directly.
+    """
+
+    def transcribe_audio(self, path: str) -> str:
+        result = asyncio.get_event_loop().run_until_complete(
+            transcribe(open(path, "rb").read())  # noqa: WPS515
+        )
+        return result.text if result else ""
+
+
 def record_audio_quality_feedback(
     rating: AudioQualityRating,
     provider: str,
