@@ -8,12 +8,15 @@ Backend selection (GUPPY_LOCAL_RUNTIME_BACKEND env var):
   ollama         — Ollama at 127.0.0.1:11434 (override with GUPPY_OLLAMA_BASE_URL)
   lmstudio       — LM Studio at 127.0.0.1:1234 (override with GUPPY_LMSTUDIO_BASE_URL)
   lemonade       — Lemonade at 127.0.0.1:8000 (override with GUPPY_LEMONADE_BASE_URL)
-  llamacpp-gemma    — llama.cpp Gemma 4 E4B Heretic ARA at 127.0.0.1:8080 (GUPPY_LLAMACPP_GEMMA_URL)
-  llamacpp-qwen3    — llama.cpp Qwen3 35B-A3B MoE at 127.0.0.1:8083 (GUPPY_LLAMACPP_QWEN3_URL)
-  llamacpp-pepe     — llama.cpp Assistant Pepe 8B at 127.0.0.1:8082 (GUPPY_LLAMACPP_PEPE_URL)
-  llamacpp-minicpm   — llama.cpp MiniCPM-o 4.5 Omni at 127.0.0.1:8084 (GUPPY_LLAMACPP_MINICPM_URL)
-  llamacpp-dispatch  — llama.cpp Qwen2.5-Omni-3B dispatcher at 127.0.0.1:8085 (GUPPY_LLAMACPP_DISPATCH_URL)
-  local_harness      — Generic OpenAI-compat harness at 127.0.0.1:8001 (GUPPY_LOCAL_HARNESS_BASE_URL)
+  llamacpp-gemma      — llama.cpp Gemma 4 E4B Heretic ARA at 127.0.0.1:8080 (GUPPY_LLAMACPP_GEMMA_URL)
+  llamacpp-qwen3      — llama.cpp Qwen3 35B-A3B MoE at 127.0.0.1:8083 (GUPPY_LLAMACPP_QWEN3_URL)
+  llamacpp-pepe       — llama.cpp Assistant Pepe 8B at 127.0.0.1:8082 (GUPPY_LLAMACPP_PEPE_URL)
+  llamacpp-minicpm    — llama.cpp MiniCPM-o 4.5 Omni at 127.0.0.1:8084 (GUPPY_LLAMACPP_MINICPM_URL)
+  llamacpp-dispatch   — llama.cpp Qwen2.5-Omni-3B dispatcher at 127.0.0.1:8085 (GUPPY_LLAMACPP_DISPATCH_URL)
+  llamacpp-hermes4    — llama.cpp Hermes 4 14B at 127.0.0.1:8086 (GUPPY_LLAMACPP_HERMES4_URL)
+  llamacpp-hermes3    — llama.cpp Hermes 3 8B Lorablated at 127.0.0.1:8087 (GUPPY_LLAMACPP_HERMES3_URL)
+  llamacpp-rocinante  — llama.cpp Rocinante X 12B at 127.0.0.1:8088 (GUPPY_LLAMACPP_ROCINANTE_URL)
+  local_harness       — Generic OpenAI-compat harness at 127.0.0.1:8001 (GUPPY_LOCAL_HARNESS_BASE_URL)
 
 LM Studio model resolution:
   LM Studio exposes long model IDs (e.g. "org/model-GGUF/file.gguf").
@@ -137,6 +140,33 @@ _BACKENDS: Dict[str, Dict[str, Any]] = {
         "delete_path": None,
         "format": "openai",
     },
+    # ── Hermes 4 14B — tool-capable, uncensored, NousResearch ────────────────
+    "llamacpp-hermes4": {
+        "default_url": "http://127.0.0.1:8086",
+        "chat_path": "/v1/chat/completions",
+        "tags_path": "/v1/models",
+        "pull_path": None,
+        "delete_path": None,
+        "format": "openai",
+    },
+    # ── Hermes 3 8B Lorablated — fast, uncensored, tool-capable ──────────────
+    "llamacpp-hermes3": {
+        "default_url": "http://127.0.0.1:8087",
+        "chat_path": "/v1/chat/completions",
+        "tags_path": "/v1/models",
+        "pull_path": None,
+        "delete_path": None,
+        "format": "openai",
+    },
+    # ── Rocinante X 12B — creative writing / roleplay, Mistral-Nemo base ─────
+    "llamacpp-rocinante": {
+        "default_url": "http://127.0.0.1:8088",
+        "chat_path": "/v1/chat/completions",
+        "tags_path": "/v1/models",
+        "pull_path": None,
+        "delete_path": None,
+        "format": "openai",
+    },
     # ── Generic local harness (any OpenAI-compat server) ─────────────────────
     "local_harness": {
         "default_url": "http://127.0.0.1:8001",
@@ -155,9 +185,12 @@ _ENV_URL_KEYS: Dict[str, str] = {
     "llamacpp-gemma":    "GUPPY_LLAMACPP_GEMMA_URL",
     "llamacpp-qwen3":    "GUPPY_LLAMACPP_QWEN3_URL",
     "llamacpp-pepe":     "GUPPY_LLAMACPP_PEPE_URL",
-    "llamacpp-minicpm":   "GUPPY_LLAMACPP_MINICPM_URL",
-    "llamacpp-dispatch":  "GUPPY_LLAMACPP_DISPATCH_URL",
-    "local_harness":      "GUPPY_LOCAL_HARNESS_BASE_URL",
+    "llamacpp-minicpm":    "GUPPY_LLAMACPP_MINICPM_URL",
+    "llamacpp-dispatch":   "GUPPY_LLAMACPP_DISPATCH_URL",
+    "llamacpp-hermes4":    "GUPPY_LLAMACPP_HERMES4_URL",
+    "llamacpp-hermes3":    "GUPPY_LLAMACPP_HERMES3_URL",
+    "llamacpp-rocinante":  "GUPPY_LLAMACPP_ROCINANTE_URL",
+    "local_harness":       "GUPPY_LOCAL_HARNESS_BASE_URL",
 }
 
 # Model-name → backend routing for llamacpp servers.
@@ -181,16 +214,32 @@ _LLAMACPP_MODEL_ROUTE: Dict[str, str] = {
     "qwen2.5-omni":             "llamacpp-dispatch",
     "dispatch":                 "llamacpp-dispatch",
     "guppy-dispatch":           "llamacpp-dispatch",
+    # Hermes 4 14B — tool-capable, uncensored
+    "hermes-4-14b":             "llamacpp-hermes4",
+    "hermes4":                  "llamacpp-hermes4",
+    "hermes-4":                 "llamacpp-hermes4",
+    # Hermes 3 8B Lorablated — fast, uncensored
+    "hermes-3-8b-lorablated":   "llamacpp-hermes3",
+    "hermes-3-8b":              "llamacpp-hermes3",
+    "hermes3":                  "llamacpp-hermes3",
+    "hermes-3":                 "llamacpp-hermes3",
+    # Rocinante X 12B — creative writing / roleplay
+    "rocinante-x-12b":          "llamacpp-rocinante",
+    "rocinante-12b":            "llamacpp-rocinante",
+    "rocinante":                "llamacpp-rocinante",
 }
 
 # Canonical model name for each llamacpp backend (first/preferred alias).
 # Used by the registry and router when they know the backend but not the model name.
 _BACKEND_DEFAULT_MODELS: Dict[str, str] = {
-    "llamacpp-gemma":    "gemma-4-heretic-ara",
-    "llamacpp-qwen3":    "qwen3-35b-uncensored",
-    "llamacpp-pepe":     "assistant-pepe-8b",
-    "llamacpp-minicpm":  "minicpm-o-4.5",
-    "llamacpp-dispatch": "qwen2.5-omni-3b",
+    "llamacpp-gemma":      "gemma-4-heretic-ara",
+    "llamacpp-qwen3":      "qwen3-35b-uncensored",
+    "llamacpp-pepe":       "assistant-pepe-8b",
+    "llamacpp-minicpm":    "minicpm-o-4.5",
+    "llamacpp-dispatch":   "qwen2.5-omni-3b",
+    "llamacpp-hermes4":    "hermes-4-14b",
+    "llamacpp-hermes3":    "hermes-3-8b-lorablated",
+    "llamacpp-rocinante":  "rocinante-x-12b",
 }
 
 # ── circuit breakers ──────────────────────────────────────────────────────────

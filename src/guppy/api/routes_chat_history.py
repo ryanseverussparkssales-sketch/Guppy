@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.guppy.api.server_context import ServerContext
+from utils.db_utils import open_db as _open_db
 
 
 class ChatHistoryDB:
@@ -29,41 +30,29 @@ class ChatHistoryDB:
 
     def _init_db(self) -> None:
         """Initialize database schema if not exists."""
-        with sqlite3.connect(self.db_path) as conn:
-            # Conversations table
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS conversations (
-                    id TEXT PRIMARY KEY,
-                    workspace_id TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    message_count INTEGER DEFAULT 0
-                )
-                """
-            )
-
-            # Messages table
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS messages (
-                    id TEXT PRIMARY KEY,
-                    conversation_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    model TEXT,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
-                )
-                """
-            )
-
-            # Create index for faster lookups
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_conv_workspace ON conversations(workspace_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id)")
-
-            conn.commit()
+        schema = """
+            CREATE TABLE IF NOT EXISTS conversations (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                message_count INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS messages (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                model TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_conv_workspace ON conversations(workspace_id);
+            CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id);
+        """
+        with _open_db(self.db_path, schema_sql=schema):
+            pass
 
     def create_conversation(self, workspace_id: str, title: Optional[str] = None) -> Dict[str, Any]:
         """Create a new conversation."""
@@ -71,7 +60,7 @@ class ChatHistoryDB:
         now = datetime.now(timezone.utc).isoformat()
         final_title = title or f"Conversation {now[:10]}"
 
-        with sqlite3.connect(self.db_path) as conn:
+        with _open_db(self.db_path) as conn:
             conn.execute(
                 """
                 INSERT INTO conversations (id, workspace_id, title, created_at, updated_at)
@@ -92,7 +81,7 @@ class ChatHistoryDB:
 
     def list_conversations(self, workspace_id: str, limit: int = 50) -> List[Dict[str, Any]]:
         """List conversations in a workspace."""
-        with sqlite3.connect(self.db_path) as conn:
+        with _open_db(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """
@@ -107,7 +96,7 @@ class ChatHistoryDB:
 
     def get_conversation(self, conv_id: str) -> Optional[Dict[str, Any]]:
         """Get conversation metadata."""
-        with sqlite3.connect(self.db_path) as conn:
+        with _open_db(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute("SELECT * FROM conversations WHERE id = ?", (conv_id,)).fetchone()
             return dict(row) if row else None
@@ -118,7 +107,7 @@ class ChatHistoryDB:
         if not conv:
             return None
 
-        with sqlite3.connect(self.db_path) as conn:
+        with _open_db(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             msg_rows = conn.execute(
                 "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC",
@@ -133,7 +122,7 @@ class ChatHistoryDB:
         msg_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
 
-        with sqlite3.connect(self.db_path) as conn:
+        with _open_db(self.db_path) as conn:
             # Add message
             conn.execute(
                 """
@@ -166,7 +155,7 @@ class ChatHistoryDB:
     def update_conversation_title(self, conv_id: str, title: str) -> Dict[str, Any]:
         """Update conversation title."""
         now = datetime.now(timezone.utc).isoformat()
-        with sqlite3.connect(self.db_path) as conn:
+        with _open_db(self.db_path) as conn:
             conn.execute(
                 "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
                 (title, now, conv_id),
@@ -176,7 +165,7 @@ class ChatHistoryDB:
 
     def delete_conversation(self, conv_id: str) -> bool:
         """Delete a conversation and all its messages."""
-        with sqlite3.connect(self.db_path) as conn:
+        with _open_db(self.db_path) as conn:
             conn.execute("DELETE FROM conversations WHERE id = ?", (conv_id,))
             conn.commit()
         return True
@@ -184,7 +173,7 @@ class ChatHistoryDB:
     def search_conversations(self, workspace_id: str, query: str, limit: int = 20) -> List[Dict[str, Any]]:
         """Search conversations by title and content."""
         search_term = f"%{query}%"
-        with sqlite3.connect(self.db_path) as conn:
+        with _open_db(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """

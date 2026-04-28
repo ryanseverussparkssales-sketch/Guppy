@@ -77,12 +77,39 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "vram_gb": 2.5,
         "auto_start": True,
     },
+    "llamacpp-hermes4": {
+        "bat":     r"C:\llama-cpp\launch-hermes-4-14b.bat",
+        "port":    8086,
+        "label":   "Hermes 4 14B",
+        "mode":    "A",
+        "note":    "Tools · ~11 GB VRAM — uncensored",
+        "vram_gb": 11.0,
+    },
+    "llamacpp-hermes3": {
+        "bat":     r"C:\llama-cpp\launch-hermes-3-8b.bat",
+        "port":    8087,
+        "label":   "Hermes 3 8B Lorablated",
+        "mode":    "A",
+        "note":    "Fast tools · ~9 GB VRAM — uncensored",
+        "vram_gb": 9.0,
+    },
+    "llamacpp-rocinante": {
+        "bat":     r"C:\llama-cpp\launch-rocinante-12b.bat",
+        "port":    8088,
+        "label":   "Rocinante X 12B",
+        "mode":    "A",
+        "note":    "Creative · ~10 GB VRAM — roleplay/writing",
+        "vram_gb": 10.0,
+    },
 }
 
 # Total VRAM budget for the installed GPU (RX 7900 XTX)
 _GPU_VRAM_GB: float = float(os.environ.get("GUPPY_GPU_VRAM_GB", "24"))
 
-_MODE_A = {"llamacpp-pepe", "llamacpp-gemma", "llamacpp-minicpm", "llamacpp-dispatch"}
+_MODE_A = {
+    "llamacpp-pepe", "llamacpp-gemma", "llamacpp-minicpm", "llamacpp-dispatch",
+    "llamacpp-hermes4", "llamacpp-hermes3", "llamacpp-rocinante",
+}
 _MODE_B = {"llamacpp-qwen3"}
 
 # ── process registry (in-memory, survives API requests but not restarts) ──────
@@ -168,6 +195,15 @@ def _any_alive(names: set) -> bool:
     )
 
 
+def _alive_names(names: set) -> List[str]:
+    """Return the labels of backends in *names* that are currently alive."""
+    return [
+        _LLAMACPP_CONFIG[n]["label"]
+        for n in names
+        if n in _LLAMACPP_CONFIG and _port_alive(_LLAMACPP_CONFIG[n]["port"])
+    ]
+
+
 # ── business logic ────────────────────────────────────────────────────────────
 
 def _do_start(name: str) -> Dict[str, Any]:
@@ -175,23 +211,29 @@ def _do_start(name: str) -> Dict[str, Any]:
     if not cfg:
         raise HTTPException(status_code=404, detail=f"Unknown backend: {name!r}")
 
-    # VRAM conflict guard
-    if name in _MODE_B and _any_alive(_MODE_A):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Mode B (Qwen3 ~19 GB) needs the full GPU.  "
-                "Stop Mode A servers (Pepe / Gemma) first."
-            ),
-        )
-    if name in _MODE_A and _any_alive(_MODE_B):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Qwen3 (Mode B, ~19 GB) is currently using the full GPU.  "
-                "Stop Qwen3 before starting Mode A servers."
-            ),
-        )
+    # VRAM conflict guard — build error messages that name the actual running backends
+    if name in _MODE_B:
+        blocking = _alive_names(_MODE_A - {name})
+        if blocking:
+            names_str = ", ".join(blocking)
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Mode B ({cfg['label']}, ~{cfg['vram_gb']:.0f} GB) needs the full GPU — "
+                    f"stop these first: {names_str}."
+                ),
+            )
+    if name in _MODE_A:
+        blocking = _alive_names(_MODE_B - {name})
+        if blocking:
+            names_str = ", ".join(blocking)
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{names_str} (Mode B) is using the full GPU — "
+                    f"stop it before starting Mode A servers."
+                ),
+            )
 
     # Already responding on the port?
     if _port_alive(cfg["port"]):

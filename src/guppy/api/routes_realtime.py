@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Optional
@@ -9,7 +10,49 @@ from fastapi.responses import StreamingResponse
 
 from src.guppy.api._server_fragment_models import ChatRequest
 from src.guppy.api.server_context import ServerContext
-from src.guppy.api.realtime_inference_support import stream_unified_inference
+from src.guppy.api.realtime_inference_support import (
+    stream_unified_inference,
+    _REPLACE_SENTINEL,
+    _SOURCE_SENTINEL,
+    _OLLAMA_CHAT_URL,
+)
+
+
+async def _generate_conversation_title(user_message: str, conv_id: str) -> None:
+    """Fire-and-forget: generate a short title for a new conversation.
+
+    Uses the fast Ollama model (guppy-fast / qwen2.5:7b) with a minimal
+    prompt.  Updates the DB on success, silently no-ops on any failure so it
+    never disrupts the streaming response.
+    """
+    import httpx
+    from src.guppy.api.routes_chat_history import _chat_history_db
+
+    snippet = user_message.strip()[:120]
+    payload = {
+        "model": "guppy-fast",
+        "messages": [
+            {
+                "role": "user",
+                "content": (
+                    f"Write a chat title of 5 words or fewer for this message. "
+                    f"Reply with ONLY the title, no punctuation, no quotes:\n{snippet}"
+                ),
+            }
+        ],
+        "stream": False,
+        "options": {"temperature": 0.3, "num_predict": 16},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(_OLLAMA_CHAT_URL, json=payload)
+            resp.raise_for_status()
+            title = resp.json().get("message", {}).get("content", "").strip()
+            title = title.strip('"\'').strip()
+            if title:
+                await asyncio.to_thread(_chat_history_db.update_conversation_title, conv_id, title)
+    except Exception:
+        pass  # title gen is best-effort — never surface errors to the user
 
 
 def _get_active_local_model() -> Optional[str]:
@@ -294,6 +337,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
 
         async def _generate():
             full_response = ""
+            last_source: str = ""
             try:
                 async for token in stream_unified_inference(
                     owner,
@@ -305,11 +349,23 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     instance_type=active_instance_type,
                     active_local_model=_active_local_model,
                     active_cloud_model=_active_cloud_model,
+                    image_base64=request.image_base64 or None,
                 ):
+                    if token.startswith(_SOURCE_SENTINEL):
+                        last_source = token[len(_SOURCE_SENTINEL):]
+                        continue  # not sent to client as a token
+                    if token.startswith(_REPLACE_SENTINEL):
+                        replaced = token[len(_REPLACE_SENTINEL):]
+                        full_response = replaced
+                        yield f"data: {json.dumps({'replace': replaced})}\n\n"
+                        continue
                     full_response += token
                     yield f"data: {json.dumps({'token': token})}\n\n"
 
-                yield "data: [DONE]\n\n"
+                done_payload: dict = {}
+                if last_source:
+                    done_payload["source"] = last_source
+                yield f"data: {json.dumps({**done_payload, 'done': True})}\n\n" if done_payload else "data: [DONE]\n\n"
 
             except Exception as exc:
                 owner.logger.error("Streaming chat error: %s", exc)
@@ -323,6 +379,18 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 persona_id=str(request.persona or active_instance_persona or "").strip(),
                 workspace_name=str(active_instance_name or "").strip(),
             )
+
+            # Auto-title: fire-and-forget on the first assistant turn only.
+            if request.session_id and full_response:
+                try:
+                    from src.guppy.api.routes_chat_history import _chat_history_db
+                    conv = _chat_history_db.get_conversation(request.session_id)
+                    if conv and conv.get("message_count", 0) <= 2 and str(conv.get("title", "")).startswith("Conversation "):
+                        asyncio.ensure_future(
+                            _generate_conversation_title(request.message, request.session_id)
+                        )
+                except Exception:
+                    pass  # best-effort, never block the response
 
         return StreamingResponse(
             _generate(),
