@@ -40,35 +40,9 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from src.guppy.api.server_context import ServerContext
-
-# ── Kokoro voice display names ────────────────────────────────────────────────
-_KOKORO_VOICES = [
-    {"id": "bm_lewis",   "name": "Lewis (British Male)",   "lang": "en-gb"},
-    {"id": "bm_george",  "name": "George (British Male)",  "lang": "en-gb"},
-    {"id": "bf_emma",    "name": "Emma (British Female)",  "lang": "en-gb"},
-    {"id": "af_alloy",   "name": "Alloy (American Female)","lang": "en-us"},
-    {"id": "am_adam",    "name": "Adam (American Male)",   "lang": "en-us"},
-    {"id": "af_bella",   "name": "Bella (American Female)","lang": "en-us"},
-    {"id": "af_heart",   "name": "Heart (American Female)","lang": "en-us"},
-]
-
-# Fallback when ElevenLabs API is unreachable
-_ELEVENLABS_VOICES_DEFAULT = [
-    {"id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel",  "lang": "en-us"},
-    {"id": "AZnzlk1XvdvUeBnXmlld", "name": "Domi",    "lang": "en-us"},
-    {"id": "EXAVITQu4vr4xnSDxMaL", "name": "Bella",   "lang": "en-us"},
-    {"id": "ErXwobaYiN019PkySvjV", "name": "Antoni",  "lang": "en-us"},
-    {"id": "MF3mGyEYCl7XYWbV9V6O", "name": "Elli",    "lang": "en-us"},
-    {"id": "VR6AewLTigWG4xSOukaG", "name": "Arnold",  "lang": "en-us"},
-    {"id": "pNInz6obpgDQGcFmaJgB", "name": "Adam",    "lang": "en-us"},
-]
-
-_WHISPER_MODELS = [
-    {"id": "large-v3",  "name": "Whisper Large v3 (best accuracy)"},
-    {"id": "medium",    "name": "Whisper Medium (balanced)"},
-    {"id": "small",     "name": "Whisper Small (faster)"},
-    {"id": "tiny",      "name": "Whisper Tiny (fastest)"},
-]
+from src.guppy.voice.tts.kokoro_provider import KOKORO_VOICES as _KOKORO_VOICES
+from src.guppy.voice.tts.elevenlabs_provider import ELEVENLABS_VOICES_DEFAULT as _ELEVENLABS_VOICES_DEFAULT
+from src.guppy.voice.stt.whisper_stt import WHISPER_MODELS as _WHISPER_MODELS
 
 _KOKORO_VOICE_IDS = {v["id"] for v in _KOKORO_VOICES}
 

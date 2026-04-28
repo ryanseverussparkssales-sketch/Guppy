@@ -145,14 +145,18 @@ class TestSAPISTTProvider:
 
 
 class TestFallbackChainOrchestrator:
-    """Test STT fallback orchestration."""
+    """Test STT fallback orchestration (Deepgram → Whisper → SAPI chain)."""
 
     def test_init(self):
-        """Test orchestrator initialization."""
+        """Test orchestrator has all provider attributes."""
         orchestrator = FallbackChainOrchestrator()
-        assert orchestrator.google_provider is not None
-        assert orchestrator.whisper_provider is not None
-        assert orchestrator.sapi_provider is not None
+        assert orchestrator.deepgram is not None
+        assert orchestrator.whisper is not None
+        assert orchestrator.sapi is not None
+        # Legacy aliases still work
+        assert orchestrator.google_provider is orchestrator.deepgram
+        assert orchestrator.whisper_provider is orchestrator.whisper
+        assert orchestrator.sapi_provider is orchestrator.sapi
 
     @pytest.mark.asyncio
     async def test_health_check_all_unavailable(self):
@@ -160,77 +164,63 @@ class TestFallbackChainOrchestrator:
         with patch.dict(
             os.environ,
             {
-                "GUPPY_GOOGLE_STT_ENABLED": "false",
+                "DEEPGRAM_API_KEY": "",
                 "GUPPY_WHISPER_STT_ENABLED": "false",
                 "GUPPY_SAPI_STT_ENABLED": "false",
             },
         ):
             orchestrator = FallbackChainOrchestrator()
             health = await orchestrator.health_check()
-            # Should return False if no providers available
             assert health is False
 
     @pytest.mark.asyncio
     async def test_transcribe_all_fail(self):
         """Test transcribe when all providers fail."""
         orchestrator = FallbackChainOrchestrator()
-        
-        # Mock all providers to fail
-        orchestrator.google_provider.transcribe = AsyncMock(
-            side_effect=Exception("Google API error")
-        )
-        orchestrator.whisper_provider.transcribe = AsyncMock(
+
+        orchestrator.whisper.transcribe = AsyncMock(
             side_effect=Exception("Whisper API error")
         )
-        orchestrator.sapi_provider.transcribe = AsyncMock(
+        orchestrator.sapi.transcribe = AsyncMock(
             side_effect=Exception("SAPI error")
         )
 
-        with pytest.raises(RuntimeError, match="STT failed"):
-            await orchestrator.transcribe(b"test audio", language="en-US")
+        # Deepgram is skipped when key absent; whisper+sapi both fail
+        with patch.dict(os.environ, {"DEEPGRAM_API_KEY": ""}):
+            with pytest.raises(RuntimeError, match="STT failed"):
+                await orchestrator.transcribe(b"test audio", language="en-US")
 
     @pytest.mark.asyncio
-    async def test_transcribe_google_success(self):
-        """Test transcribe when Google succeeds."""
+    async def test_transcribe_deepgram_success(self):
+        """Test transcribe when Deepgram succeeds."""
         orchestrator = FallbackChainOrchestrator()
-        
+
         expected_result = STTResult(
             text="Hello world",
             confidence=0.95,
-            provider="google_stt",
+            provider="deepgram_stt",
             duration_ms=100.0,
             language="en-US",
             is_final=True,
             error=None,
         )
 
-        orchestrator.google_provider.transcribe = AsyncMock(
-            return_value=expected_result
-        )
-        orchestrator.whisper_provider.transcribe = AsyncMock(
+        orchestrator.deepgram.transcribe = AsyncMock(return_value=expected_result)
+        orchestrator.whisper.transcribe = AsyncMock(
             side_effect=Exception("Should not be called")
         )
 
-        result = await orchestrator.transcribe(b"test audio", language="en-US")
+        with patch.dict(os.environ, {"DEEPGRAM_API_KEY": "test-key"}):
+            result = await orchestrator.transcribe(b"test audio", language="en-US")
 
         assert result.text == "Hello world"
-        assert result.provider == "google_stt"
+        assert result.provider == "deepgram_stt"
         assert result.error is None
 
     @pytest.mark.asyncio
-    async def test_transcribe_google_fails_whisper_succeeds(self):
-        """Test fallback: Google fails, Whisper succeeds."""
+    async def test_transcribe_deepgram_fails_whisper_succeeds(self):
+        """Test fallback: Deepgram fails/absent, Whisper succeeds."""
         orchestrator = FallbackChainOrchestrator()
-        
-        google_result = STTResult(
-            text="",
-            confidence=0.0,
-            provider="google_stt",
-            duration_ms=100.0,
-            language="en-US",
-            is_final=True,
-            error="Google API error",
-        )
 
         whisper_result = STTResult(
             text="Hello from Whisper",
@@ -242,35 +232,19 @@ class TestFallbackChainOrchestrator:
             error=None,
         )
 
-        orchestrator.google_provider.transcribe = AsyncMock(
-            return_value=google_result
+        orchestrator.whisper.transcribe = AsyncMock(return_value=whisper_result)
+        orchestrator.sapi.transcribe = AsyncMock(
+            side_effect=Exception("Should not be called")
         )
-        orchestrator.whisper_provider.transcribe = AsyncMock(
-            return_value=whisper_result
-        )
-        # Note: sapi runs in parallel with whisper in the orchestrator's race,
-        # so we give it a slow result rather than an exception that would
-        # fire concurrently. Whisper's faster path wins the race.
-        slow_sapi = STTResult(
-            text="late sapi",
-            confidence=0.5,
-            provider="sapi_stt",
-            duration_ms=999.0,
-            language="en-US",
-        )
-        async def _slow(*args, **kwargs):
-            await asyncio.sleep(1.0)
-            return slow_sapi
-        orchestrator.sapi_provider.transcribe = _slow
 
-        result = await orchestrator.transcribe(b"test audio", language="en-US")
+        # Deepgram skipped (no key)
+        with patch.dict(os.environ, {"DEEPGRAM_API_KEY": ""}):
+            result = await orchestrator.transcribe(b"test audio", language="en-US")
 
         assert result.text == "Hello from Whisper"
         assert result.provider == "whisper_stt"
         chain = result.metadata.get("fallback_chain", [])
-        # Provider names in chain are "google_stt" and "whisper_stt"
-        assert any("google" in p for p in chain)
-        assert any("whisper" in p for p in chain)
+        assert "whisper" in chain
 
 
 class TestAudioEventTelemetry:
@@ -441,11 +415,17 @@ class TestFacadeTranscribe:
     @pytest.mark.asyncio
     async def test_listen_no_microphone_yields_no_microphone_error(self):
         from guppy.voice import listen, clear_audio_telemetry
+        from guppy.voice import voice as voice_facade
 
         clear_audio_telemetry()
-        async with listen() as result:
-            assert result.error == "no_microphone"
-            assert result.text == ""
+        voice_facade._stt_orchestrator = None  # clear stale mock from previous test
+        with patch.object(
+            voice_facade, "_capture_microphone_audio",
+            new=AsyncMock(return_value=b""),
+        ):
+            async with listen() as result:
+                assert result.error == "no_microphone"
+                assert result.text == ""
 
 
 if __name__ == "__main__":

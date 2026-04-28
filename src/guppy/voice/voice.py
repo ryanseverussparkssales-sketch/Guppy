@@ -161,12 +161,71 @@ async def transcribe(
     return result
 
 
-async def _capture_microphone_audio() -> bytes:
-    return b""
+async def _capture_microphone_audio(
+    duration_s: float = 5.0,
+    sample_rate: int = 16000,
+    channels: int = 1,
+) -> bytes:
+    """Capture audio from the default microphone. Returns empty bytes if unavailable."""
+    try:
+        import sounddevice as sd  # type: ignore
+        import numpy as np  # type: ignore
+    except ImportError:
+        logger.debug("sounddevice/numpy not installed — microphone capture unavailable")
+        return b""
+    try:
+        recording = await asyncio.to_thread(
+            sd.rec,
+            int(duration_s * sample_rate),
+            samplerate=sample_rate,
+            channels=channels,
+            dtype="int16",
+            blocking=True,
+        )
+        return recording.tobytes()
+    except Exception as exc:
+        logger.warning("Microphone capture failed: %s", exc)
+        return b""
 
 
-def _stream_microphone_audio():
-    return None
+async def _stream_microphone_audio_generator(
+    sample_rate: int = 16000,
+    chunk_s: float = 0.1,
+    channels: int = 1,
+) -> AsyncGenerator[bytes, None]:
+    """Yield raw PCM chunks from the default microphone until cancelled."""
+    try:
+        import sounddevice as sd  # type: ignore
+        import numpy as np  # type: ignore
+    except ImportError:
+        logger.debug("sounddevice/numpy not installed — microphone streaming unavailable")
+        return
+    chunk_frames = int(sample_rate * chunk_s)
+    try:
+        with sd.RawInputStream(
+            samplerate=sample_rate,
+            channels=channels,
+            dtype="int16",
+            blocksize=chunk_frames,
+        ) as stream:
+            while True:
+                data, _ = await asyncio.to_thread(stream.read, chunk_frames)
+                if data:
+                    yield bytes(data)
+    except Exception as exc:
+        logger.warning("Microphone stream failed: %s", exc)
+
+
+def _stream_microphone_audio(
+    sample_rate: int = 16000,
+    chunk_s: float = 0.1,
+) -> Optional[AsyncGenerator[bytes, None]]:
+    """Return an async generator of PCM chunks, or None if sounddevice unavailable."""
+    try:
+        import sounddevice  # noqa: F401 — just checking availability
+        return _stream_microphone_audio_generator(sample_rate=sample_rate, chunk_s=chunk_s)
+    except ImportError:
+        return None
 
 
 @asynccontextmanager

@@ -28,6 +28,13 @@ from guppy.voice.core import STTProvider, STTResult, AudioEvent, AudioEventType
 
 logger = logging.getLogger(__name__)
 
+WHISPER_MODELS = [
+    {"id": "large-v3", "name": "Whisper Large v3 (best accuracy)"},
+    {"id": "medium",   "name": "Whisper Medium (balanced)"},
+    {"id": "small",    "name": "Whisper Small (faster)"},
+    {"id": "tiny",     "name": "Whisper Tiny (fastest)"},
+]
+
 
 class WhisperSTTProvider(STTProvider):
     """OpenAI Whisper speech-to-text provider."""

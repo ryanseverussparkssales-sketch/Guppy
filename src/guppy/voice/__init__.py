@@ -45,6 +45,7 @@ from guppy.voice.stt.fallback_orchestrator import FallbackChainOrchestrator
 from guppy.voice.tts.fallback_orchestrator import TTSFallbackOrchestrator
 
 # STT Providers
+from guppy.voice.stt.deepgram_stt import DeepgramSTTProvider
 from guppy.voice.stt.google_stt import GoogleSTTProvider
 from guppy.voice.stt.whisper_stt import WhisperSTTProvider
 from guppy.voice.stt.sapi_stt import SAPISTTProvider
@@ -92,7 +93,7 @@ __all__ = [
     "get_tts_cache_stats", "clear_tts_cache",
     "record_audio_event", "record_audio_quality_feedback",
     "FallbackChainOrchestrator", "TTSFallbackOrchestrator",
-    "GoogleSTTProvider", "WhisperSTTProvider", "SAPISTTProvider",
+    "DeepgramSTTProvider", "GoogleSTTProvider", "WhisperSTTProvider", "SAPISTTProvider",
     "KokoroTTSProvider", "SAPITTSProvider", "ElevenLabsTTSProvider", "TTSCache",
     "WakeWordDetector", "WakeWordConfig", "WakeWordEvent",
     "EnergyThresholdWakeWordProvider", "PorcupineWakeWordProvider",

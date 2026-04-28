@@ -13,12 +13,14 @@ Orchestrator:
   - FallbackChainOrchestrator: Intelligent retry logic across all providers
 """
 
+from guppy.voice.stt.deepgram_stt import DeepgramSTTProvider
 from guppy.voice.stt.google_stt import GoogleSTTProvider
 from guppy.voice.stt.whisper_stt import WhisperSTTProvider
 from guppy.voice.stt.sapi_stt import SAPISTTProvider
 from guppy.voice.stt.fallback_orchestrator import FallbackChainOrchestrator
 
 __all__ = [
+    "DeepgramSTTProvider",
     "GoogleSTTProvider",
     "WhisperSTTProvider",
     "SAPISTTProvider",

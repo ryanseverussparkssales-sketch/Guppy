@@ -26,6 +26,16 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_API_URL = "http://127.0.0.1:8880/v1/audio/speech"
 
+KOKORO_VOICES = [
+    {"id": "bm_lewis",   "name": "Lewis (British Male)",    "lang": "en-gb"},
+    {"id": "bm_george",  "name": "George (British Male)",   "lang": "en-gb"},
+    {"id": "bf_emma",    "name": "Emma (British Female)",   "lang": "en-gb"},
+    {"id": "af_alloy",   "name": "Alloy (American Female)", "lang": "en-us"},
+    {"id": "am_adam",    "name": "Adam (American Male)",    "lang": "en-us"},
+    {"id": "af_bella",   "name": "Bella (American Female)", "lang": "en-us"},
+    {"id": "af_heart",   "name": "Heart (American Female)", "lang": "en-us"},
+]
+
 
 class KokoroTTSProvider(TTSProvider):
     """Kokoro TTS via HTTP API or local pipeline."""

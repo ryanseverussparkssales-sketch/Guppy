@@ -20,6 +20,16 @@ from guppy.voice.core import TTSProvider, TTSResult
 
 logger = logging.getLogger(__name__)
 
+ELEVENLABS_VOICES_DEFAULT = [
+    {"id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel",  "lang": "en-us"},
+    {"id": "AZnzlk1XvdvUeBnXmlld", "name": "Domi",    "lang": "en-us"},
+    {"id": "EXAVITQu4vr4xnSDxMaL", "name": "Bella",   "lang": "en-us"},
+    {"id": "ErXwobaYiN019PkySvjV",  "name": "Antoni",  "lang": "en-us"},
+    {"id": "MF3mGyEYCl7XYWbV9V6O", "name": "Elli",    "lang": "en-us"},
+    {"id": "VR6AewLTigWG4xSOukaG", "name": "Arnold",  "lang": "en-us"},
+    {"id": "pNInz6obpgDQGcFmaJgB",  "name": "Adam",    "lang": "en-us"},
+]
+
 
 class ElevenLabsTTSProvider(TTSProvider):
     """ElevenLabs TTS via REST streaming API."""

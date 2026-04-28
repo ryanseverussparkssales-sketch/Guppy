@@ -83,13 +83,21 @@ class PushToTalkStateMachine:
             return True
         return False
 
+    _VALID_TRANSITIONS: dict[PushToTalkState, set] = {
+        PushToTalkState.IDLE:         {PushToTalkState.LISTENING, PushToTalkState.ACTIVE, PushToTalkState.INACTIVE},
+        PushToTalkState.LISTENING:    {PushToTalkState.TRANSCRIBING, PushToTalkState.IDLE, PushToTalkState.INACTIVE},
+        PushToTalkState.TRANSCRIBING: {PushToTalkState.IDLE, PushToTalkState.INACTIVE},
+        PushToTalkState.ACTIVE:       {PushToTalkState.IDLE, PushToTalkState.INACTIVE},
+        PushToTalkState.INACTIVE:     set(),
+    }
+
     def _is_valid_transition(
         self, from_state: PushToTalkState, to_state: PushToTalkState
     ) -> bool:
         """Check if a state transition is valid."""
-        # Simplified: all transitions are valid for now
-        # Full validation in Phase 1
-        return True
+        if from_state == to_state:
+            return True
+        return to_state in self._VALID_TRANSITIONS.get(from_state, set())
 
     def reset(self) -> None:
         """Reset state machine to IDLE."""
