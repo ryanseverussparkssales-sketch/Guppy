@@ -1,6 +1,6 @@
 # Guppy Project Brief
 
-Last updated: 2026-04-21
+Last updated: 2026-04-28
 
 ## Purpose
 
@@ -164,6 +164,7 @@ Boundary intent: preserve the current five-hub product ownership while freezing 
 10. Library Hub P4 is complete as of April 19, 2026: `ui/launcher/views/library_view.py` now supports multiline pinned-note editing, local audio/video playback through the Library-local media panel, and smoother Library-to-Home source reuse without adding new storage tables or credential surfaces.
 11. Historical specialist surfaces (Merlin, Council) are quarantined under `compat_shims/legacy_surfaces/` and are not product surfaces.
 12. `Guppy-pi` is not part of this repository. It was a separate project tracked by mistake as a gitlink and has been removed from git tracking.
+13. **Web UI Parity Complete (2026-04-28):** Comprehensive parity testing between web UI (FastAPI + React) and desktop launcher is complete. The web UI is now the **primary & authoritative product surface**. The desktop launcher (`launcher_app.py`) is now a **wrapper** that spawns the FastAPI server locally and opens a browser window to the web UI. This eliminates dual codebase maintenance while preserving the "native desktop app" UX. All P0 features verified on web UI: chat, workspaces, model management, settings, tool execution. Single FastAPI + React codebase replaces the dual Qt/web architecture.
 
 ---
 

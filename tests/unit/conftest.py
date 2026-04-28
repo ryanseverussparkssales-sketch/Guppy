@@ -9,18 +9,20 @@ re-set these vars inside their own ``patch.dict`` context managers.
 """
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 
 
 @pytest.fixture(autouse=True)
 def _unit_test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     """Isolate unit tests from the live environment."""
-    # Never call a live AI provider.
-    with patch("api.routes.chat._select_backend", return_value="mock-local"):
-        # Auth secrets: cleared so verify_token / verify_turnstile bypass by
-        # default.  wave2_auth tests override these with patch.dict().
-        monkeypatch.delenv("GUPPY_JWT_SECRET", raising=False)
-        monkeypatch.delenv("GUPPY_TURNSTILE_SECRET", raising=False)
-        yield
+    # Auth secrets: cleared so verify_token / verify_turnstile bypass by default.
+    # Tests that specifically validate auth re-set these vars inside patch.dict() context managers.
+    monkeypatch.delenv("GUPPY_JWT_SECRET", raising=False)
+    monkeypatch.delenv("GUPPY_TURNSTILE_SECRET", raising=False)
+
+    # Note: Voice module tests (test_stt_providers.py, etc.) do not need API backend patching.
+    # Only auth-specific tests (test_wave2_auth.py) require patching api.routes.chat.
+    # To keep this fixture lightweight, skip API patching here.
+    # If future tests need API mocking, use @patch() decorator directly on those test functions.
+
+    yield
