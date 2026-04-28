@@ -7,6 +7,7 @@ High-level async API for voice operations.
 
 import asyncio
 import logging
+import os
 from typing import Optional, AsyncGenerator, AsyncContextManager
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -56,16 +57,23 @@ def _ensure_tts_cache():
     return _tts_cache
 
 
+def _env_float(key: str, default: float) -> float:
+    try:
+        return float(os.environ.get(key, str(default)))
+    except (ValueError, TypeError):
+        return default
+
+
 def _ensure_config() -> VoiceConfig:
     global _voice_config
     if _voice_config is None:
         _voice_config = VoiceConfig(
-            active_stt_provider="fallback_chain",
-            active_tts_provider="kokoro",
+            active_stt_provider=os.environ.get("GUPPY_STT_PROVIDER", "fallback_chain"),
+            active_tts_provider=os.environ.get("GUPPY_TTS_PROVIDER", "kokoro"),
             active_wake_word_provider=None,
-            stt_language="en-US",
-            tts_voice="en-US-Neural2-A",
-            tts_speed=1.0,
+            stt_language=os.environ.get("GUPPY_STT_LANGUAGE", "en-US"),
+            tts_voice=os.environ.get("GUPPY_TTS_VOICE", "bm_lewis"),
+            tts_speed=_env_float("GUPPY_TTS_RATE", 1.0),
             tts_pitch=0.0,
             enable_telemetry=True,
             enable_quality_feedback=True,
@@ -416,6 +424,11 @@ def get_tts_cache_stats() -> dict:
 def clear_tts_cache() -> None:
     cache = _ensure_tts_cache()
     cache.clear()
+
+
+def stop() -> None:
+    """Interrupt active TTS playback. No-op until async speaker output is wired."""
+    logger.debug("[voice] stop() called — no active playback to interrupt")
 
 
 class GuppyVoice:

@@ -20,6 +20,11 @@ from guppy.voice.core import TTSProvider, TTSResult
 
 logger = logging.getLogger(__name__)
 
+# Module-level cache shared across all ElevenLabsTTSProvider instances
+_voices_cache: list[dict] | None = None
+_voices_cached_at: float = 0.0
+_VOICES_CACHE_TTL = 300.0  # 5 minutes
+
 ELEVENLABS_VOICES_DEFAULT = [
     {"id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel",  "lang": "en-us"},
     {"id": "AZnzlk1XvdvUeBnXmlld", "name": "Domi",    "lang": "en-us"},
@@ -50,6 +55,38 @@ class ElevenLabsTTSProvider(TTSProvider):
 
     async def health_check(self) -> bool:
         return bool(self._api_key)
+
+    def list_voices_sync(self) -> list[dict]:
+        """Return the user's ElevenLabs voice library (blocking, cached 5 min)."""
+        global _voices_cache, _voices_cached_at
+        now = time.monotonic()
+        if _voices_cache is not None and now - _voices_cached_at < _VOICES_CACHE_TTL:
+            return _voices_cache
+        if not self._api_key:
+            return ELEVENLABS_VOICES_DEFAULT
+        try:
+            req = urllib.request.Request(
+                "https://api.elevenlabs.io/v1/voices",
+                headers={"xi-api-key": self._api_key, "Accept": "application/json"},
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+            voices = data.get("voices", [])
+            result = [
+                {"id": v["voice_id"], "name": v["name"], "lang": "en-us"}
+                for v in voices
+                if v.get("voice_id") and v.get("name")
+            ]
+            _voices_cache = result or ELEVENLABS_VOICES_DEFAULT
+            _voices_cached_at = now
+            logger.debug("ElevenLabs: fetched %d voices", len(_voices_cache))
+            return _voices_cache
+        except Exception as exc:
+            logger.warning("ElevenLabs voice fetch failed: %s", exc)
+            _voices_cache = ELEVENLABS_VOICES_DEFAULT
+            _voices_cached_at = now
+            return ELEVENLABS_VOICES_DEFAULT
 
     async def synthesize(
         self,

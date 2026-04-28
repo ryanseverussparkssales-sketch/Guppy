@@ -38,6 +38,7 @@ from guppy.voice.voice import (
     clear_tts_cache,
     record_audio_event,
     record_audio_quality_feedback,
+    stop,
 )
 
 # Orchestrators
@@ -91,7 +92,7 @@ __all__ = [
     "get_voice_config", "set_voice_config",
     "set_active_stt_provider", "set_active_tts_provider",
     "get_tts_cache_stats", "clear_tts_cache",
-    "record_audio_event", "record_audio_quality_feedback",
+    "record_audio_event", "record_audio_quality_feedback", "stop",
     "FallbackChainOrchestrator", "TTSFallbackOrchestrator",
     "DeepgramSTTProvider", "GoogleSTTProvider", "WhisperSTTProvider", "SAPISTTProvider",
     "KokoroTTSProvider", "SAPITTSProvider", "ElevenLabsTTSProvider", "TTSCache",
