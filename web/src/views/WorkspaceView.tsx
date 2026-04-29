@@ -16,7 +16,9 @@ import {
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 import api from '@/api/client'
+import { useSurfaceEvents } from '@/hooks/useSurfaceEvents'
 import { BackendSelector } from '@/components/surface/BackendSelector'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
 import { CRMPanel } from '@/components/workspace/CRMPanel'
@@ -151,49 +153,28 @@ function AgentsPanel() {
     }
   }
 
-  useEffect(() => {
-    loadTasks()
-    const token = localStorage.getItem('accessToken') || ''
-    let cancelled = false
-    let retryTimeout: ReturnType<typeof setTimeout> | null = null
+  useEffect(() => { loadTasks() }, [])
 
-    async function connectSSE() {
-      if (cancelled) return
-      try {
-        const res = await fetch('/api/surface/events', {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
-        const reader = res.body.getReader()
-        const dec = new TextDecoder()
-        let buf = '', evType = ''
-        while (!cancelled) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buf += dec.decode(value, { stream: true })
-          const lines = buf.split('\n')
-          buf = lines.pop() ?? ''
-          for (const line of lines) {
-            if (line.startsWith('event: ')) evType = line.slice(7).trim()
-            else if (line.startsWith('data: ')) {
-              try {
-                JSON.parse(line.slice(6))
-                if (['task_spawned', 'task_updated', 'task_cancelled'].includes(evType)) loadTasks()
-              } catch { /* ignore */ }
-              evType = ''
-            }
-          }
-        }
-      } catch { /* reconnect */ }
-      if (!cancelled) retryTimeout = setTimeout(connectSSE, 5000)
-    }
+  useSurfaceEvents((type, payload: any) => {
+    const RELOAD_EVENTS = [
+      'task_spawned', 'task_updated', 'task_cancelled',
+      'task_progress', 'task_completed', 'task_failed',
+    ]
+    if (RELOAD_EVENTS.includes(type)) loadTasks()
 
-    connectSSE()
-    return () => {
-      cancelled = true
-      if (retryTimeout) clearTimeout(retryTimeout)
+    if (type === 'task_completed') {
+      const title = payload?.data?.title || payload?.title || 'Task'
+      toast.success(`Workspace: ${String(title).slice(0, 60)} — done`)
     }
-  }, [])
+    if (type === 'task_failed') {
+      const title = payload?.data?.title || payload?.title || 'Task'
+      toast.error(`Workspace task failed: ${String(title).slice(0, 50)}`)
+    }
+    if (type === 'reminder_due') {
+      const msg = payload?.data?.message || payload?.message || 'Reminder'
+      toast.info(`⏰ ${String(msg).slice(0, 120)}`, { duration: 8000 })
+    }
+  })
 
   const cancelTask = async (id: string) => {
     try {

@@ -21,6 +21,7 @@ import { useWorkspaceStore, syncManager } from '@/store'
 import { useAppStore } from '@/store/appStore'
 import { MarkdownMessage } from '@/components/chat/MarkdownMessage'
 import { useVoice } from '@/hooks/useVoice'
+import { useSurfaceEvents } from '@/hooks/useSurfaceEvents'
 import { AvatarPresence, type AvatarState } from '@/components/surface/AvatarPresence'
 import { BackendSelector } from '@/components/surface/BackendSelector'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
@@ -246,45 +247,30 @@ export default function CompanionView() {
       .catch(() => {})
   }, [activeWorkspaceId])
 
-  // Subscribe to workspace SSE alerts for ambient mode
-  useEffect(() => {
-    if (!ambientMode) return
-    const token = localStorage.getItem('accessToken') || ''
-    let cancelled = false
-    async function sub() {
-      try {
-        const res = await fetch('/api/surface/events', { headers: { Authorization: `Bearer ${token}` } })
-        if (!res.body) return
-        const reader = res.body.getReader()
-        const dec = new TextDecoder()
-        let buf = '', evType = ''
-        while (!cancelled) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buf += dec.decode(value, { stream: true })
-          const lines = buf.split('\n')
-          buf = lines.pop() ?? ''
-          for (const line of lines) {
-            if (line.startsWith('event: ')) evType = line.slice(7).trim()
-            else if (line.startsWith('data: ')) {
-              try {
-                const payload = JSON.parse(line.slice(6))
-                if (evType === 'task_spawned' || evType === 'task_updated') {
-                  const label = payload.title || payload.status || 'Workspace update'
-                  setWsAlert(label)
-                  if (ttsEnabled) voice.speak(label.slice(0, 120))
-                  setTimeout(() => setWsAlert(null), 6000)
-                }
-              } catch { /* ignore */ }
-              evType = ''
-            }
-          }
-        }
-      } catch { /* ignore */ }
+  // Subscribe to cross-surface SSE events (always on — ambient mode controls TTS/alerts)
+  useSurfaceEvents((type, payload: any) => {
+    const data = payload?.data ?? payload ?? {}
+    if (type === 'task_spawned' || type === 'task_progress') {
+      if (ambientMode) {
+        const label = data.title || data.step || 'Workspace update'
+        setWsAlert(String(label).slice(0, 80))
+        setTimeout(() => setWsAlert(null), 6000)
+        if (ttsEnabled) voice.speakQueued(String(label).slice(0, 120))
+      }
     }
-    sub()
-    return () => { cancelled = true }
-  }, [ambientMode, ttsEnabled, voice])
+    if (type === 'task_completed' && ambientMode) {
+      const label = `Task done: ${(data.title || 'Workspace task').slice(0, 60)}`
+      setWsAlert(label)
+      setTimeout(() => setWsAlert(null), 6000)
+      if (ttsEnabled) voice.speakQueued(label)
+    }
+    if (type === 'reminder_due') {
+      const msg = data.message || 'Reminder'
+      setWsAlert(String(msg).slice(0, 80))
+      setTimeout(() => setWsAlert(null), 8000)
+      if (ttsEnabled) voice.speakQueued(String(msg).slice(0, 200))
+    }
+  })
 
   // Wake word session toggle
   const toggleWakeMode = async () => {
