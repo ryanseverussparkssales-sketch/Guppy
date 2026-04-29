@@ -561,6 +561,9 @@ app.include_router(build_media_router(_server_context))             # /api/media
 from src.guppy.api.routes_documents import build_documents_router
 app.include_router(build_documents_router(_server_context))         # /api/documents/*
 
+from src.guppy.api.routes_tasks import build_tasks_router
+app.include_router(build_tasks_router(_server_context))             # /api/tasks/*
+
 # Start background services
 try:
     from src.guppy.codespace.codespace_triage import start_watchdog as _start_watchdog

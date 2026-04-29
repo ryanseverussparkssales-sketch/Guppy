@@ -9,7 +9,7 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import {
   MessageSquare, LayoutList, Users, Monitor, FolderOpen,
-  Cpu, Bell, Phone, Zap, X, CheckCircle2, Clock, AlertCircle,
+  Cpu, Phone, Zap, X, CheckCircle2, Clock, AlertCircle,
   Loader2, ChevronRight, ChevronDown, Calendar, Mail, Library,
   CheckSquare,
 } from 'lucide-react'
@@ -22,7 +22,6 @@ import { CRMPanel } from '@/components/workspace/CRMPanel'
 import { ScreenPanel } from '@/components/workspace/ScreenPanel'
 import { FilesPanel } from '@/components/workspace/FilesPanel'
 import { SystemMetricsPanel } from '@/components/workspace/SystemMetricsPanel'
-import { AutomationPanel } from '@/components/workspace/AutomationPanel'
 import { VoIPPanel } from '@/components/workspace/VoIPPanel'
 import { CalendarPanel } from '@/components/workspace/CalendarPanel'
 import { EmailPanel } from '@/components/workspace/EmailPanel'

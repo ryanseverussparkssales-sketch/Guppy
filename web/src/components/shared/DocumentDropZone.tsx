@@ -106,11 +106,22 @@ function DocCard({ doc, onDelete, onAnalyze }: {
             : <Sparkles className="w-3.5 h-3.5" />
           }
         </button>
-        {/* Download */}
-        <a href={`/api/documents/${doc.id}/download`} download={doc.filename}
-           className="p-1 rounded text-on-surface-variant/30 hover:text-on-surface transition-colors">
+        {/* Download — use api client so auth header is included */}
+        <button
+          onClick={async () => {
+            try {
+              const r = await api.get(`/api/documents/${doc.id}/download`, { responseType: 'blob' })
+              const url = URL.createObjectURL(r.data)
+              const a = document.createElement('a')
+              a.href = url; a.download = doc.filename; a.click()
+              URL.revokeObjectURL(url)
+            } catch { /* ignore */ }
+          }}
+          className="p-1 rounded text-on-surface-variant/30 hover:text-on-surface transition-colors"
+          title={`Download ${doc.filename}`}
+        >
           <Download className="w-3.5 h-3.5" />
-        </a>
+        </button>
         {/* Delete */}
         <button onClick={() => onDelete(doc.id)}
           className="p-1 rounded text-on-surface-variant/20 hover:text-error transition-colors">

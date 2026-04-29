@@ -2,11 +2,11 @@
  * TaskManagerPanel — Personal task board + reminders
  *
  * A proper task manager with projects, priorities, due dates, and status.
- * Persists to /api/workspace/tasks (existing endpoint). Separate from the
- * AgentTaskPanel (which tracks AI agent jobs).
+ * Persists to /api/tasks (dedicated task board backend). Separate from
+ * /api/workspace/tasks (agent CRM tasks) and AgentTaskPanel (AI job tracker).
  *
  * Views: Board (Todo | Doing | Done) | List (all, filterable)
- * API: GET/POST /api/workspace/tasks  PATCH/DELETE /api/workspace/tasks/{id}
+ * API: GET/POST /api/tasks  PATCH/DELETE /api/tasks/{id}
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
@@ -86,7 +86,7 @@ function AddTaskForm({ initialStatus = 'todo', onSave, onClose }: {
     if (!title.trim()) { setErr('Title required'); return }
     setSaving(true)
     try {
-      await api.post('/api/workspace/tasks', {
+      await api.post('/api/tasks', {
         title: title.trim(), description: desc,
         status, priority, project,
         due_date: due || undefined,
@@ -226,7 +226,7 @@ export function TaskManagerPanel() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await api.get('/api/workspace/tasks?limit=200')
+      const r = await api.get('/api/tasks?limit=200')
       setTasks(Array.isArray(r.data) ? r.data : [])
     } catch { /* ignore */ } finally { setLoading(false) }
   }, [])
@@ -235,12 +235,12 @@ export function TaskManagerPanel() {
 
   const updateTask = async (id: string, patch: Partial<Task>) => {
     setTasks((ts) => ts.map((t) => t.id === id ? { ...t, ...patch } : t))
-    await api.patch(`/api/workspace/tasks/${id}`, patch).catch(() => { load() })
+    await api.patch(`/api/tasks/${id}`, patch).catch(() => { load() })
   }
 
   const deleteTask = async (id: string) => {
     setTasks((ts) => ts.filter((t) => t.id !== id))
-    await api.delete(`/api/workspace/tasks/${id}`).catch(() => { load() })
+    await api.delete(`/api/tasks/${id}`).catch(() => { load() })
   }
 
   const filtered = tasks.filter((t) =>
