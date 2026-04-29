@@ -37,7 +37,8 @@ const BACKEND_OPTIONS: BackendOption[] = [
   { backend: 'llamacpp', model: 'llamacpp-xlam',      mode: 'local', label: 'xLAM 8B',                 description: 'llamacpp · 5GB VRAM · tool-call specialist' },
   { backend: 'llamacpp', model: 'llamacpp-pepe',      mode: 'local', label: 'Pepe 8B',                 description: 'llamacpp · 8.5GB VRAM · fast chat' },
   { backend: 'llamacpp', model: 'llamacpp-minicpm',   mode: 'local', label: 'MiniCPM (Vision+Voice)',  description: 'llamacpp · 9GB VRAM · vision+speech' },
-  { backend: 'llamacpp', model: 'llamacpp-dispatch',  mode: 'local', label: 'Dispatch 3B',             description: 'llamacpp · 2GB VRAM · orchestrator' },
+  { backend: 'llamacpp', model: 'llamacpp-dispatch',  mode: 'local', label: 'Dispatch 3B',             description: 'llamacpp · 2GB VRAM · text router' },
+  { backend: 'llamacpp', model: 'llamacpp-phi4-mini', mode: 'local', label: 'Phi-4-mini (Dispatch)',    description: 'llamacpp · 2.5GB VRAM · JSON tool_call orchestrator' },
   // Cloud
   { backend: 'cloud', model: 'claude', mode: 'claude', label: 'Claude (Anthropic)', description: 'Cloud API · max capability' },
   { backend: 'cloud', model: 'auto',   mode: 'auto',   label: 'Auto (Smart Route)', description: 'Auto-routes by task: tool/chat/reason' },

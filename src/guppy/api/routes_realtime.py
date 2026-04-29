@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -18,20 +20,105 @@ from src.guppy.api.realtime_inference_support import (
 )
 from src.guppy.voice import voice as _voice
 
+# ── Companion tool-call parser ─────────────────────────────────────────────────
+# Hermes 3/4 emit tool calls as: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
+_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+
+
+async def _execute_companion_tool(name: str, args: dict) -> dict:
+    """Execute one companion tool call. Returns a result dict."""
+    import httpx
+
+    if name == "web_fetch":
+        url     = str(args.get("url", "")).strip()
+        extract = str(args.get("extract", "")).strip().lower()
+        if not url:
+            return {"ok": False, "error": "url required"}
+        try:
+            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+                resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 Guppy/1.0"})
+                text = resp.text
+            if "<html" in text.lower()[:500]:
+                text = re.sub(r"<[^>]+>", " ", text)
+                text = re.sub(r"[ \t]{3,}", " ", text)
+                text = re.sub(r"\n{4,}", "\n\n", text)
+            text = text[:20000]
+            if extract:
+                idx = text.lower().find(extract)
+                if idx >= 0:
+                    text = text[max(0, idx - 100): idx + 6000]
+            return {"ok": True, "text": text[:8000], "url": url}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "create_reminder":
+        from src.guppy.api.routes_reminders import create_reminder
+        message       = str(args.get("message", "")).strip()
+        delay_minutes = args.get("delay_minutes")
+        due_iso       = args.get("due_iso")
+        if not message:
+            return {"ok": False, "error": "message required"}
+        if delay_minutes is None and due_iso is None:
+            delay_minutes = 30
+        try:
+            return {"ok": True, **create_reminder(message, due_iso=due_iso, delay_minutes=delay_minutes)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "download_media":
+        url      = str(args.get("url", "")).strip()
+        category = str(args.get("category", "general")).strip()
+        if not url:
+            return {"ok": False, "error": "url required"}
+        try:
+            # Call qBittorrent Web API directly (bypasses Guppy auth)
+            qb_base = os.environ.get("QBITTORRENT_URL", "http://localhost:8080").rstrip("/")
+            payload: dict = {"urls": url}
+            if category:
+                payload["category"] = category
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(f"{qb_base}/api/v2/torrents/add", data=payload)
+            return {"ok": resp.status_code < 300, "status": resp.status_code, "url": url}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "memory_write":
+        from src.guppy.memory.semantic import remember_semantic
+        key      = str(args.get("key", "note")).strip()
+        value    = str(args.get("value", "")).strip()
+        category = str(args.get("category", "general")).strip()
+        if not value:
+            return {"ok": False, "error": "value required"}
+        try:
+            return {"ok": True, "stored": remember_semantic(key, value, category)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "memory_recall":
+        from src.guppy.memory.semantic import recall_semantic
+        query = str(args.get("query", "")).strip()
+        if not query:
+            return {"ok": False, "error": "query required"}
+        try:
+            return {"ok": True, "recalled": recall_semantic(query)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    return {"ok": False, "error": f"Unknown tool: {name}"}
+
 
 async def _generate_conversation_title(user_message: str, conv_id: str) -> None:
     """Fire-and-forget: generate a short title for a new conversation.
 
-    Uses the fast Ollama model (guppy-fast / qwen2.5:7b) with a minimal
-    prompt.  Updates the DB on success, silently no-ops on any failure so it
-    never disrupts the streaming response.
+    Uses the dispatch llamacpp server (Qwen2.5-3B-Instruct) via OpenAI-compatible API.
+    Updates the DB on success, silently no-ops on any failure.
     """
     import httpx
     from src.guppy.api.routes_chat_history import _chat_history_db
 
     snippet = user_message.strip()[:120]
     payload = {
-        "model": "guppy-fast",
+        "model": "qwen2.5-3b-instruct",
         "messages": [
             {
                 "role": "user",
@@ -42,13 +129,14 @@ async def _generate_conversation_title(user_message: str, conv_id: str) -> None:
             }
         ],
         "stream": False,
-        "options": {"temperature": 0.3, "num_predict": 16},
+        "temperature": 0.3,
+        "max_tokens": 16,
     }
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.post(_OLLAMA_CHAT_URL, json=payload)
+            resp = await client.post("http://localhost:8085/v1/chat/completions", json=payload)
             resp.raise_for_status()
-            title = resp.json().get("message", {}).get("content", "").strip()
+            title = resp.json()["choices"][0]["message"]["content"].strip()
             title = title.strip('"\'').strip()
             if title:
                 await asyncio.to_thread(_chat_history_db.update_conversation_title, conv_id, title)
@@ -245,6 +333,11 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 except Exception as e:
                     owner.logger.debug("Response cache lookup skipped: %s", e)
 
+            _active_local = _get_active_local_model()
+            # Companion voice fast-path: force Hermes3 (always-on, fast, uncensored)
+            if request.is_voice and request.surface == "companion":
+                _active_local = "llamacpp-hermes3"
+
             response = await ctx.run_blocking(
                 ctx.call_unified_inference,
                 request.message,
@@ -253,7 +346,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 request.history,
                 instance_name=active_instance_name,
                 instance_type=active_instance_type,
-                active_local_model=_get_active_local_model(),
+                active_local_model=_active_local,
                 active_cloud_model=_get_active_cloud_model(),
                 timeout_seconds=owner.CHAT_TIMEOUT_SECONDS,
             )
@@ -338,9 +431,132 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
         _active_local_model = _get_active_local_model()
         _active_cloud_model = _get_active_cloud_model()
 
+        # Companion voice fast-path: force Hermes3 (always-on, fast, uncensored)
+        if request.is_voice and request.surface == "companion":
+            _active_local_model = "llamacpp-hermes3"
+
         async def _generate():
             full_response = ""
             last_source: str = ""
+
+            # ── Companion surface: two-pass with tool-call detection ───────────
+            if request.surface == "companion":
+                # Pass 1: buffer streaming tokens to detect <tool_call> blocks.
+                # MUST use stream_unified_inference, not call_unified_inference:
+                # the non-streaming path runs through _parse_openai which strips
+                # <tool_call> blocks before they reach our regex. Streaming yields
+                # raw tokens so the markup is preserved for detection.
+                first_response = ""
+                try:
+                    async for token in stream_unified_inference(
+                        owner,
+                        request.message,
+                        system_prompt,
+                        mode=request.mode,
+                        history=request.history,
+                        instance_name=active_instance_name,
+                        instance_type=active_instance_type,
+                        active_local_model=_active_local_model,
+                        active_cloud_model=_active_cloud_model,
+                        image_base64=request.image_base64 or None,
+                    ):
+                        if token.startswith(_SOURCE_SENTINEL) or token.startswith(_REPLACE_SENTINEL):
+                            continue
+                        first_response += token
+                except Exception as exc:
+                    owner.logger.error("Companion pass-1 buffering failed: %s", exc)
+                    yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+                    return
+
+                tool_blocks = _TOOL_CALL_RE.findall(first_response)
+
+                if not tool_blocks:
+                    # No tool calls — deliver response via replace (instant display)
+                    full_response = first_response
+                    yield f"data: {json.dumps({'replace': first_response})}\n\n"
+                else:
+                    # Execute each tool in sequence, emitting tool_exec status events
+                    tool_results: list[dict] = []
+                    for tc_json in tool_blocks:
+                        try:
+                            tc        = json.loads(tc_json)
+                            tool_name = tc.get("name", "")
+                            tool_args = tc.get("arguments", {})
+                            yield f"data: {json.dumps({'tool_exec': tool_name})}\n\n"
+                            result = await _execute_companion_tool(tool_name, tool_args)
+                            tool_results.append({"tool": tool_name, "result": result})
+                        except Exception as exc:
+                            tool_results.append({"tool": "?", "error": str(exc)})
+
+                    # Build tool-result injection for pass 2
+                    tool_result_text = "\n\n".join(
+                        f"[{r['tool']} result]\n{json.dumps(r.get('result', r.get('error', '')), ensure_ascii=False)[:4000]}"
+                        for r in tool_results
+                    )
+                    follow_up_history = list(request.history or []) + [
+                        {"role": "assistant", "content": first_response},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Tool execution complete:\n\n{tool_result_text}\n\n"
+                                "Give the user a natural, conversational response based on these results. "
+                                "No more <tool_call> blocks."
+                            ),
+                        },
+                    ]
+
+                    # Pass 2: stream the follow-up response
+                    try:
+                        async for token in stream_unified_inference(
+                            owner,
+                            "Respond naturally based on the tool results.",
+                            system_prompt,
+                            mode=request.mode,
+                            history=follow_up_history,
+                            instance_name=active_instance_name,
+                            instance_type=active_instance_type,
+                            active_local_model=_active_local_model,
+                            active_cloud_model=_active_cloud_model,
+                            image_base64=None,
+                        ):
+                            if token.startswith(_SOURCE_SENTINEL):
+                                last_source = token[len(_SOURCE_SENTINEL):]
+                                continue
+                            if token.startswith(_REPLACE_SENTINEL):
+                                replaced = token[len(_REPLACE_SENTINEL):]
+                                full_response = replaced
+                                yield f"data: {json.dumps({'replace': replaced})}\n\n"
+                                continue
+                            full_response += token
+                            yield f"data: {json.dumps({'token': token})}\n\n"
+                    except Exception as exc:
+                        owner.logger.error("Companion pass-2 streaming failed: %s", exc)
+                        yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+                        return
+
+                done_payload: dict = {}
+                if last_source:
+                    done_payload["source"] = last_source
+                yield f"data: {json.dumps({**done_payload, 'done': True})}\n\n" if done_payload else "data: [DONE]\n\n"
+
+                _persist_chat_memory(
+                    session_id=request.session_id,
+                    user_text=request.message,
+                    assistant_text=full_response,
+                    persona_id=str(request.persona or active_instance_persona or "").strip(),
+                    workspace_name=str(active_instance_name or "").strip(),
+                )
+                if request.session_id and full_response:
+                    try:
+                        from src.guppy.api.routes_chat_history import _chat_history_db
+                        conv = _chat_history_db.get_conversation(request.session_id)
+                        if conv and conv.get("message_count", 0) <= 2 and str(conv.get("title", "")).startswith("Conversation "):
+                            asyncio.ensure_future(_generate_conversation_title(request.message, request.session_id))
+                    except Exception:
+                        pass
+                return
+
+            # ── Standard streaming for all other surfaces ─────────────────────
             try:
                 async for token in stream_unified_inference(
                     owner,
@@ -356,7 +572,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 ):
                     if token.startswith(_SOURCE_SENTINEL):
                         last_source = token[len(_SOURCE_SENTINEL):]
-                        continue  # not sent to client as a token
+                        continue
                     if token.startswith(_REPLACE_SENTINEL):
                         replaced = token[len(_REPLACE_SENTINEL):]
                         full_response = replaced

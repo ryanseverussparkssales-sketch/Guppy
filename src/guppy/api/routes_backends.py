@@ -91,8 +91,9 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "port":    8087,
         "label":   "Hermes 3 8B Lorablated",
         "mode":    "A",
-        "note":    "Fast tools · ~9 GB VRAM — uncensored",
+        "note":    "Companion voice · ~9 GB VRAM — uncensored — always-on",
         "vram_gb": 9.0,
+        "auto_start": True,
     },
     "llamacpp-rocinante": {
         "bat":     r"C:\llama-cpp\launch-rocinante-12b.bat",
@@ -103,15 +104,15 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "vram_gb": 10.0,
     },
     # xLAM-2-8B-fc-r: Salesforce function-calling specialist, #1 BFCL V4 ≤8B.
-    # Kept always-on alongside Hermes 4 — together they are the workspace agent stack.
+    # On-demand (not always-on) — starts on first tool_call task, unloads when idle.
+    # Freed 5 GB VRAM slot to Hermes 3 for always-on companion voice.
     "llamacpp-xlam": {
         "bat":     r"C:\llama-cpp\launch-xlam.bat",
         "port":    8089,
         "label":   "xLAM-2-8B Function-Calling",
         "mode":    "A",
-        "note":    "Tool-call specialist · ~5 GB VRAM · #1 BFCL V4 ≤8B — always-on workspace agent",
+        "note":    "Tool-call specialist · ~5 GB VRAM · #1 BFCL V4 ≤8B — on-demand",
         "vram_gb": 5.0,
-        "auto_start": True,
     },
     # Llama 3.3 70B Instruct Q4_K_M: CPU-only flagship chat (zero VRAM).
     # Runs entirely in RAM (~42 GB) alongside the GPU workspace agent stack.
@@ -124,6 +125,18 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "note":    "Flagship CPU-only chat · ~42 GB RAM · zero VRAM · ~4-6 tok/s",
         "vram_gb": 0.0,
     },
+    # Phi-4-mini-instruct: true JSON tool_call dispatch orchestrator.
+    # Replaces Qwen2.5-3B when upgraded: emits structured {"tool_calls": [...]} JSON
+    # to route subtasks to xLAM for execution. ~2.5 GB VRAM (Q4_K_M).
+    # Model: download from https://huggingface.co/microsoft/Phi-4-mini-instruct-GGUF
+    "llamacpp-phi4-mini": {
+        "bat":     r"C:\llama-cpp\launch-phi4-mini.bat",
+        "port":    8091,
+        "label":   "Phi-4-mini-instruct",
+        "mode":    "A",
+        "note":    "True dispatch orchestrator · ~2.5 GB VRAM · JSON tool_call routing",
+        "vram_gb": 2.5,
+    },
 }
 
 # Total VRAM budget for the installed GPU (RX 7900 XTX)
@@ -132,7 +145,7 @@ _GPU_VRAM_GB: float = float(os.environ.get("GUPPY_GPU_VRAM_GB", "24"))
 _MODE_A = {
     "llamacpp-pepe", "llamacpp-gemma", "llamacpp-minicpm", "llamacpp-dispatch",
     "llamacpp-hermes4", "llamacpp-hermes3", "llamacpp-rocinante", "llamacpp-xlam",
-    "llamacpp-chat",
+    "llamacpp-chat", "llamacpp-phi4-mini",
 }
 _MODE_B = {"llamacpp-qwen3"}
 

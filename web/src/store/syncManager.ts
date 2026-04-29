@@ -536,6 +536,8 @@ export class SyncManager {
     onReplace?: (text: string) => void,
     onSource?: (source: string) => void,
     imageBase64?: string,
+    surface?: string,
+    isVoice?: boolean,
   ) {
     const store = useAppStore.getState()
     const endpoint = 'POST /api/chat'
@@ -565,6 +567,8 @@ export class SyncManager {
             mode: model || 'auto',
             history,
             ...(imageBase64 ? { image_base64: imageBase64 } : {}),
+            ...(surface ? { surface } : {}),
+            ...(isVoice ? { is_voice: isVoice } : {}),
           },
           (token) => {
             fullResponse += token

@@ -180,6 +180,10 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - ✅ `GUPPY_DEV_MODE` env var and logging
 - ✅ **Three-surface architecture Phases 1–5 complete** — Companion/Workspace/Codespace fully shipped
 - ✅ **Workspace 11-tab hub** — Calendar, Email, Media, Tasks added; all backed by live routes
+- ✅ **Companion voice fast-path** — `is_voice` flag on ChatRequest routes voice transcripts to Hermes3 on companion surface; always-on VRAM stack: dispatch(2GB) + Hermes3(9GB) + Hermes4(11GB) = 22GB; xLAM on-demand
+- ✅ **Companion tool execution** — `POST /api/companion/action` for web_fetch/create_reminder/download_media/memory_write/memory_recall; `<tool_call>` parser in `/chat/stream` two-pass; Hermes tool schema + memory protocol in all personality presets
+- ✅ **Ollama removed from routing** — `can_stream_ollama=False`; all local routes go to llamacpp; session summarizer switched from guppy-fast to dispatch at port 8085
+- ✅ **Phi-4-mini infrastructure** — registered at port 8091 as true JSON tool_call orchestrator; model file needed to activate
 - ✅ **MCP plugin manager** — add/remove/enable/test MCP servers; MCPView wired
 - ✅ **Desktop control API** — pyautogui screenshot/click/type (graceful fallback if pyautogui absent)
 - ✅ **Themes** — Dark, Liber Designatum (occult), Fear & Loathing (gonzo), Creem × Rolling Stone (rock mag)
@@ -244,8 +248,9 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 | `llamacpp-hermes4` | Hermes 4 14B Q5_K_M | 8086 | ~11 GB | Tools + uncensored (primary recommended) |
 | `llamacpp-hermes3` | Hermes 3 8B Lorablated Q8_0 | 8087 | ~9 GB | Fast tools + uncensored |
 | `llamacpp-rocinante` | Rocinante X 12B Q5_K_M | 8088 | ~10 GB | Creative writing / roleplay |
-| `llamacpp-xlam` | xLAM-2-8B-fc-r Q4_K_M | 8089 | ~5 GB | Tool-call specialist (#1 BFCL ≤8B); auto-routed on task_type=tool_call |
+| `llamacpp-xlam` | xLAM-2-8B-fc-r Q4_K_M | 8089 | ~5 GB | Tool-call specialist (#1 BFCL ≤8B); on-demand |
 | `llamacpp-chat` | Llama 3.3 70B Instruct Q4_K_M | 8090 | 0 VRAM (~42 GB RAM) | CPU-only flagship chat; ~4-6 tok/s on Ryzen 9 9900X |
+| `llamacpp-phi4-mini` | Phi-4-mini-instruct Q4_K_M | 8091 | ~2.5 GB | True JSON tool_call orchestrator — upgrade path to replace dispatch; model file needed |
 
 **Gemma 4 E4B PLE warning:** llama.cpp issue #22243 — PLE (Per-Layer Embeddings) architecture not fully implemented; output quality is silently degraded. The `gemma-4-heretic-ara` fine-tune shares this issue. Use Hermes or Rocinante for tool-capable or quality-sensitive tasks. Gemma 4 26B-A4B or 31B work correctly.
 

@@ -19,6 +19,7 @@ class ChatRequest(BaseModel):
     idempotency_key: Optional[str] = None
     image_base64: Optional[str] = None  # base64-encoded image for multimodal backends (MiniCPM-o)
     surface: Optional[str] = None  # "companion", "workspace", "codespace" — used for system prompt context
+    is_voice: Optional[bool] = None  # True when message originated from voice transcript (Companion fast-path)
 
 
 class VoiceChatRequest(BaseModel):

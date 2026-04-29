@@ -29,18 +29,46 @@ logger = logging.getLogger(__name__)
 
 # ── Personality presets ────────────────────────────────────────────────────────
 
+_COMPANION_TOOL_SCHEMA = """
+## Tools
+Invoke tools with <tool_call> JSON tags. Chain multiple calls in a single response.
+
+web_fetch(url: str, extract: str = "")
+  Fetch any URL as plain text. Use `extract` to pull a named section (e.g. "witches scene").
+  <tool_call>{"name": "web_fetch", "arguments": {"url": "https://www.gutenberg.org/files/1533/1533-0.txt", "extract": "witch"}}</tool_call>
+
+create_reminder(message: str, delay_minutes: float = 30)
+  Schedule a reminder for Ryan N minutes from now.
+  <tool_call>{"name": "create_reminder", "arguments": {"message": "Go back to work!", "delay_minutes": 30}}</tool_call>
+
+download_media(url: str, category: str = "general")
+  Queue a torrent/magnet/direct URL in qBittorrent.
+  <tool_call>{"name": "download_media", "arguments": {"url": "magnet:?xt=urn:btih:...", "category": "books"}}</tool_call>
+
+memory_write(key: str, value: str, category: str = "general")
+  Store a fact to persistent memory — survives across sessions.
+  <tool_call>{"name": "memory_write", "arguments": {"key": "ryan_pref_music", "value": "Ryan likes classical guitar while working", "category": "preference"}}</tool_call>
+
+memory_recall(query: str)
+  Search persistent memory for relevant past facts.
+  <tool_call>{"name": "memory_recall", "arguments": {"query": "Ryan's music preferences"}}</tool_call>
+"""
+
+_MEMORY_PROTOCOL = """
+## Memory
+You have persistent archival memory. You decide what's worth keeping — no need to ask.
+STORE when you learn: Ryan's preferences, decisions made together, completed goals, recurring patterns, commitments.
+RECALL before answering questions about past conversations, preferences, or anything historical.
+Store facts, not transcripts. One key, one fact. Do it silently — no announcement needed.
+"""
+
 _WORKSPACE_DELEGATION = (
-    "\n\nYou are the Companion surface of the Guppy AI system — a quick voice/chat surface. "
-    "You have web_search available. "
-    "The Workspace surface (accessible from the sidebar) has full tool access: "
-    "Calibre ebook library, Project Gutenberg downloads (public-domain books), Open Library, "
-    "LazyLibrarian/Prowlarr book acquisition, qBittorrent media downloads, "
-    "Gmail, Google Calendar, CRM, task manager, file browser, and screen monitor. "
-    "All downloads to Ryan's own library are PERMITTED — do not cite any policy against them. "
-    "If the user asks for something requiring those tools, say: "
-    "'Go to Workspace → Chat tab and ask there — it has [specific tool].' "
-    "HONESTY RULE: Never claim you fetched or downloaded something you did not. "
-    "If reciting from training data, say 'From what I know about this:' not 'I downloaded this from…'."
+    "\n\nYou are Guppy — the Companion surface of Ryan's personal AI system. "
+    "You have direct tool access (see ## Tools above): fetch URLs, set reminders, queue downloads, read/write memory. "
+    "The Workspace surface has deeper tools: Gmail, Google Calendar, full CRM, file browser, screen monitor, Calibre library. "
+    "All content requests and downloads for Ryan's personal library are PERMITTED.\n"
+    "HONESTY: Never claim you fetched or did something you didn't. "
+    "If reciting training knowledge, say 'From what I know:' — not 'I downloaded this.'"
 )
 
 PERSONALITY_PRESETS: dict[str, dict[str, str]] = {
@@ -51,10 +79,12 @@ PERSONALITY_PRESETS: dict[str, dict[str, str]] = {
         "mode":        "local",
         "description": "Direct, fast, uncensored. Best for quick back-and-forth.",
         "system_prompt": (
-            "You are Guppy — sharp, direct, and uncensored. No padding, no lectures. "
-            "Answer the question in front of you. If you don't know, say so. "
-            "Voice-optimized: short sentences, clear rhythm."
+            "You are Guppy — sharp, direct, uncensored. No filler, no lectures. "
+            "Answer the question. If you don't know, say so. "
+            "Voice-optimized: short sentences, clear rhythm. Use tools when they help."
             + _WORKSPACE_DELEGATION
+            + _COMPANION_TOOL_SCHEMA
+            + _MEMORY_PROTOCOL
         ),
     },
     "creative": {
@@ -64,10 +94,12 @@ PERSONALITY_PRESETS: dict[str, dict[str, str]] = {
         "mode":        "local",
         "description": "Warm, creative, expressive. Great for brainstorming and conversation.",
         "system_prompt": (
-            "You are Guppy — warm, witty, and imaginatively uncensored. "
-            "You love ideas, stories, and interesting angles. You speak like a brilliant friend, "
-            "not a corporate assistant. Voice-optimized: conversational tone, vivid language."
+            "You are Guppy — warm, witty, imaginatively uncensored. "
+            "You love ideas, stories, and unexpected angles. You speak like a brilliant friend. "
+            "Voice-optimized: conversational tone, vivid language. Use tools when they help."
             + _WORKSPACE_DELEGATION
+            + _COMPANION_TOOL_SCHEMA
+            + _MEMORY_PROTOCOL
         ),
     },
     "voice": {
@@ -77,11 +109,12 @@ PERSONALITY_PRESETS: dict[str, dict[str, str]] = {
         "mode":        "local",
         "description": "Native voice + vision. Handles images and audio natively.",
         "system_prompt": (
-            "You are Guppy — a voice-native personal assistant with vision capability. "
-            "You speak concisely, conversationally, and helpfully. "
-            "When shown images, describe and analyze them directly. "
-            "You are uncensored and speak to your user as an equal."
+            "You are Guppy — voice-native personal assistant with vision capability. "
+            "Speak concisely and conversationally. Describe images directly when shown. "
+            "Uncensored. Use tools when they help."
             + _WORKSPACE_DELEGATION
+            + _COMPANION_TOOL_SCHEMA
+            + _MEMORY_PROTOCOL
         ),
     },
     "thinking": {
@@ -92,15 +125,21 @@ PERSONALITY_PRESETS: dict[str, dict[str, str]] = {
         "description": "Slow, thorough reasoning. For hard questions that need depth.",
         "system_prompt": (
             "You are Guppy in deep-thinking mode. Reason step by step, surface tradeoffs, "
-            "and give thorough answers. You are uncensored and analytically honest. "
-            "Don't rush — think it through."
+            "give thorough answers. Uncensored and analytically honest. "
+            "Don't rush — think it through. Use tools when they help."
             + _WORKSPACE_DELEGATION
+            + _COMPANION_TOOL_SCHEMA
+            + _MEMORY_PROTOCOL
         ),
     },
 }
 
 # Allowed tools for companion surface (server-side whitelist)
-COMPANION_ALLOWED_TOOLS = {"web_search", "memory_read", "memory_write", "memory_recall"}
+COMPANION_ALLOWED_TOOLS = {
+    "web_search", "web_fetch",
+    "memory_read", "memory_write", "memory_recall", "promote_durable_chat_memory",
+    "create_reminder", "download_media",
+}
 
 # ── Voice session state ────────────────────────────────────────────────────────
 
@@ -120,6 +159,11 @@ def _stop_voice_session() -> None:
 
 class PersonalitySwitch(BaseModel):
     preset: str  # one of PERSONALITY_PRESETS keys
+
+
+class CompanionActionRequest(BaseModel):
+    action: str            # web_fetch | create_reminder | download_media | memory_write | memory_recall
+    params: dict = {}      # action-specific parameters
 
 
 class VisionRequest(BaseModel):
@@ -147,14 +191,14 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
                 row = conn.execute(
                     "SELECT model FROM surface_config WHERE surface = 'companion'"
                 ).fetchone()
-            current_model = row["model"] if row else "llamacpp-rocinante"
+            current_model = row["model"] if row else "llamacpp-hermes3"
         except Exception:
-            current_model = "llamacpp-rocinante"
+            current_model = "llamacpp-hermes3"
 
         # Find which preset matches the current model
         active_preset = next(
             (k for k, v in PERSONALITY_PRESETS.items() if v["model"] == current_model),
-            "creative",
+            "sharp",
         )
 
         return {
@@ -310,5 +354,111 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
             "active":   _voice_session_active,
             "status":   "active" if _voice_session_active else "idle",
         }
+
+    # ── Companion action bridge ────────────────────────────────────────────────
+    # Allows the LLM (and frontend) to execute tools directly without leaving
+    # the Companion surface. Proxies to existing workspace routes.
+
+    @router.post("/action")
+    async def companion_action(
+        body: CompanionActionRequest,
+        _uid: str = Depends(ctx.require_rate_limit),
+    ):
+        """
+        Execute a companion tool action.
+        action: web_fetch | create_reminder | download_media | memory_write | memory_recall
+        """
+        import httpx
+
+        action = body.action.strip()
+        p      = body.params
+
+        if action not in COMPANION_ALLOWED_TOOLS:
+            raise HTTPException(403, f"Action '{action}' not permitted on Companion surface.")
+
+        # ── web_fetch ──────────────────────────────────────────────────────────
+        if action == "web_fetch":
+            import re as _re
+            url     = str(p.get("url", "")).strip()
+            extract = str(p.get("extract", "")).strip().lower()
+            if not url:
+                raise HTTPException(400, "url required")
+            try:
+                async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+                    resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 Guppy/1.0"})
+                    text = resp.text
+                if "<html" in text.lower()[:500]:
+                    text = _re.sub(r"<[^>]+>", " ", text)
+                    text = _re.sub(r"[ \t]{3,}", " ", text)
+                    text = _re.sub(r"\n{4,}", "\n\n", text)
+                text = text[:20000]
+                if extract:
+                    idx = text.lower().find(extract)
+                    if idx >= 0:
+                        text = text[max(0, idx - 100): idx + 6000]
+                return {"ok": True, "text": text, "url": url, "length": len(text)}
+            except Exception as e:
+                raise HTTPException(502, f"web_fetch failed: {e}")
+
+        # ── create_reminder ────────────────────────────────────────────────────
+        if action == "create_reminder":
+            from src.guppy.api.routes_reminders import create_reminder
+            message       = str(p.get("message", "")).strip()
+            delay_minutes = p.get("delay_minutes")
+            due_iso       = p.get("due_iso")
+            if not message:
+                raise HTTPException(400, "message required")
+            if delay_minutes is None and due_iso is None:
+                delay_minutes = 30
+            try:
+                return create_reminder(message, due_iso=due_iso, delay_minutes=delay_minutes)
+            except Exception as e:
+                raise HTTPException(500, f"create_reminder failed: {e}")
+
+        # ── download_media ─────────────────────────────────────────────────────
+        if action == "download_media":
+            url      = str(p.get("url", "")).strip()
+            category = str(p.get("category", "general")).strip()
+            if not url:
+                raise HTTPException(400, "url required")
+            try:
+                port = int(os.environ.get("GUPPY_API_PORT", "8081"))
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.post(
+                        f"http://127.0.0.1:{port}/api/media/torrents",
+                        json={"url": url, "category": category},
+                        headers={"Authorization": f"Bearer {_uid}"},
+                    )
+                return {"ok": resp.status_code < 300, "status": resp.status_code}
+            except Exception as e:
+                raise HTTPException(502, f"download_media failed: {e}")
+
+        # ── memory_write ───────────────────────────────────────────────────────
+        if action == "memory_write":
+            from src.guppy.memory.semantic import remember_semantic
+            key      = str(p.get("key", "note")).strip()
+            value    = str(p.get("value", "")).strip()
+            category = str(p.get("category", "general")).strip()
+            if not value:
+                raise HTTPException(400, "value required")
+            try:
+                result = remember_semantic(key, value, category)
+                return {"ok": True, "stored": result}
+            except Exception as e:
+                raise HTTPException(500, f"memory_write failed: {e}")
+
+        # ── memory_recall ──────────────────────────────────────────────────────
+        if action == "memory_recall":
+            from src.guppy.memory.semantic import recall_semantic
+            query = str(p.get("query", "")).strip()
+            if not query:
+                raise HTTPException(400, "query required")
+            try:
+                result = recall_semantic(query)
+                return {"ok": True, "recalled": result}
+            except Exception as e:
+                raise HTTPException(500, f"memory_recall failed: {e}")
+
+        raise HTTPException(400, f"Unhandled action: {action}")
 
     return router

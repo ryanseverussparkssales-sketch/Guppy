@@ -195,8 +195,8 @@ export default function CompanionView() {
   const voice = useVoice({
     onTranscript: (text) => {
       setInput(text)
-      // Auto-send after voice transcript
-      setTimeout(() => handleSend(text), 300)
+      // Auto-send after voice transcript — is_voice flag routes to Hermes3 fast-path
+      setTimeout(() => handleSend(text, true), 300)
     },
     onError: () => {},
     voiceId:     selectedVoiceId,
@@ -307,7 +307,7 @@ export default function CompanionView() {
     setIsSending(false)
   }, [voice])
 
-  const handleSend = useCallback(async (override?: string) => {
+  const handleSend = useCallback(async (override?: string, isVoice = false) => {
     const text = override ?? input
     if (!text.trim() || isSending) return
 
@@ -359,25 +359,48 @@ export default function CompanionView() {
           (replaced: string) => setStreaming(replaced),
           () => {},
           currentImage?.base64,
+          'companion',
+          isVoice,
         )
       } else if (!fullText) {
-        const res = await fetch('/api/chat', {
+        const res = await fetch('/api/chat/stream', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${localStorage.getItem('accessToken') || ''}`,
           },
-          body: JSON.stringify({ message: text, mode: 'local', surface: 'companion' }),
+          body: JSON.stringify({ message: text, mode: 'local', surface: 'companion', is_voice: isVoice }),
           signal: controller.signal,
         })
         if (res.body) {
           const reader = res.body.getReader()
           const dec = new TextDecoder()
-          while (true) {
+          let buf = ''
+          outer: while (true) {
             const { done, value } = await reader.read()
             if (done) break
-            fullText += dec.decode(value, { stream: true })
-            setStreaming(fullText)
+            buf += dec.decode(value, { stream: true })
+            const lines = buf.split('\n')
+            buf = lines.pop() ?? ''
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue
+              const payload = line.slice(6).trim()
+              if (payload === '[DONE]') break outer
+              try {
+                const ev = JSON.parse(payload)
+                if (ev.tool_exec) {
+                  setStreaming(`using ${ev.tool_exec}…`)
+                } else if (ev.replace !== undefined) {
+                  fullText = ev.replace
+                  setStreaming(fullText)
+                } else if (ev.token) {
+                  fullText += ev.token
+                  setStreaming(fullText)
+                } else if (ev.done || ev.error) {
+                  break outer
+                }
+              } catch { /* non-JSON SSE line */ }
+            }
           }
         }
       }

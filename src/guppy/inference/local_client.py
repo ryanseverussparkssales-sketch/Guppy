@@ -18,6 +18,7 @@ Backend selection (GUPPY_LOCAL_RUNTIME_BACKEND env var):
   llamacpp-rocinante  — llama.cpp Rocinante X 12B at 127.0.0.1:8088 (GUPPY_LLAMACPP_ROCINANTE_URL)
   llamacpp-xlam       — llama.cpp xLAM-2-8B-fc-r at 127.0.0.1:8089  (GUPPY_LLAMACPP_XLAM_URL)
   llamacpp-chat       — llama.cpp Llama 3.3 70B CPU-only at 127.0.0.1:8090 (GUPPY_LLAMACPP_CHAT_URL)
+  llamacpp-phi4-mini  — llama.cpp Phi-4-mini-instruct at 127.0.0.1:8091  (GUPPY_LLAMACPP_PHI4_MINI_URL)
   local_harness       — Generic OpenAI-compat harness at 127.0.0.1:8001 (GUPPY_LOCAL_HARNESS_BASE_URL)
 
 LM Studio model resolution:
@@ -178,6 +179,24 @@ _BACKENDS: Dict[str, Dict[str, Any]] = {
         "delete_path": None,
         "format": "openai",
     },
+    # ── Llama 3.3 70B — CPU-only flagship chat (zero VRAM) ───────────────────
+    "llamacpp-chat": {
+        "default_url": "http://127.0.0.1:8090",
+        "chat_path": "/v1/chat/completions",
+        "tags_path": "/v1/models",
+        "pull_path": None,
+        "delete_path": None,
+        "format": "openai",
+    },
+    # ── Phi-4-mini-instruct — true JSON tool_call dispatch orchestrator ───────
+    "llamacpp-phi4-mini": {
+        "default_url": "http://127.0.0.1:8091",
+        "chat_path": "/v1/chat/completions",
+        "tags_path": "/v1/models",
+        "pull_path": None,
+        "delete_path": None,
+        "format": "openai",
+    },
     # ── Generic local harness (any OpenAI-compat server) ─────────────────────
     "local_harness": {
         "default_url": "http://127.0.0.1:8001",
@@ -202,6 +221,8 @@ _ENV_URL_KEYS: Dict[str, str] = {
     "llamacpp-hermes3":    "GUPPY_LLAMACPP_HERMES3_URL",
     "llamacpp-rocinante":  "GUPPY_LLAMACPP_ROCINANTE_URL",
     "llamacpp-xlam":       "GUPPY_LLAMACPP_XLAM_URL",
+    "llamacpp-chat":       "GUPPY_LLAMACPP_CHAT_URL",
+    "llamacpp-phi4-mini":  "GUPPY_LLAMACPP_PHI4_MINI_URL",
     "local_harness":       "GUPPY_LOCAL_HARNESS_BASE_URL",
 }
 
@@ -253,6 +274,11 @@ _LLAMACPP_MODEL_ROUTE: Dict[str, str] = {
     "llama-3.3-70b":            "llamacpp-chat",
     "llama-70b":                "llamacpp-chat",
     "chat-70b":                 "llamacpp-chat",
+    # Phi-4-mini-instruct -- true JSON tool_call dispatch orchestrator (port 8091)
+    "phi-4-mini-instruct":      "llamacpp-phi4-mini",
+    "phi-4-mini":               "llamacpp-phi4-mini",
+    "phi4-mini":                "llamacpp-phi4-mini",
+    "phi4":                     "llamacpp-phi4-mini",
 }
 
 # Canonical model name for each llamacpp backend (first/preferred alias).
@@ -268,6 +294,7 @@ _BACKEND_DEFAULT_MODELS: Dict[str, str] = {
     "llamacpp-rocinante":  "rocinante-x-12b",
     "llamacpp-xlam":       "Llama-xLAM-2-8B-fc-r-Q4_K_M.gguf",
     "llamacpp-chat":       "Llama-3.3-70B-Instruct-Q4_K_M.gguf",
+    "llamacpp-phi4-mini":  "Phi-4-mini-instruct-Q4_K_M.gguf",
 }
 
 # ── circuit breakers ──────────────────────────────────────────────────────────
