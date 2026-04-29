@@ -238,7 +238,9 @@ _LLAMACPP_MODEL_ROUTE: Dict[str, str] = {
     "rocinante-x-12b":          "llamacpp-rocinante",
     "rocinante-12b":            "llamacpp-rocinante",
     "rocinante":                "llamacpp-rocinante",
-    # xLAM-2-8B-fc-r — Salesforce function-calling specialist (#1 BFCL V4 ≤8B)
+    # Llama-xLAM-2-8B-fc-r — Salesforce function-calling specialist (#1 BFCL V4 ≤8B)
+    "llama-xlam-2-8b-fc-r":    "llamacpp-xlam",
+    "llama-xlam-2-8b-fc-r-q4_k_m.gguf": "llamacpp-xlam",
     "xlam-2-8b":                "llamacpp-xlam",
     "xlam-2-8b-fc-r":          "llamacpp-xlam",
     "xlam-8b":                  "llamacpp-xlam",
@@ -256,7 +258,7 @@ _BACKEND_DEFAULT_MODELS: Dict[str, str] = {
     "llamacpp-hermes4":    "hermes-4-14b",
     "llamacpp-hermes3":    "hermes-3-8b-lorablated",
     "llamacpp-rocinante":  "rocinante-x-12b",
-    "llamacpp-xlam":       "xlam-2-8b-fc-r",
+    "llamacpp-xlam":       "Llama-xLAM-2-8B-fc-r-Q4_K_M.gguf",
 }
 
 # ── circuit breakers ──────────────────────────────────────────────────────────

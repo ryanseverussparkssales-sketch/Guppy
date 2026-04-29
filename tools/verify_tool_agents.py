@@ -51,9 +51,9 @@ _AGENTS: dict[str, dict[str, Any]] = {
         "tool_call_advisory": True,
     },
     "xlam": {
-        "label": "xLAM-2-8B-fc-r",
+        "label": "xLAM-2-8B-fc-r (Llama-xLAM-2)",
         "port": 8089,
-        "model": "xlam-2-8b-fc-r",
+        "model": "Llama-xLAM-2-8B-fc-r-Q4_K_M.gguf",
         "vram_gb": 5.0,
         "tool_call_advisory": False,
     },
@@ -275,8 +275,8 @@ def check_tool_call(port: int, model: str) -> StepResult:
     has_tz = "timezone" in fn_args
     return StepResult(
         "tool_call", True, ms,
-        f"✓ {fn_name}(timezone={fn_args.get('timezone')!r}) — "
-        + ("timezone arg present" if has_tz else "WARN: timezone arg missing")
+        f"OK {fn_name}(timezone={fn_args.get('timezone')!r}) "
+        + ("-- timezone arg present" if has_tz else "WARN: timezone arg missing")
     )
 
 
@@ -305,7 +305,7 @@ def run_precondition(port: int, model: str) -> StepResult:
     tokens_out = (body.get("usage") or {}).get("completion_tokens", 0)
     return StepResult(
         "precondition", True, ms,
-        f"KV cache primed — {tokens_in} prompt tokens, {tokens_out} completion tokens. "
+        f"KV cache primed: {tokens_in} prompt tokens, {tokens_out} completion tokens. "
         f"response={content.strip()[:60]!r}"
     )
 
