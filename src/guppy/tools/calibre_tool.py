@@ -318,6 +318,81 @@ def send_to_kindle(book_id: int) -> dict[str, Any]:
     return {"ok": True, "sent_to": kindle_email, "book_id": book_id}
 
 
+def kindle_send_direct(source: str, output_format: str = "mobi") -> dict[str, Any]:
+    """Download a URL (or use a local file) and deliver it to Kindle via SMTP.
+
+    Unlike send_to_kindle(book_id), this does NOT require the book to exist in
+    the Calibre library — it downloads the file, optionally converts it, then
+    emails it. Great for sending any EPUB/PDF you found online.
+
+    Requires the same KINDLE_EMAIL / SMTP_* env vars as send_to_kindle().
+    DRM-protected files cannot be converted; use a DRM-free source.
+    """
+    kindle_email = os.environ.get("KINDLE_EMAIL", "").strip()
+    smtp_user = os.environ.get("SMTP_USER", "").strip()
+    smtp_pass = os.environ.get("SMTP_PASS", "").strip()
+    from_email = os.environ.get("KINDLE_FROM_EMAIL", smtp_user).strip()
+    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+
+    if not kindle_email:
+        raise RuntimeError("KINDLE_EMAIL not configured in .env")
+    if not smtp_user or not smtp_pass:
+        raise RuntimeError("SMTP_USER and SMTP_PASS required for Kindle delivery")
+
+    # --- acquire file ---
+    if source.startswith(("http://", "https://")):
+        suffix = Path(source.split("?")[0]).suffix or ".epub"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+            tmp_src = f.name
+        req = urllib.request.Request(source, headers={"User-Agent": "Guppy/1.0"})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            Path(tmp_src).write_bytes(resp.read())
+    else:
+        if not Path(source).exists():
+            raise RuntimeError(f"File not found: {source}")
+        tmp_src = None  # use source path directly
+        suffix = Path(source).suffix.lower()
+
+    try:
+        src_path = tmp_src or source
+        src_suffix = Path(src_path).suffix.lower().lstrip(".")
+
+        # Convert if the source isn't already in the target format
+        if src_suffix != output_format:
+            bin_ = _find_calibre_bin("ebook-convert")
+            if not bin_:
+                raise RuntimeError("ebook-convert not found — install Calibre for format conversion")
+            out_dir = Path(tempfile.gettempdir()) / "guppy_kindle"
+            out_dir.mkdir(exist_ok=True)
+            stem = Path(src_path).stem[:60]
+            conv_path = str(out_dir / f"{stem}.{output_format}")
+            result = _run([bin_, src_path, conv_path], timeout=180)
+            if result.returncode != 0:
+                raise RuntimeError(f"ebook-convert failed: {result.stderr.strip()}")
+            send_path = conv_path
+        else:
+            send_path = src_path
+
+        _smtp_send(send_path, from_email, kindle_email, smtp_host, smtp_port, smtp_user, smtp_pass)
+
+        # clean up converted file (not the original download if caller provided a path)
+        if send_path != src_path:
+            try:
+                os.unlink(send_path)
+            except OSError:
+                pass
+
+    finally:
+        if tmp_src:
+            try:
+                os.unlink(tmp_src)
+            except OSError:
+                pass
+
+    return {"ok": True, "sent_to": kindle_email, "source": source, "format": output_format}
+
+
 def _smtp_send(
     attachment_path: str,
     from_addr: str,

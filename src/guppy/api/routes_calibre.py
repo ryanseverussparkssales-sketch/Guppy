@@ -1,4 +1,4 @@
-"""Calibre library API routes.
+"""Calibre library and Kindle delivery API routes.
 
 GET  /api/calibre/status                — calibre install check + config
 GET  /api/calibre/search                — search local library (?q=&limit=20)
@@ -7,8 +7,11 @@ POST /api/calibre/set-metadata          — update book fields
 GET  /api/calibre/gutenberg/search      — search Project Gutenberg (?q=&limit=10)
 POST /api/calibre/gutenberg/download    — download Gutenberg book into calibre
 GET  /api/calibre/openlibrary/search    — search Open Library (?q=&limit=10)
-POST /api/calibre/send-to-kindle        — convert + email book to Kindle
+POST /api/calibre/send-to-kindle        — convert + email calibre book to Kindle
 POST /api/calibre/organize              — list books missing tags (for agent tagging)
+
+GET  /api/kindle/status                 — Kindle delivery config check
+POST /api/kindle/send                   — send any URL/file directly to Kindle
 """
 from __future__ import annotations
 
@@ -199,5 +202,51 @@ def build_calibre_router(ctx: ServerContext) -> APIRouter:
                 "{'book_id': id, 'fields': {'tags': 'fiction, ...'}}"
             ),
         }
+
+    return router
+
+
+def build_kindle_router(ctx: ServerContext) -> APIRouter:
+    """Standalone Kindle delivery routes — no Calibre library required."""
+    router = APIRouter(prefix="/api/kindle")
+
+    def _ct():
+        from src.guppy.tools import calibre_tool
+        return calibre_tool
+
+    @router.get("/status")
+    async def kindle_status(_user_id: str = Depends(ctx.require_rate_limit)):
+        import os as _os
+        return {
+            "kindle_configured": bool(_os.environ.get("KINDLE_EMAIL")),
+            "kindle_email": _os.environ.get("KINDLE_EMAIL") or None,
+            "smtp_configured": bool(_os.environ.get("SMTP_USER") and _os.environ.get("SMTP_PASS")),
+            "ebook_convert_available": _ct().ebook_convert_available(),
+            "note": (
+                "Set KINDLE_EMAIL, SMTP_USER, SMTP_PASS in .env. "
+                "Sender must be whitelisted in Amazon's 'Approved Personal Document E-mail List'."
+            ),
+        }
+
+    @router.post("/send")
+    async def kindle_send(
+        payload: dict[str, Any],
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
+        """Send any URL or local file path directly to Kindle.
+
+        Accepts: {"source": "https://...", "format": "mobi"}
+        Converts with ebook-convert if needed (requires Calibre).
+        Does NOT add the book to the Calibre library.
+        """
+        source = str(payload.get("source", "")).strip()
+        fmt = str(payload.get("format", "mobi")).strip().lower() or "mobi"
+        if not source:
+            raise HTTPException(status_code=400, detail="'source' (URL or file path) required")
+        ct = _ct()
+        try:
+            return await asyncio.to_thread(ct.kindle_send_direct, source, fmt)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
 
     return router

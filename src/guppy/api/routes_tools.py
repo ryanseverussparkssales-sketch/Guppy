@@ -78,6 +78,7 @@ _SEED_TOOLS = [
     ("gutenberg_download",    "Gutenberg: Download to Calibre","Download a Project Gutenberg book by its numeric ID and add it to the local Calibre library",               "library", "builtin", '{"type":"object","properties":{"book_id":{"type":"integer","description":"Gutenberg book ID (from gutenberg_search results)"}},"required":["book_id"]}', 1),
     ("openlibrary_search",    "Open Library: Search",          "Search Open Library for book metadata including ISBN, cover art, subjects, and publication year",            "library", "builtin", '{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"number","default":10}},"required":["query"]}', 1),
     ("send_to_kindle",        "Send to Kindle",                "Convert a Calibre book to MOBI and deliver it to the configured Kindle via email (requires KINDLE_EMAIL env)", "library", "builtin", '{"type":"object","properties":{"book_id":{"type":"integer","description":"Calibre book ID to convert and send"}},"required":["book_id"]}', 0),
+    ("kindle_send_direct",    "Kindle: Send URL or File",      "Download any EPUB/PDF URL (or local file) and deliver it directly to Kindle via email — no Calibre library needed", "library", "builtin", '{"type":"object","properties":{"source":{"type":"string","description":"Direct URL or local file path to the ebook"},"format":{"type":"string","enum":["mobi","azw3","epub"],"default":"mobi"}},"required":["source"]}', 0),
 ]
 
 

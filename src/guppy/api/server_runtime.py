@@ -506,8 +506,9 @@ app.include_router(build_voice_router(_server_context))             # /api/voice
 from src.guppy.api.routes_reminders import build_reminders_router
 app.include_router(build_reminders_router(_server_context))         # /api/reminders
 
-from src.guppy.api.routes_calibre import build_calibre_router
+from src.guppy.api.routes_calibre import build_calibre_router, build_kindle_router
 app.include_router(build_calibre_router(_server_context))           # /api/calibre/*
+app.include_router(build_kindle_router(_server_context))            # /api/kindle/*
 
 from src.guppy.api.routes_screenpipe import build_screenpipe_router
 app.include_router(build_screenpipe_router(_server_context))        # /api/screenpipe/*
