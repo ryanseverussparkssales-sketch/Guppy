@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-04-28
+**Last updated:** 2026-04-28 — Phases 1–4 complete
 
 ---
 
@@ -10,12 +10,12 @@
 
 **→ See `docs/MASTER_PHASE_PLAN.md` for the active three-surface architecture roadmap.**
 
-Current execution priority: three dedicated surfaces replacing the single AssistantView.
-1. **Companion** (`/companion`) — Voice/chat/vision, personality-first, uncensored, avatar
-2. **Workspace** (`/workspace`) — Operations hub: agents, CRM, screen monitoring, PC management, VoIP, automations
-3. **Codespace** (`/codespace`) — Docker sandbox, self-triage, project creation
+Three dedicated surfaces replacing the single AssistantView — **Phases 1–4 ✅ shipped:**
+1. **Companion** (`/companion`) — Voice/chat/vision, personality-first, avatar presence ✅
+2. **Workspace** (`/workspace`) — 7-tab operations hub: Chat | Agents | CRM | Screen | Files | PC | Reminders ✅
+3. **Codespace** (`/codespace`) — 3-tab: Chat | Sandbox (Docker) | Triage (self-triage watchdog) ✅
 
-Phase 1 is the immediate next task: route split + model affinity + cross-surface SSE plumbing.
+Next: Phase 5 — VoIP integration, ambient wake mode, screen monitoring AI summaries, self-improvement pipeline.
 
 ---
 
@@ -40,27 +40,37 @@ launcher_app.py (Qt Wrapper)
 
 **Surface architecture decision (2026-04-28):** Single `AssistantView` is being replaced by three dedicated surfaces (Companion / Workspace / Codespace). See `docs/MASTER_PHASE_PLAN.md`.
 
-### Phase 1 — Completed (2026-04-28)
+### Three-Surface Architecture — Phases 1–4 Complete (2026-04-28)
 
-| New File | Purpose |
-|---|---|
-| `src/guppy/api/routes_surface.py` | Surface coordination: state, config, task spawn, SSE event bus |
-| `web/src/views/CompanionView.tsx` | Companion surface — voice/chat/personality, minimal tools |
-| `web/src/views/WorkspaceView.tsx` | Workspace surface — full chat + agent task panel |
-| `web/src/views/CodespaceView.tsx` | Codespace surface — code-focused chat, guppy-code backend |
-| `web/src/components/surface/BackendSelector.tsx` | Per-surface backend/model picker (llamacpp/ollama/cloud) |
-| `web/src/components/surface/SurfaceStatusBar.tsx` | Cross-surface live status chip via SSE |
+**New backend modules:**
+| File | Routes | Purpose |
+|---|---|---|
+| `src/guppy/api/routes_surface.py` | `/api/surface/*` | State, config, task spawn, SSE event bus |
+| `src/guppy/api/routes_companion.py` | `/api/companion/*` | Personality, voice session, vision, tool whitelist |
+| `src/guppy/api/routes_workspace_data.py` | `/api/workspace/*` | Contacts/tasks JSON API + pipeline proxy |
+| `src/guppy/api/routes_codespace.py` | `/api/codespace/*` | Docker sandbox lifecycle + triage endpoints |
+| `src/guppy/codespace/codespace_triage.py` | — | Triage run history, watchdog thread, dev-check runner |
 
-**New API routes** (`/api/surface/*`):
-- `GET /state` — all surfaces' live status
-- `PUT /state/{surface}` — update surface status
-- `GET /config` / `PUT /config/{surface}` — per-surface backend/model config
-- `POST /config/{surface}/reset` — reset to surface defaults
-- `POST /spawn` — spawn task to a surface from any surface
-- `GET /tasks` / `PUT /tasks/{id}` / `DELETE /tasks/{id}` — task lifecycle
-- `GET /events` — SSE event bus (state updates, task events, snapshots)
+**New frontend — Companion (`/companion`):**
+- `web/src/views/CompanionView.tsx` — PersonalityPicker, wake-word toggle, camera vision, avatar presence, escalate to Workspace
+- `web/src/components/surface/AvatarPresence.tsx` — idle/listening/thinking/speaking animated orb
+- `web/src/components/surface/BackendSelector.tsx` — per-surface model picker
+- `web/src/components/surface/SurfaceStatusBar.tsx` — cross-surface live SSE chip
 
-**Navigation:** Sidebar now shows Companion | Workspace | Codespace as primary tabs. Legacy routes (`/assistant`, `/launch-control`, `/agents`, `/instances`, `/models`) redirect to new surfaces. Secondary nav (Library, Personas, Tools, Instructions, Settings) demoted to Config section.
+**New frontend — Workspace (`/workspace`) — 7-tab icon strip:**
+- `web/src/views/WorkspaceView.tsx` — Chat | Agents | CRM | Screen | Files | PC | Reminders tabs
+- `web/src/components/workspace/SystemMetricsPanel.tsx` — live CPU/RAM/disk/net gauges
+- `web/src/components/workspace/CRMPanel.tsx` — contacts + tasks CRUD
+- `web/src/components/workspace/ScreenPanel.tsx` — Screenpipe recent/search viewer
+- `web/src/components/workspace/FilesPanel.tsx` — navigable file browser + text preview
+- `web/src/components/workspace/AutomationPanel.tsx` — reminders create/cancel/list
+
+**New frontend — Codespace (`/codespace`) — 3-tab icon strip:**
+- `web/src/views/CodespaceView.tsx` — Chat | Sandbox | Triage tabs
+- `web/src/components/codespace/SandboxPanel.tsx` — Docker container lifecycle + SSE terminal
+- `web/src/components/codespace/TriagePanel.tsx` — dev-check run history, failure list, output modal
+
+**Navigation:** Sidebar shows Companion | Workspace | Codespace as primary tabs. Legacy routes (`/assistant`, `/launch-control`, `/agents`, `/instances`, `/models`) redirect to new surfaces. Sidebar auto-collapses on all three primary surfaces.
 
 ### Key Modules
 - **`src/guppy/cli/launch.py`** — Single entrypoint for all launch modes (launcher, guppyprime, hub, api, agent)

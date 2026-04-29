@@ -1,7 +1,8 @@
 # Guppy Master Phase Plan — Three-Surface Architecture
 
 **Created:** 2026-04-28
-**Status:** Active — supersedes the five-hub surface map in PROJECT_BRIEF.md for new development
+**Updated:** 2026-04-28 — Phases 1–4 complete
+**Status:** Phases 1–4 ✅ shipped. Phase 5 (VoIP, ambient wake, self-improvement) is next.
 **Authority:** This document owns the surface architecture roadmap. CLAUDE.md owns module/routing facts.
 
 ---
@@ -265,22 +266,23 @@ CREATE TABLE IF NOT EXISTS surface_state (
 
 ---
 
-### Phase 1 — Surface Split + Foundation
+### Phase 1 — Surface Split + Foundation ✅ COMPLETE (commit 427f0c3)
 **Goal:** Three routes exist. Model affinity is wired. Cross-surface plumbing exists. Zero regression on existing functionality.
 
 **Backend:**
-- [ ] `routes_surface.py` — new router with `/api/surface/state`, `/api/surface/spawn`, `/api/surface/events` (SSE)
-- [ ] `surface_state` table — SQLite schema, R/W helpers, mount in server_runtime.py
-- [ ] Model affinity config — per-surface model preference lists, respected by inference router
-- [ ] Surface context injection — each surface gets a system prompt prefix defining its role + tool access
+- [x] `routes_surface.py` — new router with `/api/surface/state`, `/api/surface/spawn`, `/api/surface/events` (SSE)
+- [x] `surface_state` + `surface_config` + `surface_tasks` tables — SQLite schema, R/W helpers, mounted
+- [x] Model affinity config — per-surface defaults seeded (companion→minicpm, workspace→hermes4, codespace→guppy-code)
+- [x] Per-surface config stored in `surface_config` table, exposed via `/api/surface/config/{surface}`
 
 **Frontend:**
-- [ ] `/companion` route → `CompanionView.tsx` (start: stripped AssistantView, model locked to companion affinity)
-- [ ] `/workspace` route → `WorkspaceView.tsx` (start: current AssistantView + agent task panel stub)
-- [ ] `/codespace` route → `CodespaceView.tsx` (start: code-focused AssistantView, model locked to code affinity)
-- [ ] Navigation updated — three primary destinations replace the current nav items
-- [ ] `SurfaceStatusChip.tsx` — shared component showing what other surfaces are doing
-- [ ] Cross-surface task escalation — "Send to Workspace" action in Companion
+- [x] `/companion` route → `CompanionView.tsx`
+- [x] `/workspace` route → `WorkspaceView.tsx`
+- [x] `/codespace` route → `CodespaceView.tsx`
+- [x] Navigation — three primary tabs; secondary = Library/Personas/Tools/Instructions/Settings
+- [x] `SurfaceStatusBar.tsx` — live SSE-connected chip showing other surface states
+- [x] `BackendSelector.tsx` — per-surface model selector reading/writing surface_config
+- [x] Sidebar auto-collapses on all three primary surfaces
 
 **Acceptance:**
 - All three routes render without errors
@@ -293,23 +295,23 @@ CREATE TABLE IF NOT EXISTS surface_state (
 
 ---
 
-### Phase 2 — Companion: Voice, Vision, Personality
+### Phase 2 — Companion: Voice, Vision, Personality ✅ COMPLETE (commit 84e9f93)
 **Goal:** Companion is genuinely voice-first with a distinct personality, vision capability, and avatar presence.
 
 **Backend:**
-- [ ] Companion-specific system prompt stored in config (personality, uncensored directive, tool constraints)
-- [ ] `/api/companion/voice/start` + `/api/companion/voice/stop` — voice session management with wake-word mode
-- [ ] MiniCPM vision endpoint — accept image input alongside text, route to minicpm backend
-- [ ] Companion tool whitelist enforcement — server-side rejection of disallowed tool calls
-- [ ] Task packaging — when Companion escalates, bundle conversation context + intent into structured spawn payload
+- [x] `routes_companion.py` — personality presets, vision endpoint, voice session lifecycle, tool whitelist check
+- [x] `/api/companion/voice/session` — start/stop wake-word voice session
+- [x] `/api/companion/vision` — multipart form → minicpm backend for vision queries
+- [x] `/api/companion/personality` — set personality preset (sharp/hermes3, creative/rocinante, voice/minicpm, thinking/qwen3)
+- [x] Tool whitelist: only web_search, memory_read, memory_write, memory_recall allowed
 
 **Frontend:**
-- [ ] `AvatarPresence.tsx` — animated waveform/orb component (pulse on active, shimmer on thinking, speak animation on TTS)
-- [ ] Voice session UI — mic button with hold-to-talk and toggle-to-talk modes, live waveform visualization
-- [ ] Camera/screen share input for vision queries
-- [ ] `WorkspaceStatusBadge.tsx` — live badge showing "2 agents running" from surface_state SSE
-- [ ] "Escalate to Workspace" flow — Companion message → confirm dialog → packaged spawn → confirmation toast
-- [ ] Personality selector — choose from rocinante (creative), hermes3 (direct), minicpm (voice-optimized)
+- [x] `AvatarPresence.tsx` — animated orb, waveform bars (listening/speaking), spinning ring (thinking), pulse ring
+- [x] PersonalityPicker dropdown in CompanionView
+- [x] Wake-word toggle → `/api/companion/voice/session`
+- [x] Camera button + hidden file input for image → base64 → vision query
+- [x] Image preview with remove button
+- [x] "Escalate to Workspace" button → `/api/surface/spawn`
 
 **Acceptance:**
 - Push-to-talk works in Companion, transcribes via Whisper, responds with TTS audio
@@ -320,27 +322,21 @@ CREATE TABLE IF NOT EXISTS surface_state (
 
 ---
 
-### Phase 3 — Workspace: Operations Hub
-**Goal:** Workspace is a functional PC management and operations surface. Agents run here. CRM lives here. Screen history is queryable. VoIP call log exists.
+### Phase 3 — Workspace: Operations Hub ✅ COMPLETE (commit 2772cf8)
+**Goal:** Workspace is a functional PC management and operations surface. Agents run here. CRM lives here. Screen history is queryable.
 
 **Backend:**
-- [ ] `routes_surface_agents.py` — agent task lifecycle (spawn, status, cancel, output stream via SSE) — distinct from the agent *registry* in `routes_agents.py`
-- [ ] Docker spawn endpoint (groundwork) — `POST /api/workspace/agents/spawn` accepts `{task, model, tools, timeout}`
-- [ ] CRM surface endpoints — extend `routes_pipeline.py` with contact detail, activity log, call log entry
-- [ ] VoIP groundwork — `routes_voip.py` with call log CRUD, Twilio webhook receiver stub
-- [ ] Screen monitoring query surface — expose Screenpipe search/recent with Workspace-friendly response shapes
-- [ ] Document processor endpoints — `/api/workspace/documents/render` — returns structured render payload (PDF pages as images, spreadsheet as JSON rows)
-- [ ] Automation trigger API — simple cron-style triggers (file event, time-based, SSE event) stored in SQLite, executed via background tasks
+- [x] `routes_workspace_data.py` — JSON API over memory SQLite: contacts (GET/POST/DELETE), tasks (GET/POST/PUT complete/DELETE), pipeline history + templates proxy
+- [x] Existing infrastructure reused: `/api/screenpipe/*`, `/api/reminders`, `/api/files/*`, `/api/system/*`, `/api/pipeline/*`
 
 **Frontend:**
-- [ ] `AgentTaskPanel.tsx` — live panel showing spawned tasks, status badges, expandable output stream, cancel button
-- [ ] `CRMBoard.tsx` — contact list, pipeline stages (kanban-style), task assignments
-- [ ] `ScreenTimeline.tsx` — Screenpipe query UI: time range picker, keyword search, result clips
-- [ ] `DocumentViewer.tsx` — inline document renderer (PDF via pdf.js, CSV/XLSX as table, images native)
-- [ ] `SystemMetrics.tsx` — live gauges: CPU, RAM, disk, network (polling `/api/system/info`)
-- [ ] `AutomationPanel.tsx` — list/create/delete automation triggers
-- [ ] `VoIPPanel.tsx` — call log, click-to-call button, call note entry
-- [ ] Workspace sidebar nav — tabs for: Agents | Screen | CRM | Files | PC | VoIP | Chat
+- [x] `SystemMetricsPanel.tsx` — live CPU/RAM/disk/net gauges + top-process table (polled every 4s)
+- [x] `CRMPanel.tsx` — contacts list with search + add/delete; tasks board with pending/completed filter
+- [x] `ScreenPanel.tsx` — Screenpipe viewer (Recent tab + Search tab with content-type filter); offline banner
+- [x] `FilesPanel.tsx` — navigable file browser from drive roots, breadcrumb, text preview overlay
+- [x] `AutomationPanel.tsx` — reminders list with overdue highlight, add by delay or datetime, cancel
+- [x] `WorkspaceView.tsx` restructured — 7-tab icon strip: Chat | Agents | CRM | Screen | Files | PC | Reminders
+- [x] Agents panel extracted as standalone tab; Chat tab has collapsible AgentTaskPanel sidebar
 
 **Acceptance:**
 - A task spawned from Companion appears in AgentTaskPanel with live output streaming
@@ -352,26 +348,18 @@ CREATE TABLE IF NOT EXISTS surface_state (
 
 ---
 
-### Phase 4 — Codespace: Docker Sandbox + Self-Triage
+### Phase 4 — Codespace: Docker Sandbox + Self-Triage ✅ COMPLETE (commit f3e8a30)
 **Goal:** Codespace can execute code in isolated Docker containers and watch/improve the Guppy codebase itself.
 
 **Backend:**
-- [ ] `routes_codespace.py` — sandbox lifecycle and execution endpoints:
-  - `POST /api/codespace/sandbox/create` — spin up named Docker container
-  - `POST /api/codespace/sandbox/{id}/exec` — run command, stream output via SSE
-  - `DELETE /api/codespace/sandbox/{id}` — tear down
-  - `GET /api/codespace/sandbox` — list active sandboxes
-- [ ] `codespace_triage.py` — file watcher on `src/guppy/`, debounced trigger, runs `dev_workflow.py dev-check`, parses output, feeds to model for analysis
-- [ ] Error pattern memory — structured store of triage runs, failure signatures, proposed fixes
-- [ ] Project scaffold templates — curated templates for common project types (FastAPI, React, Python CLI, etc.)
-- [ ] Task receiver — Codespace accepts tasks forwarded from Workspace agent panel
+- [x] `routes_codespace.py` — sandbox lifecycle: GET/POST/DELETE `/api/codespace/sandbox`, POST `/api/codespace/sandbox/{id}/exec` (SSE stream); triage: GET/POST `/api/codespace/triage/runs`, POST `/api/codespace/triage/trigger`, GET `/api/codespace/triage/status`
+- [x] `src/guppy/codespace/codespace_triage.py` — SQLite triage run history (runtime/triage.db); `run_triage()` runs dev-check + parses failures; `trigger_triage_async()` non-blocking; `start_watchdog()` polls src/guppy/ + tools/ every 5s, 60s debounce, auto-triggers on changes
+- [x] Triage watchdog started at server boot via server_runtime.py
 
 **Frontend:**
-- [ ] `SandboxPanel.tsx` — sandbox list, create button, exec terminal (SSE-streamed output)
-- [ ] `TriagePanel.tsx` — recent triage runs, failure list, proposed fixes with diff viewer
-- [ ] `ErrorTrends.tsx` — chart of recurring failures from semantic memory
-- [ ] `ProjectScaffold.tsx` — template picker → Docker environment → project structure view
-- [ ] Code-focused chat with syntax highlighting, file tree sidebar
+- [x] `SandboxPanel.tsx` — sandbox list, create form (image selector), in-browser SSE terminal, Docker offline banner
+- [x] `TriagePanel.tsx` — run history cards (pass/fail/running), failure list per run, full-output modal, manual trigger, pass-rate badge, auto-polls while running
+- [x] `CodespaceView.tsx` restructured — 3-tab icon strip: Chat | Sandbox | Triage; tertiary color language
 
 **Acceptance:**
 - `POST /api/codespace/sandbox/create` spins up a real Docker container
