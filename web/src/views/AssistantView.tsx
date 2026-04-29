@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { useChatStore, useWorkspaceStore, syncManager } from '@/store'
+import { useAppStore } from '@/store/appStore'
 import { useQueueMonitoring } from '@/hooks/useMonitoring'
 import { MarkdownMessage } from '@/components/chat/MarkdownMessage'
 import { useVoice } from '@/hooks/useVoice'
@@ -80,6 +81,7 @@ export default function AssistantView() {
   const { conversations, activeConversationId, messages, loading, error } = useChatStore()
   const { activeWorkspaceId } = useWorkspaceStore()
   const queueStatus = useQueueMonitoring(1000)
+  const { pendingDraftText, setPendingDraftText } = useAppStore()
 
   const [inputValue, setInputValue]     = useState('')
   const [isSending, setIsSending]       = useState(false)
@@ -124,6 +126,15 @@ export default function AssistantView() {
     voiceId: selectedVoiceId,
     ttsProvider: ttsProvider,
   })
+
+  // Inject text dropped from GuppyDrop folder
+  useEffect(() => {
+    if (pendingDraftText) {
+      setInputValue(pendingDraftText)
+      setPendingDraftText(null)
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    }
+  }, [pendingDraftText, setPendingDraftText, textareaRef])
 
   // Load voice options once
   useEffect(() => {

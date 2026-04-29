@@ -18,6 +18,7 @@ import { Navigate } from 'react-router-dom'
 import { useWorkspaceStore, syncManager } from './store'
 import { useErrorStore } from './store/errorStore'
 import { Toaster } from 'sonner'
+import { DropNotifier } from './components/DropNotifier'
 import './index.css'
 
 /**
@@ -168,6 +169,7 @@ function AppContent() {
         position="bottom-right"
       />
       <Toaster position="top-right" richColors closeButton />
+      <DropNotifier />
     </>
   )
 }

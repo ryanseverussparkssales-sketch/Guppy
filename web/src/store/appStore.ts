@@ -145,6 +145,11 @@ export interface AppState {
   openModal: (modal: keyof AppState['ui']['modals']) => void
   closeModal: (modal: keyof AppState['ui']['modals']) => void
 
+  // ============= DROP FOLDER ACTIONS =============
+
+  pendingDraftText: string | null
+  setPendingDraftText: (text: string | null) => void
+
   // ============= SELECTORS / COMPUTED STATE =============
 
   getConversations: () => Conversation[]
@@ -189,6 +194,10 @@ export const useAppStore = create<AppState>()(
           settings: false,
         },
       },
+
+      // Drop folder
+      pendingDraftText: null,
+      setPendingDraftText: (text) => set({ pendingDraftText: text }, false, 'setPendingDraftText'),
 
       // ============= CONVERSATION MUTATIONS =============
 

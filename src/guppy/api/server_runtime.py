@@ -528,6 +528,9 @@ app.include_router(build_library_router(_server_context))           # /api/libra
 from src.guppy.api.routes_files import build_files_router
 app.include_router(build_files_router(_server_context))             # /api/files/*, /api/system/*, /api/clipboard
 
+from src.guppy.api.routes_drop import build_drop_router
+app.include_router(build_drop_router(_server_context))              # /api/drop/*
+
 # Serve static web UI files
 try:
     from fastapi.staticfiles import StaticFiles
