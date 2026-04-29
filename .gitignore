@@ -58,6 +58,8 @@ runtime/*.cmd
 runtime/*.pid
 runtime/*.lock
 runtime/repair_token.txt
+runtime/launcher_registry.json
+runtime/*.err
 runtime/instance_state.json
 runtime/connector_state.json
 runtime/windows_ops_state.json

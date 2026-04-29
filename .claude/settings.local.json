@@ -370,7 +370,8 @@
       "Bash(curl -s http://localhost:8081/api/backends/llamacpp)",
       "Bash(python3.12 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(f\\\\\"  {b['name']}: {b['label']} — {'ALIVE' if b['alive'] else 'offline'}\\\\\"\\) for b in d]\")",
       "Bash(.venv/Scripts/activate)",
-      "Bash(python -m pytest tests/unit/test_backend_api_tranche_contracts.py::test_chat_contract_fields tests/unit/test_inference_router_fallback.py::TestSimpleTaskFallback::test_ollama_down_haiku_wins tests/unit/test_wave2_auth.py::test_chat_accepts_valid_token -x --no-header -q)"
+      "Bash(python -m pytest tests/unit/test_backend_api_tranche_contracts.py::test_chat_contract_fields tests/unit/test_inference_router_fallback.py::TestSimpleTaskFallback::test_ollama_down_haiku_wins tests/unit/test_wave2_auth.py::test_chat_accepts_valid_token -x --no-header -q)",
+      "Bash(.venv/Scripts/python -c \"from src.guppy.paths import USER_DATA_DIR, RUNTIME_DIR; print\\('USER_DATA_DIR:', USER_DATA_DIR\\); print\\('RUNTIME_DIR:', RUNTIME_DIR\\)\")"
     ]
   }
 }
