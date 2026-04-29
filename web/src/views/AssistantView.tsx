@@ -82,7 +82,7 @@ function fmtElapsed(ms: number): string {
 }
 
 // ── main view ─────────────────────────────────────────────────────────────────
-export default function AssistantView() {
+export default function AssistantView({ surface }: { surface?: string } = {}) {
   const { conversations, activeConversationId, messages, loading, error } = useChatStore()
   const { activeWorkspaceId } = useWorkspaceStore()
   const queueStatus = useQueueMonitoring(1000)
@@ -227,6 +227,7 @@ export default function AssistantView() {
         (replaced) => setStreamingContent(replaced),
         (src) => setLastSource(src),
         currentImage?.base64,
+        surface,
       )
       setStreamingContent('')
 

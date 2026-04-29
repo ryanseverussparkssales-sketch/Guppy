@@ -281,7 +281,7 @@ function ChatTab() {
             </button>
           </div>
         }>
-          <AssistantChat />
+          <AssistantChat surface="workspace" />
         </ErrorBoundary>
       </div>
 
