@@ -47,6 +47,7 @@ export class RequestQueue {
   private isFlushing = false
   private eventListeners: Map<string, EventCallback[]> = new Map()
   private flushInterval: ReturnType<typeof setInterval> | null = null
+  private readonly MAX_QUEUE_SIZE = 20
 
   private constructor() {
     this.startAutoFlush()
@@ -73,9 +74,14 @@ export class RequestQueue {
       expiresAt: now + request.ttl,
     }
 
+    // Evict the oldest entry when at capacity
+    if (this.queue.size >= this.MAX_QUEUE_SIZE) {
+      const oldest = this.getSortedRequests().at(-1)
+      if (oldest) this.queue.delete(oldest.id)
+    }
+
     this.queue.set(id, queuedRequest)
 
-    console.log(`Request queued: ${id} (${this.queue.size} total)`)
     telemetry.recordEvent({
       type: 'request_queued',
       endpoint: request.endpoint,

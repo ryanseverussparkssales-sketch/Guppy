@@ -2,10 +2,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtWidgets import QLineEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QLineEdit, QVBoxLayout, QWidget
 
 from .. import tokens as T
-from .settings_accounts_sections import mono
+
+
+def mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = False) -> QLabel:
+    """Create a word-wrapped monospace label."""
+    lbl = QLabel(text)
+    lbl.setWordWrap(True)
+    lbl.setStyleSheet(
+        f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {size}pt; letter-spacing: 1px;"
+        + (" font-weight: bold;" if bold else "")
+    )
+    return lbl
 
 
 def ensure_field_row_count(owner, count: int) -> None:

@@ -39,6 +39,14 @@ const activeRequests = new Map<string, AbortController>()
  * Determine if an error is retryable
  */
 function isRetryableError(error: any): boolean {
+  // Client-side cancellations (navigation, component unmount, AbortController) are NOT retryable
+  if (
+    error.code === 'ERR_CANCELED' ||
+    error.name === 'CanceledError' ||
+    error.name === 'AbortError'
+  ) {
+    return false
+  }
   // Network errors are retryable
   if (!error.response) {
     return true

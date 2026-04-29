@@ -6,13 +6,14 @@
  * Each tab mounts its panel in a consistent scrollable container.
  * Chat tab keeps the full AssistantView + collapsible AgentTaskPanel sidebar.
  */
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect } from 'react'
 import {
   MessageSquare, LayoutList, Users, Monitor, FolderOpen,
   Cpu, Phone, Zap, X, CheckCircle2, Clock, AlertCircle,
   Loader2, ChevronRight, ChevronDown, Calendar, Mail, Library,
-  CheckSquare,
+  CheckSquare, RefreshCw, FileText, Wrench,
 } from 'lucide-react'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
@@ -29,13 +30,13 @@ import { MediaLibraryPanel } from '@/components/workspace/MediaLibraryPanel'
 import { TaskManagerPanel } from '@/components/workspace/TaskManagerPanel'
 import { AutomationPanel } from '@/components/workspace/AutomationPanel'
 import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
-
-// Lazy-load the full chat so it doesn't block this view's render
-const AssistantChat = lazy(() => import('./AssistantView'))
+import { DocumentsPanel } from '@/components/workspace/DocumentsPanel'
+import { ToolsPanel } from '@/components/workspace/ToolsPanel'
+import AssistantChat from './AssistantView'
 
 // ── Tab config ─────────────────────────────────────────────────────────────────
 
-type Tab = 'chat' | 'agents' | 'crm' | 'screen' | 'files' | 'pc' | 'tasks' | 'voip' | 'calendar' | 'email' | 'media'
+type Tab = 'chat' | 'agents' | 'crm' | 'screen' | 'files' | 'pc' | 'tasks' | 'voip' | 'calendar' | 'email' | 'media' | 'docs' | 'tools'
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'chat',     icon: <MessageSquare className="w-4 h-4" />, label: 'Chat'     },
@@ -49,6 +50,8 @@ const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'calendar', icon: <Calendar      className="w-4 h-4" />, label: 'Calendar' },
   { id: 'email',    icon: <Mail          className="w-4 h-4" />, label: 'Email'    },
   { id: 'media',    icon: <Library       className="w-4 h-4" />, label: 'Media'    },
+  { id: 'docs',     icon: <FileText      className="w-4 h-4" />, label: 'Docs'     },
+  { id: 'tools',    icon: <Wrench        className="w-4 h-4" />, label: 'Tools'    },
 ]
 
 // ── Task types ─────────────────────────────────────────────────────────────────
@@ -282,13 +285,23 @@ function ChatTab() {
     <div className="flex h-full overflow-hidden">
       {/* Main chat */}
       <div className={cn("flex-1 overflow-hidden", taskPanelOpen && "border-r border-outline-variant/20")}>
-        <Suspense fallback={
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="w-6 h-6 animate-spin text-on-surface-variant/40" />
+        <ErrorBoundary fallback={
+          <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
+            <AlertCircle className="w-10 h-10 text-error/50" />
+            <div>
+              <p className="text-sm font-medium text-on-surface">Chat failed to load</p>
+              <p className="text-xs text-on-surface-variant/60 mt-1">The server may be restarting. Try refreshing.</p>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high transition-colors text-on-surface-variant"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Refresh
+            </button>
           </div>
         }>
           <AssistantChat />
-        </Suspense>
+        </ErrorBoundary>
       </div>
 
       {/* Collapsible agent task sidebar */}
@@ -331,6 +344,20 @@ export default function WorkspaceView() {
     const saved = localStorage.getItem('ws_active_tab') as Tab | null
     return (saved && TABS.some((t) => t.id === saved)) ? saved : 'chat'
   })
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  const handleRefresh = () => setRefreshKey((k) => k + 1)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'F5' || (e.ctrlKey && e.key === 'r' && !e.altKey)) {
+        e.preventDefault()
+        handleRefresh()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   return (
     <div className="flex flex-col h-full bg-surface text-on-surface">
@@ -347,6 +374,13 @@ export default function WorkspaceView() {
           <SurfaceStatusBar surface="companion" compact label="Companion" />
           <SurfaceStatusBar surface="codespace" compact label="Codespace" />
           <BackendSelector surface="workspace" compact />
+          <button
+            onClick={handleRefresh}
+            title="Refresh data (F5)"
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-on-surface-variant/50 hover:text-on-surface hover:bg-surface-variant/50 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
@@ -378,22 +412,22 @@ export default function WorkspaceView() {
 
         {/* Tab content */}
         <div className="flex-1 overflow-hidden relative">
-          {activeTab === 'chat' && <ChatTab />}
+          {activeTab === 'chat' && <ChatTab key={`chat-${refreshKey}`} />}
 
           {activeTab === 'agents' && (
-            <div className="h-full overflow-y-auto">
+            <div className="h-full overflow-y-auto" key={`agents-${refreshKey}`}>
               <AgentsPanel />
             </div>
           )}
 
           {activeTab === 'crm' && (
-            <div className="h-full">
+            <div className="h-full" key={`crm-${refreshKey}`}>
               <CRMPanel />
             </div>
           )}
 
           {activeTab === 'screen' && (
-            <div className="h-full">
+            <div className="h-full" key={`screen-${refreshKey}`}>
               <ScreenPanel />
             </div>
           )}
@@ -447,6 +481,18 @@ export default function WorkspaceView() {
           {activeTab === 'media' && (
             <div className="h-full">
               <MediaLibraryPanel />
+            </div>
+          )}
+
+          {activeTab === 'docs' && (
+            <div className="h-full" key={`docs-${refreshKey}`}>
+              <DocumentsPanel />
+            </div>
+          )}
+
+          {activeTab === 'tools' && (
+            <div className="h-full" key={`tools-${refreshKey}`}>
+              <ToolsPanel />
             </div>
           )}
         </div>

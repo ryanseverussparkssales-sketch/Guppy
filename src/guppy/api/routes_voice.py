@@ -32,15 +32,43 @@ _FORMAT_TO_MIME: dict[str, str] = {
     "pcm": "audio/wav",  # PCM is wrapped in WAV before responding
 }
 
-# Process-level provider instances used for status/health queries only
+# Process-level provider instances (reused for both health checks and synthesis)
 _kokoro_status = KokoroTTSProvider()
 _eleven_status = ElevenLabsTTSProvider()
 
+# Pre-warm Kokoro pipeline in background: on first call KPipeline downloads
+# model weights (~200 MB) which can take 30-120 s. Starting this early means
+# the model is cached before the first TTS request arrives.
+def _preload_kokoro_bg() -> None:
+    try:
+        import asyncio as _aio
+        loop = _aio.new_event_loop()
+        loop.run_until_complete(_kokoro_status.health_check())
+        loop.close()
+        logger.info("Kokoro TTS pre-warm complete")
+    except Exception as exc:
+        logger.debug("Kokoro TTS pre-warm error: %s", exc)
 
-def _audio_response(audio_data: bytes, fmt: str) -> Response:
+import threading as _threading
+_threading.Thread(target=_preload_kokoro_bg, daemon=True, name="kokoro-preload").start()
+
+def _provider_for_id(provider_id: str):
+    """Return the matching TTS provider instance, or None if unknown."""
+    pid = (provider_id or "").strip().lower()
+    if pid == "elevenlabs":
+        return _eleven_status
+    if pid == "kokoro":
+        return _kokoro_status
+    if pid in ("sapi", "windows"):
+        from src.guppy.voice.tts.sapi_provider import SAPITTSProvider
+        return SAPITTSProvider()
+    return None
+
+
+def _audio_response(audio_data: bytes, fmt: str, sample_rate: int = 22050) -> Response:
     """Build a streaming-friendly audio Response, wrapping PCM in WAV if needed."""
     if fmt == "pcm":
-        audio_data = pcm_to_wav(audio_data)
+        audio_data = pcm_to_wav(audio_data, sample_rate=sample_rate)
     mime = _FORMAT_TO_MIME.get(fmt, "audio/wav")
     return Response(
         content=audio_data,
@@ -155,17 +183,22 @@ def build_voice_router(ctx: ServerContext) -> APIRouter:
         if not text:
             raise HTTPException(status_code=400, detail="text required")
 
-        voice = str(
-            payload.get("voice") or os.environ.get("GUPPY_TTS_VOICE", "bm_lewis")
-        ).strip() or None
+        voice_id    = str(payload.get("voice") or os.environ.get("GUPPY_TTS_VOICE", "bm_lewis")).strip() or None
+        provider_id = str(payload.get("provider") or "").strip().lower()
 
-        result = await _voice.synthesize(text, voice=voice)
+        # If a specific provider is requested, call it directly instead of the full chain
+        specific = _provider_for_id(provider_id) if provider_id and provider_id != "auto" else None
+        if specific:
+            result = await specific.synthesize(text, voice_id)
+        else:
+            result = await _voice.synthesize(text, voice=voice_id)
+
         if result.error or not result.audio_data:
             raise HTTPException(
                 status_code=503,
                 detail=result.error or "TTS produced no audio",
             )
-        return _audio_response(result.audio_data, result.format)
+        return _audio_response(result.audio_data, result.format, getattr(result, "sample_rate", 0) or 22050)
 
     @router.post("/test")
     async def test_voice(

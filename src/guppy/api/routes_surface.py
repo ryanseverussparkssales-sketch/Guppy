@@ -324,6 +324,17 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
                 "SELECT * FROM surface_config WHERE surface = ?", (surface,)
             ).fetchone()
         cfg = dict(row) if row else {}
+
+        # Sync local model selection to the settings DB key that chat routing reads
+        selected_model   = updates.get("model", "")
+        selected_backend = updates.get("backend", cfg.get("backend", ""))
+        if selected_model and selected_backend in ("llamacpp", "ollama"):
+            try:
+                from src.guppy.api.routes_settings import _settings_db
+                _settings_db.set_setting("local_active_model", selected_model)
+            except Exception:
+                pass
+
         _broadcast_event("config_update", {"surface": surface, **cfg})
         return cfg
 

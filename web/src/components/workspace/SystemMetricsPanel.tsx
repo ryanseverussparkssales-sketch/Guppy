@@ -28,17 +28,22 @@ interface Process {
   status: string
 }
 
-function MiniGauge({ value, label, color }: { value: number; label: string; color: string }) {
+function n(v: number | null | undefined, digits = 0) {
+  return (v ?? 0).toFixed(digits)
+}
+
+function MiniGauge({ value, label, color }: { value: number | null | undefined; label: string; color: string }) {
+  const pct = value ?? 0
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center justify-between text-xs">
         <span className="text-on-surface-variant/70">{label}</span>
-        <span className="font-medium text-on-surface">{value.toFixed(0)}%</span>
+        <span className="font-medium text-on-surface">{n(pct)}%</span>
       </div>
       <div className="h-1.5 bg-surface-variant rounded-full overflow-hidden">
         <div
           className={cn("h-full rounded-full transition-all duration-700", color)}
-          style={{ width: `${Math.min(100, value)}%` }}
+          style={{ width: `${Math.min(100, pct)}%` }}
         />
       </div>
     </div>
@@ -108,7 +113,7 @@ export function SystemMetricsPanel() {
           </div>
           <MiniGauge
             value={info.ram_percent}
-            label={`${info.ram_used_gb.toFixed(1)} / ${info.ram_total_gb.toFixed(1)} GB`}
+            label={`${n(info.ram_used_gb, 1)} / ${n(info.ram_total_gb, 1)} GB`}
             color={info.ram_percent > 90 ? 'bg-error' : info.ram_percent > 75 ? 'bg-warning' : 'bg-secondary'}
           />
         </div>
@@ -120,8 +125,8 @@ export function SystemMetricsPanel() {
           <Wifi className="w-3.5 h-3.5" /> Network
         </div>
         <div className="flex gap-4 text-xs">
-          <span className="text-on-surface-variant/70">↑ {info.net_sent_mb.toFixed(1)} MB sent</span>
-          <span className="text-on-surface-variant/70">↓ {info.net_recv_mb.toFixed(1)} MB recv</span>
+          <span className="text-on-surface-variant/70">↑ {n(info.net_sent_mb, 1)} MB sent</span>
+          <span className="text-on-surface-variant/70">↓ {n(info.net_recv_mb, 1)} MB recv</span>
           <span className="text-on-surface-variant/40 ml-auto">Up {info.uptime_human}</span>
         </div>
       </div>
@@ -136,7 +141,7 @@ export function SystemMetricsPanel() {
             <MiniGauge
               key={i}
               value={d.percent}
-              label={`${d.path}  ${d.used_gb.toFixed(0)}/${d.total_gb.toFixed(0)} GB`}
+              label={`${d.path}  ${n(d.used_gb)}/${n(d.total_gb)} GB`}
               color={d.percent > 90 ? 'bg-error' : d.percent > 75 ? 'bg-warning' : 'bg-tertiary'}
             />
           ))}
@@ -169,9 +174,9 @@ export function SystemMetricsPanel() {
                   <td className={cn("px-3 py-1.5 text-right font-mono",
                     p.cpu_percent > 50 ? "text-error" : p.cpu_percent > 20 ? "text-warning" : "text-on-surface-variant"
                   )}>
-                    {p.cpu_percent.toFixed(1)}
+                    {n(p.cpu_percent, 1)}
                   </td>
-                  <td className="px-3 py-1.5 text-right font-mono text-on-surface-variant">{p.ram_mb.toFixed(0)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono text-on-surface-variant">{n(p.ram_mb)}</td>
                 </tr>
               ))}
             </tbody>

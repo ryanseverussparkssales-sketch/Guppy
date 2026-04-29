@@ -111,7 +111,9 @@ def build_chat_system_prompt(
     persona: str | None = None,
     model_id: str | None = None,
     history: Any = None,
+    surface: str | None = None,
 ) -> str:
+    from src.guppy.api._server_fragment_bootstrap import _WORKSPACE_TOOL_BLOCK
     use_rich_prompt_context = should_use_rich_prompt_context(
         message=message,
         mode=mode,
@@ -131,6 +133,23 @@ def build_chat_system_prompt(
             system_prompt += "\n\n" + booklet_text
     except Exception:
         pass
+    resolved_surface = str(surface or "").strip().lower()
+    if resolved_surface == "companion":
+        try:
+            import sqlite3
+            from src.guppy.paths import USER_DATA_DIR
+            db_path = str(USER_DATA_DIR / "surface.db")
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    "SELECT system_prompt FROM surface_config WHERE surface = 'companion'"
+                ).fetchone()
+            if row and row["system_prompt"]:
+                system_prompt += "\n\n" + str(row["system_prompt"]).strip()
+        except Exception:
+            pass
+    if resolved_surface in ("workspace", "chat", "") or not resolved_surface:
+        system_prompt += "\n\n" + _WORKSPACE_TOOL_BLOCK
     try:
         _persona_payload, overlay = owner.build_persona_prompt_overlay(
             requested_persona=str(persona or "").strip(),

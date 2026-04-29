@@ -60,7 +60,7 @@ interface ProwlarrResult {
   magnetUrl?: string
 }
 
-type Tab = 'torrents' | 'library' | 'acquire' | 'record'
+type Tab = 'torrents' | 'books' | 'library' | 'acquire' | 'record'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -544,6 +544,241 @@ function RecordTab() {
   )
 }
 
+// ── BooksTab ──────────────────────────────────────────────────────────────────
+
+type BookSource = 'gutenberg' | 'openlibrary' | 'calibre' | 'lazylibrarian'
+
+interface GutenbergResult { id: number; title: string; authors: string; subjects: string; formats: Record<string, string> }
+interface OpenLibResult   { key: string; title: string; author_name?: string[]; first_publish_year?: number; isbn?: string[] }
+interface CalibreBook     { id: number; title: string; authors: string; tags: string; formats: string }
+interface LLBook          { bookname: string; authorname: string; bookid?: string; isbn?: string; status?: string }
+interface LLDownload      { bookname: string; authorname: string; bookfile?: string; added?: string }
+
+function BooksTab() {
+  const [source, setSource]   = useState<BookSource>('gutenberg')
+  const [query,  setQuery]    = useState('')
+  const [results, setResults] = useState<unknown[]>([])
+  const [loading, setLoading] = useState(false)
+  const [wanted,  setWanted]  = useState<LLBook[]>([])
+  const [downloads, setDl]    = useState<LLDownload[]>([])
+  const [calibreOk, setCalibreOk] = useState<boolean | null>(null)
+  const [llAlive,   setLlAlive]   = useState<boolean | null>(null)
+  const [toast,     setToast]     = useState('')
+
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
+
+  useEffect(() => {
+    api.get('/api/calibre/status').then(r => setCalibreOk(!!r.data?.calibre_available)).catch(() => setCalibreOk(false))
+    api.get('/api/acquisition/status').then(r => {
+      setLlAlive(!!r.data?.lazylibrarian?.available)
+    }).catch(() => setLlAlive(false))
+  }, [])
+
+  const loadWanted = () => {
+    if (!llAlive) return
+    api.get('/api/acquisition/lazylibrarian/wanted').then(r => setWanted(r.data?.books || [])).catch(() => {})
+    api.get('/api/acquisition/lazylibrarian/downloads').then(r => setDl(r.data?.downloads || [])).catch(() => {})
+  }
+  useEffect(() => { loadWanted() }, [llAlive])
+
+  const search = async () => {
+    if (!query.trim()) return
+    setLoading(true); setResults([])
+    try {
+      let url = ''
+      if (source === 'gutenberg')     url = `/api/calibre/gutenberg/search?q=${encodeURIComponent(query)}&limit=15`
+      if (source === 'openlibrary')   url = `/api/calibre/openlibrary/search?q=${encodeURIComponent(query)}&limit=15`
+      if (source === 'calibre')       url = `/api/calibre/search?q=${encodeURIComponent(query)}&limit=30`
+      if (source === 'lazylibrarian') url = `/api/acquisition/lazylibrarian/search?q=${encodeURIComponent(query)}`
+      const r = await api.get(url)
+      setResults(r.data?.results || r.data?.books || r.data?.book || [])
+    } catch { setResults([]) } finally { setLoading(false) }
+  }
+
+  const dlToCalibe = async (bookId: number) => {
+    try {
+      await api.post('/api/calibre/gutenberg/download', { book_id: bookId })
+      showToast('Downloading to Calibre library…')
+    } catch (e: unknown) { showToast((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Download failed') }
+  }
+
+  const addToWanted = async (book: LLBook) => {
+    try {
+      await api.post('/api/acquisition/lazylibrarian/add', { goodreads_id: book.bookid, isbn: book.isbn })
+      showToast(`Added "${book.bookname}" to wanted list`)
+      loadWanted()
+    } catch { showToast('Failed to add to wanted list') }
+  }
+
+  const sendToKindle = async (bookId: number) => {
+    try {
+      await api.post('/api/calibre/send-to-kindle', { book_id: bookId })
+      showToast('Sending to Kindle…')
+    } catch (e: unknown) { showToast((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Send failed') }
+  }
+
+  const SOURCES: { id: BookSource; label: string }[] = [
+    { id: 'gutenberg',     label: 'Gutenberg' },
+    { id: 'openlibrary',   label: 'Open Library' },
+    { id: 'calibre',       label: 'My Library' },
+    { id: 'lazylibrarian', label: 'LazyLibrarian' },
+  ]
+
+  return (
+    <div className="flex flex-col gap-3 h-full">
+      {toast && (
+        <div className="flex items-center gap-2 bg-primary/10 rounded-xl px-3 py-2 text-xs text-primary font-medium flex-shrink-0">
+          <CheckCircle2 className="w-3.5 h-3.5" /> {toast}
+        </div>
+      )}
+
+      {/* Source selector */}
+      <div className="flex gap-1 bg-surface-container rounded-xl p-1 flex-shrink-0">
+        {SOURCES.map(s => (
+          <button key={s.id} onClick={() => { setSource(s.id); setResults([]) }}
+            className={cn("flex-1 py-1 text-[10px] rounded-lg transition-colors font-medium",
+              source === s.id ? "bg-surface text-on-surface shadow-sm" : "text-on-surface-variant/50 hover:text-on-surface")}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Search bar */}
+      <div className="flex gap-2 flex-shrink-0">
+        <input className="flex-1 bg-surface-container rounded-xl px-3 py-2 text-xs text-on-surface placeholder-on-surface-variant/40 border border-outline-variant/20 focus:outline-none focus:border-primary/40"
+          placeholder={source === 'calibre' ? 'Search your library…' : source === 'gutenberg' ? 'Search public domain books…' : source === 'openlibrary' ? 'Search Open Library…' : 'Search LazyLibrarian…'}
+          value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()} />
+        <button onClick={search} disabled={loading || !query.trim()}
+          className="px-3 py-2 rounded-xl bg-primary/10 text-primary hover:bg-primary/15 disabled:opacity-40 transition-colors">
+          {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+
+      {/* Status warnings */}
+      {source === 'calibre' && calibreOk === false && (
+        <div className="flex items-center gap-2 bg-warning/5 rounded-xl px-3 py-2 border border-warning/15 text-xs text-on-surface/70 flex-shrink-0">
+          <AlertCircle className="w-4 h-4 text-warning/70" /> Calibre not found. Set <code className="font-mono">CALIBRE_LIBRARY_PATH</code>.
+        </div>
+      )}
+      {source === 'lazylibrarian' && llAlive === false && (
+        <div className="flex items-center gap-2 bg-warning/5 rounded-xl px-3 py-2 border border-warning/15 text-xs text-on-surface/70 flex-shrink-0">
+          <AlertCircle className="w-4 h-4 text-warning/70" /> LazyLibrarian not running. Set <code className="font-mono">LAZYLIBRARIAN_URL</code> + <code className="font-mono">LAZYLIBRARIAN_API_KEY</code>.
+        </div>
+      )}
+
+      {/* Results */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 min-h-0">
+        {results.length === 0 && !loading && (
+          <div>
+            <div className="text-center py-6">
+              <BookOpen className="w-8 h-8 text-on-surface-variant/15 mx-auto mb-2" />
+              <p className="text-xs text-on-surface-variant/40">Search to find books</p>
+            </div>
+            {/* Wanted list (LL) */}
+            {source === 'lazylibrarian' && wanted.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-on-surface-variant/50 uppercase tracking-wider mb-2">Wanted ({wanted.length})</p>
+                {wanted.map((b, i) => (
+                  <div key={i} className="bg-surface-container rounded-xl px-3 py-2 mb-1 flex items-center gap-2">
+                    <BookOpen className="w-3.5 h-3.5 text-on-surface-variant/40 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-on-surface truncate">{b.bookname}</p>
+                      <p className="text-[10px] text-on-surface-variant/50">{b.authorname}</p>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">{b.status || 'wanted'}</span>
+                  </div>
+                ))}
+                {downloads.length > 0 && (
+                  <>
+                    <p className="text-[10px] font-semibold text-on-surface-variant/50 uppercase tracking-wider mb-2 mt-3">Recent Downloads ({downloads.length})</p>
+                    {downloads.slice(0, 5).map((d, i) => (
+                      <div key={i} className="bg-success/5 rounded-xl px-3 py-2 mb-1 flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-success/60 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-on-surface truncate">{d.bookname}</p>
+                          <p className="text-[10px] text-on-surface-variant/50">{d.authorname}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {results.map((item: unknown, i) => {
+          if (source === 'gutenberg') {
+            const r = item as GutenbergResult
+            return (
+              <div key={i} className="bg-surface-container rounded-xl p-3 space-y-1">
+                <p className="text-xs font-medium text-on-surface">{r.title}</p>
+                <p className="text-[10px] text-on-surface-variant/60">{r.authors}</p>
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-[10px] text-on-surface-variant/40">#{r.id}</span>
+                  {calibreOk && (
+                    <button onClick={() => dlToCalibe(r.id)}
+                      className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-1 transition-colors">
+                      <Download className="w-3 h-3" /> Add to Calibre
+                    </button>
+                  )}
+                  <a href={`https://www.gutenberg.org/ebooks/${r.id}`} target="_blank" rel="noreferrer"
+                    className="text-[10px] text-on-surface-variant/50 hover:text-on-surface transition-colors ml-auto">View ↗</a>
+                </div>
+              </div>
+            )
+          }
+          if (source === 'openlibrary') {
+            const r = item as OpenLibResult
+            return (
+              <div key={i} className="bg-surface-container rounded-xl p-3 space-y-1">
+                <p className="text-xs font-medium text-on-surface">{r.title}</p>
+                <p className="text-[10px] text-on-surface-variant/60">{(r.author_name || []).join(', ')}</p>
+                {r.first_publish_year && <p className="text-[10px] text-on-surface-variant/40">{r.first_publish_year}</p>}
+                <div className="flex items-center gap-2 pt-1">
+                  <a href={`https://openlibrary.org${r.key}`} target="_blank" rel="noreferrer"
+                    className="text-[10px] text-on-surface-variant/50 hover:text-on-surface transition-colors">View on Open Library ↗</a>
+                </div>
+              </div>
+            )
+          }
+          if (source === 'calibre') {
+            const r = item as CalibreBook
+            return (
+              <div key={i} className="bg-surface-container rounded-xl p-3 space-y-1">
+                <p className="text-xs font-medium text-on-surface">{r.title}</p>
+                <p className="text-[10px] text-on-surface-variant/60">{r.authors}</p>
+                {r.tags && <p className="text-[10px] text-on-surface-variant/40">{r.tags}</p>}
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-[10px] text-on-surface-variant/40">{r.formats}</span>
+                  <button onClick={() => sendToKindle(r.id)}
+                    className="text-[10px] text-secondary hover:text-secondary/80 flex items-center gap-1 transition-colors ml-auto">
+                    <Upload className="w-3 h-3" /> Send to Kindle
+                  </button>
+                </div>
+              </div>
+            )
+          }
+          if (source === 'lazylibrarian') {
+            const r = item as LLBook
+            return (
+              <div key={i} className="bg-surface-container rounded-xl p-3 space-y-1">
+                <p className="text-xs font-medium text-on-surface">{r.bookname}</p>
+                <p className="text-[10px] text-on-surface-variant/60">{r.authorname}</p>
+                <button onClick={() => addToWanted(r)}
+                  className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-1 transition-colors pt-1">
+                  <Plus className="w-3 h-3" /> Add to Wanted
+                </button>
+              </div>
+            )
+          }
+          return null
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── MediaLibraryPanel ─────────────────────────────────────────────────────────
 
 export function MediaLibraryPanel() {
@@ -551,6 +786,7 @@ export function MediaLibraryPanel() {
 
   const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'torrents', label: 'Torrents', icon: <Download className="w-3.5 h-3.5" /> },
+    { id: 'books',    label: 'Books',    icon: <BookOpen className="w-3.5 h-3.5" /> },
     { id: 'library',  label: 'Library',  icon: <Library  className="w-3.5 h-3.5" /> },
     { id: 'acquire',  label: 'Acquire',  icon: <Search   className="w-3.5 h-3.5" /> },
     { id: 'record',   label: 'Record',   icon: <Mic      className="w-3.5 h-3.5" /> },
@@ -578,6 +814,7 @@ export function MediaLibraryPanel() {
       {/* Content */}
       <div className="flex-1 overflow-hidden min-h-0">
         {tab === 'torrents' && <TorrentsTab />}
+        {tab === 'books'    && <BooksTab />}
         {tab === 'library'  && <LibraryTab />}
         {tab === 'acquire'  && <AcquireTab />}
         {tab === 'record'   && <RecordTab />}

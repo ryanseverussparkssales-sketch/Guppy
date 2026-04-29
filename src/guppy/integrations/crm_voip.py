@@ -15,10 +15,13 @@ VoIP providers (future):
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 from src.guppy.paths import RUNTIME_DIR
 from src.guppy.workspace_governance import read_machine_secret
@@ -357,14 +360,124 @@ def crm_upsert_contact(
     }
     _log_event("crm.upsert_contact.request", payload)
 
-    if dry_run or not _provider_ready(p):
-        reason = "dry run" if dry_run else "provider not configured"
-        return f"CRM contact upsert stub ({p}) prepared: {name} [{reason}]"
+    if dry_run:
+        return f"CRM contact upsert prepared (dry_run=True): {name} [{p}]"
 
-    return (
-        f"CRM provider {p} is configured. Live upsert is intentionally stubbed for now. "
-        "Set dry_run=true until provider-specific client is implemented."
-    )
+    if not _provider_ready(p):
+        return f"CRM provider {p} not configured — set required env vars."
+
+    try:
+        result = _live_crm_upsert_contact(p, name, email, phone, company, notes)
+        _log_event("crm.upsert_contact.result", {**payload, **result})
+        return f"CRM contact upserted [{p}]: {name} — {result}"
+    except Exception as exc:
+        logger.exception("CRM contact upsert failed")
+        return f"CRM contact upsert failed [{p}]: {exc}"
+
+
+def _live_crm_upsert_contact(
+    provider: str, name: str, email: str, phone: str, company: str, notes: str
+) -> dict:
+    import requests
+
+    if provider == "hubspot":
+        api_key = read_machine_secret("HUBSPOT_API_KEY").strip()
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        def _contact_props() -> dict:
+            props: dict = {}
+            if name:
+                parts = name.split(None, 1)
+                props["firstname"] = parts[0]
+                if len(parts) > 1:
+                    props["lastname"] = parts[1]
+            if email:   props["email"]   = email
+            if phone:   props["phone"]   = phone
+            if company: props["company"] = company
+            return props
+
+        if email:
+            search = requests.post(
+                "https://api.hubapi.com/crm/v3/objects/contacts/search",
+                headers=headers,
+                json={"filterGroups": [{"filters": [{"propertyName": "email", "operator": "EQ", "value": email}]}]},
+                timeout=10,
+            )
+            if search.status_code == 200 and search.json().get("total", 0) > 0:
+                contact_id = search.json()["results"][0]["id"]
+                r = requests.patch(
+                    f"https://api.hubapi.com/crm/v3/objects/contacts/{contact_id}",
+                    headers=headers,
+                    json={"properties": _contact_props()},
+                    timeout=10,
+                )
+                r.raise_for_status()
+                return {"action": "updated", "id": contact_id}
+
+        r = requests.post(
+            "https://api.hubapi.com/crm/v3/objects/contacts",
+            headers=headers,
+            json={"properties": _contact_props()},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return {"action": "created", "id": r.json()["id"]}
+
+    if provider == "salesforce":
+        token = read_machine_secret("SALESFORCE_ACCESS_TOKEN").strip()
+        instance_url = read_machine_secret("SALESFORCE_INSTANCE_URL").strip().rstrip("/")
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        data: dict = {}
+        if name:
+            parts = name.split(None, 1)
+            data["FirstName"] = parts[0]
+            data["LastName"] = parts[1] if len(parts) > 1 else "."
+        if email:   data["Email"]   = email
+        if phone:   data["Phone"]   = phone
+        if company: data["Account"] = {"Name": company}
+        r = requests.post(
+            f"{instance_url}/services/data/v57.0/sobjects/Contact",
+            headers=headers, json=data, timeout=10,
+        )
+        r.raise_for_status()
+        return {"action": "created", "id": r.json().get("id")}
+
+    if provider == "gohighlevel":
+        api_key = read_machine_secret("GOHIGHLEVEL_API_KEY").strip()
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        data = {"name": name, "email": email, "phone": phone, "companyName": company}
+        r = requests.post(
+            "https://rest.gohighlevel.com/v1/contacts/",
+            headers=headers, json={k: v for k, v in data.items() if v}, timeout=10,
+        )
+        r.raise_for_status()
+        return {"action": "created", "id": r.json().get("contact", {}).get("id")}
+
+    if provider == "zoho":
+        token = read_machine_secret("ZOHO_ACCESS_TOKEN").strip()
+        headers = {"Authorization": f"Zoho-oauthtoken {token}", "Content-Type": "application/json"}
+        parts = name.split(None, 1) if name else ["Unknown"]
+        data = {
+            "data": [{
+                "First_Name": parts[0],
+                "Last_Name": parts[1] if len(parts) > 1 else ".",
+                "Email": email,
+                "Phone": phone,
+                "Account_Name": company,
+            }]
+        }
+        r = requests.post(
+            "https://www.zohoapis.com/crm/v2/Contacts",
+            headers=headers, json=data, timeout=10,
+        )
+        r.raise_for_status()
+        created = r.json().get("data", [{}])[0]
+        return {"action": "created", "id": created.get("details", {}).get("id")}
+
+    raise ValueError(f"Unhandled provider: {provider}")
 
 
 def crm_create_opportunity(
@@ -393,14 +506,81 @@ def crm_create_opportunity(
     }
     _log_event("crm.create_opportunity.request", payload)
 
-    if dry_run or not _provider_ready(p):
-        reason = "dry run" if dry_run else "provider not configured"
-        return f"CRM opportunity stub ({p}) prepared: {title} [{reason}]"
+    if dry_run:
+        return f"CRM opportunity prepared (dry_run=True): {title} [{p}]"
 
-    return (
-        f"CRM provider {p} is configured. Live opportunity creation is intentionally stubbed for now. "
-        "Set dry_run=true until provider-specific client is implemented."
-    )
+    if not _provider_ready(p):
+        return f"CRM provider {p} not configured — set required env vars."
+
+    try:
+        result = _live_crm_create_opportunity(p, title, value, stage, company, contact_name, notes)
+        _log_event("crm.create_opportunity.result", {**payload, **result})
+        return f"CRM opportunity created [{p}]: {title} — {result}"
+    except Exception as exc:
+        logger.exception("CRM opportunity creation failed")
+        return f"CRM opportunity creation failed [{p}]: {exc}"
+
+
+def _live_crm_create_opportunity(
+    provider: str, title: str, value: float, stage: str,
+    company: str, contact_name: str, notes: str,
+) -> dict:
+    import requests
+
+    if provider == "hubspot":
+        api_key = read_machine_secret("HUBSPOT_API_KEY").strip()
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        data = {
+            "properties": {
+                "dealname": title,
+                "amount": str(value),
+                "dealstage": stage,
+                "description": notes,
+            }
+        }
+        r = requests.post(
+            "https://api.hubapi.com/crm/v3/objects/deals",
+            headers=headers, json=data, timeout=10,
+        )
+        r.raise_for_status()
+        return {"action": "created", "id": r.json()["id"]}
+
+    if provider == "salesforce":
+        token = read_machine_secret("SALESFORCE_ACCESS_TOKEN").strip()
+        instance_url = read_machine_secret("SALESFORCE_INSTANCE_URL").strip().rstrip("/")
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        data = {"Name": title, "Amount": value, "StageName": stage or "Prospecting", "CloseDate": "2099-12-31"}
+        r = requests.post(
+            f"{instance_url}/services/data/v57.0/sobjects/Opportunity",
+            headers=headers, json=data, timeout=10,
+        )
+        r.raise_for_status()
+        return {"action": "created", "id": r.json().get("id")}
+
+    if provider == "gohighlevel":
+        api_key = read_machine_secret("GOHIGHLEVEL_API_KEY").strip()
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        data = {"title": title, "monetaryValue": value, "stage": stage}
+        r = requests.post(
+            "https://rest.gohighlevel.com/v1/opportunities/",
+            headers=headers, json={k: v for k, v in data.items() if v is not None}, timeout=10,
+        )
+        r.raise_for_status()
+        return {"action": "created", "id": r.json().get("opportunity", {}).get("id")}
+
+    if provider == "zoho":
+        token = read_machine_secret("ZOHO_ACCESS_TOKEN").strip()
+        headers = {"Authorization": f"Zoho-oauthtoken {token}", "Content-Type": "application/json"}
+        data = {"data": [{"Deal_Name": title, "Amount": value, "Stage": stage or "Qualification"}]}
+        r = requests.post(
+            "https://www.zohoapis.com/crm/v2/Deals",
+            headers=headers, json=data, timeout=10,
+        )
+        r.raise_for_status()
+        created = r.json().get("data", [{}])[0]
+        return {"action": "created", "id": created.get("details", {}).get("id")}
+
+    raise ValueError(f"Unhandled provider: {provider}")
 
 
 def voip_place_call(
@@ -429,11 +609,46 @@ def voip_place_call(
         read_machine_secret("TWILIO_AUTH_TOKEN").strip()
     )
 
-    if dry_run or not configured:
-        reason = "dry run" if dry_run else "provider not configured"
-        return f"VoIP call stub ({p}) prepared to {to_number} [{reason}]"
+    if dry_run:
+        return f"VoIP call prepared (dry_run=True): {to_number} via {p}"
 
-    return (
-        f"VoIP provider {p} is configured. Live call placement is intentionally stubbed for now. "
-        "Set dry_run=true until provider-specific client is implemented."
+    if not configured:
+        return f"VoIP provider {p} not configured — set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN."
+
+    try:
+        result = _live_twilio_call(to_number, from_number, purpose)
+        _log_event("voip.place_call.result", {**payload, **result})
+        return f"Call initiated [{p}] to {to_number}: sid={result.get('call_sid')} status={result.get('status')}"
+    except Exception as exc:
+        logger.exception("VoIP call placement failed")
+        return f"VoIP call failed [{p}]: {exc}"
+
+
+def _live_twilio_call(to_number: str, from_number: str, purpose: str) -> dict:
+    import requests
+    from requests.auth import HTTPBasicAuth
+
+    sid = read_machine_secret("TWILIO_ACCOUNT_SID").strip()
+    auth_token = read_machine_secret("TWILIO_AUTH_TOKEN").strip()
+    from_num = (from_number or "").strip() or os.environ.get("TWILIO_FROM_NUMBER", "").strip()
+    twiml_url = os.environ.get("TWILIO_TWIML_URL", "").strip()
+
+    if not from_num:
+        raise ValueError("TWILIO_FROM_NUMBER not set and no from_number provided")
+
+    if not twiml_url:
+        msg = f"Guppy outbound call{': ' + purpose if purpose else '.'}"
+        twiml_url = (
+            "https://twimlets.com/message"
+            f"?Message%5B0%5D={msg.replace(' ', '+')}"
+        )
+
+    resp = requests.post(
+        f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls.json",
+        auth=HTTPBasicAuth(sid, auth_token),
+        data={"To": to_number, "From": from_num, "Url": twiml_url},
+        timeout=15,
     )
+    resp.raise_for_status()
+    data = resp.json()
+    return {"call_sid": data.get("sid"), "status": data.get("status")}

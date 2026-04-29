@@ -486,6 +486,92 @@ def _should_use_rich_prompt_context(
     return False
 
 
+_WORKSPACE_TOOL_BLOCK = """
+CALLABLE TOOLS — you invoke these directly using your tool-call capability (NOT via HTTP):
+
+SEARCH & WEB:
+  web_search(query, maxResults=10)       — search the web for current information
+  fetch_url(url, format="text")          — download content from any URL
+  get_news(topic, max_results=5)         — recent news headlines
+  get_weather(location)                  — current weather and forecasts
+  api_request(url, method, headers, body) — make HTTP requests to external APIs
+
+FILE & DOCUMENT READING:
+  read_file(path)                        — read any text/code file
+  file_extract_text(path, max_chars)     — extract text from PDF, DOCX, XLSX, PPTX, images, CSV
+  file_info(path)                        — size, type, MIME, permissions
+  list_directory(path)                   — list files and folders
+  browse_directory(path, pattern)        — list with sizes/dates, supports glob (e.g. *.pdf)
+  write_file(path, content)              — write or overwrite a file [DISABLED by default]
+  apply_patch(path, patch)               — apply a unified diff patch [DISABLED by default]
+  execute_command(command, timeout)      — run a shell command [DISABLED by default]
+
+DESKTOP CONTROL:
+  screenshot(save_path)                  — capture the screen as an image
+  mouse_click(x, y, button, clicks)      — click at screen coordinates
+  mouse_move(x, y, duration)             — move mouse cursor
+  keyboard_type(text)                    — type text
+  keyboard_shortcut(keys)                — send a keyboard shortcut (e.g. "ctrl+c")
+  get_screen_info()                      — screen resolution and cursor position
+  read_screen_text(region, instruction)  — OCR / vision description of screen region
+  open_application(target)              — open an app or URL
+  clipboard_read()                       — read system clipboard
+  clipboard_write(text, append)          — write to system clipboard
+
+SYSTEM MONITORING:
+  system_info()                          — CPU, RAM, swap, disk, uptime
+  top_processes(limit, sort)             — top processes by CPU or memory
+  disk_usage(path)                       — disk space for a drive or path
+  network_stats()                        — network I/O bytes, packets, errors
+
+EBOOK LIBRARY (Calibre must be installed):
+  calibre_search(query, limit)           — search local Calibre library by title/author/tag
+  calibre_add_book(source)              — add to Calibre from file path or direct URL
+  calibre_set_metadata(book_id, fields)  — update metadata fields
+  gutenberg_search(query, limit)         — search Project Gutenberg (public domain, free)
+  gutenberg_download(book_id)            — download Gutenberg book into Calibre
+  openlibrary_search(query, limit)       — search Open Library (ISBN, cover, subjects)
+  standard_ebooks_search(query, limit)   — search Standard Ebooks (beautifully typeset, DRM-free)
+  standard_ebooks_download(epub_url)     — download Standard Ebook into Calibre
+  ia_search(query, limit)               — search Internet Archive for scanned texts
+  ia_download(identifier)               — download Internet Archive item into Calibre
+  send_to_kindle(book_id)               — convert Calibre book and email to Kindle [needs KINDLE_EMAIL]
+  kindle_send_direct(source)            — download URL/file and send directly to Kindle
+
+BOOK ACQUISITION (if configured):
+  ll_search_book(title, author)          — search LazyLibrarian [needs LAZYLIBRARIAN_URL]
+  ll_add_wanted(goodreads_id, isbn)      — add to LazyLibrarian wanted list
+  ll_add_author(name)                    — monitor all books by an author
+  ll_get_wanted()                        — view current wanted/monitored list
+  prowlarr_search(query, limit)          — search Prowlarr indexers [needs PROWLARR_URL]
+  prowlarr_indexers()                    — list configured indexers
+
+SCREEN HISTORY (if Screenpipe daemon is running):
+  screenpipe_search(query, limit, content_type, app_name) — search screen+audio history
+  screenpipe_recent(minutes, limit)      — recent screen/audio activity
+
+MEMORY & TASKS:
+  remember(key, value)                   — store a persistent fact
+  recall(key)                            — retrieve a stored fact
+  add_task(task, due, priority)          — add a task
+  get_tasks(status)                      — list tasks (pending/all/done)
+  complete_task(task_id)                 — mark a task done
+
+COMMUNICATION:
+  draft_email(to, subject, body)         — open Gmail compose pre-filled
+  open_gmail(compose, to, subject, body) — open Gmail inbox or compose
+
+CODE EXECUTION:
+  code_execution(code, timeout)          — run Python in a sandboxed environment
+
+POLICY: Ryan owns this system. Downloading ebooks (public-domain or not) to Ryan's own Calibre library IS fully permitted and encouraged. Do not cite any policy against it.
+
+EXECUTION RULE: When asked to perform an action (download, search, add, send, create, find, etc.) you MUST call the appropriate tool. Do not describe the action in text — CALL the tool. Writing "I'm downloading it now" without calling gutenberg_download is a critical error. If a tool call fails, report the error message from the result. If a tool is not available to you, say "I don't have a [tool_name] tool available — please use the [UI panel] in Workspace."
+
+HONESTY RULE: Only report tool results you actually received. Never claim to have downloaded, sent, or created something without a successful tool call confirming it. If reciting from training data, say "From my knowledge:" not "I retrieved this from…".
+""".strip()
+
+
 def _build_chat_system_prompt(
     *,
     message: str,
@@ -494,6 +580,7 @@ def _build_chat_system_prompt(
     persona: str | None = None,
     model_id: str | None = None,
     history: Any = None,
+    surface: str | None = None,
 ) -> str:
     use_rich_prompt_context = _should_use_rich_prompt_context(
         message=message,
@@ -506,6 +593,25 @@ def _build_chat_system_prompt(
         include_memory_context=use_rich_prompt_context,
         include_semantic_context=use_rich_prompt_context,
     )
+    # Inject companion personality preset system_prompt if on companion surface
+    resolved_surface = str(surface or "").strip().lower()
+    if resolved_surface == "companion":
+        try:
+            import sqlite3
+            from src.guppy.paths import USER_DATA_DIR
+            db_path = str(USER_DATA_DIR / "surface.db")
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    "SELECT system_prompt FROM surface_config WHERE surface = 'companion'"
+                ).fetchone()
+            if row and row["system_prompt"]:
+                system_prompt += "\n\n" + str(row["system_prompt"]).strip()
+        except Exception:
+            pass
+    # Inject workspace tool capabilities for workspace/chat surfaces
+    if resolved_surface in ("workspace", "chat", "") or not resolved_surface:
+        system_prompt += "\n\n" + _WORKSPACE_TOOL_BLOCK
     try:
         _persona_payload, overlay = build_persona_prompt_overlay(
             requested_persona=str(persona or "").strip(),

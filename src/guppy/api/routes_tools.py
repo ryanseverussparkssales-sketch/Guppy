@@ -199,6 +199,45 @@ def _set_enabled(tool_id: str, enabled: bool) -> dict[str, Any]:
 _init_db()
 
 
+def _apply_env_defaults() -> None:
+    """Enable tools that depend on external services, when the required env vars are set."""
+    import os
+    changes: list[tuple[int, str]] = []
+
+    screenpipe_url = os.environ.get("SCREENPIPE_URL", "").strip()
+    if screenpipe_url:
+        changes += [(1, "screenpipe_search"), (1, "screenpipe_recent")]
+
+    if os.environ.get("LAZYLIBRARIAN_URL", "").strip() and os.environ.get("LAZYLIBRARIAN_API_KEY", "").strip():
+        changes += [(1, "ll_search_book"), (1, "ll_add_wanted"), (1, "ll_add_author"), (1, "ll_get_wanted")]
+
+    if os.environ.get("PROWLARR_URL", "").strip() and os.environ.get("PROWLARR_API_KEY", "").strip():
+        changes += [(1, "prowlarr_search"), (1, "prowlarr_indexers")]
+
+    if os.environ.get("KINDLE_EMAIL", "").strip():
+        changes += [(1, "send_to_kindle"), (1, "kindle_send_direct")]
+
+    if os.environ.get("SPOTIFY_CLIENT_ID", "").strip():
+        changes += [(1, "spotify")]
+
+    if os.environ.get("MYLAR3_APIKEY", "").strip():
+        changes += [(1, "mylar3_search"), (1, "mylar3_add_comic")]
+
+    if os.environ.get("GUPPY_DEV_MODE", "").strip():
+        changes += [(1, "write_file"), (1, "apply_patch"), (1, "execute_command")]
+
+    if not changes:
+        return
+
+    with sqlite3.connect(_db_path()) as conn:
+        for enabled, tool_id in changes:
+            conn.execute("UPDATE tools SET is_enabled = ? WHERE id = ?", (enabled, tool_id))
+        conn.commit()
+
+
+_apply_env_defaults()
+
+
 def build_tools_router(ctx: ServerContext) -> APIRouter:
     router = APIRouter()
 

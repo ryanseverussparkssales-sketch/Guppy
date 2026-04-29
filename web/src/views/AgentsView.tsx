@@ -790,7 +790,7 @@ export default function AgentsView() {
                       <span className="font-medium text-on-surface text-sm">{run.label}</span>
                     </div>
                     <span className="text-xs text-on-surface-variant">
-                      {run.finished_at ? `${((run.finished_at - run.started_at)).toFixed(1)}s` : 'running'}
+                      {run.finished_at ? `${(((run.finished_at - run.started_at)) || 0).toFixed(1)}s` : 'running'}
                     </span>
                   </div>
                   <p className="text-xs text-on-surface-variant truncate">{run.input}</p>

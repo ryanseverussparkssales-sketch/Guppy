@@ -12,7 +12,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   ArrowUp, Mic, MicOff, StopCircle, Zap, Camera, X,
-  Sparkles, ChevronDown, Maximize2, Minimize2,
+  Sparkles, ChevronDown, Maximize2, Minimize2, RefreshCw,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
@@ -46,6 +46,26 @@ interface PersonalityPreset {
 interface PersonalityData {
   active_preset: string
   presets: Record<string, PersonalityPreset>
+}
+
+// ── Voice config ───────────────────────────────────────────────────────────────
+
+interface VoiceOption { id: string; name: string; lang: string }
+interface ProviderOption { id: string; name: string; available: boolean }
+
+async function loadVoiceMeta() {
+  try {
+    const res = await api.get('/api/voices')
+    const d = res.data
+    const provider = d?.tts?.active_provider || 'auto'
+    const voiceId  = d?.tts?.active_voice || ''
+    const allVoices: Record<string, VoiceOption[]> = d?.tts?.voices || {}
+    const options: VoiceOption[] = allVoices[provider] || allVoices['kokoro'] || []
+    const providers: ProviderOption[] = (d?.tts?.providers || []).filter((p: ProviderOption) => p.available)
+    return { provider, voiceId: voiceId || options[0]?.id || 'bm_lewis', options, providers, allVoices }
+  } catch {
+    return { provider: 'auto', voiceId: 'bm_lewis', options: [] as VoiceOption[], providers: [] as ProviderOption[], allVoices: {} as Record<string, VoiceOption[]> }
+  }
 }
 
 // ── Utilities ──────────────────────────────────────────────────────────────────
@@ -142,12 +162,22 @@ export default function CompanionView() {
   const { activeWorkspaceId } = useWorkspaceStore()
   const { pendingDraftText, setPendingDraftText } = useAppStore()
 
-  const [messages, setMessages]           = useState<Message[]>([])
+  const [messages, setMessages]           = useState<Message[]>(() => {
+    try {
+      const saved = sessionStorage.getItem('companion_messages')
+      return saved ? JSON.parse(saved) : []
+    } catch { return [] }
+  })
   const [input, setInput]                 = useState('')
   const [streaming, setStreaming]         = useState('')
   const [isSending, setIsSending]         = useState(false)
   const [ttsEnabled, setTtsEnabled]       = useState(true)
   const [activeConvId, setActiveConvId]   = useState<string | null>(null)
+  const [voiceOptions, setVoiceOptions]   = useState<VoiceOption[]>([])
+  const [selectedVoiceId, setSelectedVoiceId] = useState('bm_lewis')
+  const [ttsProvider, setTtsProvider]     = useState('auto')
+  const [providerOptions, setProviderOptions] = useState<ProviderOption[]>([])
+  const [allVoices, setAllVoices]         = useState<Record<string, VoiceOption[]>>({})
   const [wakeMode, setWakeMode]           = useState(false)
   const [ambientMode, setAmbientMode]     = useState(false)
   const [workspaceAlert, setWsAlert]      = useState<string | null>(null)
@@ -158,6 +188,10 @@ export default function CompanionView() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useAutoHeight(input)
 
+  useEffect(() => {
+    try { sessionStorage.setItem('companion_messages', JSON.stringify(messages.slice(-50))) } catch {}
+  }, [messages])
+
   const voice = useVoice({
     onTranscript: (text) => {
       setInput(text)
@@ -165,9 +199,20 @@ export default function CompanionView() {
       setTimeout(() => handleSend(text), 300)
     },
     onError: () => {},
-    voiceId:     'bm_lewis',
-    ttsProvider: 'auto',
+    voiceId:     selectedVoiceId,
+    ttsProvider: ttsProvider,
   })
+
+  // Load voice options on mount
+  useEffect(() => {
+    loadVoiceMeta().then((meta) => {
+      setVoiceOptions(meta.options)
+      setSelectedVoiceId(meta.voiceId)
+      setTtsProvider(meta.provider)
+      setProviderOptions(meta.providers)
+      setAllVoices(meta.allVoices)
+    })
+  }, [])
 
   // Avatar state derived from voice + sending state
   const avatarState: AvatarState =
@@ -494,6 +539,13 @@ export default function CompanionView() {
           </button>
           <SurfaceStatusBar surface="workspace" compact label="Workspace" />
           <BackendSelector surface="companion" compact />
+          <button
+            onClick={() => { setMessages([]); try { sessionStorage.removeItem('companion_messages') } catch {} }}
+            title="Clear conversation (Escape)"
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-on-surface-variant/40 hover:text-on-surface-variant hover:bg-surface-variant/50 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
@@ -669,15 +721,54 @@ export default function CompanionView() {
           )}
         </div>
 
-        <div className="flex items-center gap-3 mt-2 px-1">
-          <button onClick={() => setTtsEnabled(!ttsEnabled)}
-            className={cn("text-xs px-2 py-0.5 rounded-full transition-colors",
+        <div className="flex items-center gap-2 mt-2 px-1 flex-wrap">
+          <button onClick={() => { if (ttsEnabled && voice.isSpeaking) voice.stopSpeaking(); setTtsEnabled(!ttsEnabled) }}
+            className={cn("text-xs px-2 py-0.5 rounded-full transition-colors flex-shrink-0",
               ttsEnabled ? "bg-primary/10 text-primary" : "text-on-surface-variant/40 hover:text-on-surface-variant"
             )}>
             {ttsEnabled ? '🔊 Voice on' : '🔇 Voice off'}
           </button>
-          <button onClick={() => setMessages([])}
-            className="text-xs text-on-surface-variant/40 hover:text-on-surface-variant transition-colors">
+
+          {/* Provider picker */}
+          {providerOptions.length > 1 && (
+            <select
+              value={ttsProvider}
+              onChange={(e) => {
+                const p = e.target.value
+                setTtsProvider(p)
+                const pVoices = allVoices[p] || []
+                setVoiceOptions(pVoices)
+                if (pVoices.length > 0) setSelectedVoiceId(pVoices[0].id)
+                api.put('/api/voices/settings', { tts_provider: p }).catch(() => {})
+              }}
+              title="TTS provider"
+              className="text-[11px] bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface-variant px-2 py-0.5 outline-none cursor-pointer hover:border-primary/40 transition-colors"
+            >
+              {providerOptions.map((p) => (
+                <option key={p.id} value={p.id}>{p.name.replace(/ \(.*\)/, '')}</option>
+              ))}
+            </select>
+          )}
+
+          {/* Voice picker */}
+          {voiceOptions.length > 0 && (
+            <select
+              value={selectedVoiceId}
+              onChange={(e) => {
+                setSelectedVoiceId(e.target.value)
+                api.put('/api/voices/settings', { tts_voice: e.target.value }).catch(() => {})
+              }}
+              title="Select voice"
+              className="text-[11px] bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface-variant px-2 py-0.5 outline-none cursor-pointer hover:border-primary/40 transition-colors max-w-[150px] truncate"
+            >
+              {voiceOptions.map((v) => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </select>
+          )}
+
+          <button onClick={() => { setMessages([]); try { sessionStorage.removeItem('companion_messages') } catch {} }}
+            className="text-xs text-on-surface-variant/40 hover:text-on-surface-variant transition-colors ml-auto">
             Clear
           </button>
         </div>

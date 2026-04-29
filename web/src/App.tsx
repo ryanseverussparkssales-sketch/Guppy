@@ -12,6 +12,7 @@ import SettingsView from './views/SettingsView'
 import AdminPanel from './views/AdminPanel'
 import InstructionsView from './views/InstructionsView'
 import LoginView from './views/LoginView'
+import LaunchpadView from './views/LaunchpadView'
 import { Navigate } from 'react-router-dom'
 import { useWorkspaceStore, syncManager } from './store'
 import { useErrorStore } from './store/errorStore'
@@ -119,6 +120,9 @@ function AppContent() {
         agents:          '/workspace',
         instances:       '/workspace',
         models:          '/workspace',
+        launchpad:       '/launchpad',
+        backends:        '/launchpad',
+        services:        '/launchpad',
         // Config surfaces (unchanged)
         personas:        '/personas',
         library:         '/library',
@@ -168,6 +172,7 @@ function AppContent() {
           <Route path="/status"       element={<Navigate to="/settings" replace />} />
           <Route path="/admin"        element={<AdminPanel />} />
           <Route path="/login"        element={<LoginView />} />
+          <Route path="/launchpad"    element={<LaunchpadView />} />
         </Routes>
       </AppShell>
 

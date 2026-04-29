@@ -111,6 +111,59 @@ def _to_openai_tools(anthropic_tools: Any) -> list[dict]:
 _log = logging.getLogger(__name__)
 
 _CHAT_CONTENT_MAX_CHARS = 2000
+
+
+def _get_db_tools_openai() -> list[dict]:
+    """Load enabled tools from tools.db and return them in OpenAI function-call format.
+
+    Used as a fallback/supplement when owner.core.TOOLS is empty or unavailable.
+    """
+    try:
+        import sqlite3
+        import json as _json
+        from src.guppy.paths import ensure_user_data_dir
+        db_path = str(ensure_user_data_dir() / "tools.db")
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, name, description, parameters FROM tools WHERE is_enabled = 1"
+            ).fetchall()
+        result = []
+        for row in rows:
+            try:
+                params = _json.loads(row["parameters"] or "{}")
+            except Exception:
+                params = {}
+            result.append({
+                "type": "function",
+                "function": {
+                    "name": row["id"],
+                    "description": row["description"],
+                    "parameters": params,
+                },
+            })
+        return result
+    except Exception as exc:
+        _log.debug("_get_db_tools_openai failed: %s", exc)
+        return []
+def _merged_openai_tools(owner: Any) -> list[dict] | None:
+    """Merge guppy_core.TOOLS + all enabled db tools, deduplicated by function name.
+
+    core.TOOLS only contains tools the C++ core was compiled with or auto-discovered
+    at startup.  The tools.db may have additional enabled tools (calibre, gutenberg,
+    screenpipe, etc.) that the core can execute but didn't register in its catalog.
+    Merging both sources ensures the model sees and can call ALL available tools.
+    """
+    core = _to_openai_tools(getattr(getattr(owner, "core", None), "TOOLS", None) or []) \
+        if getattr(owner, "GUPPY_CORE_AVAILABLE", False) else []
+    db = _get_db_tools_openai()
+    if not core and not db:
+        return None
+    core_names = {t["function"]["name"] for t in core}
+    merged = core + [t for t in db if t["function"]["name"] not in core_names]
+    return merged or None
+
+
 _HISTORY_SNIPPET_MAX_CHARS = 240
 _HISTORY_TURNS_SHOWN = 8
 _CHAT_HISTORY_LIMIT = 12
@@ -1147,11 +1200,12 @@ async def _stream_llamacpp_tokens(
         tool_calls_list = [tool_calls_acc[i] for i in sorted(tool_calls_acc)]
 
         # ── Structured tool call detected ─────────────────────────────────────
-        _is_tool_turn = (
-            finish_reason in {"tool_calls", "tool"}
-            or (tool_calls_list and finish_reason is None)
-        )
-        if _is_tool_turn and tool_calls_list and tool_runner:
+        # Execute tool calls whenever the model emits them, regardless of
+        # finish_reason. Some llamacpp builds report "stop" even when tool_calls
+        # are present; silently dropping them causes the "I'm downloading it now"
+        # hallucination where the model claims to act but no tool was called.
+        _is_tool_turn = bool(tool_calls_list)
+        if _is_tool_turn and tool_runner:
             if _round >= max_tool_rounds:
                 _log.warning(
                     "llama.cpp tool loop hit max_tool_rounds=%d — stopping", max_tool_rounds
@@ -1331,8 +1385,8 @@ async def stream_unified_inference(
     # ── Explicit Mistral / Cohere cloud routing ────────────────────────────────
     # When the user has picked a Mistral or Cohere model in the model picker,
     # skip local models entirely and stream from that provider's API.
-    # Only active for cloud-compatible modes (not local/code).
-    if active_cloud_model and requested_mode not in {"local", "code"}:
+    # Only active for explicit cloud modes — not "auto", which should prefer local.
+    if active_cloud_model and requested_mode not in {"local", "code", "auto", ""}:
         if active_cloud_model in _MISTRAL_MODEL_IDS:
             _mk = _get_cloud_api_key("mistral", owner)
             if _mk:
@@ -1385,9 +1439,7 @@ async def stream_unified_inference(
                 _xlam_messages = build_router_messages(
                     augmented_system, user_text, sanitize_chat_history(history)
                 )
-                _xlam_tools = (
-                    _to_openai_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
-                )
+                _xlam_tools = _merged_openai_tools(owner)
                 def _xlam_tool_runner(name: str, args: dict) -> str:
                     return str(owner.core.run_tool(
                         name, args,
@@ -1423,9 +1475,7 @@ async def stream_unified_inference(
                 _h4_messages = build_router_messages(
                     augmented_system, user_text, sanitize_chat_history(history)
                 )
-                _h4_tools = (
-                    _to_openai_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
-                )
+                _h4_tools = _merged_openai_tools(owner)
                 def _h4_tool_runner(name: str, args: dict) -> str:
                     return str(owner.core.run_tool(
                         name, args,
@@ -1469,9 +1519,7 @@ async def stream_unified_inference(
                 _agentic_messages = build_router_messages(
                     augmented_system, user_text, sanitize_chat_history(history)
                 )
-                _agentic_tools = (
-                    _to_openai_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
-                )
+                _agentic_tools = _merged_openai_tools(owner)
                 def _qwen3_tool_runner(name: str, args: dict) -> str:
                     return str(owner.core.run_tool(
                         name, args,
@@ -1561,10 +1609,10 @@ async def stream_unified_inference(
                                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
                             ],
                         }
-                # Convert Guppy's Anthropic-format tool catalogue to OpenAI format
-                _openai_tools = (
-                    _to_openai_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
-                )
+                # Merge core.TOOLS + all enabled db tools so the model can call
+                # calibre, gutenberg, screenpipe, etc. even when they're not in
+                # the C++ core's auto-discovered catalog.
+                _openai_tools = _merged_openai_tools(owner)
 
                 def _llamacpp_tool_runner(name: str, args: dict) -> str:
                     return str(
@@ -1623,9 +1671,7 @@ async def stream_unified_inference(
             messages = build_router_messages(
                 augmented_system, user_text, sanitize_chat_history(history)
             )
-            _openai_tools = (
-                _to_openai_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
-            )
+            _openai_tools = _merged_openai_tools(owner)
             def _fb_tool_runner(name: str, args: dict) -> str:
                 return str(owner.core.run_tool(name, args,
                     instance_name=instance_name, instance_type=instance_type))

@@ -40,9 +40,9 @@ launcher_app.py (Qt Wrapper)
 
 **Surface architecture decision (2026-04-28):** Single `AssistantView` is being replaced by three dedicated surfaces (Companion / Workspace / Codespace). See `docs/MASTER_PHASE_PLAN.md`.
 
-### Three-Surface Architecture — Phases 1–4 Complete (2026-04-28)
+### Three-Surface Architecture — Phases 1–5 Complete (2026-04-29)
 
-**New backend modules:**
+**Backend modules (all mounted in server_runtime.py):**
 | File | Routes | Purpose |
 |---|---|---|
 | `src/guppy/api/routes_surface.py` | `/api/surface/*` | State, config, task spawn, SSE event bus |
@@ -50,9 +50,16 @@ launcher_app.py (Qt Wrapper)
 | `src/guppy/api/routes_workspace_data.py` | `/api/workspace/*` | Contacts/tasks JSON API + pipeline proxy |
 | `src/guppy/api/routes_codespace.py` | `/api/codespace/*` | Docker sandbox lifecycle + triage + self-improvement endpoints |
 | `src/guppy/codespace/codespace_triage.py` | — | Triage run history, watchdog thread, dev-check runner |
-| `src/guppy/api/routes_voip.py` | `/api/voip/*` | Call log CRUD, Twilio webhook stub |
+| `src/guppy/api/routes_voip.py` | `/api/voip/*` | Call log CRUD, live Twilio REST calls, webhook |
 | `src/guppy/api/routes_screen_monitor.py` | `/api/screen/*` | Timeline aggregation, AI activity summaries, 30-min background job |
 | `src/guppy/codespace/self_improve.py` | — | AI fix proposals via Ollama, git branch apply, dev-check validation |
+| `src/guppy/api/routes_calendar.py` | `/api/calendar/*` | Local event CRUD + live Google Calendar sync |
+| `src/guppy/api/routes_email.py` | `/api/email/*` | Local thread cache + live Gmail sync |
+| `src/guppy/api/routes_media.py` | `/api/media/*` | qBittorrent proxy, media catalog, Whisper transcription |
+| `src/guppy/api/routes_documents.py` | `/api/documents/*` | Upload, AI analysis, download |
+| `src/guppy/api/routes_tasks.py` | `/api/tasks/*` | Task CRUD |
+| `src/guppy/api/routes_mcp.py` | `/api/mcp/*` | MCP plugin manager — add/remove/enable/test servers |
+| `src/guppy/api/routes_desktop.py` | `/api/desktop/*` | pyautogui screenshot/click/type/drag/scroll |
 
 **New frontend — Companion (`/companion`):**
 - `web/src/views/CompanionView.tsx` — PersonalityPicker, wake-word toggle, camera vision, avatar presence, escalate to Workspace, **ambient fullscreen mode** (SSE alerts → TTS)
@@ -60,14 +67,18 @@ launcher_app.py (Qt Wrapper)
 - `web/src/components/surface/BackendSelector.tsx` — per-surface model picker
 - `web/src/components/surface/SurfaceStatusBar.tsx` — cross-surface live SSE chip
 
-**New frontend — Workspace (`/workspace`) — 8-tab icon strip:**
-- `web/src/views/WorkspaceView.tsx` — Chat | Agents | CRM | Screen | Files | PC | Reminders | **Calls** tabs
+**New frontend — Workspace (`/workspace`) — 11-tab icon strip:**
+- `web/src/views/WorkspaceView.tsx` — Chat | Agents | CRM | Screen | Files | PC | Tasks | Calls | Calendar | Email | Media
 - `web/src/components/workspace/SystemMetricsPanel.tsx` — live CPU/RAM/disk/net gauges
 - `web/src/components/workspace/CRMPanel.tsx` — contacts + tasks CRUD
-- `web/src/components/workspace/ScreenPanel.tsx` — Screenpipe recent/search/timeline viewer (**Phase 5**: AI summary Sparkles chip per window)
+- `web/src/components/workspace/ScreenPanel.tsx` — Screenpipe recent/search/timeline viewer (AI summary Sparkles chip per window)
 - `web/src/components/workspace/FilesPanel.tsx` — navigable file browser + text preview
 - `web/src/components/workspace/AutomationPanel.tsx` — reminders create/cancel/list
 - `web/src/components/workspace/VoIPPanel.tsx` — call log, log-call form, inline note editor, Twilio status badge
+- `web/src/components/workspace/CalendarPanel.tsx` — month grid + agenda, local CRUD + Google Calendar sync
+- `web/src/components/workspace/EmailPanel.tsx` — inbox, thread reader, draft composer, Gmail sync
+- `web/src/components/workspace/MediaLibraryPanel.tsx` — qBittorrent, media catalog, call recordings + Whisper
+- `web/src/components/workspace/TaskManagerPanel.tsx` — task CRUD with project/status filters
 
 **New frontend — Codespace (`/codespace`) — 3-tab icon strip:**
 - `web/src/views/CodespaceView.tsx` — Chat | Sandbox | Triage tabs
@@ -155,18 +166,30 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 ### 🟡 Documentation
 - [ ] Add architecture diagram to README.md
 
-**Note:** All code cleanup and verification items resolved as of 2026-04-28. See `docs/LEGACY_QUARANTINE_PROTOCOL.md` and `docs/LIVE_ARCHITECTURE.md` for architectural details.
+### 🟡 Credential-gated features (code is live, need env vars to activate)
+- Gmail sync — set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`
+- Google Calendar sync — same Google env vars (or `GOOGLE_CALENDAR_CREDENTIALS` token file)
+- HubSpot live writes — set `HUBSPOT_API_KEY`
+- Twilio calls — set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`
 
-### 🟢 Verified Working
+### 🟢 Verified Working (2026-04-29)
 - ✅ CLI launcher paths (launcher, guppyprime, hub, api, agent)
 - ✅ JWT and repair token auth flows
 - ✅ Database pragmas and hardening
 - ✅ All documented tool scripts and test files
 - ✅ `GUPPY_DEV_MODE` env var and logging
-- ✅ **Web UI parity complete (2026-04-28)** — All P0 features verified, shipping now
-- ✅ **Desktop hardening (TR54-D)** — D1–D5 complete, boot verification wired
-- ✅ **Inference stack** — llamacpp agentic tool-call loop, Mistral + Cohere wiring, Hermes 4/3 + Rocinante backends active
-- ✅ **Three-surface architecture Phases 1–5 complete (2026-04-29)** — Companion/Workspace/Codespace fully shipped; VoIP, ambient wake, self-improvement pipeline, AI screen summaries all live
+- ✅ **Three-surface architecture Phases 1–5 complete** — Companion/Workspace/Codespace fully shipped
+- ✅ **Workspace 11-tab hub** — Calendar, Email, Media, Tasks added; all backed by live routes
+- ✅ **MCP plugin manager** — add/remove/enable/test MCP servers; MCPView wired
+- ✅ **Desktop control API** — pyautogui screenshot/click/type (graceful fallback if pyautogui absent)
+- ✅ **Themes** — Dark, Liber Designatum (occult), Fear & Loathing (gonzo), Creem × Rolling Stone (rock mag)
+- ✅ **Inference metrics** — persisted to guppy_main.db, visible in AdminPanel `/admin`
+- ✅ **Gmail sync** — live via google-api-python-client (needs credentials)
+- ✅ **Google Calendar sync** — live, upserts 90-day window (needs credentials)
+- ✅ **HubSpot/Salesforce/GHL/Zoho contact + deal upsert** — live REST (needs API keys)
+- ✅ **Twilio outbound calling** — live REST call placement (needs credentials)
+- ✅ **Desktop launcher** — `Desktop\Guppy Launcher.lnk` updated via `tools/ensure_desktop_launcher.ps1`
+- ✅ **Web UI rebuilt** — static assets in `static/` reflect all current views and themes
 
 **For detailed implementation notes on completed initiatives, see `SHIPPING_LOG.md` in the Guppy repo.**
 

@@ -99,10 +99,11 @@ async def _security_headers_middleware(request: Any, call_next: Any) -> Any:
     response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self'; "
+        "script-src 'self' 'unsafe-eval'; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src https://fonts.gstatic.com data:; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
         "img-src 'self' data: blob:; "
+        "media-src 'self' blob:; "
         "connect-src 'self' http://127.0.0.1:8081 ws://127.0.0.1:8081; "
         "worker-src 'self' blob:; "
         "frame-ancestors 'none'; "

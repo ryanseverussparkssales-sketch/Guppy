@@ -6,7 +6,7 @@ Extends the core InferenceRouter with:
 - TTL-cached liveness probes so healthy servers get priority automatically
 - Automatic fallback chain: preferred local backend → Ollama → Haiku → Sonnet
 - Health check coordination
-- Metrics tracking to database (stub — wired, not yet persisted)
+- Metrics persisted to runtime/inference_metrics.db (SQLite)
 
 Migration status: Phase 2 — registry is PRIMARY, core is fallback.
     get_router() in _router_fragment_api.py returns InferenceRouterV2.
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -56,11 +57,6 @@ class InferenceRouterV2(InferenceRouter):
         super().__init__()
         self.use_registry = use_registry
         self.registry = get_provider_registry(settings_db) if use_registry else None
-        self._metrics_db = None  # Will be set by caller if metrics tracking desired
-
-    def set_metrics_db(self, db) -> None:
-        """Set database connection for metrics tracking."""
-        self._metrics_db = db
 
     async def query_async(
         self,
@@ -95,9 +91,7 @@ class InferenceRouterV2(InferenceRouter):
                     preferred_provider=preferred_provider,
                     **kwargs,
                 )
-                # Track metrics if database set
-                if self._metrics_db:
-                    await self._record_metrics(metadata)
+                await self._record_metrics(metadata)
 
                 return response, metadata.provider, metadata.to_dict()
 
@@ -155,15 +149,41 @@ class InferenceRouterV2(InferenceRouter):
         # Otherwise use cached checks (5 second TTL per registry)
 
     async def _record_metrics(self, metadata: InferenceMetadata) -> None:
-        """Record inference metrics to database."""
-        if not self._metrics_db:
-            return
-
+        """Persist inference metrics to guppy_main.db (same DB as the metrics API reads)."""
         try:
-            # TODO: Implement metrics table insert
-            # INSERT INTO inference_metrics (provider, model, task_type, latency_ms, success, cost, timestamp)
-            # await self._metrics_db.insert("inference_metrics", metadata.to_dict())
-            pass
+            from src.guppy.paths import USER_DATA_DIR
+            USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+            db_path = str(USER_DATA_DIR / "guppy_main.db")
+            conn = sqlite3.connect(db_path, check_same_thread=False)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS inference_metrics (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    provider         TEXT NOT NULL,
+                    model            TEXT NOT NULL,
+                    task_type        TEXT NOT NULL,
+                    latency_ms       REAL NOT NULL,
+                    prompt_tokens    INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens     INTEGER NOT NULL DEFAULT 0,
+                    cost             REAL NOT NULL DEFAULT 0.0,
+                    success          INTEGER NOT NULL DEFAULT 1,
+                    error            TEXT,
+                    timestamp        TEXT NOT NULL
+                )
+            """)
+            d = metadata.to_dict()
+            conn.execute(
+                "INSERT INTO inference_metrics "
+                "(provider, model, task_type, latency_ms, prompt_tokens, completion_tokens, "
+                "total_tokens, cost, success, error, timestamp) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (d["provider"], d["model"], d["task_type"], d["latency_ms"],
+                 d["prompt_tokens"], d["completion_tokens"], d["total_tokens"],
+                 d["cost"], d["success"], d["error"], d["timestamp"]),
+            )
+            conn.commit()
+            conn.close()
         except Exception as e:
             logger.warning(f"[ROUTERV2] Failed to record metrics: {e}")
 
@@ -295,22 +315,10 @@ class InferenceRouterFactory:
     def create_router(
         use_registry: bool = True,
         settings_db=None,
-        metrics_db=None,
+        metrics_db=None,  # kept for call-site compat; metrics are now self-contained
     ) -> InferenceRouterV2:
-        """Create a configured InferenceRouterV2 instance.
-
-        Args:
-            use_registry: Use ProviderRegistry for inference
-            settings_db: Optional settings database for persistent config
-            metrics_db: Optional metrics database for tracking
-
-        Returns:
-            Configured router instance
-        """
-        router = InferenceRouterV2(settings_db=settings_db, use_registry=use_registry)
-        if metrics_db:
-            router.set_metrics_db(metrics_db)
-        return router
+        """Create a configured InferenceRouterV2 instance."""
+        return InferenceRouterV2(settings_db=settings_db, use_registry=use_registry)
 
 
 # Convenience functions for gradual migration

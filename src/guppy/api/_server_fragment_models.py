@@ -18,6 +18,7 @@ class ChatRequest(BaseModel):
     model: Optional[str] = None  # Model to use: "fast", "code", "main", or any Ollama model name
     idempotency_key: Optional[str] = None
     image_base64: Optional[str] = None  # base64-encoded image for multimodal backends (MiniCPM-o)
+    surface: Optional[str] = None  # "companion", "workspace", "codespace" — used for system prompt context
 
 
 class VoiceChatRequest(BaseModel):

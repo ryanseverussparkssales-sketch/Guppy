@@ -26,7 +26,7 @@ class TTSFallbackOrchestrator:
     def __init__(
         self,
         providers: Optional[List[TTSProvider]] = None,
-        per_provider_timeout_s: float = 10.0,
+        per_provider_timeout_s: float = 30.0,
     ):
         if providers is None:
             from guppy.voice.tts.kokoro_provider import KokoroTTSProvider

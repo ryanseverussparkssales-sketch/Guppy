@@ -374,7 +374,7 @@ CREATE TABLE IF NOT EXISTS surface_state (
 **Goal:** The system is ambient, self-improving, and genuinely functions as a personal operations platform.
 
 **Backend:**
-- [x] VoIP full implementation — `routes_voip.py`: SQLite call log, manual CRUD, Twilio StatusCallback webhook stub, GET /api/voip/status
+- [x] VoIP full implementation — `routes_voip.py`: SQLite call log, manual CRUD, live Twilio REST outbound calls, StatusCallback webhook, GET /api/voip/status
 - [x] Screen monitoring AI summaries — `routes_screen_monitor.py`: `_generate_ai_summary()` calls guppy-fast via Ollama after every 30-min snapshot; stores `summary` column; exposed in timeline API + DB migration for existing tables
 - [x] Self-improvement pipeline — `src/guppy/codespace/self_improve.py`: `propose_fix()` calls guppy-code→guppy-fast, extracts unified diff, `apply_fix()` creates branch + runs dev-check, `reject_fix()` / `get_proposals()` / `get_proposal()`
 - [x] Ambient wake mode — CompanionView SSE subscription fires TTS on `task_spawned`/`task_updated` events
@@ -408,14 +408,16 @@ CREATE TABLE IF NOT EXISTS surface_state (
 
 ---
 
-## Docs That Need Updating
+## Docs Updated (2026-04-29)
 
-| Document | Status | Action |
-|---|---|---|
-| `docs/GUPPY_PRODUCT_NORTH_STAR.md` | Outdated (2026-04-18) — explicitly says "not Jarvis, not automation OS" | Revise to reflect expanded vision or archive and replace |
-| `docs/LIVE_ARCHITECTURE.md` | Partially outdated — misses web UI, inference routing, new routes | Update with current backend map after Phase 1 |
-| `docs/PROJECT_BRIEF.md` | Current through 2026-04-28 but five-hub surface map no longer applies | Add P7 Three-Surface Architecture as active execution track |
-| `CLAUDE.md` | Current — update after each phase with new module locations | Update at end of each phase |
+All four previously-stale documents have been updated:
+
+| Document | Status |
+|---|---|
+| `docs/GUPPY_PRODUCT_NORTH_STAR.md` | ✅ Rewritten — reflects three-surface ambient platform |
+| `docs/LIVE_ARCHITECTURE.md` | ✅ Rewritten — full route map, inference stack, background services |
+| `CLAUDE.md` | ✅ Updated — 11-tab workspace, all new routes, verified working list |
+| `docs/PROJECT_BRIEF.md` | See note below — large doc, check currency before use |
 
 ---
 

@@ -214,6 +214,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 persona=request.persona or active_instance_persona,
                 model_id=request.mode,
                 history=request.history,
+                surface=request.surface,
             )
 
             cache_key = None
@@ -331,6 +332,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
             persona=request.persona or active_instance_persona,
             model_id=request.mode,
             history=request.history,
+            surface=request.surface,
         )
 
         _active_local_model = _get_active_local_model()

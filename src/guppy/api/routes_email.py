@@ -113,7 +113,7 @@ def _message_row(r: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-# ── Gmail helpers (stub) ──────────────────────────────────────────────────────
+# ── Gmail helpers ─────────────────────────────────────────────────────────────
 
 def _gmail_configured() -> bool:
     return bool(
@@ -123,6 +123,23 @@ def _gmail_configured() -> bool:
     )
 
 
+def _get_gmail_service():
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+    creds = Credentials(
+        token=None,
+        refresh_token=os.environ.get("GOOGLE_REFRESH_TOKEN"),
+        client_id=os.environ.get("GOOGLE_CLIENT_ID"),
+        client_secret=os.environ.get("GOOGLE_CLIENT_SECRET"),
+        token_uri="https://oauth2.googleapis.com/token",
+        scopes=[
+            "https://www.googleapis.com/auth/gmail.readonly",
+            "https://www.googleapis.com/auth/gmail.modify",
+        ],
+    )
+    return build("gmail", "v1", credentials=creds, cache_discovery=False)
+
+
 def _sync_gmail() -> dict[str, Any]:
     if not _gmail_configured():
         return {
@@ -130,11 +147,74 @@ def _sync_gmail() -> dict[str, Any]:
             "error": "Gmail credentials not configured",
             "hint": (
                 "Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN "
-                "environment variables. See docs/gmail_setup.md for OAuth setup instructions."
+                "environment variables."
             ),
         }
-    # Real implementation would use google-auth + gmail API
-    return {"ok": False, "error": "Gmail sync not yet implemented — credentials found, implementation pending"}
+    try:
+        import json as _json
+        service = _get_gmail_service()
+        now = datetime.now(timezone.utc).isoformat()
+
+        result = service.users().threads().list(userId="me", maxResults=100).execute()
+        thread_metas = result.get("threads", [])
+
+        def _header(msg: dict, name: str) -> str:
+            for h in msg.get("payload", {}).get("headers", []):
+                if h["name"].lower() == name.lower():
+                    return h["value"]
+            return ""
+
+        synced = 0
+        with _conn() as conn:
+            for tm in thread_metas:
+                tid = tm["id"]
+                thread = service.users().threads().get(
+                    userId="me", id=tid, format="metadata",
+                    metadataHeaders=["Subject", "From", "To", "Date"],
+                ).execute()
+                messages = thread.get("messages", [])
+                if not messages:
+                    continue
+
+                first_msg = messages[0]
+                last_msg = messages[-1]
+                subject = _header(first_msg, "Subject") or "(no subject)"
+                from_addr = _header(first_msg, "From") or ""
+                label_ids = first_msg.get("labelIds", ["INBOX"])
+                unread = "UNREAD" in label_ids
+                starred = "STARRED" in label_ids
+                last_ts_ms = int(last_msg.get("internalDate", 0))
+                last_dt = datetime.fromtimestamp(last_ts_ms / 1000, tz=timezone.utc).isoformat()
+                snippet = tm.get("snippet", "")
+
+                existing = conn.execute(
+                    "SELECT id FROM email_threads WHERE gmail_thread_id=?", (tid,)
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE email_threads SET subject=?, snippet=?, from_addr=?, "
+                        "labels=?, unread=?, starred=?, message_count=?, last_message_at=? "
+                        "WHERE gmail_thread_id=?",
+                        (subject, snippet, from_addr, _json.dumps(label_ids),
+                         int(unread), int(starred), len(messages), last_dt, tid),
+                    )
+                else:
+                    lid = str(uuid.uuid4())
+                    conn.execute(
+                        "INSERT INTO email_threads "
+                        "(id, gmail_thread_id, subject, snippet, from_addr, labels, "
+                        "unread, starred, message_count, last_message_at, created_at) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        (lid, tid, subject, snippet, from_addr, _json.dumps(label_ids),
+                         int(unread), int(starred), len(messages), last_dt, now),
+                    )
+                synced += 1
+            conn.commit()
+
+        return {"ok": True, "synced_threads": synced}
+    except Exception as exc:
+        logger.exception("Gmail sync failed")
+        return {"ok": False, "error": str(exc)}
 
 
 # ── Pydantic ──────────────────────────────────────────────────────────────────

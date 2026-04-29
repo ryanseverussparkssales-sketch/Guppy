@@ -7,7 +7,6 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel
 
 from src.guppy.launcher_application.provider_registry import get_example_prompt, get_provider
 from src.guppy.launcher_application.settings_device_accounts_presenter import (
@@ -19,18 +18,8 @@ from .settings_device_accounts_form_support import (
     apply_connector_action_state as _apply_connector_action_state,
     apply_empty_connector_state as _apply_empty_connector_state,
     apply_field_payloads as _apply_field_payloads,
+    mono,
 )
-
-
-def mono(text: str, color: str = T.DIM, size: int = T.FS_SMALL, bold: bool = False) -> QLabel:
-    """Create a word-wrapped monospace label."""
-    lbl = QLabel(text)
-    lbl.setWordWrap(True)
-    lbl.setStyleSheet(
-        f"color: {color}; font-family: '{T.FF_MONO}'; font-size: {size}pt; letter-spacing: 1px;"
-        + (" font-weight: bold;" if bold else "")
-    )
-    return lbl
 
 
 def connector_card_style(*, selected: bool, ready: bool, accent: str, wash: str) -> str:

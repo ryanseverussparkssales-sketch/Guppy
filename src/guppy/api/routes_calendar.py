@@ -81,24 +81,103 @@ def _row(r: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-# ── Google Calendar stub ──────────────────────────────────────────────────────
+# ── Google Calendar ───────────────────────────────────────────────────────────
 
 def _google_connected() -> bool:
     creds_path = os.environ.get("GOOGLE_CALENDAR_CREDENTIALS", "")
-    return bool(creds_path and os.path.exists(creds_path))
+    has_file = bool(creds_path and os.path.exists(creds_path))
+    has_env = bool(
+        os.environ.get("GOOGLE_CLIENT_ID") and
+        os.environ.get("GOOGLE_CLIENT_SECRET") and
+        os.environ.get("GOOGLE_REFRESH_TOKEN")
+    )
+    return has_file or has_env
+
+
+def _get_calendar_service():
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+
+    creds_path = os.environ.get("GOOGLE_CALENDAR_CREDENTIALS", "")
+    if creds_path and os.path.exists(creds_path):
+        import json as _json
+        with open(creds_path) as f:
+            creds_data = _json.load(f)
+        creds = Credentials.from_authorized_user_info(creds_data)
+    else:
+        creds = Credentials(
+            token=None,
+            refresh_token=os.environ.get("GOOGLE_REFRESH_TOKEN"),
+            client_id=os.environ.get("GOOGLE_CLIENT_ID"),
+            client_secret=os.environ.get("GOOGLE_CLIENT_SECRET"),
+            token_uri="https://oauth2.googleapis.com/token",
+            scopes=["https://www.googleapis.com/auth/calendar.readonly"],
+        )
+    return build("calendar", "v3", credentials=creds, cache_discovery=False)
 
 
 def _sync_google_calendar() -> dict[str, Any]:
-    """Attempt Google Calendar sync. Returns result dict."""
     if not _google_connected():
-        return {"ok": False, "error": "GOOGLE_CALENDAR_CREDENTIALS not set or file not found"}
+        return {
+            "ok": False,
+            "error": (
+                "No Google credentials found. Set GOOGLE_CALENDAR_CREDENTIALS (path to token "
+                "JSON file) or GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET + GOOGLE_REFRESH_TOKEN."
+            ),
+        }
     try:
-        # Real implementation would use google-api-python-client:
-        #   service = build('calendar', 'v3', credentials=creds)
-        #   events = service.events().list(calendarId='primary', ...).execute()
-        # For now: no-op stub that signals "configured but not yet implemented"
-        return {"ok": False, "error": "Google Calendar sync not yet implemented — set GOOGLE_CALENDAR_CREDENTIALS"}
+        service = _get_calendar_service()
+        now = datetime.now(timezone.utc)
+        db_now = now.isoformat()
+        time_max = (now + timedelta(days=90)).isoformat()
+
+        events_result = service.events().list(
+            calendarId="primary",
+            timeMin=db_now,
+            timeMax=time_max,
+            maxResults=250,
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute()
+        events = events_result.get("items", [])
+
+        synced = 0
+        with _conn() as conn:
+            for event in events:
+                geid = event["id"]
+                title = event.get("summary", "(no title)")
+                description = event.get("description", "")
+                location = event.get("location", "")
+                start = event["start"].get("dateTime", event["start"].get("date", ""))
+                end = event["end"].get("dateTime", event["end"].get("date", ""))
+                all_day = "date" in event["start"]
+
+                existing = conn.execute(
+                    "SELECT id FROM calendar_events WHERE google_event_id=?", (geid,)
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE calendar_events SET title=?, description=?, location=?, "
+                        "start_time=?, end_time=?, all_day=?, updated_at=? "
+                        "WHERE google_event_id=?",
+                        (title, description, location, start, end, int(all_day), db_now, geid),
+                    )
+                else:
+                    eid = str(uuid.uuid4())
+                    conn.execute(
+                        "INSERT INTO calendar_events "
+                        "(id, title, description, location, start_time, end_time, all_day, "
+                        "color, google_event_id, calendar_id, recurrence, created_at, updated_at) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (eid, title, description, location, start, end, int(all_day),
+                         "primary", geid, "google", "", db_now, db_now),
+                    )
+                synced += 1
+            conn.commit()
+
+        return {"ok": True, "synced_events": synced}
     except Exception as exc:
+        logger.exception("Google Calendar sync failed")
         return {"ok": False, "error": str(exc)}
 
 
@@ -136,14 +215,17 @@ def build_calendar_router(ctx: ServerContext) -> APIRouter:
         connected = _google_connected()
         with _conn() as conn:
             total = conn.execute("SELECT COUNT(*) FROM calendar_events").fetchone()[0]
+        has_file = bool(os.environ.get("GOOGLE_CALENDAR_CREDENTIALS"))
+        has_env  = bool(os.environ.get("GOOGLE_CLIENT_ID") and os.environ.get("GOOGLE_REFRESH_TOKEN"))
         return {
             "google_connected":    connected,
-            "google_creds_env":    bool(os.environ.get("GOOGLE_CALENDAR_CREDENTIALS")),
+            "google_creds_file":   has_file,
+            "google_creds_env":    has_env,
             "local_event_count":   total,
             "sync_hint": (
-                "Set GOOGLE_CALENDAR_CREDENTIALS to a Google OAuth token file "
-                "and restart the server to enable sync."
-                if not connected else "Google Calendar credentials found"
+                "Set GOOGLE_CALENDAR_CREDENTIALS (token JSON path) "
+                "or GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET + GOOGLE_REFRESH_TOKEN."
+                if not connected else "Google Calendar credentials found — ready to sync."
             ),
         }
 

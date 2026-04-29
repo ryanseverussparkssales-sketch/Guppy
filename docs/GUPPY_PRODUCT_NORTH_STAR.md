@@ -1,141 +1,77 @@
 # Guppy Product North Star
 
-Last updated: 2026-04-18
+Last updated: 2026-04-29
 
 ## One-Sentence Thesis
 
-Guppy is the local AI assistant that feels personal, persistent, and calm.
+Guppy is a local-first personal operations platform — voice-first, ambient, and persistent across every surface.
 
 ## Core Product Definition
 
-Guppy is a chat-first local workspace assistant for one person doing real work with:
+Guppy is a three-surface personal AI platform for one person doing real work:
 
-1. Persistent context.
-2. Local files.
-3. Study and research support.
-4. Coding support.
-5. A small set of dependable tools.
+1. **Companion** — voice-first, personality-led, always present. Fast personal assistant with vision, wake word, and avatar presence.
+2. **Workspace** — operational command center. Agents, CRM, calendar, email, screen history, files, VoIP, and tasks in one hub.
+3. **Codespace** — the workshop. Docker sandboxes, self-triage, AI fix proposals, and self-improvement pipeline.
 
 The core promise is:
 
-`I can open Guppy, continue where I left off, use my files, and get useful help without fighting the interface.`
+`I can talk to Guppy, kick tasks to my Workspace, and everything stays in sync — locally, persistently, without fighting the interface.`
 
 ## What Guppy Must Feel Like
 
-Guppy should feel like:
-
-1. One clear place to think and act.
-2. Continuity across sessions.
-3. Low-friction local usefulness.
-4. A calm daily workspace, not a dashboard.
-5. Trustworthy enough to use repeatedly.
-
-## What Guppy Is Not
-
-Guppy is not:
-
-1. A launcher dashboard.
-2. A control panel with chat attached.
-3. A bag of disconnected demos.
-4. A full automation operating system.
-5. "Jarvis" in the ambient-assistant sense, at least not in the current phase.
-
-If a feature does not improve:
-
-1. Continuity.
-2. File-based usefulness.
-3. Chat smoothness.
-4. Trust.
-
-Then it is not core.
-
-## Daily Workflow Test
-
-A good Guppy session should look like this:
-
-1. Launch quickly.
-2. Open the right workspace.
-3. See relevant files, notes, and recent context.
-4. Ask for help naturally in chat.
-5. Get a response that clearly uses the current context.
-6. Save useful outputs back into the workspace.
-7. Return later and continue without re-explaining everything.
-
-If this flow is not smooth, the product is not done.
+1. Always ready — voice wakes it, text reaches it, tasks queue to the right surface.
+2. Ambient — Companion can announce Workspace activity without being opened.
+3. Calm daily use — no dashboard clutter on the surfaces you use most.
+4. Persistent — memory, task state, and chat history survive restarts.
+5. Trustworthy — local inference by default, cloud when you want it, credentials stay on-machine.
 
 ## Primary Surfaces
 
-These are the only primary surfaces:
+These are the three primary surfaces, each with its own model affinity and tool access:
 
-1. `Chat`
-2. `Workspaces`
-3. `Library`
-4. `Settings`
+1. **Companion** (`/companion`) — chat, voice, vision, personality, avatar. Escalates tasks to Workspace.
+2. **Workspace** (`/workspace`) — 11-tab hub: Chat | Agents | CRM | Screen | Files | PC | Tasks | Calls | Calendar | Email | Media.
+3. **Codespace** (`/codespace`) — 3-tab: Chat | Sandbox (Docker) | Triage (self-improve + AI fix proposals).
 
-Rules:
+Secondary surfaces (accessible from within any primary surface):
+- `/personas` — personality presets and instructions
+- `/tools` — tool registry, enable/disable
+- `/instructions` — system prompt editor
+- `/settings` — credentials, models, providers, appearance (themes)
+- `/admin` — inference metrics dashboard, ops panel
 
-1. `Chat` is the center of the product.
-2. `Workspaces` organize purpose and persistence.
-3. `Library` manages files, notes, and artifacts.
-4. `Settings` owns setup, diagnostics, recovery, and advanced controls.
+## What Is Now In Scope (Updated 2026-04-29)
 
-Everything else is secondary and should behave like a nested or demoted surface.
+All of the following shipped in Phases 1–5 and are active production features:
 
-## Smoothness Before Scope
-
-Before more feature expansion, these must feel good:
-
-1. Launch and startup reliability.
-2. Workspace switching.
-3. File attachment and reuse.
-4. Persistent context recall.
-5. Clear tool availability.
-6. Clean chat flow.
-7. Simple navigation.
-8. Low visual clutter.
-
-These matter more than adding new capability.
-
-## Product Standard
-
-Guppy should not try to beat competing local AI tools by having more visible features.
-
-It should try to beat them by being:
-
-1. Calmer.
-2. Clearer.
-3. More personal.
-4. More persistent.
-5. More trustworthy.
-
-## V1 Reality Check
-
-Near-term realistic target:
-
-1. A useful personal local AI workspace with files, memory, study support, and coding support.
-
-Not a near-term target:
-
-1. A fully ambient "Jarvis" replacement.
-2. A general-purpose automation OS.
-3. A giant multi-surface operator environment.
-
-## V1 Is Real When
-
-Guppy V1 is real when:
-
-1. A user can launch it and understand it immediately.
-2. Chat is the obvious main action.
-3. Files and notes are easy to find and reuse.
-4. Workspaces preserve meaningful continuity.
-5. The assistant clearly behaves like it knows the current context.
-6. The UI feels calmer than competing local AI tools.
-7. Advanced controls exist without dominating the experience.
+- ✅ Ambient wake mode — Companion speaks Workspace alerts with TTS when idle
+- ✅ Self-improvement pipeline — AI proposes diffs, user applies or rejects, dev-check validates
+- ✅ Docker sandbox execution — per-project containers, SSE terminal, lifecycle management
+- ✅ Self-triage watchdog — monitors src/guppy/, auto-triggers dev-check on changes
+- ✅ VoIP call log — SQLite-backed, Twilio webhook stub, live call placement via REST API
+- ✅ Gmail sync — live via google-api-python-client
+- ✅ Google Calendar sync — live, local CRUD + 90-day Google sync
+- ✅ CRM live writes — HubSpot, Salesforce, GoHighLevel, Zoho via REST API
+- ✅ Inference metrics — persisted to guppy_main.db, visible in AdminPanel dashboard
+- ✅ Themes — Atoll Editorial (default), Dark, Liber Designatum (occult), Fear & Loathing (gonzo), Creem × Rolling Stone (rock mag)
+- ✅ MCP plugin manager — add/remove MCP servers, enable/disable, test connections
+- ✅ Desktop control API — pyautogui-backed screenshot, click, type, drag, scroll
 
 ## Decision Rule
 
 When there is tension between power and clarity:
 
-1. Protect the daily path first.
-2. Hide or demote operational detail second.
-3. Add power only when it does not make Chat, Workspaces, or Library harder to understand.
+1. Keep the daily path smooth (Companion first, Workspace for operations, Codespace for code).
+2. Hide diagnostics and power controls behind secondary nav.
+3. Add surface capability only when it doesn't clutter the primary view of that surface.
+4. Local inference is the default — cloud is opt-in per surface.
+
+## V1 Is Real When
+
+1. Companion responds in under 2 seconds on local hardware.
+2. A task escalated from Companion appears in Workspace agents panel with live output.
+3. Calendar, email, and CRM show real data after one-time credential setup.
+4. Codespace proposes and applies its own fixes, validated by dev-check.
+5. The user can theme, voice-configure, and credential everything from within the app.
+6. Inference metrics show accurate per-provider cost and latency in AdminPanel.

@@ -116,11 +116,15 @@ def build_screenpipe_router(ctx: ServerContext) -> APIRouter:
             results = await asyncio.to_thread(
                 _search, q, min(limit, 100), content_type, start_time, end_time, app_name
             )
-        except urllib.error.URLError:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Screenpipe not reachable at {_sp_url()} — is the daemon running?",
-            )
+        except (urllib.error.URLError, ConnectionRefusedError, OSError):
+            return {
+                "results": [],
+                "count": 0,
+                "query": q,
+                "content_type": content_type,
+                "available": False,
+                "detail": f"Screenpipe not running at {_sp_url()}",
+            }
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Screenpipe error: {exc}")
         return {
@@ -128,6 +132,7 @@ def build_screenpipe_router(ctx: ServerContext) -> APIRouter:
             "count": len(results),
             "query": q,
             "content_type": content_type,
+            "available": True,
         }
 
     @router.get("/recent")
@@ -138,17 +143,21 @@ def build_screenpipe_router(ctx: ServerContext) -> APIRouter:
     ):
         try:
             results = await asyncio.to_thread(_recent, min(minutes, 1440), min(limit, 100))
-        except urllib.error.URLError:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Screenpipe not reachable at {_sp_url()} — is the daemon running?",
-            )
+        except (urllib.error.URLError, ConnectionRefusedError, OSError):
+            return {
+                "results": [],
+                "count": 0,
+                "window_minutes": minutes,
+                "available": False,
+                "detail": f"Screenpipe not running at {_sp_url()}",
+            }
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Screenpipe error: {exc}")
         return {
             "results": results,
             "count": len(results),
             "window_minutes": minutes,
+            "available": True,
         }
 
     return router

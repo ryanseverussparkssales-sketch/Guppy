@@ -14,6 +14,7 @@ These routes integrate with ProviderRegistry for dynamic provider management.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -57,7 +58,7 @@ def build_provider_management_router(ctx: ServerContext) -> APIRouter:
         try:
             health = await registry.health_check_all()
             return {
-                "timestamp": "2026-04-25T10:30:00Z",  # TODO: use actual timestamp
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "providers": health,
                 "fallback_chains": {
                     "simple": registry.build_fallback_chain("simple"),

@@ -46,7 +46,28 @@ def _ensure_tts_orchestrator():
     if _tts_orchestrator is None:
         from guppy.voice.tts.fallback_orchestrator import TTSFallbackOrchestrator
         _tts_orchestrator = TTSFallbackOrchestrator()
+        _schedule_tts_preload(_tts_orchestrator)
     return _tts_orchestrator
+
+
+def _schedule_tts_preload(orchestrator) -> None:
+    """Pre-warm Kokoro local pipeline in background so first TTS call doesn't timeout."""
+    import threading, asyncio as _aio
+
+    def _run() -> None:
+        try:
+            loop = _aio.new_event_loop()
+            for provider in getattr(orchestrator, "_providers", []):
+                detect = getattr(provider, "_detect_mode", None)
+                if callable(detect):
+                    loop.run_until_complete(detect())
+                    break
+            loop.close()
+            logger.debug("TTS orchestrator pre-warm complete")
+        except Exception as exc:
+            logger.debug("TTS pre-warm error: %s", exc)
+
+    threading.Thread(target=_run, daemon=True, name="tts-preload").start()
 
 
 def _ensure_tts_cache():

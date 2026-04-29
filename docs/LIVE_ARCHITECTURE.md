@@ -1,130 +1,141 @@
 # Live Architecture Map
 
-Last updated: 2026-04-18 _(seam module section still accurate; see note below for web/inference additions)_
+Last updated: 2026-04-29 — Three-surface architecture complete (Phases 1–5 shipped)
 
-> **⚠️ Partial update needed (2026-04-27):** This doc accurately describes the Qt launcher seam architecture
-> and dependency rules, but does **not** cover:
-> - **Web UI** (React/Vite, `web/`) — now the primary user surface; served at `http://localhost:8081`
->   by the FastAPI hub process. Nav: Chat → Launch Control → Personas → Instructions → Tools → Settings.
-> - **Inference routing** (`src/guppy/api/realtime_inference_support.py`, `src/guppy/inference/`) —
->   agentic tier (Qwen3 35B → Claude), free-tier cloud routing (Mistral → Cohere → Claude), full
->   llamacpp SSE streaming with tool-call loop.
-> - **llamacpp backends** — 5 named backends (pepe/gemma/qwen3/minicpm/dispatch) on fixed ports,
->   managed via `src/guppy/api/routes_backends.py`; dispatch auto-starts at boot.
-> - **Provider/settings API** — `GET /providers`, `POST /providers/{p}/active-model`,
->   `/api/settings/*` credential and provider management.
-> - **CLAUDE.md** has the authoritative current-state record for all of the above.
+> **Authority:** CLAUDE.md owns module/routing facts. This doc owns the dependency and domain model.
 
-## Live Domains
+---
 
-Guppy's active product path is organized around four live domains:
+## Primary Surface: Web UI
 
-1. `launcher-application`
-   Owns launcher orchestration, state loading, action dispatch, readiness polling, and cross-view coordination.
-2. `runtime-application`
-   Owns API startup/readiness, runtime snapshots, repair-token lifecycle, local-runtime warmup, and host state.
-3. `workspace-governance`
-   Owns workspace config, permissions, connector bindings, policy decisions, and denial reasons.
-4. `experience-config`
-   Owns persona, provider, voice, runtime profile, and other user-editable configuration.
+The Web UI (React/Vite, `web/`) is the **authoritative user surface**, served at `http://localhost:<port>` by the FastAPI backend. The desktop launcher (`launcher_app.py`) is a Qt wrapper that spawns the server and opens the browser — it holds no UI logic.
 
-## Current Seam Modules
+**Nav structure:** Three primary surfaces → Companion | Workspace | Codespace. All secondary nav (Personas, Instructions, Tools, Settings, Admin) is accessible from within each surface.
 
-The first clarity tranche added typed seam modules under `src/guppy/` so launcher and build work can move off dict-shaped payloads incrementally instead of through a big-bang rewrite.
+---
 
-1. `src/guppy/launcher_application/contracts.py`
-   Defines `LauncherIntent` and `LauncherStateSnapshot`, the typed launcher-facing contract that the launcher shell already uses and the individual views are incrementally adopting.
-2. `src/guppy/launcher_application/services.py`
-   Provides connector-facing launcher helpers with explicit fallback behavior when the legacy connector backend is unavailable.
-3. `src/guppy/launcher_application/workflows.py`
-   Holds the shared workflow catalog used by launcher/App Mgmt and build-tool consumers so command recipes do not live inline in UI code.
-4. `src/guppy/launcher_application/connector_dispatch.py` and `workspace_state.py`
-   Keep connector action shaping and workspace selection rules in pure helper seams so the launcher shell can delegate record-building and active-workspace resolution without re-embedding those rules inline.
-5. `src/guppy/launcher_application/workflow_panel.py`, `windows_ops_presenter.py`, `windows_ops_runtime.py`, `windows_ops_guidance.py`, `windows_ops_state.py`, `terminal_recipes.py`, and `embedded_terminal.py`
-   Drive App Mgmt workflow-loop copy, Windows Ops render state, servicing guidance/receipt shaping, state persistence, multi-step chain summaries, and embedded-terminal session orchestration from seam helpers instead of inline UI string assembly.
-6. `src/guppy/launcher_application/instance_manager_presenter.py`
-   Owns workspace-manager copy, role presets, create/save request shaping, section-toggle state, governance editor state, connector binding editor state, and workspace snapshot translation so the Workspaces view can stay focused on rendering and emitting save intents.
-7. `src/guppy/launcher_application/home_presenter.py`
-   Owns Home workspace framing, role-aware starter copy, welcome messaging inputs, and calm chat-summary text so the Home view can render from one shared copy seam instead of rebuilding workspace guidance inline.
-8. `src/guppy/experience_config/services.py`
-   Owns launcher-facing runtime settings plus personalization/voice persistence helpers so Settings, Models, Voices, and the launcher shell no longer import `utils.runtime_profile` or `utils.personalization_config` directly.
-9. `src/guppy/workspace_governance/access_policy.py`
-   Owns the launcher-facing wrappers for workspace tool-permission checks and auth-mode labeling so Agent Tools and the launcher shell no longer import `utils.instance_capabilities` directly.
-10. `src/guppy/workspace_governance/contracts.py`, `connector_service.py`, `connector_metadata.py`, `machine_auth.py`, `provider_status.py`, and `connector_status.py`
-   Normalize workspace summaries, connector inventory rows, governance snapshots, connector action requests/results, connector/provider metadata, machine-auth storage rules, connector guidance, and provider/readiness status builders that previously lived only inside the legacy connector manager.
-11. `src/guppy/runtime_application/contracts.py`, `readiness.py`, and `auth.py`
-   Normalize startup-readiness, runtime-health, local-runtime payloads, launcher-facing readiness summaries/fallback fetch rules, and the launcher-local bearer-token helper that keeps `ui/launcher/launcher_window.py` from importing `src.guppy.api` directly.
-12. `src/guppy/launcher_application/library_workflow.py`
-   Owns Library-to-Home context orchestration (attach/clear/focus/remove), root-save validation gatekeeping, and per-workspace default source pinning persistence so context-priority behavior does not drift across the Qt views.
+## Three Primary Surfaces
 
-These seams are additive for now. Existing launcher and runtime modules still own most live behavior, but new logic should prefer these contracts instead of introducing more cross-layer dict traffic.
+### Companion (`/companion`)
+Voice-first, personality-led. Animated avatar, push-to-talk, wake word, camera vision, escalate-to-Workspace.
+Model affinity: minicpm → rocinante → hermes3 → dispatch.
+
+### Workspace (`/workspace`)
+11-tab hub: Chat | Agents | CRM | Screen | Files | PC | Tasks | Calls | Calendar | Email | Media.
+Model affinity: xlam (tool calls) → hermes4 (agentic) → qwen3 (reasoning) → guppy (Ollama).
+
+### Codespace (`/codespace`)
+3-tab: Chat | Sandbox | Triage.
+Model affinity: guppy-code → qwen3 → hermes4 → hermes3.
+
+---
+
+## Backend Route Map (all active, all mounted)
+
+| Prefix | Module | Notes |
+|---|---|---|
+| `/api/chat` | `routes_realtime.py` | SSE streaming + WebSocket inference |
+| `/api/agents` | `routes_agents.py` | Agent registry CRUD |
+| `/api/surface/*` | `routes_surface.py` | Surface state, spawn, SSE event bus |
+| `/api/companion/*` | `routes_companion.py` | Personality, voice session, vision, tool whitelist |
+| `/api/workspace/*` | `routes_workspace_data.py` | Contacts/tasks JSON API + pipeline proxy |
+| `/api/codespace/*` | `routes_codespace.py` | Sandbox lifecycle + triage + self-improvement |
+| `/api/screen/*` | `routes_screen_monitor.py` | AI activity summaries, 30-min background job |
+| `/api/voip/*` | `routes_voip.py` | Call log CRUD, Twilio webhook |
+| `/api/calendar/*` | `routes_calendar.py` | Local events + Google Calendar sync |
+| `/api/email/*` | `routes_email.py` | Local cache + Gmail sync |
+| `/api/media/*` | `routes_media.py` | qBittorrent proxy + media catalog + recordings |
+| `/api/documents/*` | `routes_documents.py` | Upload + AI analysis + download |
+| `/api/tasks/*` | `routes_tasks.py` | Task CRUD |
+| `/api/mcp/*` | `routes_mcp.py` | MCP server add/remove/enable/test |
+| `/api/desktop/*` | `routes_desktop.py` | pyautogui screenshot/click/type/scroll |
+| `/api/inference/metrics` | `routes_inference_metrics.py` | Time-series metrics from guppy_main.db |
+| `/api/screenpipe/*` | `routes_screenpipe.py` | External Screenpipe daemon bridge (port 3030) |
+| `/api/voices` | `routes_voice.py` | TTS/STT management |
+| `/api/backends/llamacpp` | `routes_backends.py` | llamacpp backend management |
+| `/api/pipeline/*` | `routes_pipeline.py` | CRM pipeline |
+| `/api/reminders/*` | `routes_reminders.py` | Reminders |
+| `/api/files/*` + `/api/system/*` | `routes_files.py` | File browser, psutil metrics, clipboard |
+| `/api/drop/*` | `routes_drop.py` | GuppyDrop watchdog + SSE push |
+| `/api/library/*` | `routes_library.py` | Collections + items CRUD |
+| `/api/booklet/*` | `routes_booklet.py` | Booklet sections |
+| `/api/calibre/*` + `/api/kindle/*` | `routes_calibre.py` | Calibre/Kindle integration |
+| `/api/acquisition/*` | `routes_acquisition.py` | LazyLibrarian/Prowlarr |
+| `/api/tier3/*` | `routes_tier3.py` | Tier3 features |
+| `/api/queue/*` | `routes_queue.py` | Inference job queue |
+| `/api/providers/*` | `routes_providers.py` | Provider management |
+| `/api/settings/*` | `routes_settings.py` | Settings |
+| `/api/models/*` | `routes_models.py` | Model management |
+| `/api/workspaces/*` | `routes_workspaces.py` | Workspace management |
+| `/api/instances/*` | `routes_instances.py` | Instance management |
+| `/api/chat-history/*` | `routes_chat_history.py` | Conversation history |
+| `/api/launcher/*` | `routes_launcher.py` | Launcher control |
+| `/api/tools/*` | `routes_tools.py` | Tool registry |
+
+---
+
+## Inference Stack
+
+- **Task types:** simple, complex, teaching, agentic, tool_call
+- **Modes:** auto, claude, ollama, local, code, teaching, vault, local_paired
+- **Classifier:** Haiku semantic + heuristic fallback
+- **llamacpp backends** (fixed ports): pepe (8082), qwen3 (8083), minicpm (8084), dispatch (8085), hermes4 (8086), hermes3 (8087), rocinante (8088), xlam (8089)
+- **Ollama models:** guppy-fast (7B), guppy (32B), guppy-teach (32B), guppy-code (14B), vault-scraper (7B)
+- **Auto-routing:** `task_type=tool_call` → xlam; `task_type=agentic` → hermes4/qwen3
+- **Metrics:** all registry-routed inferences persisted to `guppy_main.db` → `inference_metrics` table
+
+---
+
+## Voice System
+
+- **STT chain:** faster-whisper → Google SpeechRecognition → SAPI
+- **TTS chain:** kokoro → ElevenLabs → Windows SAPI PowerShell
+- **Wake word:** openwakeword (`GUPPY_OWW_MODEL`) or transcription-loop fallback
+- **Modes:** push-to-talk, hold-to-talk, wake-word continuous
+
+---
+
+## Background Services (started at boot)
+
+- **Triage watchdog** — polls `src/guppy/` + `tools/` every 5s (60s debounce), auto-triggers dev-check on changes
+- **Screen monitor** — 30-min snapshot cycle, AI summaries via guppy-fast
+- **llamacpp dispatch** — auto-starts at boot (5s delay), port 8085
+
+---
+
+## Memory System
+
+- **SQLite:** facts, contacts, tasks, pipeline/CRM, session summaries, conversation history (`guppy_main.db`)
+- **Semantic:** ChromaDB or SQLite + `nomic-embed-text` via Ollama
+- **`promote_durable_chat_memory()`** — extracts preferences, identity, decisions, scope
+- **`get_startup_context()`** — briefing injected at conversation start
+
+---
+
+## Live Dependency Flow
+
+```
+entrypoint wrappers
+  → src/guppy/apps/ (composition roots)
+  → launcher/application services
+  → domain services (api/, inference/, codespace/, voice/, memory/)
+  → persistence/adapters (SQLite, ChromaDB, external APIs)
+```
+
+**Guard:** `src/guppy/apps/launcher_app.py` is the only composition root allowed to import `ui.launcher`. All UI logic lives in `web/` (React). The `ui/` Qt layer is wrapper-only.
+
+---
+
+## Seam Modules (active)
+
+Under `src/guppy/launcher_application/` and `src/guppy/workspace_governance/` — typed contracts for launcher state, connector inventory, workspace governance, and runtime readiness. These are the boundary between Qt launcher shell and the backend domain.
+
+---
 
 ## Documentation Contract
 
-1. `docs/PROJECT_BRIEF.md` is the single active status, roadmap, and handoff source.
-2. `README.md` is stable setup and operations context.
-3. `documentation/ARCHITECTURE.md` and related `documentation/` references own canonical technical architecture and security truth.
-4. `docs/archive/` is historical only and should not be treated as an active architecture source.
-
-## Allowed Dependency Flow
-
-The intended live dependency shape is:
-
-`entrypoint wrappers -> src/guppy/apps composition roots -> launcher/application services -> domain services -> persistence/adapters`
-
-Current guardrail posture:
-
-1. Root wrappers stay thin and forward into `src/guppy/`.
-2. `src/guppy/apps/launcher_app.py` is the only live composition root currently allowed to import `ui.launcher`.
-3. `ui/` should render state, emit intents, and display readiness/progress; direct imports from runtime/governance/config modules are transitional-only and should move behind seam helpers before they land in views or the launcher shell.
-4. `utils/` should not grow into a second UI or application layer.
-
-Practical rule for the next tranche:
-
-1. If a launcher surface needs connector, governance, or runtime state, add or reuse a seam contract first.
-2. If a launcher control needs an operational workflow, define it in `launcher_application/workflows.py` first.
-3. If behavior still has to reach into existing `utils/` or runtime modules, keep that import behind an application service instead of in a view.
-
-## Backend Boundary (Freeze)
-
-This boundary freeze keeps the current five-hub launcher reality intact while clarifying ownership lines for backend work.
-
-1. Backend-owned modules
-   - `src/guppy/api/` routes, auth, runtime services, telemetry, and status/readiness contracts
-   - domain seams and services under `src/guppy/runtime_application/`, `src/guppy/workspace_governance/`, `src/guppy/experience_config/`, and `src/guppy/launcher_application/` (service/presenter/contract layer)
-   - daemon/runtime backends under `src/guppy/daemon/` and backend helpers in `src/guppy/api/services_*`
-2. Thin wrappers and entrypoints
-   - root launch wrappers (`guppy_api.py`, `guppy_hub.py`, `app.py`) remain forwarding shims
-   - `src/guppy/api/server.py` remains a compatibility shim that forwards to `server_runtime`
-   - app composition roots under `src/guppy/apps/` and launch CLI routing in `src/guppy/cli/launch.py`
-3. Quarantined UI/legacy paths
-   - `compat_shims/legacy_surfaces/` stays compatibility-only and non-owning
-   - legacy specialist surfaces (Merlin/Council) remain quarantined from live product ownership
-   - no backend feature ownership should move into legacy UI or compatibility folders
-
-## Active Live-Code Roots
-
-The build guardrails treat these as the live-code roots:
-
-1. `src/guppy/`
-2. `ui/`
-3. `utils/`
-
-Line-cap and architecture-boundary checks apply across those roots. The current transition pressure is concentrated in line-cap hotspot files that still need to be split; the launcher's direct UI-to-runtime API import waiver is now closed.
-
-## What The Seams Protect
-
-The seam layer is intended to keep the next integrations honest:
-
-1. Views are transitioning toward `LauncherStateSnapshot` and `LauncherIntent`; today the launcher shell already builds the typed snapshot, while several views still emit raw Qt signals and dict payloads during the migration.
-2. Runtime and governance payload normalization should happen in seam contracts, not ad hoc in the launcher shell.
-3. Workflow definitions should stay versioned and reviewable in one catalog.
-4. App Mgmt should render presenter/state objects from `launcher_application` instead of rebuilding workflow, Windows Ops, or terminal status strings inline.
-5. Home and Workspaces should consume shared launcher presenter copy instead of rebuilding role-aware onboarding or starter language inside the view layer; `assistant_view.py` and `instance_manager_view.py` now do this for the main calm-start and workspace-framing paths.
-6. Legacy compatibility facades in `utils/` should delegate static metadata, machine-auth rules, connector guidance, and readiness/status builders to `workspace_governance` instead of duplicating them.
-7. Fallback behavior for unavailable legacy backends should be explicit and testable instead of hidden in UI conditionals.
-8. Oversized launcher views can still be transitional, but new orchestration should land in presenters/services first and only leave rendering/signals in the Qt layer.
-
-## Legacy Quarantine
-
-`compat_shims/legacy_surfaces/` is compatibility-only. Live code should not import it, and no new feature ownership should move back into that area. See `docs/LEGACY_SURFACES.md` for the current quarantine rules.
+1. `CLAUDE.md` — module locations, routes, patterns. Update after every architectural change.
+2. `docs/MASTER_PHASE_PLAN.md` — surface roadmap, phase history.
+3. `docs/PROJECT_BRIEF.md` — active status and handoff source.
+4. `docs/GUPPY_PRODUCT_NORTH_STAR.md` — product vision and surface definitions.
+5. `docs/archive/` — historical only. Do not treat as active architecture source.

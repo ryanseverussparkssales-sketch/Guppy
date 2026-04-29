@@ -24,10 +24,13 @@ import api from '../api/client'
 
 // ── Voice config loader ────────────────────────────────────────────────────────
 interface VoiceOption { id: string; name: string; lang: string }
+interface ProviderOption { id: string; name: string; available: boolean }
 interface VoiceMeta {
   provider: string
   voiceId: string
   options: VoiceOption[]
+  providers: ProviderOption[]
+  allVoices: Record<string, VoiceOption[]>
 }
 
 async function loadVoiceMeta(): Promise<VoiceMeta> {
@@ -35,11 +38,13 @@ async function loadVoiceMeta(): Promise<VoiceMeta> {
     const res = await api.get('/api/voices')
     const d = res.data
     const provider = d?.tts?.active_provider || 'auto'
-    const voiceId  = d?.tts?.active_voice || 'bm_lewis'
-    const options: VoiceOption[] = d?.tts?.voices?.[provider] || d?.tts?.voices?.['kokoro'] || []
-    return { provider, voiceId, options }
+    const voiceId  = d?.tts?.active_voice || ''
+    const allVoices: Record<string, VoiceOption[]> = d?.tts?.voices || {}
+    const options: VoiceOption[] = allVoices[provider] || allVoices['kokoro'] || []
+    const providers: ProviderOption[] = (d?.tts?.providers || []).filter((p: ProviderOption) => p.available)
+    return { provider, voiceId, options, providers, allVoices }
   } catch {
-    return { provider: 'auto', voiceId: 'bm_lewis', options: [] }
+    return { provider: 'auto', voiceId: 'bm_lewis', options: [], providers: [], allVoices: {} }
   }
 }
 
@@ -96,6 +101,8 @@ export default function AssistantView() {
   const [voiceOptions, setVoiceOptions] = useState<VoiceOption[]>([])
   const [selectedVoiceId, setSelectedVoiceId] = useState('bm_lewis')
   const [ttsProvider, setTtsProvider] = useState('auto')
+  const [providerOptions, setProviderOptions] = useState<ProviderOption[]>([])
+  const [allVoices, setAllVoices] = useState<Record<string, VoiceOption[]>>({})
 
   // Follow-up suggestions shown after last assistant reply
   const [followUps, setFollowUps] = useState<string[]>([])
@@ -140,8 +147,10 @@ export default function AssistantView() {
   useEffect(() => {
     loadVoiceMeta().then((meta) => {
       setVoiceOptions(meta.options)
-      setSelectedVoiceId(meta.voiceId)
+      setSelectedVoiceId(meta.voiceId || (meta.options[0]?.id ?? 'bm_lewis'))
       setTtsProvider(meta.provider)
+      setProviderOptions(meta.providers)
+      setAllVoices(meta.allVoices)
     })
   }, [])
 
@@ -731,16 +740,44 @@ export default function AssistantView() {
                     {ttsEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
                   </IconToggle>
 
-                  {/* Voice selector — only shown when TTS is on */}
-                  {ttsEnabled && voiceOptions.length > 0 && (
+                  {/* Provider selector */}
+                  {providerOptions.length > 1 && (
+                    <select
+                      value={ttsProvider}
+                      onChange={(e) => {
+                        const p = e.target.value
+                        setTtsProvider(p)
+                        const pVoices = allVoices[p] || []
+                        setVoiceOptions(pVoices)
+                        if (pVoices.length > 0) setSelectedVoiceId(pVoices[0].id)
+                        api.put('/api/voices/settings', { tts_provider: p }).catch(() => {})
+                      }}
+                      title="TTS provider"
+                      className={cn(
+                        'text-[11px] bg-surface-container border border-outline-variant/30 rounded-lg',
+                        'text-on-surface-variant px-2 py-1 outline-none cursor-pointer',
+                        'hover:border-primary/40 transition-colors'
+                      )}
+                    >
+                      {providerOptions.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name.replace(/ \(.*\)/, '')}</option>
+                      ))}
+                    </select>
+                  )}
+
+                  {/* Voice selector — always visible when voices available */}
+                  {voiceOptions.length > 0 && (
                     <select
                       value={selectedVoiceId}
-                      onChange={(e) => setSelectedVoiceId(e.target.value)}
+                      onChange={(e) => {
+                        setSelectedVoiceId(e.target.value)
+                        api.put('/api/voices/settings', { tts_voice: e.target.value }).catch(() => {})
+                      }}
                       title="Select voice"
                       className={cn(
                         'text-[11px] bg-surface-container border border-outline-variant/30 rounded-lg',
                         'text-on-surface-variant px-2 py-1 outline-none cursor-pointer',
-                        'hover:border-primary/40 transition-colors max-w-[120px] truncate'
+                        'hover:border-primary/40 transition-colors max-w-[140px] truncate'
                       )}
                     >
                       {voiceOptions.map((v) => (
@@ -856,16 +893,20 @@ function generateFollowUps(content: string): string[] {
   const hasProcess  = /\b(step|process|procedure|workflow|sequence|first.*then|next)\b/.test(low)
   const isTech      = hasCode || /\b(function|class|api|database|server|deploy|install|config|import|module)\b/.test(low)
   const isExplainer = content.length > 400 && !hasCode
-  const hasNumbers  = /\b(\d{2,}|percent|%|price|\$|cost|budget)\b/.test(low)
+  const hasNumbers  = /\b(\d{3,}|percent|%|price|\$|cost|budget)\b/.test(low)
+  const isBook      = /\b(book|novel|chapter|author|plot|character|publish|epub|ebook|gutenberg|library|calibre|read|download|public.?domain|copyright|edition|isbn)\b/.test(low)
+  const isSearch    = /\b(search(ing)?|look(ing)? up|find(ing)?|download(ing)?|fetch(ing)?)\b/.test(low)
 
   const pool: string[] = []
 
   // Contextual suggestions — most specific first
+  if (isBook && isSearch) pool.push('Download it to Calibre library', 'Search Open Library for more editions', 'Find the audio book version')
+  if (isBook)   pool.push('Who else wrote in this style?', 'What other works by this author?', 'Is there a modern adaptation?')
   if (hasCode)    pool.push('Can you walk me through this code?', 'What happens if I change this?', 'Are there edge cases to handle?')
   if (hasError)   pool.push('What\'s the most common cause of this?', 'How do I prevent this in future?', 'Can you show a fixed version?')
   if (hasOptions) pool.push('Which option do you recommend and why?', 'What are the tradeoffs?', 'Can you compare these side by side?')
   if (hasProcess) pool.push('What comes after this?', 'What could go wrong at each step?', 'Can you give a real-world example?')
-  if (hasNumbers) pool.push('How does this compare to industry averages?', 'What factors affect this most?')
+  if (hasNumbers) pool.push('What\'s driving that number?', 'What factors affect this most?')
   if (isTech)     pool.push('What are the best practices here?', 'Are there any gotchas to watch out for?')
   if (isExplainer)pool.push('Can you give me a simpler analogy?', 'What\'s the most important takeaway?')
   if (hasSteps)   pool.push('Can you condense this into bullet points?', 'Which step do people usually get wrong?')

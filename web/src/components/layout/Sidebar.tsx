@@ -13,6 +13,7 @@ import {
   Wrench,
   Users,
   BookText,
+  Server,
 } from "lucide-react"
 
 interface NavItem {
@@ -50,6 +51,7 @@ const primaryNavItems: NavItem[] = [
 
 // Secondary: settings + support destinations (still accessible, just demoted)
 const secondaryNavItems: NavItem[] = [
+  { id: "launchpad",    label: "Launchpad",    icon: <Server className="w-4 h-4" />,    view: "launchpad",    route: "/launchpad" },
   { id: "library",      label: "Library",      icon: <BookOpen className="w-4 h-4" />,  view: "library",      route: "/library" },
   { id: "personas",     label: "Personas",     icon: <Users className="w-4 h-4" />,     view: "personas",     route: "/personas" },
   { id: "tools",        label: "Tools",        icon: <Wrench className="w-4 h-4" />,    view: "tools",        route: "/tools" },
@@ -64,6 +66,7 @@ const ROUTE_TO_VIEW: Record<string, string> = {
   '/codespace':      'codespace',
   '/assistant':      'companion',    // legacy redirect
   '/launch-control': 'workspace',   // legacy redirect
+  '/launchpad':      'launchpad',
   '/library':        'library',
   '/personas':       'personas',
   '/instructions':   'instructions',
