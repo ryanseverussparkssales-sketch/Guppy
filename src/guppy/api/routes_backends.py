@@ -71,10 +71,10 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
     "llamacpp-dispatch": {
         "bat":     r"C:\llama-cpp\launch-dispatch.bat",
         "port":    8085,
-        "label":   "Qwen2.5-Omni-3B Dispatcher",
+        "label":   "Qwen2.5-3B-Instruct Dispatcher",
         "mode":    "A",
-        "note":    "Orchestrator · ~2.5 GB VRAM — auto-starts with Guppy",
-        "vram_gb": 2.5,
+        "note":    "Orchestrator · ~2 GB VRAM — auto-starts with Guppy",
+        "vram_gb": 2.0,
         "auto_start": True,
     },
     "llamacpp-hermes4": {

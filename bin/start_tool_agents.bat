@@ -2,10 +2,10 @@
 REM start_tool_agents.bat — Always-on workspace agent stack (dispatch + xLAM + Hermes 4)
 REM
 REM VRAM budget (RX 7900 XTX, 24 GB):
-REM   dispatch (Qwen2.5-Omni-3B)    ~2.5 GB  — orchestrator, routes subtasks
+REM   dispatch (Qwen2.5-3B-Instruct) ~2.0 GB  — orchestrator, routes subtasks
 REM   xLAM-2-8B-fc-r                ~5.0 GB  — tool-call specialist (#1 BFCL V4 ≤8B)
 REM   Hermes 4 14B                   ~11.0 GB — primary workspace agent (tools + reasoning)
-REM   Total                          ~18.5 GB — leaves ~5.5 GB free on 24 GB card
+REM   Total                          ~18.0 GB — leaves ~6.0 GB free on 24 GB card
 REM
 REM Usage:
 REM   Interactive:       bin\start_tool_agents.bat
@@ -34,7 +34,7 @@ curl -s --connect-timeout 1 http://127.0.0.1:8086/v1/models >nul 2>&1 && set HER
 
 REM ── Launch missing servers ───────────────────────────────────────────────────
 if %DISPATCH_UP%==0 (
-    echo [agents] Starting dispatch (Qwen2.5-Omni-3B, port 8085)...
+    echo [agents] Starting dispatch (Qwen2.5-3B-Instruct, port 8085)...
     if exist "C:\llama-cpp\launch-dispatch.bat" (
         start "Agent: dispatch" /min cmd /k "C:\llama-cpp\launch-dispatch.bat"
     ) else (
@@ -68,7 +68,7 @@ if %HERMES4_UP%==0 (
 
 echo.
 echo [agents] Agents launching. Typical warm-up times:
-echo           dispatch  ~10-20 s  (2.5 GB)
+echo           dispatch  ~10-20 s  (2 GB)
 echo           xLAM      ~15-30 s  (5 GB)
 echo           Hermes 4  ~30-60 s  (11 GB)
 echo.

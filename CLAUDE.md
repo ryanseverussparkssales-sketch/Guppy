@@ -240,7 +240,7 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 | `llamacpp-pepe` | Assistant Pepe 8B Q8_0 | 8082 | ~8.5 GB | Fast chat, Mode A |
 | `llamacpp-qwen3` | Qwen3 35B-A3B MoE | 8083 | ~19 GB | Reasoning, Mode B (solo only) |
 | `llamacpp-minicpm` | MiniCPM-o 4.5 Omni | 8084 | ~9 GB | Vision+speech, needs mmproj |
-| `llamacpp-dispatch` | Qwen2.5-Omni-3B | 8085 | ~2.5 GB | Orchestrator, auto-starts |
+| `llamacpp-dispatch` | Qwen2.5-3B-Instruct Q4_K_M | 8085 | ~2 GB | Orchestrator, auto-starts |
 | `llamacpp-hermes4` | Hermes 4 14B Q5_K_M | 8086 | ~11 GB | Tools + uncensored (primary recommended) |
 | `llamacpp-hermes3` | Hermes 3 8B Lorablated Q8_0 | 8087 | ~9 GB | Fast tools + uncensored |
 | `llamacpp-rocinante` | Rocinante X 12B Q5_K_M | 8088 | ~10 GB | Creative writing / roleplay |

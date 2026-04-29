@@ -12,7 +12,7 @@ Backend selection (GUPPY_LOCAL_RUNTIME_BACKEND env var):
   llamacpp-qwen3      — llama.cpp Qwen3 35B-A3B MoE at 127.0.0.1:8083 (GUPPY_LLAMACPP_QWEN3_URL)
   llamacpp-pepe       — llama.cpp Assistant Pepe 8B at 127.0.0.1:8082 (GUPPY_LLAMACPP_PEPE_URL)
   llamacpp-minicpm    — llama.cpp MiniCPM-o 4.5 Omni at 127.0.0.1:8084 (GUPPY_LLAMACPP_MINICPM_URL)
-  llamacpp-dispatch   — llama.cpp Qwen2.5-Omni-3B dispatcher at 127.0.0.1:8085 (GUPPY_LLAMACPP_DISPATCH_URL)
+  llamacpp-dispatch   — llama.cpp Qwen2.5-3B-Instruct dispatcher at 127.0.0.1:8085 (GUPPY_LLAMACPP_DISPATCH_URL)
   llamacpp-hermes4    — llama.cpp Hermes 4 14B at 127.0.0.1:8086 (GUPPY_LLAMACPP_HERMES4_URL)
   llamacpp-hermes3    — llama.cpp Hermes 3 8B Lorablated at 127.0.0.1:8087 (GUPPY_LLAMACPP_HERMES3_URL)
   llamacpp-rocinante  — llama.cpp Rocinante X 12B at 127.0.0.1:8088 (GUPPY_LLAMACPP_ROCINANTE_URL)
@@ -132,7 +132,7 @@ _BACKENDS: Dict[str, Dict[str, Any]] = {
         "delete_path": None,
         "format": "openai",
     },
-    # ── Qwen2.5-Omni-3B dispatcher (tiny orchestrator, always-on Mode A) ─────
+    # ── Qwen2.5-3B-Instruct dispatcher (tiny orchestrator, always-on Mode A) ──
     "llamacpp-dispatch": {
         "default_url": "http://127.0.0.1:8085",
         "chat_path": "/v1/chat/completions",
@@ -220,9 +220,11 @@ _LLAMACPP_MODEL_ROUTE: Dict[str, str] = {
     "minicpm-o":                "llamacpp-minicpm",
     "minicpm":                  "llamacpp-minicpm",
     "minicpm-omni":             "llamacpp-minicpm",
-    # Qwen2.5-Omni-3B — lightweight orchestrator / dispatcher
-    "qwen2.5-omni-3b":          "llamacpp-dispatch",
-    "qwen2.5-omni":             "llamacpp-dispatch",
+    # Qwen2.5-3B-Instruct — lightweight orchestrator / dispatcher
+    "qwen2.5-3b-instruct":      "llamacpp-dispatch",
+    "qwen2.5-3b":               "llamacpp-dispatch",
+    "qwen2.5-omni-3b":          "llamacpp-dispatch",  # legacy alias
+    "qwen2.5-omni":             "llamacpp-dispatch",  # legacy alias
     "dispatch":                 "llamacpp-dispatch",
     "guppy-dispatch":           "llamacpp-dispatch",
     # Hermes 4 14B — tool-capable, uncensored
@@ -254,7 +256,7 @@ _BACKEND_DEFAULT_MODELS: Dict[str, str] = {
     "llamacpp-qwen3":      "qwen3-35b-uncensored",
     "llamacpp-pepe":       "assistant-pepe-8b",
     "llamacpp-minicpm":    "minicpm-o-4.5",
-    "llamacpp-dispatch":   "qwen2.5-omni-3b",
+    "llamacpp-dispatch":   "qwen2.5-3b-instruct",
     "llamacpp-hermes4":    "hermes-4-14b",
     "llamacpp-hermes3":    "hermes-3-8b-lorablated",
     "llamacpp-rocinante":  "rocinante-x-12b",
