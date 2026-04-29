@@ -2,7 +2,7 @@
  * VoIPPanel — Call log management
  *
  * Lists inbound/outbound calls, lets the user log a call manually,
- * update notes, and see Twilio integration status.
+ * update notes, and see Quo integration status.
  *
  * API:
  *   GET    /api/voip/calls
@@ -30,7 +30,7 @@ interface Call {
   duration_s: number | null
   notes: string
   called_at: string
-  twilio_sid: string | null
+  external_id: string | null
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -149,8 +149,8 @@ function CallRow({ call, onDelete, onNoteUpdate }: {
             initialNote={call.notes}
             onSaved={(n) => onNoteUpdate(call.id, n)}
           />
-          {call.twilio_sid && (
-            <p className="text-xs text-on-surface-variant/30 mt-1.5 font-mono">{call.twilio_sid}</p>
+          {call.external_id && (
+            <p className="text-xs text-on-surface-variant/30 mt-1.5 font-mono">{call.external_id}</p>
           )}
         </div>
       )}
@@ -260,7 +260,8 @@ function LogCallForm({ onLogged }: { onLogged: () => void }) {
 export function VoIPPanel() {
   const [calls, setCalls]             = useState<Call[]>([])
   const [loading, setLoading]         = useState(true)
-  const [twilioStatus, setTwilio]     = useState<{ configured: boolean } | null>(null)
+  const [syncing, setSyncing]         = useState(false)
+  const [quoStatus, setQuoStatus]     = useState<{ configured: boolean } | null>(null)
   const [filter, setFilter]           = useState<'all' | 'inbound' | 'outbound'>('all')
 
   const load = useCallback(async () => {
@@ -271,11 +272,21 @@ export function VoIPPanel() {
         api.get('/api/voip/status'),
       ])
       setCalls(Array.isArray(callsRes.data) ? callsRes.data : [])
-      setTwilio({ configured: statusRes.data?.twilio_configured ?? false })
+      setQuoStatus({ configured: statusRes.data?.quo_configured ?? false })
     } catch { /* ignore */ } finally {
       setLoading(false)
     }
   }, [filter])
+
+  const syncFromQuo = async () => {
+    setSyncing(true)
+    try {
+      await api.post('/api/voip/sync', {})
+      await load()
+    } catch { /* ignore */ } finally {
+      setSyncing(false)
+    }
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -296,27 +307,32 @@ export function VoIPPanel() {
       <div className="flex items-center gap-2 flex-shrink-0">
         <Phone className="w-4 h-4 text-on-surface-variant" />
         <span className="text-sm font-semibold text-on-surface">Call Log</span>
-        {twilioStatus && (
+        {quoStatus && (
           <div className={cn(
             "ml-1 flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full",
-            twilioStatus.configured
+            quoStatus.configured
               ? "bg-success/10 text-success"
               : "bg-surface-variant text-on-surface-variant/50"
           )}>
-            <div className={cn("w-1.5 h-1.5 rounded-full", twilioStatus.configured ? "bg-success" : "bg-on-surface-variant/30")} />
-            {twilioStatus.configured ? 'Twilio' : 'No Twilio'}
+            <div className={cn("w-1.5 h-1.5 rounded-full", quoStatus.configured ? "bg-success" : "bg-on-surface-variant/30")} />
+            {quoStatus.configured ? 'Quo' : 'No Quo'}
           </div>
+        )}
+        {quoStatus?.configured && (
+          <button onClick={syncFromQuo} disabled={syncing} title="Sync from Quo" className="p-1.5 rounded-lg hover:bg-surface-variant text-on-surface-variant/40 hover:text-on-surface transition-colors">
+            <RefreshCw className={cn("w-3.5 h-3.5", syncing && "animate-spin")} />
+          </button>
         )}
         <button onClick={load} className="ml-auto p-1.5 rounded-lg hover:bg-surface-variant text-on-surface-variant/40 hover:text-on-surface transition-colors">
           <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
         </button>
       </div>
 
-      {/* Twilio not configured notice */}
-      {twilioStatus && !twilioStatus.configured && (
+      {/* Quo not configured notice */}
+      {quoStatus && !quoStatus.configured && (
         <div className="flex items-start gap-2 bg-surface-container rounded-xl px-3 py-2 text-xs text-on-surface-variant/60">
           <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-          <span>Set <code className="text-on-surface">TWILIO_ACCOUNT_SID</code> and <code className="text-on-surface">TWILIO_AUTH_TOKEN</code> env vars to enable live call integration.</span>
+          <span>Set <code className="text-on-surface">QUO_API_KEY</code> and <code className="text-on-surface">QUO_PHONE_NUMBER_ID</code> env vars to enable live Quo integration.</span>
         </div>
       )}
 
@@ -346,7 +362,7 @@ export function VoIPPanel() {
           <div className="text-center py-10">
             <Phone className="w-10 h-10 text-on-surface-variant/15 mx-auto mb-3" />
             <p className="text-sm text-on-surface-variant/40">No calls logged</p>
-            <p className="text-xs text-on-surface-variant/30 mt-1">Log one below or connect Twilio for live tracking</p>
+            <p className="text-xs text-on-surface-variant/30 mt-1">Log one below or connect Quo for live tracking</p>
           </div>
         ) : (
           calls.map((c) => (
