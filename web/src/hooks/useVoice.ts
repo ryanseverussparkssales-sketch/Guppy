@@ -35,6 +35,10 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
   const audioRef    = useRef<HTMLAudioElement | null>(null)
   const abortRef    = useRef<AbortController | null>(null)
 
+  // Sentence-queue refs for streaming TTS
+  const sentenceQueueRef = useRef<string[]>([])
+  const queueBusyRef     = useRef(false)
+
   // Web Speech API fallback refs
   const recognitionRef = useRef<any>(null)
   const synthesisRef   = useRef<SpeechSynthesis | null>(
@@ -150,6 +154,64 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Sentence-queue TTS helpers ────────────────────────────────────────────
+  /** Speak a single sentence. Returns a Promise that resolves when audio ends. */
+  const _speakOneSync = useCallback(async (text: string): Promise<void> => {
+    const voiceId  = optionsRef.current.voiceId
+    const provider = optionsRef.current.ttsProvider || 'auto'
+    setIsSpeaking(true)
+
+    return new Promise<void>((resolve) => {
+      api.post(
+        '/api/voices/speak',
+        {
+          text,
+          ...(voiceId ? { voice: voiceId } : {}),
+          ...(provider !== 'auto' ? { provider } : {}),
+        },
+        { responseType: 'blob' },
+      )
+        .then((res) => {
+          const url   = URL.createObjectURL(res.data)
+          const audio = new Audio(url)
+          audioRef.current = audio
+          audio.onended = () => { URL.revokeObjectURL(url); resolve() }
+          audio.onerror = () => { URL.revokeObjectURL(url); resolve() }
+          audio.play().catch(() => resolve())
+        })
+        .catch(() => {
+          // Fallback to Web Speech API
+          if (synthesisRef.current) {
+            const utt = new SpeechSynthesisUtterance(text)
+            utt.onend   = () => resolve()
+            utt.onerror = () => resolve()
+            synthesisRef.current.speak(utt)
+          } else {
+            resolve()
+          }
+        })
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Drain the sentence queue, speaking one sentence at a time. */
+  const _drainQueue = useCallback(async () => {
+    if (queueBusyRef.current) return
+    queueBusyRef.current = true
+    while (sentenceQueueRef.current.length > 0) {
+      const sentence = sentenceQueueRef.current.shift()
+      if (sentence) await _speakOneSync(sentence)
+    }
+    setIsSpeaking(false)
+    queueBusyRef.current = false
+  }, [_speakOneSync])
+
+  /** Queue a sentence for TTS. Audio plays immediately if nothing is playing. */
+  const speakQueued = useCallback((text: string) => {
+    if (!text.trim()) return
+    sentenceQueueRef.current.push(text.trim())
+    _drainQueue()
+  }, [_drainQueue])
+
   // ── TTS: speak via backend, fall back to Web Speech API ──────────────────
   const speak = useCallback(
     async (text: string, rate = 1, _pitch = 1, _voice?: SpeechSynthesisVoice) => {
@@ -206,6 +268,8 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
   }, [])
 
   const stopSpeaking = useCallback(() => {
+    sentenceQueueRef.current = []  // drain pending sentences
+    queueBusyRef.current = false
     abortRef.current?.abort()
     abortRef.current = null
     if (audioRef.current) {
@@ -228,6 +292,7 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
     startListening,
     stopListening,
     speak,
+    speakQueued,
     stopSpeaking,
     getAvailableVoices,
   }

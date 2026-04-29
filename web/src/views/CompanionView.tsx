@@ -183,10 +183,14 @@ export default function CompanionView() {
   const [workspaceAlert, setWsAlert]      = useState<string | null>(null)
   const [attachedImage, setAttachedImage] = useState<{ base64: string; url: string; name: string } | null>(null)
 
-  const abortRef    = useRef<AbortController | null>(null)
-  const bottomRef   = useRef<HTMLDivElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const textareaRef = useAutoHeight(input)
+  const abortRef         = useRef<AbortController | null>(null)
+  const bottomRef        = useRef<HTMLDivElement>(null)
+  const fileInputRef     = useRef<HTMLInputElement>(null)
+  const textareaRef      = useAutoHeight(input)
+  const sentenceBufferRef = useRef('')
+
+  // Sentence-boundary regex: period/!/?  optionally followed by quote, then whitespace or end
+  const SENTENCE_END_RE = /[.!?]["']?(\s+|$)/
 
   useEffect(() => {
     try { sessionStorage.setItem('companion_messages', JSON.stringify(messages.slice(-50))) } catch {}
@@ -327,6 +331,27 @@ export default function CompanionView() {
 
     const controller = new AbortController()
     abortRef.current = controller
+    sentenceBufferRef.current = ''
+
+    // Streaming TTS helper — feeds tokens into a sentence accumulator and
+    // calls voice.speakQueued() whenever a complete sentence is detected.
+    // This lets audio start after the first sentence (~1–2 s) vs. waiting
+    // for the full response (~10 s at 20 tok/s).
+    const tryFlushTTS = (text: string, force = false) => {
+      if (!ttsEnabled) return
+      sentenceBufferRef.current += text
+      const match = sentenceBufferRef.current.match(SENTENCE_END_RE)
+      if (match && match.index !== undefined) {
+        const splitAt = match.index + match[0].length
+        const sentence = sentenceBufferRef.current.slice(0, splitAt).trim()
+        sentenceBufferRef.current = sentenceBufferRef.current.slice(splitAt)
+        if (sentence.length >= 8) voice.speakQueued(sentence)
+      } else if (force) {
+        const remaining = sentenceBufferRef.current.trim()
+        if (remaining.length >= 8) voice.speakQueued(remaining)
+        sentenceBufferRef.current = ''
+      }
+    }
 
     try {
       let fullText = ''
@@ -354,7 +379,7 @@ export default function CompanionView() {
           activeConvId,
           text,
           'local',
-          (token: string) => setStreaming((p) => p + token),
+          (token: string) => { setStreaming((p) => p + token); tryFlushTTS(token) },
           controller.signal,
           (replaced: string) => setStreaming(replaced),
           () => {},
@@ -396,6 +421,7 @@ export default function CompanionView() {
                 } else if (ev.token) {
                   fullText += ev.token
                   setStreaming(fullText)
+                  tryFlushTTS(ev.token)
                 } else if (ev.done || ev.error) {
                   break outer
                 }
@@ -411,9 +437,10 @@ export default function CompanionView() {
       }])
       setStreaming('')
 
-      if (ttsEnabled && finalText) {
-        voice.speak(finalText.slice(0, 800))
-      }
+      // Flush any remaining partial sentence from the accumulator.
+      // Sentence-by-sentence TTS already started during streaming — this
+      // catches the final fragment that didn't end with punctuation.
+      tryFlushTTS('', true)
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
         setMessages((m) => [...m, {
