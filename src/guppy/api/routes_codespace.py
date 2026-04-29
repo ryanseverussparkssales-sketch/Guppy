@@ -1,4 +1,4 @@
-"""Codespace API — Docker sandbox lifecycle + self-triage.
+"""Codespace API — Docker sandbox lifecycle + self-triage + self-improvement.
 
 Sandbox endpoints:
     GET    /api/codespace/sandbox            — list active sandboxes
@@ -11,6 +11,13 @@ Triage endpoints:
     GET    /api/codespace/triage/runs/{id}   — single run detail + full output
     POST   /api/codespace/triage/trigger     — trigger a triage run now
     GET    /api/codespace/triage/status      — watchdog status
+
+Self-improvement endpoints:
+    POST   /api/codespace/triage/runs/{id}/propose-fix  — request AI fix proposal
+    GET    /api/codespace/proposals                     — recent proposals
+    GET    /api/codespace/proposals/{id}                — single proposal detail
+    POST   /api/codespace/proposals/{id}/apply          — apply patch to branch + run tests
+    POST   /api/codespace/proposals/{id}/reject         — mark rejected
 """
 from __future__ import annotations
 
@@ -224,5 +231,64 @@ def build_codespace_router(ctx: ServerContext) -> APIRouter:
             "watchdog_running": bool(_watchdog_thread and _watchdog_thread.is_alive()),
             "last_run": recent[0] if recent else None,
         }
+
+    # ── Self-improvement ───────────────────────────────────────────────────────
+
+    @router.post("/triage/runs/{run_id}/propose-fix")
+    def propose_fix_for_run(run_id: str, _uid: str = Depends(ctx.require_rate_limit)):
+        """Generate an AI fix proposal for a failed triage run."""
+        from src.guppy.codespace.codespace_triage import get_runs, get_run_output
+        from src.guppy.codespace.self_improve import propose_fix
+
+        runs = get_runs(limit=200)
+        match = next((r for r in runs if r["id"] == run_id), None)
+        if not match:
+            raise HTTPException(404, "Run not found")
+        if match.get("status") not in ("failed",):
+            raise HTTPException(400, "Can only propose fixes for failed runs")
+
+        # Build failure text from stored failures + full output
+        failure_lines = match.get("failures") or []
+        output = get_run_output(run_id) or ""
+        failure_text = "\n".join(failure_lines)
+        if output:
+            failure_text += "\n\n--- Full output ---\n" + output[:2000]
+
+        proposal = propose_fix(run_id=run_id, failure_text=failure_text)
+        return proposal
+
+    @router.get("/proposals")
+    def list_proposals(
+        limit: int = 20,
+        _uid: str = Depends(ctx.require_rate_limit),
+    ):
+        from src.guppy.codespace.self_improve import get_proposals
+        return get_proposals(limit=min(limit, 100))
+
+    @router.get("/proposals/{proposal_id}")
+    def get_proposal_detail(proposal_id: str, _uid: str = Depends(ctx.require_rate_limit)):
+        from src.guppy.codespace.self_improve import get_proposal
+        prop = get_proposal(proposal_id)
+        if not prop:
+            raise HTTPException(404, "Proposal not found")
+        return prop
+
+    @router.post("/proposals/{proposal_id}/apply")
+    def apply_proposal(proposal_id: str, _uid: str = Depends(ctx.require_rate_limit)):
+        from src.guppy.codespace.self_improve import apply_fix
+        try:
+            result = apply_fix(proposal_id)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return result
+
+    @router.post("/proposals/{proposal_id}/reject")
+    def reject_proposal(proposal_id: str, _uid: str = Depends(ctx.require_rate_limit)):
+        from src.guppy.codespace.self_improve import reject_fix
+        try:
+            reject_fix(proposal_id)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return {"ok": True}
 
     return router
