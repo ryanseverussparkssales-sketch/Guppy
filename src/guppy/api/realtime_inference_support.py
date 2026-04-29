@@ -244,6 +244,70 @@ def _with_single_retry(fn: Any, *args: Any, **kwargs: Any) -> Any:
         raise
 
 
+def _bg_store_tool_outcome(name: str, args: dict, result: str) -> None:
+    """Fire-and-forget: persist successful tool call outcome to semantic memory."""
+    import threading
+    import hashlib
+
+    def _store() -> None:
+        try:
+            from src.guppy.memory.semantic import remember_semantic
+            args_str = str(sorted((args or {}).items()))[:200]
+            key = f"tool_outcome:{name}:{hashlib.md5(args_str.encode()).hexdigest()[:8]}"
+            value = f"{name}({args_str[:150]}) → {result[:500]}"
+            remember_semantic(key, value, category="tool_outcome")
+        except Exception:
+            pass
+
+    threading.Thread(target=_store, daemon=True, name="tool-outcome-mem").start()
+
+
+def _bg_summarize_session(history: list[dict]) -> None:
+    """Fire-and-forget: summarize recent conversation turns into semantic memory.
+
+    Called when history reaches every 10th turn. Uses guppy-fast (qwen2.5:7b)
+    so summarization is cheap and non-blocking.
+    """
+    import threading
+
+    def _run() -> None:
+        try:
+            import time
+            import requests
+            turns = []
+            for msg in history[-12:]:
+                role = msg.get("role", "user")
+                content = str(msg.get("content", ""))[:300]
+                turns.append(f"{role}: {content}")
+            history_text = "\n".join(turns)
+            payload = {
+                "model": "guppy-fast",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Summarize this conversation in 2-3 compact sentences. "
+                            "Focus on: what the user asked, which tools were used, and what outcomes occurred. "
+                            "Be specific about facts, file names, and results. No preamble."
+                        ),
+                    },
+                    {"role": "user", "content": f"Summarize:\n{history_text}"},
+                ],
+                "stream": False,
+            }
+            r = requests.post("http://localhost:11434/api/chat", json=payload, timeout=30)
+            r.raise_for_status()
+            summary = (r.json().get("message", {}).get("content", "") or "").strip()
+            if summary and len(summary) > 30:
+                from src.guppy.memory.semantic import remember_semantic
+                key = f"session_summary:{int(time.time())}"
+                remember_semantic(key, summary, category="session_summary")
+        except Exception as exc:
+            _log.debug("Session summarization failed: %s", exc)
+
+    threading.Thread(target=_run, daemon=True, name="session-summarizer").start()
+
+
 def _inject_semantic_context(system_prompt: str, user_text: str, owner: Any) -> str:
     """Append relevant ChromaDB/SQLite semantic memory to the system prompt."""
     if not (owner.os.environ.get("GUPPY_SEMANTIC_RAG", "1").strip().lower() in {"1", "true", "yes", "on"}):
@@ -1100,6 +1164,7 @@ async def _stream_llamacpp_tokens(
     tool_runner: Any | None = None,
     max_tool_rounds: int = 6,
     _loop_history: list[str] | None = None,
+    escalate_on_all_tool_errors: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Yield content tokens from a llama.cpp OpenAI-compatible SSE stream.
 
@@ -1221,6 +1286,7 @@ async def _stream_llamacpp_tokens(
             current_messages.append(asst_msg)
 
             # Execute each requested tool and collect results
+            _round_all_errors = True
             for tc in tool_calls_list:
                 fn = tc.get("function", {})
                 name = fn.get("name", "")
@@ -1233,6 +1299,10 @@ async def _stream_llamacpp_tokens(
                 try:
                     result = tool_runner(name, args if isinstance(args, dict) else {})
                     result_str = str(result)
+                    _round_all_errors = False
+                    # Persist outcome to semantic memory (background, non-blocking)
+                    if len(result_str) > 50:
+                        _bg_store_tool_outcome(name, args if isinstance(args, dict) else {}, result_str)
                 except Exception as exc:
                     result_str = f"[tool error: {exc}]"
                     _log.warning("llamacpp tool_runner(%r) error: %s", name, exc)
@@ -1250,6 +1320,13 @@ async def _stream_llamacpp_tokens(
                     "tool_call_id": tc.get("id", ""),
                     "content": result_str,
                 })
+
+            # Escalation: if every tool call in round 0 failed and no content was
+            # streamed yet, raise so the caller can fall through to a stronger model.
+            if escalate_on_all_tool_errors and _round == 0 and _round_all_errors and not full_content:
+                raise RuntimeError(
+                    f"all_tool_errors: all {len(tool_calls_list)} tool call(s) failed on round 0 — escalating"
+                )
 
             # Loop detection: fingerprint this round's calls.
             # If the model issues the exact same set of calls twice in a row it's
@@ -1358,6 +1435,12 @@ async def stream_unified_inference(
     For Claude / fallbacks: yields the full response as a single chunk.
     """
     clean_history = sanitize_chat_history(history)
+
+    # Auto-summarize long sessions every 10 turns so context accumulates in
+    # semantic memory and gets injected into future prompts via RAG.
+    if len(clean_history) >= 10 and len(clean_history) % 10 == 0:
+        _bg_summarize_session(clean_history)
+
     augmented_system = augment_system_with_history(system_prompt, clean_history)
     augmented_system = await _inject_semantic_context_async(augmented_system, user_text, owner)
     augmented_system = await _inject_workspace_context_async(augmented_system, owner)
@@ -1454,6 +1537,7 @@ async def stream_unified_inference(
                         tools=_xlam_tools,
                         tool_runner=_xlam_tool_runner,
                         max_tool_rounds=4,
+                        escalate_on_all_tool_errors=True,
                     ):
                         yield token
                     yield _SOURCE_SENTINEL + f"{_XLAM_BACKEND}:{_xlam_model}"

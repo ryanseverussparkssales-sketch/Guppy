@@ -193,12 +193,12 @@ class InferenceRouter:
         """Classify task into simple/complex/teaching using semantic + fallback heuristic."""
         cache_key = ((user_text or "").strip(), (system_prompt or "")[:400].strip())
         cached = self._classification_cache.get(cache_key)
-        if cached in {"simple", "complex", "teaching", "agentic"}:
+        if cached in {"simple", "complex", "teaching", "agentic", "tool_call"}:
             return cached
 
         if self.semantic_classifier_enabled and self.anthropic_available:
             task = self._classify_task_semantic(user_text=user_text, system_prompt=system_prompt)
-            if task in {"simple", "complex", "teaching", "agentic"}:
+            if task in {"simple", "complex", "teaching", "agentic", "tool_call"}:
                 self._classification_cache[cache_key] = task
                 if len(self._classification_cache) > self._classification_cache_max:
                     self._classification_cache.pop(next(iter(self._classification_cache)))
@@ -213,13 +213,15 @@ class InferenceRouter:
         """Use Haiku to classify intent with strict JSON output."""
         try:
             prompt = (
-                "Classify this request for routing into exactly one label: simple, complex, agentic, teaching.\n"
+                "Classify this request for routing into exactly one label: simple, complex, agentic, teaching, tool_call.\n"
                 "Rules:\n"
-                "- simple: factual lookups, reminders, short transforms, status checks, lightweight Q&A\n"
+                "- tool_call: single explicit tool invocation — user names a specific tool, database, or external service (web search, calibre, screenpipe, wikipedia, weather, translate, calculate)\n"
+                "- simple: factual lookups, reminders, short transforms, status checks, lightweight Q&A (no tool needed)\n"
                 "- complex: multi-step reasoning, architecture/debugging/code planning, deep analysis\n"
                 "- agentic: requires multiple sequential tool calls — reading/scanning files, collecting data across sources, iterating over a set, building profiles from many inputs\n"
                 "- teaching: user explicitly wants instruction/tutoring/concept walkthrough\n"
-                "Return JSON only: {\"task_type\":\"simple|complex|agentic|teaching\",\"confidence\":0..1}\n"
+                "Prefer tool_call over simple when the user is asking to fetch live data or use a named system.\n"
+                "Return JSON only: {\"task_type\":\"simple|complex|agentic|teaching|tool_call\",\"confidence\":0..1}\n"
                 f"System context: {system_prompt[:400]}\n"
                 f"User text: {user_text[:1200]}"
             )
@@ -249,13 +251,32 @@ class InferenceRouter:
         combined_lower = text_lower + " " + system_lower
 
         # Tool-call keywords: explicit single-tool invocation. Routed to
-        # xLAM-2-8B (port 8089) when alive; falls back to guppy-fast via Ollama.
+        # xLAM-2-8B (port 8089) when alive; falls back to Hermes 4 via llamacpp.
         tool_call_keywords = {
+            # Explicit tool language
             "use the tool", "call the tool", "invoke the tool",
-            "use the web search", "run the tool", "execute the tool",
-            "use the calibre", "search my library", "add to calibre",
+            "run the tool", "execute the tool",
+            # Web / search
+            "use the web search", "search the web", "search online",
+            "google that", "google it", "look it up online",
+            "browse the web", "web search for", "search for on",
+            "bing it", "duckduckgo", "look it up on",
+            # Guppy-specific tool names
+            "use the calibre", "search my library", "add to calibre", "search calibre",
             "send to kindle", "search gutenberg", "search openlibrary",
-            "use screenpipe", "search screenpipe",
+            "use screenpipe", "search screenpipe", "search my screen",
+            # Wikipedia / reference lookups
+            "find on wikipedia", "search wikipedia", "what does wikipedia say",
+            "look up on wikipedia",
+            # Live data (single API call)
+            "check the weather", "current weather", "weather for", "weather in",
+            "what's the weather", "whats the weather",
+            "current time in", "what time is it in",
+            # Translation / conversion / calculation
+            "translate this", "translate to", "convert this to",
+            "calculate this", "compute this", "what is the exchange rate",
+            # Download / fetch single item
+            "download the book", "download it", "fetch the page",
         }
         if any(k in combined_lower for k in tool_call_keywords):
             return "tool_call"
