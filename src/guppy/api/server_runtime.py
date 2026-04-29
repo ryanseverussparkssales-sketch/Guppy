@@ -506,6 +506,9 @@ app.include_router(build_voice_router(_server_context))             # /api/voice
 from src.guppy.api.routes_reminders import build_reminders_router
 app.include_router(build_reminders_router(_server_context))         # /api/reminders
 
+from src.guppy.api.routes_calibre import build_calibre_router
+app.include_router(build_calibre_router(_server_context))           # /api/calibre/*
+
 # Serve static web UI files
 try:
     from fastapi.staticfiles import StaticFiles
