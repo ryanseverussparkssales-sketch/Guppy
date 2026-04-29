@@ -52,6 +52,11 @@ memory_write(key: str, value: str, category: str = "general")
 memory_recall(query: str)
   Search persistent memory for relevant past facts.
   <tool_call>{"name": "memory_recall", "arguments": {"query": "Ryan's music preferences"}}</tool_call>
+
+workspace_task(title: str, description: str = "")
+  Hand off a task to the Workspace surface (Hermes 4 agent). Use for anything that needs
+  full tool access: Gmail, Calendar, CRM, file system, downloads, automation.
+  <tool_call>{"name": "workspace_task", "arguments": {"title": "Download Macbeth", "description": "Download a plain-text copy of Macbeth from Project Gutenberg"}}</tool_call>
 """
 
 _MEMORY_PROTOCOL = """
@@ -138,7 +143,7 @@ PERSONALITY_PRESETS: dict[str, dict[str, str]] = {
 COMPANION_ALLOWED_TOOLS = {
     "web_search", "web_fetch",
     "memory_read", "memory_write", "memory_recall", "promote_durable_chat_memory",
-    "create_reminder", "download_media",
+    "create_reminder", "download_media", "workspace_task",
 }
 
 # ── Voice session state ────────────────────────────────────────────────────────

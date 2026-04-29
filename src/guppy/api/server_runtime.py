@@ -438,12 +438,15 @@ _startup_readiness_cache_expired = _startup_support.startup_readiness_cache_expi
 _trigger_startup_readiness_refresh = _startup_support.trigger_startup_readiness_refresh
 _require_repair_token = _auth_request_support.require_repair_token
 
+from src.guppy.api.routes_surface import _background_loop as _surface_background_loop
+
 lifespan = build_lifespan(
     module_owner=_module_owner,
     validate_environment=validate_environment,
     ensure_instance_scaffold=_ensure_m2_instance_scaffold,
     startup_host=services_host.startup_host,
     shutdown_host=services_host.shutdown_host,
+    background_coroutines=[_surface_background_loop],
 )
 
 _server_shell = build_server_shell(

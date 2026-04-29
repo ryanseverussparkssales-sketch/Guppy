@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -155,6 +156,54 @@ def _init_db() -> None:
         conn.commit()
 
 
+# ── Internal task-spawn helper (called without HTTP context) ──────────────────
+
+def _spawn_task_direct(
+    *,
+    title: str,
+    description: str = "",
+    source: str = "companion",
+    surface: str = "workspace",
+) -> dict:
+    """Spawn a task directly from internal code (e.g. companion tool executor).
+
+    Identical to the /spawn endpoint but bypasses HTTP auth — only call from
+    trusted internal paths.
+    """
+    if not _DB_PATH:
+        raise RuntimeError("surface DB not initialised yet — router not built")
+    task_id = str(uuid.uuid4())
+    now = _now()
+    with _db() as conn:
+        conn.execute(
+            """INSERT INTO surface_tasks
+               (id, surface, source, title, description, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)""",
+            (task_id, surface, source, title, description, now, now),
+        )
+        conn.execute(
+            """UPDATE surface_state
+               SET agent_count = agent_count + 1,
+                   status = 'agent_running',
+                   current_task = ?,
+                   updated_at = ?
+               WHERE surface = ?""",
+            (title, now, surface),
+        )
+        conn.commit()
+    task = {
+        "id": task_id,
+        "surface": surface,
+        "source": source,
+        "title": title,
+        "description": description,
+        "status": "queued",
+        "created_at": now,
+    }
+    _broadcast_event("task_spawned", task)
+    return task
+
+
 # ── SSE event bus ──────────────────────────────────────────────────────────────
 
 _sse_clients: set[asyncio.Queue] = set()
@@ -226,6 +275,58 @@ class SpawnTaskRequest(BaseModel):
     title:       str
     description: str = ""
     source:      str = "user"     # 'user' | 'companion' | 'workspace' | 'codespace'
+
+
+# ── 24/7 background loop ───────────────────────────────────────────────────────
+_bg_log = logging.getLogger(__name__ + ".bg")
+
+
+async def _background_loop() -> None:
+    """24/7 async background task: reminder delivery + workspace task processing.
+
+    Runs every 30 s as an asyncio task started in build_surface_router().
+    Reminder delivery: fetches due reminders and broadcasts them as SSE events
+    so any connected browser tab shows a native notification.
+    Task processing: marks long-queued tasks as stale (>6 h) to prevent queue bloat.
+    """
+    _bg_log.info("[surface.bg] background loop started")
+
+    while True:
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            _bg_log.info("[surface.bg] background loop cancelled")
+            return
+
+        # ── Reminder delivery ─────────────────────────────────────────────────
+        try:
+            from src.guppy.api.routes_reminders import get_due_reminders
+            due = get_due_reminders()
+            for reminder in due:
+                _broadcast_event("reminder_due", reminder)
+                _bg_log.info(
+                    "[surface.bg] reminder delivered: %s (id=%s)",
+                    reminder.get("message", ""), reminder.get("id", ""),
+                )
+        except Exception as exc:
+            _bg_log.error("[surface.bg] reminder delivery error: %s", exc)
+
+        # ── Stale task cleanup (tasks queued for >6 h become stale) ──────────
+        try:
+            from datetime import timedelta
+            stale_cutoff = (
+                datetime.now(timezone.utc) - timedelta(hours=6)
+            ).isoformat()
+            if _DB_PATH:
+                with _db() as conn:
+                    conn.execute(
+                        """UPDATE surface_tasks SET status = 'stale', updated_at = ?
+                           WHERE status = 'queued' AND created_at < ?""",
+                        (_now(), stale_cutoff),
+                    )
+                    conn.commit()
+        except Exception as exc:
+            _bg_log.error("[surface.bg] stale task cleanup error: %s", exc)
 
 
 # ── Router ─────────────────────────────────────────────────────────────────────

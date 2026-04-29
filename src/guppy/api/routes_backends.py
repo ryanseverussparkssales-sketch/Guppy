@@ -384,12 +384,55 @@ def _run_auto_starts() -> None:
             logger.warning("[backends] auto-start %s failed: %s", name, exc)
 
 
+# ── watchdog ──────────────────────────────────────────────────────────────────
+# The always-on stack is: dispatch(8085) + Hermes3(8087) + Hermes4(8086).
+# If any of these crash the watchdog restarts them automatically.
+
+_WATCHDOG_ALWAYS_ON = {
+    "llamacpp-dispatch": 8085,
+    "llamacpp-hermes3":  8087,
+    "llamacpp-hermes4":  8086,
+}
+
+
+def _run_watchdog() -> None:
+    """Background thread: restart always-on backends if they crash.
+
+    Waits 90 s after boot (auto-starts need ~60 s to come up), then polls
+    every 60 s.  Only restarts if the bat file exists — skips gracefully if
+    a model hasn't been downloaded yet.
+    """
+    import time
+    time.sleep(90)  # let auto-starts fully come up before first watchdog check
+
+    while True:
+        for name in list(_WATCHDOG_ALWAYS_ON.keys()):
+            cfg = _LLAMACPP_CONFIG.get(name)
+            if not cfg:
+                continue
+            bat = cfg.get("bat", "")
+            if not os.path.exists(bat):
+                continue
+            if not _port_alive(cfg["port"]):
+                logger.warning("[watchdog] %s (port %d) down — restarting", name, cfg["port"])
+                try:
+                    result = _do_start(name)
+                    logger.info("[watchdog] restart %s → %s", name, result.get("status"))
+                except Exception as exc:
+                    logger.error("[watchdog] restart %s failed: %s", name, exc)
+        time.sleep(60)
+
+
 # ── router ────────────────────────────────────────────────────────────────────
 
 def build_backends_router(ctx: ServerContext) -> APIRouter:
     # Kick off auto-starts in the background (daemon so it doesn't block shutdown)
     t = threading.Thread(target=_run_auto_starts, daemon=True, name="backends-auto-start")
     t.start()
+
+    # Watchdog: restart always-on backends if they crash
+    wt = threading.Thread(target=_run_watchdog, daemon=True, name="backends-watchdog")
+    wt.start()
 
     router = APIRouter(prefix="/api/backends")
 

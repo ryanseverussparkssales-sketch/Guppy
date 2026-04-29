@@ -104,6 +104,18 @@ async def _execute_companion_tool(name: str, args: dict) -> dict:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    if name == "workspace_task":
+        title       = str(args.get("title", "Task")).strip()
+        description = str(args.get("description", "")).strip()
+        if not title:
+            return {"ok": False, "error": "title required"}
+        try:
+            from src.guppy.api.routes_surface import _spawn_task_direct
+            task = _spawn_task_direct(title=title, description=description, source="companion")
+            return {"ok": True, "task_id": task["id"], "surface": "workspace"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     return {"ok": False, "error": f"Unknown tool: {name}"}
 
 
@@ -168,6 +180,65 @@ def _get_active_cloud_model(provider: str = "") -> Optional[str]:
         return val.strip() if val and val.strip() else None
     except Exception:
         return None
+
+
+# ── Surface-aware model selection ──────────────────────────────────────────────
+# Each surface has a dedicated always-on local model and a preferred cloud fallback.
+# companion → Hermes 3 (fast, uncensored, 9GB VRAM, port 8087)
+# workspace → Hermes 4 (tools, uncensored, 11GB VRAM, port 8086)
+# codespace → Hermes 4 (code-capable, same stack)
+# Cloud fallbacks are surface-appropriate: Haiku for companion (fast/cheap),
+# Sonnet for workspace/codespace (capable).
+
+_SURFACE_LOCAL_DEFAULTS: dict[str, str] = {
+    "companion": "llamacpp-hermes3",
+    "workspace": "llamacpp-hermes4",
+    "codespace": "llamacpp-hermes4",
+}
+
+_SURFACE_CLOUD_DEFAULTS: dict[str, str] = {
+    "companion": "claude-haiku-4-5-20251001",
+    "workspace": "claude-sonnet-4-6",
+    "codespace": "claude-sonnet-4-6",
+}
+
+
+def _get_surface_local_model(surface: Optional[str]) -> Optional[str]:
+    """Return the local model configured for *surface*, with hardcoded per-surface defaults.
+
+    Priority: surface_config DB value → per-surface hardcoded default → global setting.
+    The DB value is written by BackendSelector when the user picks a model for a surface.
+    """
+    default = _SURFACE_LOCAL_DEFAULTS.get(surface or "")
+    if not surface:
+        return _get_active_local_model() or default
+    try:
+        import sqlite3
+        from src.guppy.paths import USER_DATA_DIR
+        db_path = str(USER_DATA_DIR / "surface.db")
+        conn = sqlite3.connect(db_path, check_same_thread=False, timeout=3)
+        row = conn.execute(
+            "SELECT model FROM surface_config WHERE surface = ?", (surface,)
+        ).fetchone()
+        conn.close()
+        if row:
+            model = str(row[0] or "").strip()
+            if model and model not in ("auto", ""):
+                return model
+    except Exception:
+        pass
+    return default
+
+
+def _get_surface_cloud_model(surface: Optional[str]) -> Optional[str]:
+    """Return the cloud fallback model for *surface*.
+
+    User's explicit provider selection wins if set; otherwise use the surface default.
+    companion → claude-haiku-4-5-20251001 (fast, cheap)
+    workspace/codespace → claude-sonnet-4-6 (capable)
+    """
+    user_model = _get_active_cloud_model()
+    return user_model or _SURFACE_CLOUD_DEFAULTS.get(surface or "", "claude-sonnet-4-6")
 
 
 def build_realtime_router(ctx: ServerContext) -> APIRouter:
@@ -333,8 +404,8 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 except Exception as e:
                     owner.logger.debug("Response cache lookup skipped: %s", e)
 
-            _active_local = _get_active_local_model()
-            # Companion voice fast-path: force Hermes3 (always-on, fast, uncensored)
+            _active_local = _get_surface_local_model(request.surface)
+            # Voice fast-path: companion voice always uses Hermes3 (fastest always-on)
             if request.is_voice and request.surface == "companion":
                 _active_local = "llamacpp-hermes3"
 
@@ -347,7 +418,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 instance_name=active_instance_name,
                 instance_type=active_instance_type,
                 active_local_model=_active_local,
-                active_cloud_model=_get_active_cloud_model(),
+                active_cloud_model=_get_surface_cloud_model(request.surface),
                 timeout_seconds=owner.CHAT_TIMEOUT_SECONDS,
             )
 
@@ -428,12 +499,39 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
             surface=request.surface,
         )
 
-        _active_local_model = _get_active_local_model()
-        _active_cloud_model = _get_active_cloud_model()
+        _active_local_model = _get_surface_local_model(request.surface)
+        _active_cloud_model = _get_surface_cloud_model(request.surface)
 
-        # Companion voice fast-path: force Hermes3 (always-on, fast, uncensored)
+        # Voice fast-path: companion voice always uses Hermes3 (fastest always-on)
         if request.is_voice and request.surface == "companion":
             _active_local_model = "llamacpp-hermes3"
+
+        # ── Gap 6: strict-local mode — companion never silently falls to cloud ─
+        # If the companion's local model port is unreachable, tell the user now
+        # rather than silently routing to a cloud model they didn't choose.
+        if request.surface == "companion" and _active_local_model:
+            try:
+                from src.guppy.api.routes_backends import _LLAMACPP_CONFIG, _port_alive
+                from src.guppy.inference.local_client import _LLAMACPP_MODEL_ROUTE as _ROUTE_MAP
+                _canonical = _ROUTE_MAP.get(_active_local_model, _active_local_model)
+                _cfg_entry = _LLAMACPP_CONFIG.get(_canonical, {})
+                _model_port = _cfg_entry.get("port")
+                if _model_port and not _port_alive(_model_port):
+                    _model_label = _cfg_entry.get("label", _active_local_model)
+                    _strict_err = (
+                        f"Local model offline: {_model_label} (port {_model_port}) is not running. "
+                        "Start it from the Workspace → Backend panel, or switch to a cloud model."
+                    )
+                    return StreamingResponse(
+                        (
+                            f'data: {json.dumps({"error": _strict_err})}\n\n'
+                            for _ in [1]
+                        ),
+                        media_type="text/event-stream",
+                        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                    )
+            except Exception:
+                pass  # if the check itself errors, proceed normally
 
         async def _generate():
             full_response = ""

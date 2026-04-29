@@ -94,6 +94,7 @@ def build_lifespan(
     ensure_instance_scaffold: Callable[[], Any],
     startup_host: Callable[[Any], Awaitable[Any]],
     shutdown_host: Callable[[Any], Awaitable[Any]],
+    background_coroutines: list[Callable[[], Any]] | None = None,
 ):
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -125,6 +126,16 @@ def build_lifespan(
             _failures.append(f"startup_host: {_exc}")
             _log.exception("startup_host() raised — some subsystems may not be available")
 
+        # Start 24/7 background coroutines (e.g. reminder delivery, health checks)
+        _bg_tasks: list[asyncio.Task] = []
+        for _coro_factory in (background_coroutines or []):
+            try:
+                _task = asyncio.create_task(_coro_factory(), name=getattr(_coro_factory, "__name__", "bg"))
+                _bg_tasks.append(_task)
+                _log.info("Started background task: %s", getattr(_coro_factory, "__name__", repr(_coro_factory)))
+            except Exception as _exc:
+                _log.error("Failed to start background task %r: %s", _coro_factory, _exc)
+
         _elapsed = _time.monotonic() - _t0
         if _failures:
             _log.warning(
@@ -138,6 +149,8 @@ def build_lifespan(
             yield
         finally:
             _log.info("━━━━  Guppy shutting down  ━━━━")
+            for _task in _bg_tasks:
+                _task.cancel()
             try:
                 await shutdown_host(owner)
             except Exception:
