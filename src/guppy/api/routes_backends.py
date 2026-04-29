@@ -384,6 +384,56 @@ def _run_auto_starts() -> None:
             logger.warning("[backends] auto-start %s failed: %s", name, exc)
 
 
+# ── KV cache warmup ────────────────────────────────────────────────────────────
+# On startup, send a 1-token prefill to Hermes3 and Hermes4 so the KV cache
+# already holds the system prompt tokens — first real requests return ~30-50%
+# faster because the system prompt doesn't need to be re-computed.
+
+_WARMUP_SYSTEM_PROMPTS: dict[str, str] = {
+    8087: (  # Hermes3 — companion surface
+        "You are Guppy, a helpful AI companion. You are direct, warm, and concise. "
+        "You can use tools to help the user with tasks."
+    ),
+    8086: (  # Hermes4 — workspace surface
+        "You are the Guppy Workspace agent — an intelligent operations assistant. "
+        "You help users manage tasks, contacts, files, calendar, and communications. "
+        "You are precise, action-oriented, and thorough."
+    ),
+}
+
+
+def _warm_kv_cache(port: int) -> None:
+    """Send a 1-token prefill request to prime the KV cache for a llamacpp server."""
+    import json as _json
+    import urllib.request as _req
+
+    system_prompt = _WARMUP_SYSTEM_PROMPTS.get(port)
+    if not system_prompt:
+        return
+    payload = {
+        "model": "warmup",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": "Hello"},
+        ],
+        "max_tokens": 1,
+        "temperature": 0.0,
+        "stream": False,
+    }
+    try:
+        req = _req.Request(
+            f"http://localhost:{port}/v1/chat/completions",
+            data=_json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with _req.urlopen(req, timeout=30) as r:
+            r.read()
+        logger.info("[warmup] KV cache primed for port %d", port)
+    except Exception as exc:
+        logger.debug("[warmup] port %d warmup skipped: %s", port, exc)
+
+
 # ── watchdog ──────────────────────────────────────────────────────────────────
 # The always-on stack is: dispatch(8085) + Hermes3(8087) + Hermes4(8086).
 # If any of these crash the watchdog restarts them automatically.
@@ -400,10 +450,14 @@ def _run_watchdog() -> None:
 
     Waits 90 s after boot (auto-starts need ~60 s to come up), then polls
     every 60 s.  Only restarts if the bat file exists — skips gracefully if
-    a model hasn't been downloaded yet.
+    a model hasn't been downloaded yet.  After the first successful liveness
+    check, primes the KV cache on Hermes3/Hermes4 to reduce first-request
+    latency.
     """
     import time
     time.sleep(90)  # let auto-starts fully come up before first watchdog check
+
+    _warmed: set[int] = set()  # ports already warmed this session
 
     while True:
         for name in list(_WATCHDOG_ALWAYS_ON.keys()):
@@ -413,13 +467,18 @@ def _run_watchdog() -> None:
             bat = cfg.get("bat", "")
             if not os.path.exists(bat):
                 continue
-            if not _port_alive(cfg["port"]):
-                logger.warning("[watchdog] %s (port %d) down — restarting", name, cfg["port"])
+            port = cfg["port"]
+            if not _port_alive(port):
+                logger.warning("[watchdog] %s (port %d) down — restarting", name, port)
+                _warmed.discard(port)  # re-warm after restart
                 try:
                     result = _do_start(name)
                     logger.info("[watchdog] restart %s → %s", name, result.get("status"))
                 except Exception as exc:
                     logger.error("[watchdog] restart %s failed: %s", name, exc)
+            elif port not in _warmed and port in _WARMUP_SYSTEM_PROMPTS:
+                _warm_kv_cache(port)
+                _warmed.add(port)
         time.sleep(60)
 
 
