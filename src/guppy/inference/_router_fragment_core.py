@@ -1,5 +1,5 @@
 """
-inference_router.py â€” Guppy Inference Priority Router
+inference_router.py -- Guppy Inference Priority Router
 ========================================================
 
 Routes all inference requests through a priority chain:
@@ -51,25 +51,25 @@ class InferenceRouter:
     # Configuration
     OLLAMA_API = "http://127.0.0.1:11434/api/chat"
     OLLAMA_TIMEOUT = 10       # fallback path timeout (cloud-first modes)
-    OLLAMA_LOCAL_TIMEOUT = 60 # local-only mode â€” allow full 32B inference time
+    OLLAMA_LOCAL_TIMEOUT = 60 # local-only mode -- allow full 32B inference time
 
     # Local model roster -- llama.cpp backends (primary); Ollama is no longer in the routing path.
-    # Route aliases: “hermes-4-14b” -> llamacpp-hermes4 (8086), “hermes-3-8b-lorablated” -> llamacpp-hermes3 (8087)
-    LOCAL_MODEL       = “hermes-4-14b”           # complex butler tasks -- always-on workspace agent
-    LOCAL_FAST_MODEL  = “hermes-3-8b-lorablated” # simple/fast -- uncensored 8B
-    LOCAL_TEACH_MODEL = “hermes-4-14b”           # teaching -- quality over speed
-    LOCAL_CODE_MODEL  = “hermes-4-14b”           # code review/debug
-    LOCAL_VAULT_MODEL = “vault-scraper”           # structured media extraction (Ollama-only special case)
+    # Route aliases: "hermes-4-14b" -> llamacpp-hermes4 (8086), "hermes-3-8b-lorablated" -> llamacpp-hermes3 (8087)
+    LOCAL_MODEL       = "hermes-4-14b"           # complex butler tasks -- always-on workspace agent
+    LOCAL_FAST_MODEL  = "hermes-3-8b-lorablated" # simple/fast -- uncensored 8B
+    LOCAL_TEACH_MODEL = "hermes-4-14b"           # teaching -- quality over speed
+    LOCAL_CODE_MODEL  = "hermes-4-14b"           # code review/debug
+    LOCAL_VAULT_MODEL = "vault-scraper"           # structured media extraction (Ollama-only special case)
 
     LOCAL_TIER_MAP: Dict[str, str] = {
-        “simple”:    LOCAL_FAST_MODEL,   # hermes3 -- fast 8B
-        “complex”:   LOCAL_MODEL,        # hermes4 -- 14B quality
-        “teaching”:  LOCAL_TEACH_MODEL,  # hermes4 -- 14B quality
-        “agentic”:   LOCAL_MODEL,        # hermes4 fallback (Qwen3 intercept fires first)
-        “tool_call”: LOCAL_FAST_MODEL,   # hermes3 fallback (xLAM intercept fires first)
+        "simple":    LOCAL_FAST_MODEL,   # hermes3 -- fast 8B
+        "complex":   LOCAL_MODEL,        # hermes4 -- 14B quality
+        "teaching":  LOCAL_TEACH_MODEL,  # hermes4 -- 14B quality
+        "agentic":   LOCAL_MODEL,        # hermes4 fallback (Qwen3 intercept fires first)
+        "tool_call": LOCAL_FAST_MODEL,   # hermes3 fallback (xLAM intercept fires first)
     }
 
-    # Haiku boost modes â€” targeted Haiku pass that supplements local output
+    # Haiku boost modes -- targeted Haiku pass that supplements local output
     HAIKU_BOOST_VERIFY      = "verify"       # fact-check / fill gaps
     HAIKU_BOOST_CODE_REVIEW = "code_review"  # scan generated code for bugs
     HAIKU_BOOST_ENRICH      = "enrich"       # add missing metadata fields
@@ -79,7 +79,7 @@ class InferenceRouter:
     SONNET_MODEL = "claude-sonnet-4-6"
 
     HAIKU_TIMEOUT_SMART = 8   # API cold-start + network can easily hit 2-3 s; 3 was too aggressive
-    SONNET_TIMEOUT_SMART = 20 # Sonnet is slower â€” give it room
+    SONNET_TIMEOUT_SMART = 20 # Sonnet is slower -- give it room
 
     @staticmethod
     def _bool_env(name: str, default: bool = True) -> bool:
@@ -119,9 +119,9 @@ class InferenceRouter:
         self.LOCAL_VAULT_MODEL = (os.environ.get("GUPPY_LOCAL_VAULT_MODEL", self.LOCAL_VAULT_MODEL) or self.LOCAL_VAULT_MODEL).strip()
 
         self.LOCAL_TIER_MAP = {
-            "simple":   self.LOCAL_FAST_MODEL,   # hermes3 — fast 8B
-            "complex":  self.LOCAL_MODEL,         # hermes4 — 14B quality
-            "teaching": self.LOCAL_TEACH_MODEL,   # hermes4 — 14B quality
+            "simple":   self.LOCAL_FAST_MODEL,   # hermes3 -- fast 8B
+            "complex":  self.LOCAL_MODEL,         # hermes4 -- 14B quality
+            "teaching": self.LOCAL_TEACH_MODEL,   # hermes4 -- 14B quality
             "agentic":  self.LOCAL_MODEL,         # hermes4 fallback (Qwen3 intercept fires first)
         }
 
@@ -213,10 +213,10 @@ class InferenceRouter:
             prompt = (
                 "Classify this request for routing into exactly one label: simple, complex, agentic, teaching, tool_call.\n"
                 "Rules:\n"
-                "- tool_call: single explicit tool invocation — user names a specific tool, database, or external service (web search, calibre, screenpipe, wikipedia, weather, translate, calculate)\n"
+                "- tool_call: single explicit tool invocation -- user names a specific tool, database, or external service (web search, calibre, screenpipe, wikipedia, weather, translate, calculate)\n"
                 "- simple: factual lookups, reminders, short transforms, status checks, lightweight Q&A (no tool needed)\n"
                 "- complex: multi-step reasoning, architecture/debugging/code planning, deep analysis\n"
-                "- agentic: requires multiple sequential tool calls — reading/scanning files, collecting data across sources, iterating over a set, building profiles from many inputs\n"
+                "- agentic: requires multiple sequential tool calls -- reading/scanning files, collecting data across sources, iterating over a set, building profiles from many inputs\n"
                 "- teaching: user explicitly wants instruction/tutoring/concept walkthrough\n"
                 "Prefer tool_call over simple when the user is asking to fetch live data or use a named system.\n"
                 "Return JSON only: {\"task_type\":\"simple|complex|agentic|teaching|tool_call\",\"confidence\":0..1}\n"
@@ -280,7 +280,7 @@ class InferenceRouter:
             return "tool_call"
 
         # Agentic keywords (multi-step tool execution over collections)
-        # These tasks must never land on small 7–8B models — they hallucinate
+        # These tasks must never land on small 7-8B models -- they hallucinate
         # fake results instead of actually calling tools.
         agentic_keywords = {
             "read all", "scan all", "every file", "all files", "all folders",
@@ -390,7 +390,7 @@ class InferenceRouter:
                 "backup_model": "",
             }
 
-        # teaching â€” force teaching profile and route irrespective of classifier noise
+        # teaching -- force teaching profile and route irrespective of classifier noise
         if normalized_mode == "teaching":
             if has_api:
                 return {
@@ -412,40 +412,40 @@ class InferenceRouter:
                 "backup_model": "",
             }
 
-        # local — tier-aware local-only routing (no cloud fallback), llama.cpp primary
-        # simple→hermes3, complex/teaching→hermes4
-        if normalized_mode == “local”:
+        # local -- tier-aware local-only routing (no cloud fallback), llama.cpp primary
+        # simple->hermes3, complex/teaching->hermes4
+        if normalized_mode == "local":
             model = self.LOCAL_TIER_MAP.get(task_type, self.LOCAL_MODEL)
             return {
-                “task_type”: task_type,
-                “route”: f”local_{task_type}”,
-                “route_reason”: f”local-only mode — {task_type} tier → {model}”,
-                “executor”: “llamacpp”,
-                “system_profile”: “guppy”,
-                “model”: model,
-                “backup_model”: “”,
-                “timeout”: self.OLLAMA_LOCAL_TIMEOUT,
-                “local_only”: True,
+                "task_type": task_type,
+                "route": f"local_{task_type}",
+                "route_reason": f"local-only mode -- {task_type} tier -> {model}",
+                "executor": "llamacpp",
+                "system_profile": "guppy",
+                "model": model,
+                "backup_model": "",
+                "timeout": self.OLLAMA_LOCAL_TIMEOUT,
+                "local_only": True,
             }
 
-        # code — dedicated code session via Hermes4, optional Haiku boost
-        if normalized_mode == “code”:
+        # code -- dedicated code session via Hermes4, optional Haiku boost
+        if normalized_mode == "code":
             haiku_boost = self._should_use_haiku_boost(has_api)
             return {
-                “task_type”: task_type,
-                “route”: “local_code”,
-                “route_reason”: “code mode -> hermes4 (llamacpp, uncensored)”,
-                “executor”: “llamacpp”,
-                “system_profile”: “guppy”,
-                “model”: self.LOCAL_CODE_MODEL,
-                “backup_model”: “”,
-                “timeout”: self.OLLAMA_LOCAL_TIMEOUT,
-                “local_only”: True,
-                “haiku_boost”: haiku_boost,
-                “haiku_boost_mode”: self.HAIKU_BOOST_CODE_REVIEW,
+                "task_type": task_type,
+                "route": "local_code",
+                "route_reason": "code mode -> hermes4 (llamacpp, uncensored)",
+                "executor": "llamacpp",
+                "system_profile": "guppy",
+                "model": self.LOCAL_CODE_MODEL,
+                "backup_model": "",
+                "timeout": self.OLLAMA_LOCAL_TIMEOUT,
+                "local_only": True,
+                "haiku_boost": haiku_boost,
+                "haiku_boost_mode": self.HAIKU_BOOST_CODE_REVIEW,
             }
 
-        # vault â€” structured media extraction via vault-scraper, optional Haiku enrich pass
+        # vault -- structured media extraction via vault-scraper, optional Haiku enrich pass
         if normalized_mode == "vault":
             haiku_boost = self._should_use_haiku_boost(has_api)
             return {
@@ -462,7 +462,7 @@ class InferenceRouter:
                 "haiku_boost_mode": self.HAIKU_BOOST_ENRICH,
             }
 
-        # local_paired â€” 7B sketches intent, 32B refines (no cloud fallback)
+        # local_paired -- 7B sketches intent, 32B refines (no cloud fallback)
         # For simple tasks the sketch IS the answer (no second pass needed).
         if normalized_mode == "local_paired":
             sketch_model = self.LOCAL_FAST_MODEL
@@ -470,7 +470,7 @@ class InferenceRouter:
                 return {
                     "task_type": task_type,
                     "route": "local_paired_simple",
-                    "route_reason": "local_paired â€” simple task, single 7B pass sufficient",
+                    "route_reason": "local_paired -- simple task, single 7B pass sufficient",
                     "executor": "ollama",
                     "system_profile": "guppy",
                     "model": sketch_model,
@@ -484,7 +484,7 @@ class InferenceRouter:
                 "task_type": task_type,
                 "route": f"local_paired_{task_type}",
                 "route_reason": (
-                    f"local_paired â€” {task_type}: {sketch_model} sketches intent, "
+                    f"local_paired -- {task_type}: {sketch_model} sketches intent, "
                     f"{refine_model} refines"
                 ),
                 "executor": "ollama_paired",
