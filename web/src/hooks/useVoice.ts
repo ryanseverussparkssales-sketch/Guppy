@@ -193,13 +193,17 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** Drain the sentence queue, speaking one sentence at a time. */
+  /** Drain the sentence queue, speaking one sentence at a time.
+   *  Each sentence is wrapped in try/catch so a single synthesis failure
+   *  never kills the rest of the queued audio. */
   const _drainQueue = useCallback(async () => {
     if (queueBusyRef.current) return
     queueBusyRef.current = true
     while (sentenceQueueRef.current.length > 0) {
       const sentence = sentenceQueueRef.current.shift()
-      if (sentence) await _speakOneSync(sentence)
+      if (sentence) {
+        try { await _speakOneSync(sentence) } catch { /* skip broken sentence, continue queue */ }
+      }
     }
     setIsSpeaking(false)
     queueBusyRef.current = false

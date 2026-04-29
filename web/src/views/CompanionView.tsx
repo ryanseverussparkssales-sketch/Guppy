@@ -182,13 +182,17 @@ export default function CompanionView() {
   const [wakeMode, setWakeMode]           = useState(false)
   const [ambientMode, setAmbientMode]     = useState(false)
   const [workspaceAlert, setWsAlert]      = useState<string | null>(null)
+  const [pendingTaskCount, setPendingTaskCount] = useState(0)
   const [attachedImage, setAttachedImage] = useState<{ base64: string; url: string; name: string } | null>(null)
 
-  const abortRef         = useRef<AbortController | null>(null)
-  const bottomRef        = useRef<HTMLDivElement>(null)
-  const fileInputRef     = useRef<HTMLInputElement>(null)
-  const textareaRef      = useAutoHeight(input)
-  const sentenceBufferRef = useRef('')
+  const abortRef              = useRef<AbortController | null>(null)
+  const bottomRef             = useRef<HTMLDivElement>(null)
+  const fileInputRef          = useRef<HTMLInputElement>(null)
+  const textareaRef           = useAutoHeight(input)
+  const sentenceBufferRef     = useRef('')
+  const workingTimerRef       = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Tracks workspace tasks delegated by companion: id → title
+  const pendingDelegatesRef   = useRef<Map<string, string>>(new Map())
 
   // Sentence-boundary regex: period/!/?  optionally followed by quote, then whitespace or end
   const SENTENCE_END_RE = /[.!?]["']?(\s+|$)/
@@ -247,21 +251,37 @@ export default function CompanionView() {
       .catch(() => {})
   }, [activeWorkspaceId])
 
-  // Subscribe to cross-surface SSE events (always on — ambient mode controls TTS/alerts)
+  // Subscribe to cross-surface SSE events.
+  // task_spawned/progress: visible in ambient mode; task_completed/reminder: always speak.
   useSurfaceEvents((type, payload: any) => {
     const data = payload?.data ?? payload ?? {}
-    if (type === 'task_spawned' || type === 'task_progress') {
+    if (type === 'task_spawned') {
+      // Track tasks the companion delegated so we can announce completion
+      if (data.id && data.title) {
+        pendingDelegatesRef.current.set(data.id, data.title)
+        setPendingTaskCount(pendingDelegatesRef.current.size)
+      }
       if (ambientMode) {
-        const label = data.title || data.step || 'Workspace update'
+        const label = data.title || 'Workspace task started'
         setWsAlert(String(label).slice(0, 80))
         setTimeout(() => setWsAlert(null), 6000)
         if (ttsEnabled) voice.speakQueued(String(label).slice(0, 120))
       }
     }
-    if (type === 'task_completed' && ambientMode) {
-      const label = `Task done: ${(data.title || 'Workspace task').slice(0, 60)}`
+    if (type === 'task_progress' && ambientMode) {
+      const label = data.step || data.title || 'Working…'
+      setWsAlert(String(label).slice(0, 80))
+      setTimeout(() => setWsAlert(null), 4000)
+    }
+    if (type === 'task_completed' || type === 'task_failed') {
+      // Always announce completions and failures — not just in ambient mode
+      pendingDelegatesRef.current.delete(data.id ?? '')
+      setPendingTaskCount(pendingDelegatesRef.current.size)
+      const verb  = type === 'task_completed' ? 'Done' : 'Failed'
+      const title = (data.title || 'Workspace task').slice(0, 60)
+      const label = `${verb}: ${title}`
       setWsAlert(label)
-      setTimeout(() => setWsAlert(null), 6000)
+      setTimeout(() => setWsAlert(null), 8000)
       if (ttsEnabled) voice.speakQueued(label)
     }
     if (type === 'reminder_due') {
@@ -319,11 +339,19 @@ export default function CompanionView() {
     abortRef.current = controller
     sentenceBufferRef.current = ''
 
+    // If no token arrives within 8 s, speak a verbal acknowledgment so the
+    // user knows the request is alive (cold-start / complex prompt situations).
+    workingTimerRef.current = setTimeout(() => {
+      if (ttsEnabled && !streaming) voice.speakQueued('Working on it.')
+    }, 8000)
+
     // Streaming TTS helper — feeds tokens into a sentence accumulator and
     // calls voice.speakQueued() whenever a complete sentence is detected.
     // This lets audio start after the first sentence (~1–2 s) vs. waiting
     // for the full response (~10 s at 20 tok/s).
     const tryFlushTTS = (text: string, force = false) => {
+      // First token arrived — cancel the "working on it" acknowledgment timer
+      if (workingTimerRef.current) { clearTimeout(workingTimerRef.current); workingTimerRef.current = null }
       if (!ttsEnabled) return
       sentenceBufferRef.current += text
       const match = sentenceBufferRef.current.match(SENTENCE_END_RE)
@@ -435,6 +463,7 @@ export default function CompanionView() {
         }])
       }
     } finally {
+      if (workingTimerRef.current) { clearTimeout(workingTimerRef.current); workingTimerRef.current = null }
       setStreaming('')
       setIsSending(false)
       abortRef.current = null
@@ -587,13 +616,27 @@ export default function CompanionView() {
 
       {/* Avatar — shown when no messages or always-visible */}
       <div className={cn(
-        "flex-shrink-0 flex justify-center transition-all duration-500",
+        "flex-shrink-0 flex flex-col items-center transition-all duration-500",
         messages.length === 0 ? "pt-12 pb-6" : "pt-4 pb-2"
       )}>
         <AvatarPresence
           state={avatarState}
           size={messages.length === 0 ? 'lg' : 'sm'}
         />
+        {/* Persistent in-flight task indicator */}
+        <AnimatePresence>
+          {pendingTaskCount > 0 && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.85 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.85 }}
+              className="mt-2 flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full bg-secondary/15 border border-secondary/25 text-secondary"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" />
+              {pendingTaskCount === 1 ? '1 task running' : `${pendingTaskCount} tasks running`}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Empty state prompt */}
