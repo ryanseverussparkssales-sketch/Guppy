@@ -71,10 +71,10 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
     "llamacpp-dispatch": {
         "bat":     r"C:\llama-cpp\launch-dispatch.bat",
         "port":    8085,
-        "label":   "Qwen2.5-3B-Instruct Dispatcher",
+        "label":   "Phi-4-mini Orchestrator",
         "mode":    "A",
-        "note":    "Orchestrator · ~2 GB VRAM — auto-starts with Guppy",
-        "vram_gb": 2.0,
+        "note":    "Orchestrator · ~2.5 GB VRAM · native JSON tool_call routing — auto-starts",
+        "vram_gb": 2.5,
         "auto_start": True,
     },
     "llamacpp-hermes4": {
@@ -114,28 +114,17 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "note":    "Tool-call specialist · ~5 GB VRAM · #1 BFCL V4 ≤8B — on-demand",
         "vram_gb": 5.0,
     },
-    # Llama 3.3 70B Instruct Q4_K_M: CPU-only flagship chat (zero VRAM).
-    # Runs entirely in RAM (~42 GB) alongside the GPU workspace agent stack.
-    # ~4-6 tok/s on Ryzen 9 9900X — acceptable for conversation, uncensored.
+    # Llama 3.3 70B Instruct Q4_K_M: CPU-only deep-reasoning worker (zero VRAM).
+    # Runs entirely in RAM (~42 GB) alongside the GPU stack.
+    # ~4-6 tok/s on Ryzen 9 9900X — ideal for long-form research/writing tasks
+    # routed by the orchestrator when quality > speed.
     "llamacpp-chat": {
         "bat":     r"C:\llama-cpp\launch-chat-70b.bat",
         "port":    8090,
-        "label":   "Llama 3.3 70B Chat (CPU)",
+        "label":   "Llama 3.3 70B (CPU)",
         "mode":    "A",
-        "note":    "Flagship CPU-only chat · ~42 GB RAM · zero VRAM · ~4-6 tok/s",
+        "note":    "Deep reasoning CPU worker · ~42 GB RAM · zero VRAM · ~4-6 tok/s",
         "vram_gb": 0.0,
-    },
-    # Phi-4-mini-instruct: true JSON tool_call dispatch orchestrator.
-    # Replaces Qwen2.5-3B when upgraded: emits structured {"tool_calls": [...]} JSON
-    # to route subtasks to xLAM for execution. ~2.5 GB VRAM (Q4_K_M).
-    # Model: download from https://huggingface.co/microsoft/Phi-4-mini-instruct-GGUF
-    "llamacpp-phi4-mini": {
-        "bat":     r"C:\llama-cpp\launch-phi4-mini.bat",
-        "port":    8091,
-        "label":   "Phi-4-mini-instruct",
-        "mode":    "A",
-        "note":    "True dispatch orchestrator · ~2.5 GB VRAM · JSON tool_call routing",
-        "vram_gb": 2.5,
     },
 }
 
@@ -145,7 +134,7 @@ _GPU_VRAM_GB: float = float(os.environ.get("GUPPY_GPU_VRAM_GB", "24"))
 _MODE_A = {
     "llamacpp-pepe", "llamacpp-gemma", "llamacpp-minicpm", "llamacpp-dispatch",
     "llamacpp-hermes4", "llamacpp-hermes3", "llamacpp-rocinante", "llamacpp-xlam",
-    "llamacpp-chat", "llamacpp-phi4-mini",
+    "llamacpp-chat",
 }
 _MODE_B = {"llamacpp-qwen3"}
 

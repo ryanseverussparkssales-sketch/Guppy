@@ -23,8 +23,8 @@ import { MarkdownMessage } from '@/components/chat/MarkdownMessage'
 import { useVoice } from '@/hooks/useVoice'
 import { useSurfaceEvents } from '@/hooks/useSurfaceEvents'
 import { AvatarPresence, type AvatarState } from '@/components/surface/AvatarPresence'
-import { BackendSelector } from '@/components/surface/BackendSelector'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
+import { PersonaModelPicker } from '@/components/surface/PersonaModelPicker'
 import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
 import api from '@/api/client'
 
@@ -183,6 +183,8 @@ export default function CompanionView() {
   const [ambientMode, setAmbientMode]     = useState(false)
   const [workspaceAlert, setWsAlert]      = useState<string | null>(null)
   const [pendingTaskCount, setPendingTaskCount] = useState(0)
+  const [activePersona, setActivePersona] = useState('llamacpp-hermes3')
+  const [pickerOpen, setPickerOpen]       = useState(false)
   const [attachedImage, setAttachedImage] = useState<{ base64: string; url: string; name: string } | null>(null)
 
   const abortRef              = useRef<AbortController | null>(null)
@@ -250,6 +252,14 @@ export default function CompanionView() {
       .then((conv: any) => setActiveConvId(conv?.id ?? null))
       .catch(() => {})
   }, [activeWorkspaceId])
+
+  // Load active persona model from surface_config
+  useEffect(() => {
+    api.get('/api/surface/config').then((r: any) => {
+      const model = r.data?.companion?.model
+      if (model && model !== 'auto') setActivePersona(model)
+    }).catch(() => {})
+  }, [])
 
   // Subscribe to cross-surface SSE events.
   // task_spawned/progress: visible in ambient mode; task_completed/reminder: always speak.
@@ -603,7 +613,24 @@ export default function CompanionView() {
             {wakeMode ? '🎙 Wake on' : '🎙 Wake off'}
           </button>
           <SurfaceStatusBar surface="workspace" compact label="Workspace" />
-          <BackendSelector surface="companion" compact />
+          <button
+            onClick={() => setPickerOpen(p => !p)}
+            className={cn(
+              "text-xs px-2.5 py-1 rounded-full border transition-colors",
+              pickerOpen
+                ? "bg-secondary/10 border-secondary/30 text-secondary"
+                : "border-outline-variant/20 text-on-surface-variant/50 hover:text-on-surface-variant"
+            )}
+            title="Switch voice model"
+          >
+            {activePersona === 'llamacpp-hermes3' ? 'Hermes 3'
+              : activePersona === 'llamacpp-pepe' ? 'Pepe'
+              : activePersona === 'llamacpp-rocinante' ? 'Rocinante'
+              : activePersona === 'llamacpp-minicpm' ? 'MiniCPM'
+              : activePersona === 'llamacpp-chat' ? 'Llama 70B'
+              : activePersona === 'auto' ? 'Cloud'
+              : activePersona}
+          </button>
           <button
             onClick={() => { setMessages([]); try { sessionStorage.removeItem('companion_messages') } catch {} }}
             title="Clear conversation (Escape)"
@@ -613,6 +640,26 @@ export default function CompanionView() {
           </button>
         </div>
       </div>
+
+      {/* Persona model picker — slides down from header */}
+      <AnimatePresence>
+        {pickerOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden border-b border-outline-variant/20 bg-surface-container-low/60 flex-shrink-0"
+          >
+            <div className="px-5 py-4">
+              <PersonaModelPicker
+                currentModel={activePersona}
+                onSwitch={(key) => { setActivePersona(key); setPickerOpen(false) }}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Avatar — shown when no messages or always-visible */}
       <div className={cn(
