@@ -155,6 +155,43 @@ PERSONALITY_PRESETS: dict[str, dict[str, str]] = {
     },
 }
 
+# ── Personality prompt overrides (persisted across restarts) ──────────────────
+
+def _overrides_path():
+    from src.guppy.paths import USER_DATA_DIR
+    return USER_DATA_DIR / "personality_overrides.json"
+
+
+def _load_overrides() -> None:
+    """Apply any saved system_prompt overrides to PERSONALITY_PRESETS at startup."""
+    try:
+        import json
+        p = _overrides_path()
+        if p.exists():
+            overrides = json.loads(p.read_text(encoding="utf-8"))
+            for key, data in overrides.items():
+                if key in PERSONALITY_PRESETS and "system_prompt" in data:
+                    PERSONALITY_PRESETS[key]["system_prompt"] = data["system_prompt"]
+    except Exception as exc:
+        logger.warning("[companion] Could not load personality overrides: %s", exc)
+
+
+def _save_override(key: str, system_prompt: str) -> None:
+    """Persist a system_prompt override so it survives server restarts."""
+    try:
+        import json
+        p = _overrides_path()
+        overrides: dict = {}
+        if p.exists():
+            overrides = json.loads(p.read_text(encoding="utf-8"))
+        overrides.setdefault(key, {})["system_prompt"] = system_prompt
+        p.write_text(json.dumps(overrides, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as exc:
+        logger.warning("[companion] Could not save personality override: %s", exc)
+
+
+_load_overrides()
+
 # Allowed tools for companion surface (server-side whitelist)
 COMPANION_ALLOWED_TOOLS = {
     "web_search", "web_fetch",
@@ -260,13 +297,14 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
         body: dict,
         _uid: str = Depends(ctx.require_rate_limit),
     ):
-        """Patch the system_prompt for a personality preset (runtime only, not persisted to code)."""
+        """Patch the system_prompt for a personality preset — persisted across restarts."""
         if key not in PERSONALITY_PRESETS:
             raise HTTPException(404, f"Unknown preset: {key}")
         system_prompt = body.get("system_prompt")
         if not system_prompt:
             raise HTTPException(400, "system_prompt required")
         PERSONALITY_PRESETS[key]["system_prompt"] = system_prompt
+        _save_override(key, system_prompt)
         return {"ok": True, "key": key}
 
     # ── Vision ─────────────────────────────────────────────────────────────────

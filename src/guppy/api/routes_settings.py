@@ -139,13 +139,11 @@ class SettingsDB:
             rows = conn.execute("SELECT provider, updated_at FROM credentials").fetchall()
 
         configured = {r["provider"] for r in rows}
-        return {
-            "anthropic": {"configured": "anthropic" in configured},
-            "openai":    {"configured": "openai"    in configured},
-            "google":    {"configured": "google"    in configured},
-            "cohere":    {"configured": "cohere"    in configured},
-            "mistral":   {"configured": "mistral"   in configured},
-        }
+        all_providers = [
+            "anthropic", "openai", "google", "cohere", "mistral",
+            "elevenlabs", "deepgram", "hubspot", "quo",
+        ]
+        return {p: {"configured": p in configured} for p in all_providers}
 
     def delete_credential(self, provider: str) -> bool:
         """Delete credentials for a provider."""
@@ -261,7 +259,10 @@ def build_settings_router(ctx: ServerContext) -> APIRouter:
         provider = payload.get("provider", "").strip().lower()
         api_key = payload.get("api_key", "").strip()
 
-        valid_providers = ["anthropic", "openai", "google", "cohere", "mistral"]
+        valid_providers = [
+            "anthropic", "openai", "google", "cohere", "mistral",
+            "elevenlabs", "deepgram", "hubspot", "quo",
+        ]
         if provider not in valid_providers:
             raise HTTPException(status_code=400, detail=f"invalid provider: {provider}")
 
