@@ -110,11 +110,19 @@ export const ReadinessCheckSchema = z.object({
   detail: z.string(),
 }).passthrough()
 
+export const ResourceMetricsSchema = z.object({
+  cpu_pct:          z.number(),
+  ram_pct:          z.number(),
+  available_ram_gb: z.number(),
+  total_ram_gb:     z.number(),
+})
+
 export const StatusSchema = z.object({
-  status:            z.string(),
-  memory_available:  z.boolean(),
-  voice_available:   z.boolean(),
-  daemon_available:  z.boolean(),
+  status:                z.string(),
+  guppy_core_available:  z.boolean().optional(),
+  memory_available:      z.boolean(),
+  voice_available:       z.boolean(),
+  daemon_available:      z.boolean(),
   startup_readiness: z.object({
     overall: z.string(),
     checks:  z.record(z.string(), ReadinessCheckSchema),
@@ -123,10 +131,15 @@ export const StatusSchema = z.object({
     state:       z.string(),
     backend:     z.string(),
     chat_ready:  z.boolean(),
+    chat_state:  z.string().optional(),
     models:      z.array(z.string()).optional(),
   }).optional(),
-  resource_envelope: z.record(z.string(), z.unknown()).optional(),
+  resource_envelope: z.object({
+    metrics: ResourceMetricsSchema.optional(),
+  }).passthrough().optional(),
 })
+
+export type ResourceMetrics = z.infer<typeof ResourceMetricsSchema>
 
 export const LogEventSchema = z.object({
   ts:      z.string().optional(),
