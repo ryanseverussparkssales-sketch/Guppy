@@ -656,9 +656,11 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
         if request.is_voice and request.surface == "companion":
             _active_local_model = "llamacpp-hermes3"
 
-        # ── Gap 6: strict-local mode — companion never silently falls to cloud ─
-        # If the companion's local model port is unreachable, tell the user now
-        # rather than silently routing to a cloud model they didn't choose.
+        # ── Local-model check — prefer local, fall back to cloud transparently ──
+        # If the companion's local model port is down, announce it in-stream and
+        # route to the cloud fallback rather than hard-failing. This keeps the
+        # conversation alive. The watchdog will restart the local model in <60 s.
+        _local_offline_notice: str | None = None
         if request.surface == "companion" and _active_local_model:
             try:
                 from src.guppy.api.routes_backends import _LLAMACPP_CONFIG, _port_alive
@@ -668,20 +670,13 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 _model_port = _cfg_entry.get("port")
                 if _model_port and not _port_alive(_model_port):
                     _model_label = _cfg_entry.get("label", _active_local_model)
-                    _strict_err = (
-                        f"Local model offline: {_model_label} (port {_model_port}) is not running. "
-                        "Start it from the Workspace → Backend panel, or switch to a cloud model."
+                    _local_offline_notice = (
+                        f"[Local model offline — routing to cloud. "
+                        f"{_model_label} will restart automatically.] "
                     )
-                    return StreamingResponse(
-                        (
-                            f'data: {json.dumps({"error": _strict_err})}\n\n'
-                            for _ in [1]
-                        ),
-                        media_type="text/event-stream",
-                        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-                    )
+                    _active_local_model = None  # force cloud path
             except Exception:
-                pass  # if the check itself errors, proceed normally
+                pass
 
         # Inject workspace tool schema so Hermes4 knows what tools it has
         if request.surface == "workspace" and _WORKSPACE_TOOL_SCHEMA not in system_prompt:
@@ -690,6 +685,11 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
         async def _generate():
             full_response = ""
             last_source: str = ""
+
+            # Emit offline notice as first token so TTS picks it up immediately
+            if _local_offline_notice:
+                yield f"data: {json.dumps({'token': _local_offline_notice})}\n\n"
+                full_response += _local_offline_notice
 
             # ── Workspace surface: two-pass with full tool-call execution ─────
             if request.surface == "workspace":
@@ -977,8 +977,24 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 except Exception:
                     pass  # best-effort, never block the response
 
+        async def _generate_with_heartbeat():
+            """Wrap _generate() with SSE comment keepalives every 15 s.
+            Prevents proxy / browser from killing idle slow-model connections."""
+            import asyncio as _aio
+            gen = _generate()
+            last_yield = _aio.get_event_loop().time()
+            while True:
+                try:
+                    chunk = await _aio.wait_for(gen.__anext__(), timeout=15.0)
+                    last_yield = _aio.get_event_loop().time()
+                    yield chunk
+                except StopAsyncIteration:
+                    break
+                except _aio.TimeoutError:
+                    yield ": heartbeat\n\n"  # SSE comment — ignored by client, keeps TCP alive
+
         return StreamingResponse(
-            _generate(),
+            _generate_with_heartbeat(),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
