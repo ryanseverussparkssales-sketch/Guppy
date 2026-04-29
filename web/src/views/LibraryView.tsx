@@ -2,19 +2,21 @@
  * =============================================================================
  * LIBRARY VIEW
  * =============================================================================
- * 
+ *
  * Manage saved prompts, templates, and conversation artifacts.
- * 
+ *
  * BACKEND ENDPOINTS:
- * - GET /api/library/collections - List all collections
- * - POST /api/library/collections - Create collection
- * - GET /api/library/prompts - List saved prompts
- * - POST /api/library/prompts - Save prompt
- * - GET /api/library/templates - List templates
+ * - GET    /api/library/collections          — list with item_count
+ * - POST   /api/library/collections          — create collection
+ * - DELETE /api/library/collections/{id}     — delete collection
+ * - GET    /api/library/items                — list (supports ?collection, ?type, ?q, ?favorites)
+ * - POST   /api/library/items               — create item
+ * - PATCH  /api/library/items/{id}           — update (title, content, is_favorite, collection, tags)
+ * - DELETE /api/library/items/{id}           — delete item
  * =============================================================================
  */
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 import {
   FolderOpen,
@@ -29,8 +31,10 @@ import {
   Trash2,
   Edit,
   X,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import api from '@/api/client'
 
 // Types
 interface LibraryItem {
@@ -38,62 +42,19 @@ interface LibraryItem {
   type: 'prompt' | 'template' | 'artifact'
   title: string
   content: string
-  collection?: string
+  collection?: string | null
   tags: string[]
-  isFavorite: boolean
-  createdAt: string
-  updatedAt: string
+  is_favorite: boolean
+  created_at: string
+  updated_at: string
 }
 
 interface Collection {
   id: string
   name: string
-  itemCount: number
+  item_count: number
   color: string
 }
-
-// Mock data - replace with API
-const MOCK_COLLECTIONS: Collection[] = [
-  { id: 'coding', name: 'Coding', itemCount: 12, color: 'bg-blue-500' },
-  { id: 'writing', name: 'Writing', itemCount: 8, color: 'bg-purple-500' },
-  { id: 'analysis', name: 'Analysis', itemCount: 5, color: 'bg-green-500' },
-]
-
-const MOCK_ITEMS: LibraryItem[] = [
-  {
-    id: '1',
-    type: 'prompt',
-    title: 'Code Review Assistant',
-    content: 'You are a senior software engineer reviewing code. Analyze the following code for bugs, performance issues, and best practices...',
-    collection: 'coding',
-    tags: ['code', 'review', 'best-practices'],
-    isFavorite: true,
-    createdAt: '2024-01-15T10:00:00Z',
-    updatedAt: '2024-01-20T15:30:00Z',
-  },
-  {
-    id: '2',
-    type: 'template',
-    title: 'Meeting Summary',
-    content: 'Summarize the following meeting transcript. Include: key decisions, action items with owners, and next steps...',
-    collection: 'writing',
-    tags: ['meetings', 'summary', 'productivity'],
-    isFavorite: true,
-    createdAt: '2024-01-10T09:00:00Z',
-    updatedAt: '2024-01-18T11:00:00Z',
-  },
-  {
-    id: '3',
-    type: 'prompt',
-    title: 'Data Analysis Helper',
-    content: 'Analyze the provided dataset and identify: trends, outliers, correlations, and actionable insights...',
-    collection: 'analysis',
-    tags: ['data', 'analytics', 'insights'],
-    isFavorite: false,
-    createdAt: '2024-01-12T14:00:00Z',
-    updatedAt: '2024-01-12T14:00:00Z',
-  },
-]
 
 const typeIcons = {
   prompt: MessageSquare,
@@ -101,24 +62,62 @@ const typeIcons = {
   artifact: Sparkles,
 }
 
+const COLORS = [
+  'bg-blue-500', 'bg-purple-500', 'bg-green-500',
+  'bg-orange-500', 'bg-pink-500', 'bg-teal-500',
+]
+
 export default function LibraryView() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null)
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
   const [recentOnly, setRecentOnly] = useState(false)
-  const [items, setItems] = useState(MOCK_ITEMS)
-  const [collections, setCollections] = useState(MOCK_COLLECTIONS)
+  const [items, setItems] = useState<LibraryItem[]>([])
+  const [collections, setCollections] = useState<Collection[]>([])
+  const [loading, setLoading] = useState(true)
+
   const [showNewItem, setShowNewItem] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newContent, setNewContent] = useState('')
   const [newType, setNewType] = useState<'prompt' | 'template' | 'artifact'>('prompt')
+
   const [showNewCollection, setShowNewCollection] = useState(false)
   const [newCollectionName, setNewCollectionName] = useState('')
+
   const [editingItem, setEditingItem] = useState<LibraryItem | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [editContent, setEditContent] = useState('')
+
   const titleRef = useRef<HTMLInputElement>(null)
   const collectionInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Data loading ───────────────────────────────────────────────────────────
+
+  const loadLibrary = useCallback(async () => {
+    try {
+      const [colRes, itemRes] = await Promise.all([
+        api.get<Collection[]>('/api/library/collections'),
+        api.get<LibraryItem[]>('/api/library/items'),
+      ])
+      setCollections(colRes.data)
+      setItems(itemRes.data)
+    } catch {
+      toast.error('Failed to load library')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadLibrary() }, [loadLibrary])
+
+  // ── Derived counts (keep sidebar live without a full refetch) ──────────────
+
+  const collectionsWithCounts = collections.map(c => ({
+    ...c,
+    item_count: items.filter(i => i.collection === c.id).length,
+  }))
+
+  // ── Filters ────────────────────────────────────────────────────────────────
 
   const clearFilters = () => {
     setSelectedCollection(null)
@@ -126,25 +125,35 @@ export default function LibraryView() {
     setRecentOnly(false)
   }
 
-  // Filter items
   const baseFiltered = items.filter(item => {
     const matchesSearch = !searchQuery ||
       item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
     const matchesCollection = !selectedCollection || item.collection === selectedCollection
-    const matchesFavorites = !showFavoritesOnly || item.isFavorite
+    const matchesFavorites = !showFavoritesOnly || item.is_favorite
     return matchesSearch && matchesCollection && matchesFavorites
   })
 
   const filteredItems = recentOnly
-    ? [...baseFiltered].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    ? [...baseFiltered].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
     : baseFiltered
 
-  const toggleFavorite = (id: string) => {
-    setItems(items.map(item =>
-      item.id === id ? { ...item, isFavorite: !item.isFavorite } : item
-    ))
+  // ── Mutations ──────────────────────────────────────────────────────────────
+
+  const toggleFavorite = async (id: string) => {
+    const item = items.find(i => i.id === id)
+    if (!item) return
+    const next = !item.is_favorite
+    // Optimistic
+    setItems(prev => prev.map(i => i.id === id ? { ...i, is_favorite: next } : i))
+    try {
+      await api.patch(`/api/library/items/${id}`, { is_favorite: next })
+    } catch {
+      // Revert
+      setItems(prev => prev.map(i => i.id === id ? { ...i, is_favorite: !next } : i))
+      toast.error('Failed to update favorite')
+    }
   }
 
   const handleCopy = (item: LibraryItem) => {
@@ -158,30 +167,71 @@ export default function LibraryView() {
     setEditContent(item.content)
   }
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingItem || !editTitle.trim() || !editContent.trim()) return
-    setItems(prev => prev.map(i => i.id === editingItem.id
-      ? { ...i, title: editTitle.trim(), content: editContent.trim(), updatedAt: new Date().toISOString() }
-      : i
-    ))
-    toast.success('Item updated')
-    setEditingItem(null)
+    try {
+      const res = await api.patch<LibraryItem>(`/api/library/items/${editingItem.id}`, {
+        title: editTitle.trim(),
+        content: editContent.trim(),
+      })
+      setItems(prev => prev.map(i => i.id === editingItem.id ? res.data : i))
+      toast.success('Item updated')
+      setEditingItem(null)
+    } catch {
+      toast.error('Failed to update item')
+    }
   }
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
+    // Optimistic
     setItems(prev => prev.filter(i => i.id !== id))
-    toast.success('Item deleted')
+    try {
+      await api.delete(`/api/library/items/${id}`)
+      toast.success('Item deleted')
+    } catch {
+      toast.error('Failed to delete item')
+      loadLibrary() // Revert by refetching
+    }
   }
 
-  const handleAddCollection = () => {
+  const handleAddCollection = async () => {
     const name = newCollectionName.trim()
     if (!name) return
-    const id = name.toLowerCase().replace(/\s+/g, '-')
-    const colors = ['bg-blue-500', 'bg-purple-500', 'bg-green-500', 'bg-orange-500', 'bg-pink-500']
-    setCollections(prev => [...prev, { id, name, itemCount: 0, color: colors[prev.length % colors.length] }])
-    setNewCollectionName('')
-    setShowNewCollection(false)
-    toast.success(`Collection "${name}" created`)
+    const color = COLORS[collections.length % COLORS.length]
+    try {
+      const res = await api.post<Collection>('/api/library/collections', { name, color })
+      setCollections(prev => [...prev, res.data])
+      setNewCollectionName('')
+      setShowNewCollection(false)
+      toast.success(`Collection "${name}" created`)
+    } catch {
+      toast.error('Failed to create collection')
+    }
+  }
+
+  const handleAddItem = async () => {
+    if (!newTitle.trim() || !newContent.trim()) return
+    try {
+      const res = await api.post<LibraryItem>('/api/library/items', {
+        title: newTitle.trim(),
+        content: newContent.trim(),
+        type: newType,
+        collection: selectedCollection || collections[0]?.id || null,
+        tags: [],
+      })
+      setItems(prev => [res.data, ...prev])
+      setNewTitle('')
+      setNewContent('')
+      setShowNewItem(false)
+      toast.success('Item saved to library')
+    } catch {
+      toast.error('Failed to save item')
+    }
+  }
+
+  const openNewItem = () => {
+    setShowNewItem(true)
+    setTimeout(() => titleRef.current?.focus(), 50)
   }
 
   const formatDate = (dateStr: string) => {
@@ -189,28 +239,15 @@ export default function LibraryView() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   }
 
-  const handleAddItem = () => {
-    if (!newTitle.trim() || !newContent.trim()) return
-    const now = new Date().toISOString()
-    setItems(prev => [...prev, {
-      id: `item-${Date.now()}`,
-      title: newTitle.trim(),
-      content: newContent.trim(),
-      type: newType,
-      collection: selectedCollection || collections[0]?.id || 'coding',
-      tags: [],
-      isFavorite: false,
-      createdAt: now,
-      updatedAt: now,
-    }])
-    setNewTitle('')
-    setNewContent('')
-    setShowNewItem(false)
-  }
+  // ── Render ─────────────────────────────────────────────────────────────────
 
-  const openNewItem = () => {
-    setShowNewItem(true)
-    setTimeout(() => titleRef.current?.focus(), 50)
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        <Loader2 className="w-6 h-6 animate-spin mr-2" />
+        Loading library…
+      </div>
+    )
   }
 
   return (
@@ -250,7 +287,7 @@ export default function LibraryView() {
           >
             <Star className="w-4 h-4" />
             Favorites
-            <span className="ml-auto text-xs">{items.filter(i => i.isFavorite).length}</span>
+            <span className="ml-auto text-xs">{items.filter(i => i.is_favorite).length}</span>
           </button>
           <button
             onClick={() => { setSelectedCollection(null); setShowFavoritesOnly(false); setRecentOnly(true) }}
@@ -279,7 +316,7 @@ export default function LibraryView() {
             </button>
           </div>
           <div className="space-y-1">
-            {collections.map(collection => (
+            {collectionsWithCounts.map(collection => (
               <button
                 key={collection.id}
                 onClick={() => { setSelectedCollection(collection.id); setShowFavoritesOnly(false); setRecentOnly(false) }}
@@ -292,7 +329,7 @@ export default function LibraryView() {
               >
                 <div className={cn("w-3 h-3 rounded", collection.color)} />
                 {collection.name}
-                <span className="ml-auto text-xs">{collection.itemCount}</span>
+                <span className="ml-auto text-xs">{collection.item_count}</span>
               </button>
             ))}
           </div>
@@ -322,8 +359,8 @@ export default function LibraryView() {
               <FolderOpen className="w-12 h-12 mb-4 opacity-50" />
               <p className="text-lg font-medium">No items found</p>
               <p className="text-sm">
-                {searchQuery 
-                  ? 'Try adjusting your search' 
+                {searchQuery
+                  ? 'Try adjusting your search'
                   : 'Save prompts, templates, and artifacts for quick access'}
               </p>
               {!searchQuery && (
@@ -367,22 +404,22 @@ export default function LibraryView() {
                               </span>
                             ))}
                             <span className="text-xs text-muted-foreground">
-                              Updated {formatDate(item.updatedAt)}
+                              Updated {formatDate(item.updated_at)}
                             </span>
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={(e) => { e.stopPropagation(); toggleFavorite(item.id); }}
+                          onClick={(e) => { e.stopPropagation(); toggleFavorite(item.id) }}
                           className={cn(
                             "p-1.5 rounded-lg transition-colors",
-                            item.isFavorite
+                            item.is_favorite
                               ? "text-warning hover:bg-warning/10"
                               : "text-muted-foreground hover:bg-muted"
                           )}
                         >
-                          <Star className={cn("w-4 h-4", item.isFavorite && "fill-current")} />
+                          <Star className={cn("w-4 h-4", item.is_favorite && "fill-current")} />
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); handleCopy(item) }}

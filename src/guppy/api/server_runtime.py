@@ -522,6 +522,9 @@ app.include_router(build_tier3_router(_server_context))             # /api/tier3
 from src.guppy.api.routes_booklet import build_booklet_router
 app.include_router(build_booklet_router(_server_context))           # /api/booklet/*
 
+from src.guppy.api.routes_library import build_library_router
+app.include_router(build_library_router(_server_context))           # /api/library/*
+
 # Serve static web UI files
 try:
     from fastapi.staticfiles import StaticFiles
