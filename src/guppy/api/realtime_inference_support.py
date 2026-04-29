@@ -265,8 +265,8 @@ def _bg_store_tool_outcome(name: str, args: dict, result: str) -> None:
 def _bg_summarize_session(history: list[dict]) -> None:
     """Fire-and-forget: summarize recent conversation turns into semantic memory.
 
-    Called when history reaches every 10th turn. Uses guppy-fast (qwen2.5:7b)
-    so summarization is cheap and non-blocking.
+    Called when history reaches every 10th turn. Uses llamacpp dispatch (Qwen2.5-3B-Instruct,
+    port 8085) so summarization is cheap, non-blocking, and Ollama-free.
     """
     import threading
 
@@ -281,7 +281,7 @@ def _bg_summarize_session(history: list[dict]) -> None:
                 turns.append(f"{role}: {content}")
             history_text = "\n".join(turns)
             payload = {
-                "model": "guppy-fast",
+                "model": "qwen2.5-3b-instruct",
                 "messages": [
                     {
                         "role": "system",
@@ -295,9 +295,9 @@ def _bg_summarize_session(history: list[dict]) -> None:
                 ],
                 "stream": False,
             }
-            r = requests.post("http://localhost:11434/api/chat", json=payload, timeout=30)
+            r = requests.post("http://localhost:8085/v1/chat/completions", json=payload, timeout=30)
             r.raise_for_status()
-            summary = (r.json().get("message", {}).get("content", "") or "").strip()
+            summary = (r.json().get("choices", [{}])[0].get("message", {}).get("content", "") or "").strip()
             if summary and len(summary) > 30:
                 from src.guppy.memory.semantic import remember_semantic
                 key = f"session_summary:{int(time.time())}"
@@ -577,54 +577,20 @@ def call_unified_inference(
 
     except Exception as exc:
         if requested_mode in {"local", "code", "claude", "ollama"}:
-            # For local mode: if the failure came from a specific llamacpp backend that's
-            # offline, try Ollama before hard-failing.  This avoids a 500 just because
-            # the user's saved active_local_model points to an offline backend.
-            if requested_mode == "local" and is_llamacpp:
-                owner.logger.warning(
-                    "llamacpp backend offline for '%s'; falling back to Ollama. Error: %s",
-                    active_local_model, exc,
-                )
-                try:
-                    return owner._call_selected_local_runtime(
-                        user_text,
-                        augmented_system_prompt,
-                        instance_name=instance_name,
-                        instance_type=instance_type,
-                        model_override=None,  # let Ollama pick its default model
-                    )
-                except Exception as _oll_exc:
-                    owner.logger.error(
-                        "Ollama fallback also failed after llamacpp offline: %s", _oll_exc
-                    )
-                    # fall through to the hard raise below
             owner.logger.error("Inference failed in explicit mode '%s': %s", requested_mode, exc)
             raise
         if not owner.os.environ.get("ANTHROPIC_API_KEY"):
             raise RuntimeError(
                 f"Local inference failed ({exc}). "
-                "Start Ollama (port 11434) or LM Studio (port 1234) and try again."
+                "Ensure at least one llama.cpp workspace agent (hermes4/hermes3) is running."
             ) from exc
         owner.logger.error("Unified inference failed: %s. Escalating to Claude Sonnet.", exc)
-        try:
-            return owner._call_claude_with_tools(
-                user_text,
-                augmented_system_prompt,
-                instance_name=instance_name,
-                instance_type=instance_type,
-            )
-        except Exception as cloud_error:
-            if is_rate_limited_error(cloud_error):
-                owner.logger.warning(
-                    "Claude fallback hit rate limits; trying local Ollama fallback"
-                )
-                return owner._call_ollama_with_tools(
-                    user_text,
-                    augmented_system_prompt,
-                    instance_name=instance_name,
-                    instance_type=instance_type,
-                )
-            raise
+        return owner._call_claude_with_tools(
+            user_text,
+            augmented_system_prompt,
+            instance_name=instance_name,
+            instance_type=instance_type,
+        )
 
 
 def _run_local_mode(
@@ -750,7 +716,7 @@ def _run_routed_mode(
         source = "haiku" if "haiku" in (target_model or "").lower() else "sonnet"
         return response, source, {"route_decision": route_decision}
 
-    if executor in {"ollama", "ollama_paired"}:
+    if executor in {"ollama", "ollama_paired", "llamacpp"}:
         if executor == "ollama_paired":
             result = router.query_local_paired(
                 augmented_system_prompt,
@@ -1743,9 +1709,62 @@ async def stream_unified_inference(
                 _log.warning("Claude Sonnet complex fallback failed: %s — continuing to local", _cplx_err)
         # else: fall through to general llamacpp/Ollama path
 
+    # ── simple → Hermes 3 (fast 8B, uncensored) → Hermes 4 fallback ─────────────
+    if _early_task_type == "simple" and requested_mode in {"auto", ""} and owner.GUPPY_CORE_AVAILABLE:
+        from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
+        _SIMPLE_ORDER = [
+            ("llamacpp-hermes3", _LOCAL_BACKEND_DEFAULT_MODELS.get("llamacpp-hermes3", "")),
+            ("llamacpp-hermes4", _LOCAL_BACKEND_DEFAULT_MODELS.get("llamacpp-hermes4", "")),
+        ]
+        for _sb, _sm in _SIMPLE_ORDER:
+            _sc = _LOCAL_BACKENDS.get(_sb, {})
+            _su = _sc.get("default_url", "")
+            _sp = int(_su.rsplit(":", 1)[-1]) if ":" in _su else 0
+            if not _sp or not _llc_port_alive(_sp) or not _sm:
+                continue
+            _s_msgs = build_router_messages(augmented_system, user_text, sanitize_chat_history(history))
+            _s_tools = _merged_openai_tools(owner)
+            def _s_tr(name: str, args: dict, _i=instance_name, _t=instance_type) -> str:
+                return str(owner.core.run_tool(name, args, instance_name=_i, instance_type=_t))
+            try:
+                async for token in _stream_llamacpp_tokens(
+                    model=_sm, backend=_sb, messages=_s_msgs, tools=_s_tools, tool_runner=_s_tr,
+                ):
+                    yield token
+                yield _SOURCE_SENTINEL + f"{_sb}:{_sm}"
+                return
+            except RuntimeError:
+                continue
+
+    # ── teaching → Hermes 4 (quality 14B, always-on) → Hermes 3 fallback ────────
+    if _early_task_type == "teaching" and requested_mode in {"auto", ""} and owner.GUPPY_CORE_AVAILABLE:
+        from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
+        _TEACH_ORDER = [
+            ("llamacpp-hermes4", _LOCAL_BACKEND_DEFAULT_MODELS.get("llamacpp-hermes4", "")),
+            ("llamacpp-hermes3", _LOCAL_BACKEND_DEFAULT_MODELS.get("llamacpp-hermes3", "")),
+        ]
+        for _tb, _tm in _TEACH_ORDER:
+            _tc = _LOCAL_BACKENDS.get(_tb, {})
+            _tu = _tc.get("default_url", "")
+            _tp = int(_tu.rsplit(":", 1)[-1]) if ":" in _tu else 0
+            if not _tp or not _llc_port_alive(_tp) or not _tm:
+                continue
+            _t_msgs = build_router_messages(augmented_system, user_text, sanitize_chat_history(history))
+            _t_tools = _merged_openai_tools(owner)
+            def _t_tr(name: str, args: dict, _i=instance_name, _t=instance_type) -> str:
+                return str(owner.core.run_tool(name, args, instance_name=_i, instance_type=_t))
+            try:
+                async for token in _stream_llamacpp_tokens(
+                    model=_tm, backend=_tb, messages=_t_msgs, tools=_t_tools, tool_runner=_t_tr,
+                ):
+                    yield token
+                yield _SOURCE_SENTINEL + f"{_tb}:{_tm}"
+                return
+            except RuntimeError:
+                continue
+
     is_llamacpp = bool(active_local_model and active_local_model in _LOCAL_LLAMACPP_ROUTES)
-    # Tracks whether llamacpp was attempted but the backend was not reachable,
-    # so we can gracefully fall through to Ollama instead of hard-failing.
+    # Tracks whether llamacpp was attempted but the backend was not reachable.
     llamacpp_failed = False
 
     # llama.cpp: stream via OpenAI-compat SSE with full tool-call loop.
@@ -1808,7 +1827,7 @@ async def stream_unified_inference(
                 except RuntimeError:
                     llamacpp_failed = True  # backend died mid-stream — fall through
             else:
-                # Backend not running — silently fall through to Ollama/cloud.
+                # Backend not running — fall through to Mode-A opportunistic chain.
                 llamacpp_failed = True
 
     # ── llamacpp opportunistic routing ───────────────────────────────────────────
@@ -1859,15 +1878,10 @@ async def stream_unified_inference(
             except RuntimeError:
                 continue  # try next fallback
 
-    # Allow Ollama streaming when: llamacpp was never attempted OR it failed.
-    # Previously "not is_llamacpp" blocked Ollama fallback when a llamacpp model
-    # was selected but not running — now we always fall through gracefully.
-    can_stream_ollama = (
-        owner.GUPPY_CORE_AVAILABLE
-        and owner.INFERENCE_ROUTER_AVAILABLE
-        and requested_mode in {"local", "auto", ""}
-        and (not is_llamacpp or llamacpp_failed)
-    )
+    # Ollama streaming is disabled — all local inference routes through llama.cpp.
+    # The Mode-A fallback chain above (hermes4 → hermes3 → pepe → …) handles any
+    # backend that was offline or unrecognised.
+    can_stream_ollama = False
 
     if can_stream_ollama:
         try:

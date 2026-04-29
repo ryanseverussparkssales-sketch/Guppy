@@ -113,6 +113,17 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "vram_gb": 5.0,
         "auto_start": True,
     },
+    # Llama 3.3 70B Instruct Q4_K_M: CPU-only flagship chat (zero VRAM).
+    # Runs entirely in RAM (~42 GB) alongside the GPU workspace agent stack.
+    # ~4-6 tok/s on Ryzen 9 9900X — acceptable for conversation, uncensored.
+    "llamacpp-chat": {
+        "bat":     r"C:\llama-cpp\launch-chat-70b.bat",
+        "port":    8090,
+        "label":   "Llama 3.3 70B Chat (CPU)",
+        "mode":    "A",
+        "note":    "Flagship CPU-only chat · ~42 GB RAM · zero VRAM · ~4-6 tok/s",
+        "vram_gb": 0.0,
+    },
 }
 
 # Total VRAM budget for the installed GPU (RX 7900 XTX)
@@ -121,6 +132,7 @@ _GPU_VRAM_GB: float = float(os.environ.get("GUPPY_GPU_VRAM_GB", "24"))
 _MODE_A = {
     "llamacpp-pepe", "llamacpp-gemma", "llamacpp-minicpm", "llamacpp-dispatch",
     "llamacpp-hermes4", "llamacpp-hermes3", "llamacpp-rocinante", "llamacpp-xlam",
+    "llamacpp-chat",
 }
 _MODE_B = {"llamacpp-qwen3"}
 

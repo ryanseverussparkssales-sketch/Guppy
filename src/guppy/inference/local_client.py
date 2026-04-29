@@ -17,6 +17,7 @@ Backend selection (GUPPY_LOCAL_RUNTIME_BACKEND env var):
   llamacpp-hermes3    — llama.cpp Hermes 3 8B Lorablated at 127.0.0.1:8087 (GUPPY_LLAMACPP_HERMES3_URL)
   llamacpp-rocinante  — llama.cpp Rocinante X 12B at 127.0.0.1:8088 (GUPPY_LLAMACPP_ROCINANTE_URL)
   llamacpp-xlam       — llama.cpp xLAM-2-8B-fc-r at 127.0.0.1:8089  (GUPPY_LLAMACPP_XLAM_URL)
+  llamacpp-chat       — llama.cpp Llama 3.3 70B CPU-only at 127.0.0.1:8090 (GUPPY_LLAMACPP_CHAT_URL)
   local_harness       — Generic OpenAI-compat harness at 127.0.0.1:8001 (GUPPY_LOCAL_HARNESS_BASE_URL)
 
 LM Studio model resolution:
@@ -247,6 +248,11 @@ _LLAMACPP_MODEL_ROUTE: Dict[str, str] = {
     "xlam-2-8b-fc-r":          "llamacpp-xlam",
     "xlam-8b":                  "llamacpp-xlam",
     "xlam":                     "llamacpp-xlam",
+    # Llama 3.3 70B Instruct -- CPU-only flagship chat (port 8090)
+    "llama-3.3-70b-instruct":   "llamacpp-chat",
+    "llama-3.3-70b":            "llamacpp-chat",
+    "llama-70b":                "llamacpp-chat",
+    "chat-70b":                 "llamacpp-chat",
 }
 
 # Canonical model name for each llamacpp backend (first/preferred alias).
@@ -261,6 +267,7 @@ _BACKEND_DEFAULT_MODELS: Dict[str, str] = {
     "llamacpp-hermes3":    "hermes-3-8b-lorablated",
     "llamacpp-rocinante":  "rocinante-x-12b",
     "llamacpp-xlam":       "Llama-xLAM-2-8B-fc-r-Q4_K_M.gguf",
+    "llamacpp-chat":       "Llama-3.3-70B-Instruct-Q4_K_M.gguf",
 }
 
 # ── circuit breakers ──────────────────────────────────────────────────────────

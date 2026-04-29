@@ -53,22 +53,20 @@ class InferenceRouter:
     OLLAMA_TIMEOUT = 10       # fallback path timeout (cloud-first modes)
     OLLAMA_LOCAL_TIMEOUT = 60 # local-only mode â€” allow full 32B inference time
 
-    # Local model roster
-    # Two 7B models share the qwen2.5:7b base blob â€” no extra VRAM cost for having both.
-    # 7B + 14B = ~14 GB â†’ both can be warm simultaneously on the 7900 XTX.
-    # 32B needs exclusive VRAM (~20 GB); evicts everything else when loaded.
-    LOCAL_MODEL       = "guppy"         # qwen2.5:32b  â€” complex butler tasks
-    LOCAL_FAST_MODEL  = "guppy-fast"    # qwen2.5:7b   â€” simple/fast butler tasks
-    LOCAL_TEACH_MODEL = "guppy-teach"   # qwen2.5:32b  â€” Socratic teaching
-    LOCAL_CODE_MODEL  = "guppy-code"    # qwen2.5-coder:14b â€” code review/debug
-    LOCAL_VAULT_MODEL = "vault-scraper" # qwen2.5:7b   â€” structured media extraction
+    # Local model roster -- llama.cpp backends (primary); Ollama is no longer in the routing path.
+    # Route aliases: “hermes-4-14b” -> llamacpp-hermes4 (8086), “hermes-3-8b-lorablated” -> llamacpp-hermes3 (8087)
+    LOCAL_MODEL       = “hermes-4-14b”           # complex butler tasks -- always-on workspace agent
+    LOCAL_FAST_MODEL  = “hermes-3-8b-lorablated” # simple/fast -- uncensored 8B
+    LOCAL_TEACH_MODEL = “hermes-4-14b”           # teaching -- quality over speed
+    LOCAL_CODE_MODEL  = “hermes-4-14b”           # code review/debug
+    LOCAL_VAULT_MODEL = “vault-scraper”           # structured media extraction (Ollama-only special case)
 
     LOCAL_TIER_MAP: Dict[str, str] = {
-        "simple":    LOCAL_FAST_MODEL,
-        "complex":   LOCAL_MODEL,
-        "teaching":  LOCAL_TEACH_MODEL,
-        "agentic":   LOCAL_MODEL,   # best Ollama fallback for agentic (32B)
-        "tool_call": LOCAL_FAST_MODEL,  # Ollama fallback; xLAM intercept fires first
+        “simple”:    LOCAL_FAST_MODEL,   # hermes3 -- fast 8B
+        “complex”:   LOCAL_MODEL,        # hermes4 -- 14B quality
+        “teaching”:  LOCAL_TEACH_MODEL,  # hermes4 -- 14B quality
+        “agentic”:   LOCAL_MODEL,        # hermes4 fallback (Qwen3 intercept fires first)
+        “tool_call”: LOCAL_FAST_MODEL,   # hermes3 fallback (xLAM intercept fires first)
     }
 
     # Haiku boost modes â€” targeted Haiku pass that supplements local output
@@ -111,8 +109,8 @@ class InferenceRouter:
         # Runtime model overrides for low-compute/night runs.
         self.low_compute_mode = self._bool_env("GUPPY_LOW_COMPUTE_MODE", False)
         default_complex_model = self.LOCAL_FAST_MODEL if self.low_compute_mode else self.LOCAL_MODEL
-        default_code_model = "guppy-code"
-        default_teach_model = default_code_model if self.low_compute_mode else "guppy-teach"
+        default_code_model = "hermes-4-14b"
+        default_teach_model = self.LOCAL_FAST_MODEL if self.low_compute_mode else "hermes-4-14b"
 
         self.LOCAL_FAST_MODEL = (os.environ.get("GUPPY_LOCAL_FAST_MODEL", self.LOCAL_FAST_MODEL) or self.LOCAL_FAST_MODEL).strip()
         self.LOCAL_MODEL = (os.environ.get("GUPPY_LOCAL_COMPLEX_MODEL", default_complex_model) or default_complex_model).strip()
@@ -121,10 +119,10 @@ class InferenceRouter:
         self.LOCAL_VAULT_MODEL = (os.environ.get("GUPPY_LOCAL_VAULT_MODEL", self.LOCAL_VAULT_MODEL) or self.LOCAL_VAULT_MODEL).strip()
 
         self.LOCAL_TIER_MAP = {
-            "simple": self.LOCAL_FAST_MODEL,
-            "complex": self.LOCAL_MODEL,
-            "teaching": self.LOCAL_TEACH_MODEL,
-            "agentic": self.LOCAL_MODEL,  # best Ollama fallback for agentic (32B)
+            "simple":   self.LOCAL_FAST_MODEL,   # hermes3 — fast 8B
+            "complex":  self.LOCAL_MODEL,         # hermes4 — 14B quality
+            "teaching": self.LOCAL_TEACH_MODEL,   # hermes4 — 14B quality
+            "agentic":  self.LOCAL_MODEL,         # hermes4 fallback (Qwen3 intercept fires first)
         }
 
         default_predict = "320" if self.low_compute_mode else "512"
@@ -406,45 +404,45 @@ class InferenceRouter:
                 }
             return {
                 "task_type": "teaching",
-                "route": "ollama_teaching",
-                "route_reason": "manual teaching mode requested (no API key)",
-                "executor": "ollama",
+                "route": "llamacpp_teaching",
+                "route_reason": "manual teaching mode requested (no API key) -> hermes4",
+                "executor": "llamacpp",
                 "system_profile": "guppy",
                 "model": self.LOCAL_TEACH_MODEL,
                 "backup_model": "",
             }
 
-        # local â€” tier-aware local-only routing (no cloud fallback)
-        # simpleâ†’guppy-fast, complexâ†’guppy, teachingâ†’guppy-teach
-        if normalized_mode == "local":
+        # local — tier-aware local-only routing (no cloud fallback), llama.cpp primary
+        # simple→hermes3, complex/teaching→hermes4
+        if normalized_mode == “local”:
             model = self.LOCAL_TIER_MAP.get(task_type, self.LOCAL_MODEL)
             return {
-                "task_type": task_type,
-                "route": f"local_{task_type}",
-                "route_reason": f"local-only mode â€” {task_type} tier â†’ {model}",
-                "executor": "ollama",
-                "system_profile": "guppy",
-                "model": model,
-                "backup_model": "",
-                "timeout": self.OLLAMA_LOCAL_TIMEOUT,
-                "local_only": True,
+                “task_type”: task_type,
+                “route”: f”local_{task_type}”,
+                “route_reason”: f”local-only mode — {task_type} tier → {model}”,
+                “executor”: “llamacpp”,
+                “system_profile”: “guppy”,
+                “model”: model,
+                “backup_model”: “”,
+                “timeout”: self.OLLAMA_LOCAL_TIMEOUT,
+                “local_only”: True,
             }
 
-        # code â€” dedicated coder-14B session (guppy-code), optional Haiku boost
-        if normalized_mode == "code":
+        # code — dedicated code session via Hermes4, optional Haiku boost
+        if normalized_mode == “code”:
             haiku_boost = self._should_use_haiku_boost(has_api)
             return {
-                "task_type": task_type,
-                "route": "local_code",
-                "route_reason": "code mode -> guppy-code (qwen2.5-coder:14b)",
-                "executor": "ollama",
-                "system_profile": "guppy",
-                "model": self.LOCAL_CODE_MODEL,
-                "backup_model": "",
-                "timeout": self.OLLAMA_LOCAL_TIMEOUT,
-                "local_only": True,
-                "haiku_boost": haiku_boost,
-                "haiku_boost_mode": self.HAIKU_BOOST_CODE_REVIEW,
+                “task_type”: task_type,
+                “route”: “local_code”,
+                “route_reason”: “code mode -> hermes4 (llamacpp, uncensored)”,
+                “executor”: “llamacpp”,
+                “system_profile”: “guppy”,
+                “model”: self.LOCAL_CODE_MODEL,
+                “backup_model”: “”,
+                “timeout”: self.OLLAMA_LOCAL_TIMEOUT,
+                “local_only”: True,
+                “haiku_boost”: haiku_boost,
+                “haiku_boost_mode”: self.HAIKU_BOOST_CODE_REVIEW,
             }
 
         # vault â€” structured media extraction via vault-scraper, optional Haiku enrich pass
@@ -555,9 +553,9 @@ class InferenceRouter:
                 }
             return {
                 "task_type": task_type,
-                "route": "ollama_teaching",
-                "route_reason": "teaching task -> guppy-teach/Ollama",
-                "executor": "ollama",
+                "route": "llamacpp_teaching",
+                "route_reason": "teaching task -> hermes4 (llamacpp, always-on)",
+                "executor": "llamacpp",
                 "system_profile": "guppy",
                 "model": self.LOCAL_TEACH_MODEL,
                 "backup_model": "",
@@ -566,11 +564,11 @@ class InferenceRouter:
         if not has_api:
             return {
                 "task_type": task_type,
-                "route": "ollama_fallback",
-                "route_reason": "no API key",
-                "executor": "ollama",
+                "route": "llamacpp_fallback",
+                "route_reason": "no API key -> hermes4 (llamacpp, always-on)",
+                "executor": "llamacpp",
                 "system_profile": "guppy",
-                "model": "guppy",
+                "model": self.LOCAL_MODEL,
                 "backup_model": "",
             }
 
