@@ -662,6 +662,33 @@ def call_unified_inference(
         )
 
 
+def _call_llamacpp_sync(
+    *,
+    active_local_model: str,
+    messages: list[dict],
+    timeout: float = 90.0,
+) -> str:
+    """Synchronous non-streaming call to a llama.cpp OpenAI-compat endpoint."""
+    import httpx
+    backend = _LOCAL_LLAMACPP_ROUTES.get(active_local_model, "")
+    cfg = _LOCAL_BACKENDS.get(backend, {})
+    base = cfg.get("default_url", "").rstrip("/")
+    if not base:
+        raise RuntimeError(f"No URL configured for llamacpp backend {backend!r}")
+    url = f"{base}/v1/chat/completions"
+    payload = {
+        "model": active_local_model,
+        "messages": messages,
+        "stream": False,
+        "temperature": 0.7,
+        "max_tokens": 2048,
+    }
+    resp = httpx.post(url, json=payload, timeout=timeout)
+    resp.raise_for_status()
+    data = resp.json()
+    return str((data.get("choices") or [{}])[0].get("message", {}).get("content", "")).strip()
+
+
 def _run_local_mode(
     *,
     owner: Any,
@@ -674,7 +701,18 @@ def _run_local_mode(
     active_local_model: str | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
     task_type = router._classify_task(user_text, augmented_system_prompt)
-    # Ignore active_local_model if it's a llamacpp key — those are handled upstream
+
+    # If the surface has a llamacpp model selected, call it directly — don't route through Ollama.
+    if active_local_model and active_local_model in _LOCAL_LLAMACPP_ROUTES:
+        from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
+        _backend = _LOCAL_LLAMACPP_ROUTES.get(active_local_model, "")
+        _backend_url = (_LOCAL_BACKENDS.get(_backend) or {}).get("default_url", "")
+        _backend_port = int(_backend_url.rsplit(":", 1)[-1]) if ":" in _backend_url else 0
+        if _backend_port and _llc_port_alive(_backend_port):
+            messages = build_router_messages(augmented_system_prompt, user_text, sanitize_chat_history(None))
+            response = _call_llamacpp_sync(active_local_model=active_local_model, messages=messages)
+            return response, "llamacpp", {"route_mode": "local", "model": active_local_model}
+
     _ollama_model = (
         active_local_model
         if (active_local_model and active_local_model not in _LOCAL_LLAMACPP_ROUTES)
