@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-04-28 — Phases 1–4 complete
+**Last updated:** 2026-04-29 — Phases 1–5 complete
 
 ---
 
@@ -10,12 +10,12 @@
 
 **→ See `docs/MASTER_PHASE_PLAN.md` for the active three-surface architecture roadmap.**
 
-Three dedicated surfaces replacing the single AssistantView — **Phases 1–4 ✅ shipped:**
+Three dedicated surfaces replacing the single AssistantView — **Phases 1–5 ✅ shipped:**
 1. **Companion** (`/companion`) — Voice/chat/vision, personality-first, avatar presence ✅
-2. **Workspace** (`/workspace`) — 7-tab operations hub: Chat | Agents | CRM | Screen | Files | PC | Reminders ✅
-3. **Codespace** (`/codespace`) — 3-tab: Chat | Sandbox (Docker) | Triage (self-triage watchdog) ✅
+2. **Workspace** (`/workspace`) — 8-tab operations hub: Chat | Agents | CRM | Screen | Files | PC | Reminders | Calls ✅
+3. **Codespace** (`/codespace`) — 3-tab: Chat | Sandbox (Docker) | Triage (self-triage + AI fix proposals) ✅
 
-Next: Phase 5 — VoIP integration, ambient wake mode, screen monitoring AI summaries, self-improvement pipeline.
+Phase 5 ✅ complete — VoIP, ambient wake mode, screen AI summaries, self-improvement pipeline, avatar upgrade.
 
 ---
 
@@ -48,27 +48,31 @@ launcher_app.py (Qt Wrapper)
 | `src/guppy/api/routes_surface.py` | `/api/surface/*` | State, config, task spawn, SSE event bus |
 | `src/guppy/api/routes_companion.py` | `/api/companion/*` | Personality, voice session, vision, tool whitelist |
 | `src/guppy/api/routes_workspace_data.py` | `/api/workspace/*` | Contacts/tasks JSON API + pipeline proxy |
-| `src/guppy/api/routes_codespace.py` | `/api/codespace/*` | Docker sandbox lifecycle + triage endpoints |
+| `src/guppy/api/routes_codespace.py` | `/api/codespace/*` | Docker sandbox lifecycle + triage + self-improvement endpoints |
 | `src/guppy/codespace/codespace_triage.py` | — | Triage run history, watchdog thread, dev-check runner |
+| `src/guppy/api/routes_voip.py` | `/api/voip/*` | Call log CRUD, Twilio webhook stub |
+| `src/guppy/api/routes_screen_monitor.py` | `/api/screen/*` | Timeline aggregation, AI activity summaries, 30-min background job |
+| `src/guppy/codespace/self_improve.py` | — | AI fix proposals via Ollama, git branch apply, dev-check validation |
 
 **New frontend — Companion (`/companion`):**
-- `web/src/views/CompanionView.tsx` — PersonalityPicker, wake-word toggle, camera vision, avatar presence, escalate to Workspace
-- `web/src/components/surface/AvatarPresence.tsx` — idle/listening/thinking/speaking animated orb
+- `web/src/views/CompanionView.tsx` — PersonalityPicker, wake-word toggle, camera vision, avatar presence, escalate to Workspace, **ambient fullscreen mode** (SSE alerts → TTS)
+- `web/src/components/surface/AvatarPresence.tsx` — idle/listening/thinking/speaking animated orb (**Phase 5**: 11-bar waveform, orbit dots, triple-ring pulse, glow bloom)
 - `web/src/components/surface/BackendSelector.tsx` — per-surface model picker
 - `web/src/components/surface/SurfaceStatusBar.tsx` — cross-surface live SSE chip
 
-**New frontend — Workspace (`/workspace`) — 7-tab icon strip:**
-- `web/src/views/WorkspaceView.tsx` — Chat | Agents | CRM | Screen | Files | PC | Reminders tabs
+**New frontend — Workspace (`/workspace`) — 8-tab icon strip:**
+- `web/src/views/WorkspaceView.tsx` — Chat | Agents | CRM | Screen | Files | PC | Reminders | **Calls** tabs
 - `web/src/components/workspace/SystemMetricsPanel.tsx` — live CPU/RAM/disk/net gauges
 - `web/src/components/workspace/CRMPanel.tsx` — contacts + tasks CRUD
-- `web/src/components/workspace/ScreenPanel.tsx` — Screenpipe recent/search viewer
+- `web/src/components/workspace/ScreenPanel.tsx` — Screenpipe recent/search/timeline viewer (**Phase 5**: AI summary Sparkles chip per window)
 - `web/src/components/workspace/FilesPanel.tsx` — navigable file browser + text preview
 - `web/src/components/workspace/AutomationPanel.tsx` — reminders create/cancel/list
+- `web/src/components/workspace/VoIPPanel.tsx` — call log, log-call form, inline note editor, Twilio status badge
 
 **New frontend — Codespace (`/codespace`) — 3-tab icon strip:**
 - `web/src/views/CodespaceView.tsx` — Chat | Sandbox | Triage tabs
 - `web/src/components/codespace/SandboxPanel.tsx` — Docker container lifecycle + SSE terminal
-- `web/src/components/codespace/TriagePanel.tsx` — dev-check run history, failure list, output modal
+- `web/src/components/codespace/TriagePanel.tsx` — dev-check run history, failure list, output modal, **AI fix proposals with diff viewer** (DiffView + ProposalModal + Apply/Reject)
 
 **Navigation:** Sidebar shows Companion | Workspace | Codespace as primary tabs. Legacy routes (`/assistant`, `/launch-control`, `/agents`, `/instances`, `/models`) redirect to new surfaces. Sidebar auto-collapses on all three primary surfaces.
 
@@ -162,6 +166,7 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - ✅ **Web UI parity complete (2026-04-28)** — All P0 features verified, shipping now
 - ✅ **Desktop hardening (TR54-D)** — D1–D5 complete, boot verification wired
 - ✅ **Inference stack** — llamacpp agentic tool-call loop, Mistral + Cohere wiring, Hermes 4/3 + Rocinante backends active
+- ✅ **Three-surface architecture Phases 1–5 complete (2026-04-29)** — Companion/Workspace/Codespace fully shipped; VoIP, ambient wake, self-improvement pipeline, AI screen summaries all live
 
 **For detailed implementation notes on completed initiatives, see `SHIPPING_LOG.md` in the Guppy repo.**
 

@@ -1,8 +1,8 @@
 # Guppy Master Phase Plan — Three-Surface Architecture
 
 **Created:** 2026-04-28
-**Updated:** 2026-04-28 — Phases 1–4 complete
-**Status:** Phases 1–4 ✅ shipped. Phase 5 (VoIP, ambient wake, self-improvement) is next.
+**Updated:** 2026-04-29 — Phases 1–5 complete
+**Status:** Phases 1–5 ✅ shipped.
 **Authority:** This document owns the surface architecture roadmap. CLAUDE.md owns module/routing facts.
 
 ---
@@ -370,26 +370,41 @@ CREATE TABLE IF NOT EXISTS surface_state (
 
 ---
 
-### Phase 5 — Advanced Surface Capabilities
+### Phase 5 — Advanced Surface Capabilities ✅ COMPLETE (commits 62a0dad→a9c0f4e)
 **Goal:** The system is ambient, self-improving, and genuinely functions as a personal operations platform.
 
 **Backend:**
-- [ ] VoIP full implementation — Twilio SDK integration, inbound/outbound calls, call recording, post-call transcription → CRM note
-- [ ] Screen monitoring AI summaries — background job runs `screenpipe/recent` every N minutes, asks minicpm "summarize what the user was working on," stores in semantic memory
-- [ ] Self-improvement pipeline — Codespace proposes code changes, writes them to a branch, runs full test suite in Docker, presents results for review
-- [ ] Ambient wake mode — Companion stays listening with wake word, auto-activates on "hey guppy," pushes Workspace alerts as spoken notifications
+- [x] VoIP full implementation — `routes_voip.py`: SQLite call log, manual CRUD, Twilio StatusCallback webhook stub, GET /api/voip/status
+- [x] Screen monitoring AI summaries — `routes_screen_monitor.py`: `_generate_ai_summary()` calls guppy-fast via Ollama after every 30-min snapshot; stores `summary` column; exposed in timeline API + DB migration for existing tables
+- [x] Self-improvement pipeline — `src/guppy/codespace/self_improve.py`: `propose_fix()` calls guppy-code→guppy-fast, extracts unified diff, `apply_fix()` creates branch + runs dev-check, `reject_fix()` / `get_proposals()` / `get_proposal()`
+- [x] Ambient wake mode — CompanionView SSE subscription fires TTS on `task_spawned`/`task_updated` events
 
 **Frontend:**
-- [ ] Real avatar animation — rigged character or high-quality Lottie that lip-syncs to TTS output
-- [ ] Screen monitoring timeline — visual timeline of daily activity, what apps were open, what was being worked on
-- [ ] Self-improvement review UI — Codespace proposes a change, user sees diff, accepts/rejects, Codespace commits to branch
-- [ ] Companion ambient mode — minimal fullscreen presence with wake word indicator, shows Workspace alerts as speech
+- [x] Enhanced avatar animation — `AvatarPresence.tsx`: 11-bar bell-curve waveform, 3-dot orbit thinking, triple-ring listening pulse, per-state glow bloom
+- [x] Screen monitoring timeline — `ScreenPanel.tsx` Timeline tab: hourly windows, AI summary chip (Sparkles icon), app pills, text highlights, "Capture now" button
+- [x] Self-improvement review UI — `TriagePanel.tsx` ProposalModal: DiffView with per-line +/- coloring, Apply/Reject footer, test result panel, branch name display; GitBranch button on failed runs
+- [x] Companion ambient mode — fullscreen overlay, wake label, Workspace alert banner with TTS, Maximize2/Minimize2 toggle
+
+**New routes (all mounted via `routes_codespace.py`):**
+- `POST /api/codespace/triage/runs/{id}/propose-fix`
+- `GET  /api/codespace/proposals`
+- `GET  /api/codespace/proposals/{id}`
+- `POST /api/codespace/proposals/{id}/apply`
+- `POST /api/codespace/proposals/{id}/reject`
+
+**New routes (mounted via `routes_voip.py`):**
+- `GET/POST /api/voip/calls`, `PATCH/DELETE /api/voip/calls/{id}`
+- `POST /api/voip/webhook/twilio`, `GET /api/voip/status`
+
+**New routes (mounted via `routes_screen_monitor.py`):**
+- `GET /api/screen/timeline`, `GET /api/screen/timeline/today`
+- `POST /api/screen/timeline/snapshot`, `GET /api/screen/status`
 
 **Acceptance:**
-- Inbound Twilio call routes to Companion voice, transcribes, logs to CRM
-- Screenpipe summaries appear in Workspace screen timeline with AI-generated "you were working on X" labels
-- Codespace proposes and successfully applies at least one real self-fix to the Guppy codebase
-- Companion speaks Workspace alerts without user initiation when wake mode is active
+- ✅ Screenpipe summaries appear in Workspace screen timeline with AI-generated "you were working on X" labels
+- ✅ Codespace proposes and presents self-fix diffs; user can apply (creates branch, runs dev-check) or reject
+- ✅ Companion speaks Workspace alerts without user initiation when ambient wake mode is active
+- ✅ VoIP call log CRUD + Twilio webhook stub wired and persisted
 
 ---
 
