@@ -1,7 +1,8 @@
 /**
  * WorkspaceView — Operations Hub
  *
- * Icon tab strip: Chat | Agents | CRM | Screen | Files | PC | Reminders
+ * Icon tab strip (11 tabs):
+ *   Chat | Agents | CRM | Screen | Files | PC | Tasks | Calls | Calendar | Email | Media
  * Each tab mounts its panel in a consistent scrollable container.
  * Chat tab keeps the full AssistantView + collapsible AgentTaskPanel sidebar.
  */
@@ -9,7 +10,8 @@ import { useState, useEffect, lazy, Suspense } from 'react'
 import {
   MessageSquare, LayoutList, Users, Monitor, FolderOpen,
   Cpu, Bell, Phone, Zap, X, CheckCircle2, Clock, AlertCircle,
-  Loader2, ChevronRight, ChevronDown,
+  Loader2, ChevronRight, ChevronDown, Calendar, Mail, Library,
+  CheckSquare,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
@@ -22,23 +24,31 @@ import { FilesPanel } from '@/components/workspace/FilesPanel'
 import { SystemMetricsPanel } from '@/components/workspace/SystemMetricsPanel'
 import { AutomationPanel } from '@/components/workspace/AutomationPanel'
 import { VoIPPanel } from '@/components/workspace/VoIPPanel'
+import { CalendarPanel } from '@/components/workspace/CalendarPanel'
+import { EmailPanel } from '@/components/workspace/EmailPanel'
+import { MediaLibraryPanel } from '@/components/workspace/MediaLibraryPanel'
+import { TaskManagerPanel } from '@/components/workspace/TaskManagerPanel'
+import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
 
 // Lazy-load the full chat so it doesn't block this view's render
 const AssistantChat = lazy(() => import('./AssistantView'))
 
 // ── Tab config ─────────────────────────────────────────────────────────────────
 
-type Tab = 'chat' | 'agents' | 'crm' | 'screen' | 'files' | 'pc' | 'reminders' | 'voip'
+type Tab = 'chat' | 'agents' | 'crm' | 'screen' | 'files' | 'pc' | 'tasks' | 'voip' | 'calendar' | 'email' | 'media'
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
-  { id: 'chat',      icon: <MessageSquare className="w-4 h-4" />, label: 'Chat'      },
-  { id: 'agents',    icon: <LayoutList    className="w-4 h-4" />, label: 'Agents'    },
-  { id: 'crm',       icon: <Users         className="w-4 h-4" />, label: 'CRM'       },
-  { id: 'screen',    icon: <Monitor       className="w-4 h-4" />, label: 'Screen'    },
-  { id: 'files',     icon: <FolderOpen    className="w-4 h-4" />, label: 'Files'     },
-  { id: 'pc',        icon: <Cpu           className="w-4 h-4" />, label: 'PC'        },
-  { id: 'reminders', icon: <Bell          className="w-4 h-4" />, label: 'Reminders' },
-  { id: 'voip',      icon: <Phone         className="w-4 h-4" />, label: 'Calls'     },
+  { id: 'chat',     icon: <MessageSquare className="w-4 h-4" />, label: 'Chat'     },
+  { id: 'agents',   icon: <LayoutList    className="w-4 h-4" />, label: 'Agents'   },
+  { id: 'crm',      icon: <Users         className="w-4 h-4" />, label: 'CRM'      },
+  { id: 'screen',   icon: <Monitor       className="w-4 h-4" />, label: 'Screen'   },
+  { id: 'files',    icon: <FolderOpen    className="w-4 h-4" />, label: 'Files'    },
+  { id: 'pc',       icon: <Cpu           className="w-4 h-4" />, label: 'PC'       },
+  { id: 'tasks',    icon: <CheckSquare   className="w-4 h-4" />, label: 'Tasks'    },
+  { id: 'voip',     icon: <Phone         className="w-4 h-4" />, label: 'Calls'    },
+  { id: 'calendar', icon: <Calendar      className="w-4 h-4" />, label: 'Calendar' },
+  { id: 'email',    icon: <Mail          className="w-4 h-4" />, label: 'Email'    },
+  { id: 'media',    icon: <Library       className="w-4 h-4" />, label: 'Media'    },
 ]
 
 // ── Task types ─────────────────────────────────────────────────────────────────
@@ -386,8 +396,13 @@ export default function WorkspaceView() {
           )}
 
           {activeTab === 'files' && (
-            <div className="h-full">
-              <FilesPanel />
+            <div className="h-full flex flex-col gap-0 overflow-hidden">
+              <div className="flex-1 overflow-hidden">
+                <FilesPanel />
+              </div>
+              <div className="border-t border-outline-variant/10 p-3 bg-surface-container-low/20 flex-shrink-0">
+                <DocumentDropZone surface="workspace" compact />
+              </div>
             </div>
           )}
 
@@ -397,15 +412,33 @@ export default function WorkspaceView() {
             </div>
           )}
 
-          {activeTab === 'reminders' && (
+          {activeTab === 'tasks' && (
             <div className="h-full">
-              <AutomationPanel />
+              <TaskManagerPanel />
             </div>
           )}
 
           {activeTab === 'voip' && (
             <div className="h-full">
               <VoIPPanel />
+            </div>
+          )}
+
+          {activeTab === 'calendar' && (
+            <div className="h-full">
+              <CalendarPanel />
+            </div>
+          )}
+
+          {activeTab === 'email' && (
+            <div className="h-full">
+              <EmailPanel />
+            </div>
+          )}
+
+          {activeTab === 'media' && (
+            <div className="h-full">
+              <MediaLibraryPanel />
             </div>
           )}
         </div>

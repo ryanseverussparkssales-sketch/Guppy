@@ -24,6 +24,7 @@ import { useVoice } from '@/hooks/useVoice'
 import { AvatarPresence, type AvatarState } from '@/components/surface/AvatarPresence'
 import { BackendSelector } from '@/components/surface/BackendSelector'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
+import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
 import api from '@/api/client'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -680,6 +681,8 @@ export default function CompanionView() {
             Clear
           </button>
         </div>
+        {/* Document drop zone — compact, collapsed by default */}
+        <DocumentDropZone surface="companion" compact className="mt-2 px-1" />
       </div>
     </div>
   )

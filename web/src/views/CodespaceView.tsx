@@ -9,7 +9,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Code2, Terminal, ShieldCheck, ArrowUp, StopCircle,
-  FolderCog, Braces,
+  FolderCog, Braces, Upload,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
@@ -20,15 +20,17 @@ import { BackendSelector } from '@/components/surface/BackendSelector'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
 import { SandboxPanel } from '@/components/codespace/SandboxPanel'
 import { TriagePanel } from '@/components/codespace/TriagePanel'
+import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
 
 // ── Tab config ─────────────────────────────────────────────────────────────────
 
-type Tab = 'chat' | 'sandbox' | 'triage'
+type Tab = 'chat' | 'sandbox' | 'triage' | 'docs'
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'chat',    icon: <Code2       className="w-4 h-4" />, label: 'Chat'    },
   { id: 'sandbox', icon: <Terminal    className="w-4 h-4" />, label: 'Sandbox' },
   { id: 'triage',  icon: <ShieldCheck className="w-4 h-4" />, label: 'Triage'  },
+  { id: 'docs',    icon: <Upload      className="w-4 h-4" />, label: 'Docs'    },
 ]
 
 // ── Auto-height textarea hook ─────────────────────────────────────────────────
@@ -379,6 +381,11 @@ export default function CodespaceView() {
           {activeTab === 'triage' && (
             <div className="h-full">
               <TriagePanel />
+            </div>
+          )}
+          {activeTab === 'docs' && (
+            <div className="h-full overflow-y-auto p-4">
+              <DocumentDropZone surface="codespace" />
             </div>
           )}
         </div>
