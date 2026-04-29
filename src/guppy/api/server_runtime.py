@@ -549,6 +549,18 @@ app.include_router(build_screen_monitor_router(_server_context))    # /api/scree
 from src.guppy.api.routes_voip import build_voip_router
 app.include_router(build_voip_router(_server_context))              # /api/voip/*
 
+from src.guppy.api.routes_calendar import build_calendar_router
+app.include_router(build_calendar_router(_server_context))          # /api/calendar/*
+
+from src.guppy.api.routes_email import build_email_router
+app.include_router(build_email_router(_server_context))             # /api/email/*
+
+from src.guppy.api.routes_media import build_media_router
+app.include_router(build_media_router(_server_context))             # /api/media/*
+
+from src.guppy.api.routes_documents import build_documents_router
+app.include_router(build_documents_router(_server_context))         # /api/documents/*
+
 # Start background services
 try:
     from src.guppy.codespace.codespace_triage import start_watchdog as _start_watchdog
