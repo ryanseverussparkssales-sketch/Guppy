@@ -1,8 +1,10 @@
 """Screen activity monitor — timeline aggregation over Screenpipe data.
 
 Groups raw Screenpipe OCR/audio captures into 30-minute activity windows,
-stores them in SQLite, and exposes a timeline API. A background job runs
-every 30 minutes; the UI can also trigger on-demand snapshots.
+stores them in SQLite, and exposes a timeline API. After each snapshot an
+Ollama (guppy-fast) call generates a one-sentence AI activity summary
+("You were working on…"). A background job runs every 30 minutes; the UI
+can also trigger on-demand snapshots.
 
 GET  /api/screen/timeline         — list windows (today by default)
 GET  /api/screen/timeline/today   — today's windows, newest first
@@ -45,9 +47,15 @@ def _conn() -> sqlite3.Connection:
             highlights   TEXT NOT NULL DEFAULT '[]',
             item_count   INTEGER NOT NULL DEFAULT 0,
             word_count   INTEGER NOT NULL DEFAULT 0,
+            summary      TEXT NOT NULL DEFAULT '',
             created_at   TEXT NOT NULL
         )
     """)
+    # Migration: add summary column if absent (existing DB from prior version)
+    try:
+        conn.execute("ALTER TABLE screen_windows ADD COLUMN summary TEXT NOT NULL DEFAULT ''")
+    except Exception:
+        pass  # column already exists
     conn.commit()
     return conn
 
@@ -111,6 +119,45 @@ def _word_count(items: list[dict]) -> int:
     return total
 
 
+# ── AI summary ────────────────────────────────────────────────────────────────
+
+def _generate_ai_summary(apps: list[str], highlights: list[str]) -> str:
+    """Call guppy-fast to produce a one-sentence 'you were working on…' label."""
+    if not apps and not highlights:
+        return ""
+    context_parts: list[str] = []
+    if apps:
+        context_parts.append(f"Apps open: {', '.join(apps[:6])}")
+    if highlights:
+        context_parts.append(f"Screen text sample: {highlights[0][:200]}")
+    context = "\n".join(context_parts)
+    prompt = (
+        "In exactly one short sentence, describe what the user was working on based on "
+        "the following screen activity. Start with 'You were'. Be specific but concise.\n\n"
+        f"{context}\n\nSummary:"
+    )
+    try:
+        import json as _json, urllib.request as _req
+        payload = _json.dumps({
+            "model": "guppy-fast",
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_predict": 60, "temperature": 0.3},
+        }).encode()
+        request = _req.Request(
+            "http://127.0.0.1:11434/api/generate",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with _req.urlopen(request, timeout=25) as resp:
+            data = _json.loads(resp.read().decode())
+            return data.get("response", "").strip().split("\n")[0].strip()
+    except Exception as exc:
+        logger.debug("[screen_monitor] AI summary failed: %s", exc)
+        return ""
+
+
 # ── Core snapshot function ────────────────────────────────────────────────────
 
 def take_snapshot(minutes: int = 30) -> dict[str, Any] | None:
@@ -127,6 +174,9 @@ def take_snapshot(minutes: int = 30) -> dict[str, Any] | None:
     highlights = _extract_highlights(items)
     words      = _word_count(items)
 
+    # AI-generated activity summary (best-effort; no-op if Ollama down)
+    summary = _generate_ai_summary(apps, highlights)
+
     record = {
         "id":           win_id,
         "window_start": start.isoformat(),
@@ -135,14 +185,15 @@ def take_snapshot(minutes: int = 30) -> dict[str, Any] | None:
         "highlights":   highlights,
         "item_count":   len(items),
         "word_count":   words,
+        "summary":      summary,
         "created_at":   now.isoformat(),
     }
 
     with _conn() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO screen_windows "
-            "(id, window_start, window_end, apps, highlights, item_count, word_count, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "(id, window_start, window_end, apps, highlights, item_count, word_count, summary, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 win_id,
                 record["window_start"],
@@ -151,12 +202,14 @@ def take_snapshot(minutes: int = 30) -> dict[str, Any] | None:
                 json.dumps(highlights),
                 len(items),
                 words,
+                summary,
                 record["created_at"],
             ),
         )
         conn.commit()
 
-    logger.info("[screen_monitor] snapshot: %d items, %d apps, %d words", len(items), len(apps), words)
+    logger.info("[screen_monitor] snapshot: %d items, %d apps, %d words, summary=%r",
+                len(items), len(apps), words, summary[:60] if summary else "")
     return record
 
 
@@ -183,6 +236,7 @@ def _list_windows(date_iso: str | None = None, limit: int = 48) -> list[dict[str
             "highlights":   json.loads(r["highlights"] or "[]"),
             "item_count":   r["item_count"],
             "word_count":   r["word_count"],
+            "summary":      r["summary"] if "summary" in r.keys() else "",
             "created_at":   r["created_at"],
         })
     return result

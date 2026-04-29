@@ -12,7 +12,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Monitor, Search, Clock, RefreshCw, AlertCircle,
-  Volume2, FileText, Image, BarChart2, Layers, Zap,
+  Volume2, FileText, Image, BarChart2, Layers, Zap, Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
@@ -241,6 +241,7 @@ interface TimelineWindow {
   highlights: string[]
   item_count: number
   word_count: number
+  summary?: string
 }
 
 function TimelineTab() {
@@ -319,6 +320,14 @@ function TimelineTab() {
                   {w.item_count} captures · {w.word_count} words
                 </span>
               </div>
+
+              {/* AI-generated summary */}
+              {w.summary && (
+                <div className="flex items-start gap-1.5 bg-secondary/5 rounded-lg px-2.5 py-1.5 border border-secondary/10">
+                  <Sparkles className="w-3 h-3 text-secondary/60 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-on-surface/80 leading-relaxed">{w.summary}</p>
+                </div>
+              )}
 
               {/* Apps used */}
               {w.apps.length > 0 && (
