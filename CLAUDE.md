@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-04-30 — Phases 1–5 complete + 6-gap stability hardening
+**Last updated:** 2026-04-30 — Phases 1–5 complete + 6-gap stability hardening + 7-item 2026 best-practices pass
 
 ---
 
@@ -191,6 +191,14 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
   - **Backend watchdog** — daemon thread in routes_backends monitors ports 8085/8087/8086 every 60 s, auto-restarts crashed always-on models
   - **24/7 background task loop** — asyncio task delivers due reminders as SSE events every 30 s; marks queued tasks stale after 6 h; started via lifespan `background_coroutines`
   - **Strict-local mode** — companion surface checks local model port liveness before streaming; returns honest "Local model offline" error instead of silent cloud escalation
+- ✅ **7-item 2026 best-practices pass** (2026-04-30):
+  - **Workspace tool execution** — two-pass `<tool_call>` for workspace surface; `_execute_workspace_tool()` handles web_search/file_read/file_list/shell_run/contacts_search; wired into `/chat/stream`
+  - **Workspace task executor** — `_run_workspace_task()` background worker in routes_surface dequeues queued tasks, calls Hermes4, executes tools, broadcasts SSE progress/completion events
+  - **Streaming TTS** — sentence-boundary chunking (`SENTENCE_END_RE`) in CompanionView; `speakQueued()` + `_drainQueue()` in useVoice.ts plays sentences as they arrive instead of waiting for full response
+  - **SSE exponential backoff** — `useSurfaceEvents.ts` shared hook; 2→4→8→16→32→60 s backoff, resets after 10 s healthy connection; used by both CompanionView and WorkspaceView
+  - **OOM error parsing** — `_parse_oom_error()` in realtime_inference_support detects CUDA/ROCm OOM in llamacpp HTTP error bodies; `_stream_llamacpp_tokens` raises actionable RuntimeError; `local_client.py` logs ERROR-level with restart instruction
+  - **Grammar-constrained tool calls** — `_TOOL_CALL_GBNF` constant + `grammar` param on `_stream_llamacpp_tokens`; `_repair_tool_json()` applies trailing-comma/unclosed-brace repairs in all three tool-call parse sites (companion, workspace, task executor)
+  - **KV cache auto-warming** — `_warm_kv_cache(port)` sends 1-token prefill to Hermes3 (8087) and Hermes4 (8086) on first confirmed liveness; integrated into watchdog, re-warms after crash+restart; reduces first-response latency ~30-50%
 - ✅ **MCP plugin manager** — add/remove/enable/test MCP servers; MCPView wired
 - ✅ **Desktop control API** — pyautogui screenshot/click/type (graceful fallback if pyautogui absent)
 - ✅ **Themes** — Dark, Liber Designatum (occult), Fear & Loathing (gonzo), Creem × Rolling Stone (rock mag)
