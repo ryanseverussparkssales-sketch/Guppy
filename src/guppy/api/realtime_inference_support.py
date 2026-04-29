@@ -1368,6 +1368,88 @@ async def stream_unified_inference(
                         active_cloud_model, _cerr,
                     )
 
+    # ── Tool-call routing: xLAM-2-8B → Hermes 4 (fallback) ─────────────────────
+    # Single-tool invocation tasks where structured function-calling accuracy
+    # matters. xLAM-2-8B-fc-r is #1 on BFCL V4 for its size class (~5 GB Q4).
+    # Falls back to hermes4 if xLAM is offline.
+    if _early_task_type == "tool_call" and requested_mode in {"auto", ""}:
+        from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
+        _XLAM_BACKEND = "llamacpp-xlam"
+        _xlam_cfg = _LOCAL_BACKENDS.get(_XLAM_BACKEND, {})
+        _xlam_url = _xlam_cfg.get("default_url", "")
+        _xlam_port = int(_xlam_url.rsplit(":", 1)[-1]) if ":" in _xlam_url else 0
+        if _xlam_port and _llc_port_alive(_xlam_port):
+            _xlam_model = _LOCAL_BACKEND_DEFAULT_MODELS.get(_XLAM_BACKEND, "")
+            if _xlam_model:
+                _log.info("Tool-call task → routing to xLAM-2-8B (port %d)", _xlam_port)
+                _xlam_messages = build_router_messages(
+                    augmented_system, user_text, sanitize_chat_history(history)
+                )
+                _xlam_tools = (
+                    _to_openai_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
+                )
+                def _xlam_tool_runner(name: str, args: dict) -> str:
+                    return str(owner.core.run_tool(
+                        name, args,
+                        instance_name=instance_name,
+                        instance_type=instance_type,
+                    ))
+                try:
+                    async for token in _stream_llamacpp_tokens(
+                        model=_xlam_model,
+                        backend=_XLAM_BACKEND,
+                        messages=_xlam_messages,
+                        tools=_xlam_tools,
+                        tool_runner=_xlam_tool_runner,
+                        max_tool_rounds=4,
+                    ):
+                        yield token
+                    yield _SOURCE_SENTINEL + f"{_XLAM_BACKEND}:{_xlam_model}"
+                    return
+                except RuntimeError as _xlam_err:
+                    _log.warning(
+                        "xLAM tool-call route failed: %s — falling back to Hermes 4",
+                        _xlam_err,
+                    )
+        # xLAM offline or failed — try hermes4 as tool-call fallback
+        _H4_BACKEND = "llamacpp-hermes4"
+        _h4_cfg = _LOCAL_BACKENDS.get(_H4_BACKEND, {})
+        _h4_url = _h4_cfg.get("default_url", "")
+        _h4_port = int(_h4_url.rsplit(":", 1)[-1]) if ":" in _h4_url else 0
+        if _h4_port and _llc_port_alive(_h4_port):
+            _h4_model = _LOCAL_BACKEND_DEFAULT_MODELS.get(_H4_BACKEND, "")
+            if _h4_model:
+                _log.info("Tool-call fallback → Hermes 4 (port %d)", _h4_port)
+                _h4_messages = build_router_messages(
+                    augmented_system, user_text, sanitize_chat_history(history)
+                )
+                _h4_tools = (
+                    _to_openai_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
+                )
+                def _h4_tool_runner(name: str, args: dict) -> str:
+                    return str(owner.core.run_tool(
+                        name, args,
+                        instance_name=instance_name,
+                        instance_type=instance_type,
+                    ))
+                try:
+                    async for token in _stream_llamacpp_tokens(
+                        model=_h4_model,
+                        backend=_H4_BACKEND,
+                        messages=_h4_messages,
+                        tools=_h4_tools,
+                        tool_runner=_h4_tool_runner,
+                        max_tool_rounds=4,
+                    ):
+                        yield token
+                    yield _SOURCE_SENTINEL + f"{_H4_BACKEND}:{_h4_model}"
+                    return
+                except RuntimeError as _h4_err:
+                    _log.warning(
+                        "Hermes 4 tool-call fallback failed: %s — continuing to local models",
+                        _h4_err,
+                    )
+
     # ── Agentic routing: Qwen3 35B → Claude Sonnet ────────────────────────────
     # Multi-step tool-loop tasks (read all files, collect data, iterate over sets)
     # need a capable model. 8B models hallucinate fake results instead of calling

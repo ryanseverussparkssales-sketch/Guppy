@@ -64,10 +64,11 @@ class InferenceRouter:
     LOCAL_VAULT_MODEL = "vault-scraper" # qwen2.5:7b   â€” structured media extraction
 
     LOCAL_TIER_MAP: Dict[str, str] = {
-        "simple":   LOCAL_FAST_MODEL,
-        "complex":  LOCAL_MODEL,
-        "teaching": LOCAL_TEACH_MODEL,
-        "agentic":  LOCAL_MODEL,  # best Ollama fallback for agentic (32B)
+        "simple":    LOCAL_FAST_MODEL,
+        "complex":   LOCAL_MODEL,
+        "teaching":  LOCAL_TEACH_MODEL,
+        "agentic":   LOCAL_MODEL,   # best Ollama fallback for agentic (32B)
+        "tool_call": LOCAL_FAST_MODEL,  # Ollama fallback; xLAM intercept fires first
     }
 
     # Haiku boost modes â€” targeted Haiku pass that supplements local output
@@ -246,6 +247,18 @@ class InferenceRouter:
         text_lower = (user_text or "").lower()
         system_lower = (system_prompt or "").lower()
         combined_lower = text_lower + " " + system_lower
+
+        # Tool-call keywords: explicit single-tool invocation. Routed to
+        # xLAM-2-8B (port 8089) when alive; falls back to guppy-fast via Ollama.
+        tool_call_keywords = {
+            "use the tool", "call the tool", "invoke the tool",
+            "use the web search", "run the tool", "execute the tool",
+            "use the calibre", "search my library", "add to calibre",
+            "send to kindle", "search gutenberg", "search openlibrary",
+            "use screenpipe", "search screenpipe",
+        }
+        if any(k in combined_lower for k in tool_call_keywords):
+            return "tool_call"
 
         # Agentic keywords (multi-step tool execution over collections)
         # These tasks must never land on small 7–8B models — they hallucinate

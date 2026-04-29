@@ -16,6 +16,7 @@ Backend selection (GUPPY_LOCAL_RUNTIME_BACKEND env var):
   llamacpp-hermes4    — llama.cpp Hermes 4 14B at 127.0.0.1:8086 (GUPPY_LLAMACPP_HERMES4_URL)
   llamacpp-hermes3    — llama.cpp Hermes 3 8B Lorablated at 127.0.0.1:8087 (GUPPY_LLAMACPP_HERMES3_URL)
   llamacpp-rocinante  — llama.cpp Rocinante X 12B at 127.0.0.1:8088 (GUPPY_LLAMACPP_ROCINANTE_URL)
+  llamacpp-xlam       — llama.cpp xLAM-2-8B-fc-r at 127.0.0.1:8089  (GUPPY_LLAMACPP_XLAM_URL)
   local_harness       — Generic OpenAI-compat harness at 127.0.0.1:8001 (GUPPY_LOCAL_HARNESS_BASE_URL)
 
 LM Studio model resolution:
@@ -167,6 +168,15 @@ _BACKENDS: Dict[str, Dict[str, Any]] = {
         "delete_path": None,
         "format": "openai",
     },
+    # ── xLAM-2-8B-fc-r — Salesforce, #1 BFCL V4 for size, pure tool-calling ──
+    "llamacpp-xlam": {
+        "default_url": "http://127.0.0.1:8089",
+        "chat_path": "/v1/chat/completions",
+        "tags_path": "/v1/models",
+        "pull_path": None,
+        "delete_path": None,
+        "format": "openai",
+    },
     # ── Generic local harness (any OpenAI-compat server) ─────────────────────
     "local_harness": {
         "default_url": "http://127.0.0.1:8001",
@@ -190,6 +200,7 @@ _ENV_URL_KEYS: Dict[str, str] = {
     "llamacpp-hermes4":    "GUPPY_LLAMACPP_HERMES4_URL",
     "llamacpp-hermes3":    "GUPPY_LLAMACPP_HERMES3_URL",
     "llamacpp-rocinante":  "GUPPY_LLAMACPP_ROCINANTE_URL",
+    "llamacpp-xlam":       "GUPPY_LLAMACPP_XLAM_URL",
     "local_harness":       "GUPPY_LOCAL_HARNESS_BASE_URL",
 }
 
@@ -227,6 +238,11 @@ _LLAMACPP_MODEL_ROUTE: Dict[str, str] = {
     "rocinante-x-12b":          "llamacpp-rocinante",
     "rocinante-12b":            "llamacpp-rocinante",
     "rocinante":                "llamacpp-rocinante",
+    # xLAM-2-8B-fc-r — Salesforce function-calling specialist (#1 BFCL V4 ≤8B)
+    "xlam-2-8b":                "llamacpp-xlam",
+    "xlam-2-8b-fc-r":          "llamacpp-xlam",
+    "xlam-8b":                  "llamacpp-xlam",
+    "xlam":                     "llamacpp-xlam",
 }
 
 # Canonical model name for each llamacpp backend (first/preferred alias).
@@ -240,6 +256,7 @@ _BACKEND_DEFAULT_MODELS: Dict[str, str] = {
     "llamacpp-hermes4":    "hermes-4-14b",
     "llamacpp-hermes3":    "hermes-3-8b-lorablated",
     "llamacpp-rocinante":  "rocinante-x-12b",
+    "llamacpp-xlam":       "xlam-2-8b-fc-r",
 }
 
 # ── circuit breakers ──────────────────────────────────────────────────────────
