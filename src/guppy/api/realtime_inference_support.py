@@ -1845,6 +1845,7 @@ async def stream_unified_inference(
         from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
         _MODE_A_FALLBACK_ORDER = [
             "llamacpp-hermes4", "llamacpp-hermes3",
+            "llamacpp-chat",    # 70B CPU -- zero VRAM, high quality
             "llamacpp-pepe", "llamacpp-rocinante",
             "llamacpp-minicpm", "llamacpp-dispatch",
         ]

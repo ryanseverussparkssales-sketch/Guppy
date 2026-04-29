@@ -6,7 +6,7 @@
  * Surfaces: companion | workspace | codespace
  */
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown, Cpu, Cloud, Zap, RotateCcw } from 'lucide-react'
+import { ChevronDown, Cpu, Cloud, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
 
@@ -28,28 +28,23 @@ interface BackendOption {
 }
 
 const BACKEND_OPTIONS: BackendOption[] = [
-  // llamacpp backends
-  { backend: 'llamacpp', model: 'llamacpp-minicpm',   mode: 'local', label: 'MiniCPM (Vision+Voice)', description: 'llamacpp · 9GB · voice+vision native' },
-  { backend: 'llamacpp', model: 'llamacpp-rocinante', mode: 'local', label: 'Rocinante 12B',           description: 'llamacpp · 10GB · uncensored creative' },
-  { backend: 'llamacpp', model: 'llamacpp-hermes4',   mode: 'local', label: 'Hermes 4 14B',            description: 'llamacpp · 11GB · tools + uncensored' },
-  { backend: 'llamacpp', model: 'llamacpp-hermes3',   mode: 'local', label: 'Hermes 3 8B',             description: 'llamacpp · 9GB · fast tools + uncensored' },
-  { backend: 'llamacpp', model: 'llamacpp-qwen3',     mode: 'local', label: 'Qwen3 35B MoE',           description: 'llamacpp · 19GB · deep reasoning' },
-  { backend: 'llamacpp', model: 'llamacpp-xlam',      mode: 'local', label: 'xLAM 8B',                 description: 'llamacpp · 5GB · tool-call specialist' },
-  { backend: 'llamacpp', model: 'llamacpp-pepe',      mode: 'local', label: 'Pepe 8B',                 description: 'llamacpp · 8.5GB · fast chat' },
-  { backend: 'llamacpp', model: 'llamacpp-dispatch',  mode: 'local', label: 'Dispatch 3B',             description: 'llamacpp · 2.5GB · ultra-fast orchestrator' },
-  // Ollama models
-  { backend: 'ollama', model: 'guppy-fast',  mode: 'local', label: 'Guppy Fast (7B)',  description: 'Ollama · 5GB · quick queries' },
-  { backend: 'ollama', model: 'guppy',       mode: 'local', label: 'Guppy (32B)',      description: 'Ollama · 20GB · complex tasks' },
-  { backend: 'ollama', model: 'guppy-code',  mode: 'code',  label: 'Guppy Code (14B)', description: 'Ollama · 9GB · code specialist' },
-  { backend: 'ollama', model: 'guppy-teach', mode: 'local', label: 'Guppy Teach (32B)', description: 'Ollama · 20GB · Socratic teaching' },
+  // llama.cpp — GPU (VRAM)
+  { backend: 'llamacpp', model: 'llamacpp-chat',      mode: 'local', label: 'Llama 3.3 70B (CPU)',     description: 'llamacpp · 42GB RAM · 0 VRAM · flagship chat' },
+  { backend: 'llamacpp', model: 'llamacpp-hermes4',   mode: 'local', label: 'Hermes 4 14B',            description: 'llamacpp · 11GB VRAM · tools + uncensored' },
+  { backend: 'llamacpp', model: 'llamacpp-hermes3',   mode: 'local', label: 'Hermes 3 8B',             description: 'llamacpp · 9GB VRAM · fast + uncensored' },
+  { backend: 'llamacpp', model: 'llamacpp-rocinante', mode: 'local', label: 'Rocinante 12B',           description: 'llamacpp · 10GB VRAM · creative/roleplay' },
+  { backend: 'llamacpp', model: 'llamacpp-qwen3',     mode: 'local', label: 'Qwen3 35B MoE',           description: 'llamacpp · 19GB VRAM · deep reasoning' },
+  { backend: 'llamacpp', model: 'llamacpp-xlam',      mode: 'local', label: 'xLAM 8B',                 description: 'llamacpp · 5GB VRAM · tool-call specialist' },
+  { backend: 'llamacpp', model: 'llamacpp-pepe',      mode: 'local', label: 'Pepe 8B',                 description: 'llamacpp · 8.5GB VRAM · fast chat' },
+  { backend: 'llamacpp', model: 'llamacpp-minicpm',   mode: 'local', label: 'MiniCPM (Vision+Voice)',  description: 'llamacpp · 9GB VRAM · vision+speech' },
+  { backend: 'llamacpp', model: 'llamacpp-dispatch',  mode: 'local', label: 'Dispatch 3B',             description: 'llamacpp · 2GB VRAM · orchestrator' },
   // Cloud
   { backend: 'cloud', model: 'claude', mode: 'claude', label: 'Claude (Anthropic)', description: 'Cloud API · max capability' },
-  { backend: 'cloud', model: 'auto',   mode: 'auto',   label: 'Auto (Cloud)',       description: 'Cloud API · best available model' },
+  { backend: 'cloud', model: 'auto',   mode: 'auto',   label: 'Auto (Smart Route)', description: 'Auto-routes by task: tool/chat/reason' },
 ]
 
 const BACKEND_ICONS: Record<string, React.ReactNode> = {
   llamacpp: <Cpu className="w-3 h-3" />,
-  ollama:   <Zap className="w-3 h-3" />,
   cloud:    <Cloud className="w-3 h-3" />,
 }
 
@@ -144,7 +139,7 @@ export function BackendSelector({ surface, compact = false }: BackendSelectorPro
           </div>
 
           <div className="max-h-80 overflow-y-auto custom-scrollbar">
-            {(['llamacpp', 'ollama', 'cloud'] as const).map((backend) => {
+            {(['llamacpp', 'cloud'] as const).map((backend) => {
               const opts = BACKEND_OPTIONS.filter((o) => o.backend === backend)
               return (
                 <div key={backend}>
