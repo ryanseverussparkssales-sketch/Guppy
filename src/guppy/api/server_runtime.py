@@ -509,6 +509,9 @@ app.include_router(build_reminders_router(_server_context))         # /api/remin
 from src.guppy.api.routes_calibre import build_calibre_router
 app.include_router(build_calibre_router(_server_context))           # /api/calibre/*
 
+from src.guppy.api.routes_screenpipe import build_screenpipe_router
+app.include_router(build_screenpipe_router(_server_context))        # /api/screenpipe/*
+
 # Serve static web UI files
 try:
     from fastapi.staticfiles import StaticFiles
