@@ -332,7 +332,7 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
     try:
         # Call Hermes4 directly (port 8086, OpenAI-compat)
         payload = {
-            "model": "hermes-3-llama-3.1-8b",
+            "model": "hermes-4-14b",
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": user_message},
@@ -373,7 +373,7 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
                 for r in tool_results
             )
             summary_payload = {
-                "model": "hermes-3-llama-3.1-8b",
+                "model": "hermes-4-14b",
                 "messages": [
                     {"role": "system",    "content": system_prompt},
                     {"role": "user",      "content": user_message},
