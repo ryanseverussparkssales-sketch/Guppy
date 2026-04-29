@@ -9,11 +9,8 @@ import {
   Settings,
   Plus,
   HelpCircle,
-  BookOpen,
-  Wrench,
-  Users,
   BookText,
-  Server,
+  LayoutGrid,
 } from "lucide-react"
 
 interface NavItem {
@@ -49,14 +46,11 @@ const primaryNavItems: NavItem[] = [
   },
 ]
 
-// Secondary: settings + support destinations (still accessible, just demoted)
+// Secondary: control + config destinations
 const secondaryNavItems: NavItem[] = [
-  { id: "launchpad",    label: "Launchpad",    icon: <Server className="w-4 h-4" />,    view: "launchpad",    route: "/launchpad" },
-  { id: "library",      label: "Library",      icon: <BookOpen className="w-4 h-4" />,  view: "library",      route: "/library" },
-  { id: "personas",     label: "Personas",     icon: <Users className="w-4 h-4" />,     view: "personas",     route: "/personas" },
-  { id: "tools",        label: "Tools",        icon: <Wrench className="w-4 h-4" />,    view: "tools",        route: "/tools" },
-  { id: "instructions", label: "Instructions", icon: <BookText className="w-4 h-4" />,  view: "instructions", route: "/instructions" },
-  { id: "settings",     label: "Settings",     icon: <Settings className="w-4 h-4" />,  view: "settings",     route: "/settings" },
+  { id: "control",      label: "Control Panel", icon: <LayoutGrid className="w-4 h-4" />, view: "control",      route: "/control" },
+  { id: "settings",     label: "Settings",      icon: <Settings className="w-4 h-4" />,  view: "settings",     route: "/settings" },
+  { id: "instructions", label: "Instructions",  icon: <BookText className="w-4 h-4" />,  view: "instructions", route: "/instructions" },
 ]
 
 const ROUTE_TO_VIEW: Record<string, string> = {
@@ -64,18 +58,12 @@ const ROUTE_TO_VIEW: Record<string, string> = {
   '/companion':      'companion',
   '/workspace':      'workspace',
   '/codespace':      'codespace',
-  '/assistant':      'companion',    // legacy redirect
-  '/launch-control': 'workspace',   // legacy redirect
-  '/launchpad':      'launchpad',
-  '/library':        'library',
-  '/personas':       'personas',
-  '/instructions':   'instructions',
-  '/tools':          'tools',
-  '/voices':         'tools',
-  '/desktop':        'tools',
+  '/control':        'control',
   '/settings':       'settings',
-  '/status':         'settings',
+  '/instructions':   'instructions',
   '/admin':          'settings',
+  '/assistant':      'companion',
+  '/launch-control': 'workspace',
   '/agents':         'workspace',
   '/instances':      'workspace',
   '/models':         'workspace',

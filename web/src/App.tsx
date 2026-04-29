@@ -7,13 +7,10 @@ import CompanionView from './views/CompanionView'
 import WorkspaceView from './views/WorkspaceView'
 import CodespaceView from './views/CodespaceView'
 import ControlView from './views/ControlView'
-import PersonasView from './views/PersonasView'
-import ToolsView from './views/ToolsView'
 import SettingsView from './views/SettingsView'
 import AdminPanel from './views/AdminPanel'
 import InstructionsView from './views/InstructionsView'
 import LoginView from './views/LoginView'
-import LaunchpadView from './views/LaunchpadView'
 import { Navigate } from 'react-router-dom'
 import { useWorkspaceStore, syncManager } from './store'
 import { useErrorStore } from './store/errorStore'
@@ -114,26 +111,27 @@ function AppContent() {
         companion:       '/companion',
         workspace:       '/workspace',
         codespace:       '/codespace',
-        // Legacy aliases → new surfaces
+        // Control + config
+        control:         '/control',
+        settings:        '/settings',
+        instructions:    '/instructions',
+        admin:           '/admin',
+        // Legacy aliases
         assistant:       '/companion',
         chat:            '/companion',
         'launch-control': '/workspace',
         agents:          '/workspace',
         instances:       '/workspace',
         models:          '/workspace',
-        launchpad:       '/launchpad',
-        backends:        '/launchpad',
-        services:        '/launchpad',
-        // Config surfaces (unchanged)
-        personas:        '/personas',
-        library:         '/library',
-        instructions:    '/instructions',
-        tools:           '/tools',
-        voices:          '/tools',
-        desktop:         '/tools',
-        settings:        '/settings',
+        launchpad:       '/control',
+        backends:        '/control',
+        services:        '/control',
+        personas:        '/settings',
+        library:         '/settings',
+        tools:           '/settings',
+        voices:          '/settings',
+        desktop:         '/settings',
         status:          '/settings',
-        admin:           '/admin',
       }
       const route = viewToRoute[e.detail.view] || '/'
       navigate(route)
@@ -156,25 +154,25 @@ function AppContent() {
           <Route path="/codespace" element={<CodespaceView />} />
           <Route path="/control"   element={<ControlView />} />
 
-          {/* ── Legacy routes → new surfaces ───────────────────── */}
+          {/* ── Config surfaces ─────────────────────────────────── */}
+          <Route path="/settings"     element={<SettingsView />} />
+          <Route path="/instructions" element={<InstructionsView />} />
+          <Route path="/admin"        element={<AdminPanel />} />
+          <Route path="/login"        element={<LoginView />} />
+
+          {/* ── Legacy redirects ────────────────────────────────── */}
           <Route path="/assistant"      element={<Navigate to="/companion"  replace />} />
           <Route path="/launch-control" element={<Navigate to="/workspace"  replace />} />
           <Route path="/agents"         element={<Navigate to="/workspace"  replace />} />
           <Route path="/instances"      element={<Navigate to="/workspace"  replace />} />
           <Route path="/models"         element={<Navigate to="/workspace"  replace />} />
-
-          {/* ── Config / secondary surfaces ─────────────────────── */}
-          <Route path="/personas"     element={<PersonasView />} />
-          <Route path="/library"      element={<PersonasView />} />
-          <Route path="/instructions" element={<InstructionsView />} />
-          <Route path="/tools"        element={<ToolsView />} />
-          <Route path="/voices"       element={<Navigate to="/tools"    replace />} />
-          <Route path="/desktop"      element={<Navigate to="/tools"    replace />} />
-          <Route path="/settings"     element={<SettingsView />} />
-          <Route path="/status"       element={<Navigate to="/settings" replace />} />
-          <Route path="/admin"        element={<AdminPanel />} />
-          <Route path="/login"        element={<LoginView />} />
-          <Route path="/launchpad"    element={<LaunchpadView />} />
+          <Route path="/personas"       element={<Navigate to="/settings"   replace />} />
+          <Route path="/library"        element={<Navigate to="/settings"   replace />} />
+          <Route path="/tools"          element={<Navigate to="/settings"   replace />} />
+          <Route path="/voices"         element={<Navigate to="/settings"   replace />} />
+          <Route path="/desktop"        element={<Navigate to="/settings"   replace />} />
+          <Route path="/status"         element={<Navigate to="/settings"   replace />} />
+          <Route path="/launchpad"      element={<Navigate to="/control"    replace />} />
         </Routes>
       </AppShell>
 

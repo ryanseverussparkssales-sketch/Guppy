@@ -136,4 +136,90 @@ def build_control_router(ctx: ServerContext) -> APIRouter:
 
         return {"ok": True, "key": key, "pid": proc.pid}
 
+    @router.get("/pc")
+    def get_pc_health(_uid: str = Depends(ctx.require_rate_limit)) -> dict[str, Any]:
+        import psutil
+        cpu   = psutil.cpu_percent(interval=0.1)
+        ram   = psutil.virtual_memory()
+        disk  = psutil.disk_usage("C:/")
+        temps: dict[str, Any] = {}
+        try:
+            raw = psutil.sensors_temperatures() or {}
+            for k, entries in raw.items():
+                if entries:
+                    temps[k] = round(entries[0].current, 1)
+        except Exception:
+            pass
+        gpu = _gpu_stats()
+        return {
+            "cpu_pct":      round(cpu, 1),
+            "ram_used_gb":  round(ram.used  / 1e9, 1),
+            "ram_total_gb": round(ram.total / 1e9, 1),
+            "ram_pct":      round(ram.percent, 1),
+            "disk_used_gb": round(disk.used  / 1e9, 1),
+            "disk_total_gb":round(disk.total / 1e9, 1),
+            "disk_pct":     round(disk.percent, 1),
+            "temps":        temps,
+            "gpu":          gpu,
+        }
+
     return router
+
+
+def _gpu_stats() -> dict[str, Any] | None:
+    try:
+        out = subprocess.check_output(
+            ["rocm-smi", "--showmemuse", "--showuse", "--csv"],
+            text=True, timeout=3,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        vram_used = vram_total = gpu_use = None
+        for line in out.splitlines():
+            line = line.strip()
+            if not line or line.startswith("device") or line.startswith("GPU"):
+                continue
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 2:
+                try:
+                    # columns vary by rocm-smi version; try common positions
+                    for p in parts:
+                        if "%" in p:
+                            gpu_use = float(p.replace("%", ""))
+                        elif p.isdigit():
+                            val = int(p)
+                            if vram_used is None:
+                                vram_used = val
+                            elif vram_total is None:
+                                vram_total = val
+                except Exception:
+                    pass
+        if vram_total:
+            return {
+                "vram_used_mb":  vram_used,
+                "vram_total_mb": vram_total,
+                "vram_pct": round(vram_used / vram_total * 100, 1) if vram_used else None,
+                "gpu_use_pct": gpu_use,
+                "label": "RX 7900 XTX",
+            }
+    except Exception:
+        pass
+    # Fallback: try nvidia-smi
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=memory.used,memory.total,utilization.gpu",
+             "--format=csv,noheader,nounits"],
+            text=True, timeout=3,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        parts = [p.strip() for p in out.strip().split(",")]
+        if len(parts) >= 3:
+            return {
+                "vram_used_mb":  int(parts[0]),
+                "vram_total_mb": int(parts[1]),
+                "vram_pct": round(int(parts[0]) / int(parts[1]) * 100, 1),
+                "gpu_use_pct": float(parts[2]),
+                "label": "GPU",
+            }
+    except Exception:
+        pass
+    return None

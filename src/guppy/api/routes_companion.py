@@ -254,6 +254,21 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
 
         return {"ok": True, "active_preset": body.preset, "preset": preset}
 
+    @router.patch("/personality/{key}")
+    def patch_personality_prompt(
+        key: str,
+        body: dict,
+        _uid: str = Depends(ctx.require_rate_limit),
+    ):
+        """Patch the system_prompt for a personality preset (runtime only, not persisted to code)."""
+        if key not in PERSONALITY_PRESETS:
+            raise HTTPException(404, f"Unknown preset: {key}")
+        system_prompt = body.get("system_prompt")
+        if not system_prompt:
+            raise HTTPException(400, "system_prompt required")
+        PERSONALITY_PRESETS[key]["system_prompt"] = system_prompt
+        return {"ok": True, "key": key}
+
     # ── Vision ─────────────────────────────────────────────────────────────────
 
     @router.post("/vision")
