@@ -516,6 +516,9 @@ app.include_router(build_screenpipe_router(_server_context))        # /api/scree
 from src.guppy.api.routes_acquisition import build_acquisition_router
 app.include_router(build_acquisition_router(_server_context))       # /api/acquisition/*
 
+from src.guppy.api.routes_tier3 import build_tier3_router
+app.include_router(build_tier3_router(_server_context))             # /api/tier3/*
+
 # Serve static web UI files
 try:
     from fastapi.staticfiles import StaticFiles
