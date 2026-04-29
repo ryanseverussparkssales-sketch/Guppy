@@ -174,6 +174,7 @@ SURFACES: dict[str, tuple[str, bool, str]] = {
     "hub":         ("guppy_hub.py",       False, "standard"),
     "api":         ("guppy_api.py",       False, "standard"),
     "fishbowl":    ("guppy_fishbowl.py",  False, "standard"),
+    "tray":        ("__tray__",           False, "standard"),
 }
 START_DESTINATIONS = ["home", "tools", "appmgmt", "automation-test"]
 GUI_SCRIPTS = {"guppy_launcher.py", "guppy_hub.py", "guppy_fishbowl.py"}
@@ -270,6 +271,11 @@ def main(argv: list[str] | None = None) -> int:
         _console.print("[bold green][launch][/bold green] Starting hub in background...")
         start_hub_background(ROOT)
         _poll_hub_ready(ROOT)
+
+    if args.surface == "tray":
+        setup_env(ROOT, profile=profile)
+        from src.guppy.apps.tray_app import main as _tray_main
+        return _tray_main() or 0
 
     if args.surface == "api":
         _setup_api_env()

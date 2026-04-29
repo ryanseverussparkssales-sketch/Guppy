@@ -6,6 +6,7 @@ import { ErrorToastContainer } from './components/ErrorToast'
 import CompanionView from './views/CompanionView'
 import WorkspaceView from './views/WorkspaceView'
 import CodespaceView from './views/CodespaceView'
+import ControlView from './views/ControlView'
 import PersonasView from './views/PersonasView'
 import ToolsView from './views/ToolsView'
 import SettingsView from './views/SettingsView'
@@ -153,6 +154,7 @@ function AppContent() {
           <Route path="/companion" element={<CompanionView />} />
           <Route path="/workspace" element={<WorkspaceView />} />
           <Route path="/codespace" element={<CodespaceView />} />
+          <Route path="/control"   element={<ControlView />} />
 
           {/* ── Legacy routes → new surfaces ───────────────────── */}
           <Route path="/assistant"      element={<Navigate to="/companion"  replace />} />

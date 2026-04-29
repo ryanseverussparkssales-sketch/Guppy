@@ -573,6 +573,9 @@ app.include_router(build_mcp_router(_server_context))               # /api/mcp/*
 from src.guppy.api.routes_desktop import build_desktop_router
 app.include_router(build_desktop_router(_server_context))           # /api/desktop/*
 
+from src.guppy.api.routes_control import build_control_router
+app.include_router(build_control_router(_server_context), prefix="/api/control")  # /api/control/*
+
 # Start background services
 try:
     from src.guppy.codespace.codespace_triage import start_watchdog as _start_watchdog
