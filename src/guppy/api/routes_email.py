@@ -38,6 +38,9 @@ def _conn() -> sqlite3.Connection:
     os.makedirs("runtime", exist_ok=True)
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS email_threads (
             id               TEXT PRIMARY KEY,
@@ -169,10 +172,11 @@ def build_email_router(ctx: ServerContext) -> APIRouter:
 
     @router.get("/threads")
     def list_threads(
-        label:  str = "INBOX",
-        unread: str = "",
-        search: str = "",
-        limit:  int = 50,
+        label:   str = "INBOX",
+        unread:  str = "",
+        starred: str = "",
+        search:  str = "",
+        limit:   int = 50,
         _uid: str = Depends(ctx.require_rate_limit),
     ):
         limit = min(limit, 200)
@@ -182,6 +186,11 @@ def build_email_router(ctx: ServerContext) -> APIRouter:
                     "SELECT * FROM email_threads WHERE subject LIKE ? OR snippet LIKE ? OR from_addr LIKE ? "
                     "ORDER BY last_message_at DESC LIMIT ?",
                     (f"%{search}%", f"%{search}%", f"%{search}%", limit),
+                ).fetchall()
+            elif starred == "1":
+                rows = conn.execute(
+                    "SELECT * FROM email_threads WHERE starred=1 "
+                    "ORDER BY last_message_at DESC LIMIT ?", (limit,)
                 ).fetchall()
             elif unread == "1":
                 rows = conn.execute(

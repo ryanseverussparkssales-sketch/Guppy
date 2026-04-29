@@ -27,6 +27,7 @@ import { CalendarPanel } from '@/components/workspace/CalendarPanel'
 import { EmailPanel } from '@/components/workspace/EmailPanel'
 import { MediaLibraryPanel } from '@/components/workspace/MediaLibraryPanel'
 import { TaskManagerPanel } from '@/components/workspace/TaskManagerPanel'
+import { AutomationPanel } from '@/components/workspace/AutomationPanel'
 import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
 
 // Lazy-load the full chat so it doesn't block this view's render
@@ -326,7 +327,10 @@ function ChatTab() {
 // ── WorkspaceView ──────────────────────────────────────────────────────────────
 
 export default function WorkspaceView() {
-  const [activeTab, setActiveTab] = useState<Tab>('chat')
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    const saved = localStorage.getItem('ws_active_tab') as Tab | null
+    return (saved && TABS.some((t) => t.id === saved)) ? saved : 'chat'
+  })
 
   return (
     <div className="flex flex-col h-full bg-surface text-on-surface">
@@ -354,7 +358,7 @@ export default function WorkspaceView() {
           {TABS.map((t) => (
             <button
               key={t.id}
-              onClick={() => setActiveTab(t.id)}
+              onClick={() => { setActiveTab(t.id); localStorage.setItem('ws_active_tab', t.id) }}
               title={t.label}
               className={cn(
                 "relative w-9 h-9 flex items-center justify-center rounded-xl transition-all",
@@ -412,8 +416,13 @@ export default function WorkspaceView() {
           )}
 
           {activeTab === 'tasks' && (
-            <div className="h-full">
-              <TaskManagerPanel />
+            <div className="h-full flex flex-col overflow-hidden">
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <TaskManagerPanel />
+              </div>
+              <div className="border-t border-outline-variant/10 bg-surface-container-low/20 flex-shrink-0 max-h-72 overflow-y-auto">
+                <AutomationPanel />
+              </div>
             </div>
           )}
 

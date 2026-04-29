@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
+import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -90,8 +91,12 @@ function AddTaskForm({ initialStatus = 'todo', onSave, onClose }: {
         status, priority, project,
         due_date: due || undefined,
       })
+      toast.success('Task created')
       onSave()
-    } catch { setErr('Failed to create task') } finally { setSaving(false) }
+    } catch {
+      setErr('Failed to create task')
+      toast.error('Failed to create task')
+    } finally { setSaving(false) }
   }
 
   return (
@@ -234,12 +239,18 @@ export function TaskManagerPanel() {
 
   const updateTask = async (id: string, patch: Partial<Task>) => {
     setTasks((ts) => ts.map((t) => t.id === id ? { ...t, ...patch } : t))
-    await api.patch(`/api/tasks/${id}`, patch).catch(() => { load() })
+    await api.patch(`/api/tasks/${id}`, patch).catch(() => {
+      toast.error('Failed to update task')
+      load()
+    })
   }
 
   const deleteTask = async (id: string) => {
     setTasks((ts) => ts.filter((t) => t.id !== id))
-    await api.delete(`/api/tasks/${id}`).catch(() => { load() })
+    await api.delete(`/api/tasks/${id}`).catch(() => {
+      toast.error('Failed to delete task')
+      load()
+    })
   }
 
   const filtered = tasks.filter((t) =>

@@ -39,6 +39,9 @@ def _conn() -> sqlite3.Connection:
     os.makedirs("runtime", exist_ok=True)
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS calendar_events (
             id              TEXT PRIMARY KEY,

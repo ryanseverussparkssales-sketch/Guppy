@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
+import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -182,6 +183,7 @@ export function DocumentDropZone({ surface, compact = false, className }: Docume
           headers: { 'Content-Type': 'multipart/form-data' },
         })
         setUploads((u) => u.map((x) => x.name === file.name ? { ...x, progress: 'done' } : x))
+        toast.success(`${file.name} uploaded`)
         setTimeout(() => {
           setUploads((u) => u.filter((x) => x.name !== file.name))
         }, 2000)
@@ -189,6 +191,7 @@ export function DocumentDropZone({ surface, compact = false, className }: Docume
       } catch (e) {
         setUploads((u) => u.map((x) => x.name === file.name
           ? { ...x, progress: 'error', error: 'Upload failed' } : x))
+        toast.error(`Failed to upload ${file.name}`)
       }
     }
   }

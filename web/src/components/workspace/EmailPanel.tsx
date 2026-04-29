@@ -3,6 +3,12 @@
  *
  * Shows a "Connect Gmail" CTA until GOOGLE credentials are configured.
  * Local draft management works immediately.
+ *
+ * Fixes (2026-04-29):
+ *  - Drafts folder calls /api/email/drafts (not /threads)
+ *  - Starred filter sends starred=1 (backend now handles it)
+ *  - Search input is debounced 400 ms to avoid per-keystroke requests
+ *  - Clicking a draft opens ComposeModal pre-filled for editing
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
@@ -39,6 +45,14 @@ interface ThreadDetail extends EmailThread {
   messages: EmailMessage[]
 }
 
+interface DraftItem {
+  id: string
+  to_addrs: string
+  subject: string
+  body: string
+  updated_at: string
+}
+
 type Folder = 'inbox' | 'starred' | 'drafts'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -62,11 +76,15 @@ function initials(addr: string) {
 
 // ── ComposeModal ──────────────────────────────────────────────────────────────
 
-function ComposeModal({ onClose, initialTo = '' }: { onClose: () => void; initialTo?: string }) {
-  const [to,      setTo]      = useState(initialTo)
+function ComposeModal({ onClose, initialTo = '', draft }: {
+  onClose: () => void
+  initialTo?: string
+  draft?: DraftItem
+}) {
+  const [to,      setTo]      = useState(draft?.to_addrs ?? initialTo)
   const [cc,      setCc]      = useState('')
-  const [subject, setSubject] = useState('')
-  const [body,    setBody]    = useState('')
+  const [subject, setSubject] = useState(draft?.subject ?? '')
+  const [body,    setBody]    = useState(draft?.body ?? '')
   const [saving,  setSaving]  = useState(false)
   const [err,     setErr]     = useState('')
   const [saved,   setSaved]   = useState(false)
@@ -74,7 +92,10 @@ function ComposeModal({ onClose, initialTo = '' }: { onClose: () => void; initia
   const saveDraft = async () => {
     setSaving(true)
     try {
-      await api.post('/api/email/draft', { to_addrs: to, cc_addrs: cc, subject, body })
+      await api.post('/api/email/draft', {
+        to_addrs: to, cc_addrs: cc, subject, body,
+        ...(draft?.id ? { draft_id: draft.id } : {}),
+      })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch { setErr('Failed to save draft') } finally { setSaving(false) }
@@ -84,21 +105,25 @@ function ComposeModal({ onClose, initialTo = '' }: { onClose: () => void; initia
     <div className="absolute inset-0 bg-surface z-20 flex flex-col">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-outline-variant/20 flex-shrink-0">
         <FileEdit className="w-4 h-4 text-primary/60" />
-        <span className="text-xs font-semibold text-on-surface flex-1">New Message</span>
+        <span className="text-xs font-semibold text-on-surface flex-1">
+          {draft ? 'Edit Draft' : 'New Message'}
+        </span>
         <button onClick={onClose} className="p-1 rounded hover:bg-surface-variant text-on-surface-variant/50">
           <X className="w-4 h-4" />
         </button>
       </div>
       <div className="flex-1 flex flex-col gap-0 overflow-hidden">
         {[
-          { label: 'To', val: to, set: setTo },
-          { label: 'Cc', val: cc, set: setCc },
+          { label: 'To',      val: to,      set: setTo      },
+          { label: 'Cc',      val: cc,      set: setCc      },
           { label: 'Subject', val: subject, set: setSubject },
         ].map(({ label, val, set }) => (
           <div key={label} className="flex items-center border-b border-outline-variant/10 px-3">
             <span className="text-xs text-on-surface-variant/40 w-12 flex-shrink-0">{label}</span>
-            <input className="flex-1 py-2 text-sm text-on-surface bg-transparent focus:outline-none"
-              value={val} onChange={(e) => set(e.target.value)} />
+            <input
+              className="flex-1 py-2 text-sm text-on-surface bg-transparent focus:outline-none"
+              value={val} onChange={(e) => set(e.target.value)}
+            />
           </div>
         ))}
         <textarea
@@ -108,7 +133,7 @@ function ComposeModal({ onClose, initialTo = '' }: { onClose: () => void; initia
         />
       </div>
       <div className="flex items-center gap-2 px-3 py-2.5 border-t border-outline-variant/15 bg-surface-container-low/30 flex-shrink-0">
-        {err && <span className="text-xs text-error/80 flex-1">{err}</span>}
+        {err  && <span className="text-xs text-error/80 flex-1">{err}</span>}
         {saved && <span className="text-xs text-success flex-1">Draft saved</span>}
         {!err && !saved && <span className="flex-1" />}
         <button onClick={saveDraft} disabled={saving}
@@ -190,27 +215,45 @@ function ThreadView({ threadId, onClose, onReply }: {
 // ── EmailPanel ────────────────────────────────────────────────────────────────
 
 export function EmailPanel() {
-  const [threads,    setThreads]    = useState<EmailThread[]>([])
-  const [loading,    setLoading]    = useState(true)
-  const [folder,     setFolder]     = useState<Folder>('inbox')
-  const [search,     setSearch]     = useState('')
-  const [connected,  setConnected]  = useState<boolean | null>(null)
-  const [unread,     setUnread]     = useState(0)
-  const [openThread, setOpenThread] = useState<string | null>(null)
-  const [composeTo,  setComposeTo]  = useState<string | null>(null)
+  const [threads,         setThreads]         = useState<EmailThread[]>([])
+  const [drafts,          setDrafts]          = useState<DraftItem[]>([])
+  const [loading,         setLoading]         = useState(true)
+  const [folder,          setFolder]          = useState<Folder>('inbox')
+  const [search,          setSearch]          = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [connected,       setConnected]       = useState<boolean | null>(null)
+  const [unread,          setUnread]          = useState(0)
+  const [openThread,      setOpenThread]      = useState<string | null>(null)
+  const [composeTo,       setComposeTo]       = useState<string | null>(null)
+  const [activeDraft,     setActiveDraft]     = useState<DraftItem | null>(null)
+
+  // Debounce search — 400 ms
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 400)
+    return () => clearTimeout(t)
+  }, [search])
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [statusRes, threadsRes] = await Promise.all([
-        api.get('/api/email/status'),
-        api.get(`/api/email/threads?limit=50${search ? `&search=${encodeURIComponent(search)}` : ''}${folder === 'starred' ? '&starred=1' : ''}`),
-      ])
+      const statusRes = await api.get('/api/email/status')
       setConnected(statusRes.data?.gmail_configured ?? false)
       setUnread(statusRes.data?.unread_count ?? 0)
-      setThreads(Array.isArray(threadsRes.data) ? threadsRes.data : [])
+
+      if (folder === 'drafts') {
+        const draftsRes = await api.get('/api/email/drafts')
+        setDrafts(Array.isArray(draftsRes.data) ? draftsRes.data : [])
+        setThreads([])
+      } else {
+        const qs = new URLSearchParams({ limit: '50' })
+        if (debouncedSearch)      qs.set('search',  debouncedSearch)
+        if (folder === 'starred') qs.set('starred', '1')
+        const threadsRes = await api.get(`/api/email/threads?${qs}`)
+        setThreads(Array.isArray(threadsRes.data) ? threadsRes.data : [])
+        setDrafts([])
+      }
     } catch { /* ignore */ } finally { setLoading(false) }
-  }, [folder, search])
+  }, [folder, debouncedSearch])
 
   useEffect(() => { load() }, [load])
 
@@ -220,24 +263,28 @@ export function EmailPanel() {
   }
 
   const FOLDERS: { id: Folder; label: string; icon: React.ReactNode }[] = [
-    { id: 'inbox',   label: 'Inbox',   icon: <Inbox   className="w-3.5 h-3.5" /> },
-    { id: 'starred', label: 'Starred', icon: <Star    className="w-3.5 h-3.5" /> },
+    { id: 'inbox',   label: 'Inbox',   icon: <Inbox    className="w-3.5 h-3.5" /> },
+    { id: 'starred', label: 'Starred', icon: <Star     className="w-3.5 h-3.5" /> },
     { id: 'drafts',  label: 'Drafts',  icon: <FileEdit className="w-3.5 h-3.5" /> },
   ]
 
   return (
     <div className="relative flex flex-col h-full">
       {/* Thread view overlay */}
-      {openThread && !composeTo && (
+      {openThread && !composeTo && !activeDraft && (
         <ThreadView
           threadId={openThread}
           onClose={() => { setOpenThread(null); load() }}
           onReply={(to) => setComposeTo(to)}
         />
       )}
-      {/* Compose overlay */}
-      {composeTo !== null && (
-        <ComposeModal initialTo={composeTo} onClose={() => { setComposeTo(null) }} />
+      {/* Compose overlay — new message or draft edit */}
+      {(composeTo !== null || activeDraft !== null) && (
+        <ComposeModal
+          initialTo={composeTo ?? ''}
+          draft={activeDraft ?? undefined}
+          onClose={() => { setComposeTo(null); setActiveDraft(null); load() }}
+        />
       )}
 
       {/* Header */}
@@ -254,7 +301,8 @@ export function EmailPanel() {
           <CheckCircle2 className="w-3.5 h-3.5 text-success" />
         )}
         <div className="ml-auto flex items-center gap-1">
-          <button onClick={syncEmail} className="text-xs px-2 py-1 rounded-lg bg-surface-variant text-on-surface-variant/60 hover:text-on-surface transition-colors">
+          <button onClick={syncEmail}
+            className="text-xs px-2 py-1 rounded-lg bg-surface-variant text-on-surface-variant/60 hover:text-on-surface transition-colors">
             Sync
           </button>
           <button onClick={() => setComposeTo('')}
@@ -298,7 +346,8 @@ export function EmailPanel() {
           <input
             className="bg-surface-container rounded-lg pl-6 pr-2 py-1 text-xs text-on-surface placeholder-on-surface-variant/40 focus:outline-none w-28"
             placeholder="Search…"
-            value={search} onChange={(e) => setSearch(e.target.value)}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <button onClick={load} className="p-1 text-on-surface-variant/40 hover:text-on-surface">
@@ -306,22 +355,59 @@ export function EmailPanel() {
         </button>
       </div>
 
-      {/* Thread list */}
+      {/* Content list */}
       <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0 mt-2">
-        {loading && threads.length === 0 ? (
+        {loading && threads.length === 0 && drafts.length === 0 ? (
           <div className="flex items-center justify-center py-10">
             <RefreshCw className="w-5 h-5 animate-spin text-on-surface-variant/40" />
           </div>
+
+        ) : folder === 'drafts' ? (
+          drafts.length === 0 ? (
+            <div className="text-center py-10">
+              <FileEdit className="w-10 h-10 text-on-surface-variant/15 mx-auto mb-3" />
+              <p className="text-sm text-on-surface-variant/40">No drafts</p>
+              <p className="text-xs text-on-surface-variant/30 mt-1">Use Compose to start a draft</p>
+            </div>
+          ) : (
+            drafts.map((d) => (
+              <button
+                key={d.id}
+                onClick={() => setActiveDraft(d)}
+                className="w-full text-left px-4 py-3 border-b border-outline-variant/10 hover:bg-surface-variant/20 transition-colors"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="w-7 h-7 rounded-full bg-surface-container text-xs flex items-center justify-center text-on-surface-variant/60 flex-shrink-0 mt-0.5">
+                    <FileEdit className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs truncate flex-1 text-on-surface/70 font-medium">
+                        {d.to_addrs || '(no recipient)'}
+                      </p>
+                      <span className="text-xs text-on-surface-variant/40 flex-shrink-0">{relTime(d.updated_at)}</span>
+                    </div>
+                    <p className="text-xs truncate mt-0.5 text-on-surface/60 italic">
+                      {d.subject || '(no subject)'}
+                    </p>
+                    <p className="text-xs text-on-surface-variant/40 truncate mt-0.5">{d.body}</p>
+                  </div>
+                </div>
+              </button>
+            ))
+          )
+
         ) : threads.length === 0 ? (
           <div className="text-center py-10">
             <Mail className="w-10 h-10 text-on-surface-variant/15 mx-auto mb-3" />
             <p className="text-sm text-on-surface-variant/40">
-              {search ? 'No matching threads' : 'No emails yet'}
+              {debouncedSearch ? 'No matching threads' : 'No emails yet'}
             </p>
             {!connected && (
               <p className="text-xs text-on-surface-variant/30 mt-1">Connect Gmail to load your inbox</p>
             )}
           </div>
+
         ) : (
           threads.map((t) => (
             <button

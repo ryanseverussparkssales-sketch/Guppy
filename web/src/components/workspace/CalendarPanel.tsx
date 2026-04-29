@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
+import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -99,8 +100,12 @@ function AddEventForm({ onSave, onClose }: { onSave: () => void; onClose: () => 
         end_time:   new Date(end).toISOString(),
         all_day: allDay, color,
       })
+      toast.success('Event created')
       onSave()
-    } catch { setErr('Failed to save event') } finally { setSaving(false) }
+    } catch {
+      setErr('Failed to save event')
+      toast.error('Failed to save event')
+    } finally { setSaving(false) }
   }
 
   const COLORS = ['primary', 'secondary', 'tertiary', 'success', 'warning', 'error']
@@ -346,7 +351,9 @@ export function CalendarPanel() {
   const nextMonth = () => { if (month === 11) { setYear(y => y + 1); setMonth(0) } else setMonth(m => m + 1) }
 
   const deleteEvent = async (id: string) => {
-    await api.delete(`/api/calendar/events/${id}`).catch(() => {})
+    await api.delete(`/api/calendar/events/${id}`)
+      .then(() => toast.success('Event deleted'))
+      .catch(() => toast.error('Failed to delete event'))
     setEvents((e) => e.filter((ev) => ev.id !== id))
   }
 
