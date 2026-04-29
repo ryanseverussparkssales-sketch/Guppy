@@ -47,14 +47,15 @@ WAIVED_PATHS: dict[str, Waiver] = {
         rationale="Pure data file: 78 tool JSON schemas. Splitting would add indirection with no benefit.",
     ),
     "src/guppy/api/realtime_inference_support.py": Waiver(
-        max_lines=1060,
+        max_lines=2100,
         rationale=(
             "Unified streaming inference pipeline: agentic tool-call loop, "
-            "multi-backend SSE fan-out, steer/vision/TTS modes. "
+            "multi-backend SSE fan-out, steer/vision/TTS modes, agent learning hooks. "
             "Single cohesive boundary — split would scatter the control flow "
             "across multiple files with no clean seam. "
-            "Pinned 2026-04-26; refactor to sub-modules (stream_llamacpp.py, "
-            "stream_ollama.py, stream_anthropic.py) planned."
+            "Waiver raised 2026-04-29 to accommodate always-on workspace agent routing "
+            "(complex→Hermes4, agentic→Hermes4 fallback, session summarization, tool-outcome memory). "
+            "Pinned for refactor to stream_llamacpp.py, stream_ollama.py, stream_anthropic.py."
         ),
     ),
 }

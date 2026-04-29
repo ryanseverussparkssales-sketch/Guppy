@@ -82,8 +82,9 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "port":    8086,
         "label":   "Hermes 4 14B",
         "mode":    "A",
-        "note":    "Tools · ~11 GB VRAM — uncensored",
+        "note":    "Tools · ~11 GB VRAM — uncensored — always-on workspace agent",
         "vram_gb": 11.0,
+        "auto_start": True,
     },
     "llamacpp-hermes3": {
         "bat":     r"C:\llama-cpp\launch-hermes-3-8b.bat",
@@ -101,6 +102,17 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "note":    "Creative · ~10 GB VRAM — roleplay/writing",
         "vram_gb": 10.0,
     },
+    # xLAM-2-8B-fc-r: Salesforce function-calling specialist, #1 BFCL V4 ≤8B.
+    # Kept always-on alongside Hermes 4 — together they are the workspace agent stack.
+    "llamacpp-xlam": {
+        "bat":     r"C:\llama-cpp\launch-xlam.bat",
+        "port":    8089,
+        "label":   "xLAM-2-8B Function-Calling",
+        "mode":    "A",
+        "note":    "Tool-call specialist · ~5 GB VRAM · #1 BFCL V4 ≤8B — always-on workspace agent",
+        "vram_gb": 5.0,
+        "auto_start": True,
+    },
 }
 
 # Total VRAM budget for the installed GPU (RX 7900 XTX)
@@ -108,7 +120,7 @@ _GPU_VRAM_GB: float = float(os.environ.get("GUPPY_GPU_VRAM_GB", "24"))
 
 _MODE_A = {
     "llamacpp-pepe", "llamacpp-gemma", "llamacpp-minicpm", "llamacpp-dispatch",
-    "llamacpp-hermes4", "llamacpp-hermes3", "llamacpp-rocinante",
+    "llamacpp-hermes4", "llamacpp-hermes3", "llamacpp-rocinante", "llamacpp-xlam",
 }
 _MODE_B = {"llamacpp-qwen3"}
 

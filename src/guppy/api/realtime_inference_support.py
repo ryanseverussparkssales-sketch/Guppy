@@ -1628,11 +1628,39 @@ async def stream_unified_inference(
                         _qwen3_err,
                     )
 
-        # Qwen3 offline (or failed) — escalate directly to Claude Sonnet (streaming).
+        # Qwen3 offline (or failed) — try Hermes 4 (always-on workspace agent) before cloud.
         # Never fall through to Pepe for agentic tasks.
+        _H4_AGENTIC = "llamacpp-hermes4"
+        _h4a_cfg = _LOCAL_BACKENDS.get(_H4_AGENTIC, {})
+        _h4a_url = _h4a_cfg.get("default_url", "")
+        _h4a_port = int(_h4a_url.rsplit(":", 1)[-1]) if ":" in _h4a_url else 0
+        if _h4a_port and _llc_port_alive(_h4a_port):
+            _h4a_model = _LOCAL_BACKEND_DEFAULT_MODELS.get(_H4_AGENTIC, "")
+            if _h4a_model:
+                _log.info("Agentic task: Qwen3 offline → Hermes 4 (port %d)", _h4a_port)
+                _h4a_messages = build_router_messages(augmented_system, user_text, sanitize_chat_history(history))
+                _h4a_tools = _merged_openai_tools(owner)
+                def _h4a_tool_runner(name: str, args: dict) -> str:
+                    return str(owner.core.run_tool(name, args,
+                        instance_name=instance_name, instance_type=instance_type))
+                try:
+                    async for token in _stream_llamacpp_tokens(
+                        model=_h4a_model,
+                        backend=_H4_AGENTIC,
+                        messages=_h4a_messages,
+                        tools=_h4a_tools,
+                        tool_runner=_h4a_tool_runner,
+                        max_tool_rounds=8,
+                    ):
+                        yield token
+                    yield _SOURCE_SENTINEL + f"{_H4_AGENTIC}:{_h4a_model}"
+                    return
+                except RuntimeError as _h4a_err:
+                    _log.warning("Hermes 4 agentic fallback failed: %s — escalating to Claude Sonnet", _h4a_err)
+
         _ak = _get_cloud_api_key("anthropic", owner)
         if _ak:
-            _log.info("Agentic task: Qwen3 offline, routing to Claude Sonnet (streaming)")
+            _log.info("Agentic task: local agents offline, routing to Claude Sonnet (streaming)")
             _agentic_msgs = build_router_messages(augmented_system, user_text, clean_history)
             _claude_tools = owner.core.TOOLS if owner.GUPPY_CORE_AVAILABLE else None
             def _claude_tool_runner(name: str, args: dict) -> str:
@@ -1656,6 +1684,64 @@ async def stream_unified_inference(
                     _cloud_err,
                 )
         # else: no API key or cloud failed — fall through to best available local
+
+    # ── Complex routing: Hermes 4 (always-on) → Claude Sonnet ────────────────────
+    # For complex tasks in auto mode, try the always-on Hermes 4 workspace agent
+    # before touching the cloud or the general Ollama pool. Hermes 4 at 14B handles
+    # multi-step reasoning and tool chains well; Sonnet is the cloud safety net.
+    if _early_task_type == "complex" and requested_mode in {"auto", ""} and owner.GUPPY_CORE_AVAILABLE:
+        from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
+        _H4_COMPLEX = "llamacpp-hermes4"
+        _h4c_cfg = _LOCAL_BACKENDS.get(_H4_COMPLEX, {})
+        _h4c_url = _h4c_cfg.get("default_url", "")
+        _h4c_port = int(_h4c_url.rsplit(":", 1)[-1]) if ":" in _h4c_url else 0
+        if _h4c_port and _llc_port_alive(_h4c_port):
+            _h4c_model = _LOCAL_BACKEND_DEFAULT_MODELS.get(_H4_COMPLEX, "")
+            if _h4c_model:
+                _log.info("Complex task → Hermes 4 workspace agent (port %d)", _h4c_port)
+                _h4c_messages = build_router_messages(augmented_system, user_text, sanitize_chat_history(history))
+                _h4c_tools = _merged_openai_tools(owner)
+                def _h4c_tool_runner(name: str, args: dict) -> str:
+                    return str(owner.core.run_tool(name, args,
+                        instance_name=instance_name, instance_type=instance_type))
+                try:
+                    async for token in _stream_llamacpp_tokens(
+                        model=_h4c_model,
+                        backend=_H4_COMPLEX,
+                        messages=_h4c_messages,
+                        tools=_h4c_tools,
+                        tool_runner=_h4c_tool_runner,
+                        max_tool_rounds=6,
+                    ):
+                        yield token
+                    yield _SOURCE_SENTINEL + f"{_H4_COMPLEX}:{_h4c_model}"
+                    return
+                except RuntimeError as _h4c_err:
+                    _log.warning("Hermes 4 complex route failed: %s — escalating to Sonnet", _h4c_err)
+
+        _ak = _get_cloud_api_key("anthropic", owner)
+        if _ak:
+            _log.info("Complex task: Hermes 4 offline, routing to Claude Sonnet")
+            _complex_msgs = build_router_messages(augmented_system, user_text, clean_history)
+            _complex_tools = owner.core.TOOLS if owner.GUPPY_CORE_AVAILABLE else None
+            def _complex_tool_runner(name: str, args: dict) -> str:
+                return str(owner.core.run_tool(name, args,
+                    instance_name=instance_name, instance_type=instance_type))
+            try:
+                async for token in _stream_claude_with_tools(
+                    api_key=_ak,
+                    model="claude-sonnet-4-6",
+                    system_prompt=augmented_system,
+                    messages=_complex_msgs,
+                    tools=_complex_tools,
+                    tool_runner=_complex_tool_runner,
+                ):
+                    yield token
+                yield _SOURCE_SENTINEL + "claude-sonnet-4-6"
+                return
+            except Exception as _cplx_err:
+                _log.warning("Claude Sonnet complex fallback failed: %s — continuing to local", _cplx_err)
+        # else: fall through to general llamacpp/Ollama path
 
     is_llamacpp = bool(active_local_model and active_local_model in _LOCAL_LLAMACPP_ROUTES)
     # Tracks whether llamacpp was attempted but the backend was not reachable,
