@@ -525,6 +525,9 @@ app.include_router(build_booklet_router(_server_context))           # /api/bookl
 from src.guppy.api.routes_library import build_library_router
 app.include_router(build_library_router(_server_context))           # /api/library/*
 
+from src.guppy.api.routes_files import build_files_router
+app.include_router(build_files_router(_server_context))             # /api/files/*, /api/system/*, /api/clipboard
+
 # Serve static web UI files
 try:
     from fastapi.staticfiles import StaticFiles
