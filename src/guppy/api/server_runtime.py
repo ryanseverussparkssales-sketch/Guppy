@@ -613,9 +613,34 @@ try:
 except Exception as e:
     logger.warning(f"Could not mount static files: {e}")
 if __name__ == "__main__":
+    # Auto-reload must be explicitly requested via GUPPY_API_RELOAD=1.
+    # DEV_MODE no longer implies reload — watchfiles restarts on every file
+    # save, causes double-startup of all side effects, and drops live connections.
     api_reload = os.environ.get("GUPPY_API_RELOAD", "").strip().lower() in {"1", "true", "yes", "on"}
-    if not api_reload:
-        api_reload = DEV_MODE
+
+    # Singleton guard: refuse to start if another Guppy server process is already
+    # holding the port, rather than silently shifting to a different port.
+    _pid_file = _runtime_dir / "guppy_server.pid"
+    if _pid_file.exists():
+        try:
+            _old_pid = int(_pid_file.read_text().strip())
+            import signal as _signal
+            try:
+                os.kill(_old_pid, 0)  # 0 = probe only, raises if process gone
+                logger.warning(
+                    "Another Guppy server is running (PID %d). "
+                    "Stop it first or delete %s to force-start.",
+                    _old_pid, _pid_file,
+                )
+            except (OSError, ProcessLookupError):
+                _pid_file.unlink(missing_ok=True)  # stale PID — remove and continue
+        except (ValueError, OSError):
+            _pid_file.unlink(missing_ok=True)
+
+    _pid_file.write_text(str(os.getpid()))
+
+    import atexit as _atexit
+    _atexit.register(lambda: _pid_file.unlink(missing_ok=True))
 
     uvicorn.run(
         "src.guppy.api.server:app",

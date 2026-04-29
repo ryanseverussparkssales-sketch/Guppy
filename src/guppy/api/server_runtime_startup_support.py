@@ -97,27 +97,51 @@ def build_lifespan(
 ):
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        import time as _time
+        _t0 = _time.monotonic()
+        _log.info("━━━━  Guppy startup  ━━━━")
         _install_windows_asyncio_exception_filter()
+
+        _failures: list[str] = []
+
         try:
             validate_environment()
-        except Exception:
+        except Exception as _exc:
+            _failures.append(f"validate_environment: {_exc}")
             _log.exception("validate_environment() raised — server may be misconfigured")
+
         try:
             ensure_instance_scaffold()
-        except Exception:
+        except Exception as _exc:
+            _failures.append(f"ensure_instance_scaffold: {_exc}")
             _log.exception("ensure_instance_scaffold() raised — instance state may be incomplete")
+
         _check_ollama_reachable()
         owner = module_owner()
+
         try:
             await startup_host(owner)
-        except Exception:
+        except Exception as _exc:
+            _failures.append(f"startup_host: {_exc}")
             _log.exception("startup_host() raised — some subsystems may not be available")
+
+        _elapsed = _time.monotonic() - _t0
+        if _failures:
+            _log.warning(
+                "Guppy ready with %d startup warning(s) in %.1fs: %s",
+                len(_failures), _elapsed, "; ".join(_failures),
+            )
+        else:
+            _log.info("━━━━  Guppy ready in %.1fs  ━━━━", _elapsed)
+
         try:
             yield
         finally:
+            _log.info("━━━━  Guppy shutting down  ━━━━")
             try:
                 await shutdown_host(owner)
             except Exception:
                 _log.exception("shutdown_host() raised during cleanup")
+            _log.info("━━━━  Guppy stopped  ━━━━")
 
     return lifespan

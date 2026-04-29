@@ -220,10 +220,17 @@ async def startup_host(owner: Any) -> None:
     if owner._PERSONALIZATION_BOOTSTRAP_AVAILABLE:
         try:
             created = await asyncio.to_thread(owner.ensure_personalization_scaffold)
+            # Run all three diagnostic loads in parallel instead of sequentially
+            _diag_results = await asyncio.gather(
+                asyncio.to_thread(owner.load_persona_config_with_diagnostics),
+                asyncio.to_thread(owner.load_provider_registry_with_diagnostics),
+                asyncio.to_thread(owner.load_voice_bindings_with_diagnostics),
+                return_exceptions=True,
+            )
             personalization_diagnostics = {
-                "persona_config.json": (await asyncio.to_thread(owner.load_persona_config_with_diagnostics))[1],
-                "provider_registry.json": (await asyncio.to_thread(owner.load_provider_registry_with_diagnostics))[1],
-                "voice_bindings.json": (await asyncio.to_thread(owner.load_voice_bindings_with_diagnostics))[1],
+                "persona_config.json":   _diag_results[0][1] if not isinstance(_diag_results[0], Exception) else [str(_diag_results[0])],
+                "provider_registry.json": _diag_results[1][1] if not isinstance(_diag_results[1], Exception) else [str(_diag_results[1])],
+                "voice_bindings.json":   _diag_results[2][1] if not isinstance(_diag_results[2], Exception) else [str(_diag_results[2])],
             }
             if created:
                 owner.logger.info(

@@ -39,6 +39,12 @@ _eleven_status = ElevenLabsTTSProvider()
 # Pre-warm Kokoro pipeline in background: on first call KPipeline downloads
 # model weights (~200 MB) which can take 30-120 s. Starting this early means
 # the model is cached before the first TTS request arrives.
+#
+# Guard: uvicorn's watchfiles reloader runs this module in both the parent
+# watcher process and the worker child process.  We only want to spin up the
+# preload thread once — in the actual ASGI worker.  The child process always
+# inherits the parent's environment; we detect the reloader parent by the
+# absence of the "uvicorn.worker" import (it's only present in the worker).
 def _preload_kokoro_bg() -> None:
     try:
         import asyncio as _aio
