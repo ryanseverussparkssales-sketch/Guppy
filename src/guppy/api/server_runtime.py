@@ -513,6 +513,9 @@ app.include_router(build_kindle_router(_server_context))            # /api/kindl
 from src.guppy.api.routes_screenpipe import build_screenpipe_router
 app.include_router(build_screenpipe_router(_server_context))        # /api/screenpipe/*
 
+from src.guppy.api.routes_acquisition import build_acquisition_router
+app.include_router(build_acquisition_router(_server_context))       # /api/acquisition/*
+
 # Serve static web UI files
 try:
     from fastapi.staticfiles import StaticFiles
