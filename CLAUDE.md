@@ -6,6 +6,19 @@
 
 ---
 
+## Active Roadmap
+
+**→ See `docs/MASTER_PHASE_PLAN.md` for the active three-surface architecture roadmap.**
+
+Current execution priority: three dedicated surfaces replacing the single AssistantView.
+1. **Companion** (`/companion`) — Voice/chat/vision, personality-first, uncensored, avatar
+2. **Workspace** (`/workspace`) — Operations hub: agents, CRM, screen monitoring, PC management, VoIP, automations
+3. **Codespace** (`/codespace`) — Docker sandbox, self-triage, project creation
+
+Phase 1 is the immediate next task: route split + model affinity + cross-surface SSE plumbing.
+
+---
+
 ## Architecture Overview
 
 ### Core Topology (PRIMARY SURFACE: Web UI)
@@ -24,6 +37,30 @@ launcher_app.py (Qt Wrapper)
 ```
 
 **Architecture decision (2026-04-28):** Web UI is now the **primary & authoritative surface**. Desktop launcher (`launcher_app.py`) is a **wrapper** that spawns the FastAPI server locally and opens a browser window. Single codebase (FastAPI + React), no dual UI maintenance.
+
+**Surface architecture decision (2026-04-28):** Single `AssistantView` is being replaced by three dedicated surfaces (Companion / Workspace / Codespace). See `docs/MASTER_PHASE_PLAN.md`.
+
+### Phase 1 — Completed (2026-04-28)
+
+| New File | Purpose |
+|---|---|
+| `src/guppy/api/routes_surface.py` | Surface coordination: state, config, task spawn, SSE event bus |
+| `web/src/views/CompanionView.tsx` | Companion surface — voice/chat/personality, minimal tools |
+| `web/src/views/WorkspaceView.tsx` | Workspace surface — full chat + agent task panel |
+| `web/src/views/CodespaceView.tsx` | Codespace surface — code-focused chat, guppy-code backend |
+| `web/src/components/surface/BackendSelector.tsx` | Per-surface backend/model picker (llamacpp/ollama/cloud) |
+| `web/src/components/surface/SurfaceStatusBar.tsx` | Cross-surface live status chip via SSE |
+
+**New API routes** (`/api/surface/*`):
+- `GET /state` — all surfaces' live status
+- `PUT /state/{surface}` — update surface status
+- `GET /config` / `PUT /config/{surface}` — per-surface backend/model config
+- `POST /config/{surface}/reset` — reset to surface defaults
+- `POST /spawn` — spawn task to a surface from any surface
+- `GET /tasks` / `PUT /tasks/{id}` / `DELETE /tasks/{id}` — task lifecycle
+- `GET /events` — SSE event bus (state updates, task events, snapshots)
+
+**Navigation:** Sidebar now shows Companion | Workspace | Codespace as primary tabs. Legacy routes (`/assistant`, `/launch-control`, `/agents`, `/instances`, `/models`) redirect to new surfaces. Secondary nav (Library, Personas, Tools, Instructions, Settings) demoted to Config section.
 
 ### Key Modules
 - **`src/guppy/cli/launch.py`** — Single entrypoint for all launch modes (launcher, guppyprime, hub, api, agent)

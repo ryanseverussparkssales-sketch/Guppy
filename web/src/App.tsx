@@ -3,17 +3,15 @@ import { useEffect } from 'react'
 import { AppShell } from './components/layout/index'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ErrorToastContainer } from './components/ErrorToast'
-import AssistantView from './views/AssistantView'
-import InstancesView from './views/InstancesView'
+import CompanionView from './views/CompanionView'
+import WorkspaceView from './views/WorkspaceView'
+import CodespaceView from './views/CodespaceView'
 import PersonasView from './views/PersonasView'
-import ModelsView from './views/ModelsView'
 import ToolsView from './views/ToolsView'
 import SettingsView from './views/SettingsView'
-import LaunchpadView from './views/LaunchpadView'
 import AdminPanel from './views/AdminPanel'
 import InstructionsView from './views/InstructionsView'
 import LoginView from './views/LoginView'
-import AgentsView from './views/AgentsView'
 import { Navigate } from 'react-router-dom'
 import { useWorkspaceStore, syncManager } from './store'
 import { useErrorStore } from './store/errorStore'
@@ -110,11 +108,20 @@ function AppContent() {
   useEffect(() => {
     const handleNavigate = (e: CustomEvent<{ view: string }>) => {
       const viewToRoute: Record<string, string> = {
-        assistant:       '/assistant',
-        chat:            '/assistant',
-        'launch-control': '/launch-control',
+        // Three primary surfaces
+        companion:       '/companion',
+        workspace:       '/workspace',
+        codespace:       '/codespace',
+        // Legacy aliases → new surfaces
+        assistant:       '/companion',
+        chat:            '/companion',
+        'launch-control': '/workspace',
+        agents:          '/workspace',
+        instances:       '/workspace',
+        models:          '/workspace',
+        // Config surfaces (unchanged)
         personas:        '/personas',
-        library:         '/personas',
+        library:         '/library',
         instructions:    '/instructions',
         tools:           '/tools',
         voices:          '/tools',
@@ -122,9 +129,6 @@ function AppContent() {
         settings:        '/settings',
         status:          '/settings',
         admin:           '/admin',
-        agents:          '/launch-control',
-        instances:       '/launch-control',
-        models:          '/launch-control',
       }
       const route = viewToRoute[e.detail.view] || '/'
       navigate(route)
@@ -138,22 +142,32 @@ function AppContent() {
     <>
       <AppShell>
         <Routes>
-          <Route path="/" element={<Navigate to="/assistant" replace />} />
-          <Route path="/assistant" element={<AssistantView />} />
-          <Route path="/launch-control" element={<LaunchpadView />} />
-          <Route path="/personas" element={<PersonasView />} />
-          <Route path="/library" element={<Navigate to="/personas" replace />} />
+          {/* Default → Companion */}
+          <Route path="/" element={<Navigate to="/companion" replace />} />
+
+          {/* ── Three primary surfaces ──────────────────────────── */}
+          <Route path="/companion" element={<CompanionView />} />
+          <Route path="/workspace" element={<WorkspaceView />} />
+          <Route path="/codespace" element={<CodespaceView />} />
+
+          {/* ── Legacy routes → new surfaces ───────────────────── */}
+          <Route path="/assistant"      element={<Navigate to="/companion"  replace />} />
+          <Route path="/launch-control" element={<Navigate to="/workspace"  replace />} />
+          <Route path="/agents"         element={<Navigate to="/workspace"  replace />} />
+          <Route path="/instances"      element={<Navigate to="/workspace"  replace />} />
+          <Route path="/models"         element={<Navigate to="/workspace"  replace />} />
+
+          {/* ── Config / secondary surfaces ─────────────────────── */}
+          <Route path="/personas"     element={<PersonasView />} />
+          <Route path="/library"      element={<PersonasView />} />
           <Route path="/instructions" element={<InstructionsView />} />
-          <Route path="/tools" element={<ToolsView />} />
-          <Route path="/voices" element={<Navigate to="/tools" replace />} />
-          <Route path="/desktop" element={<Navigate to="/tools" replace />} />
-          <Route path="/settings" element={<SettingsView />} />
-          <Route path="/status" element={<Navigate to="/settings" replace />} />
-          <Route path="/agents" element={<AgentsView />} />
-          <Route path="/instances" element={<InstancesView />} />
-          <Route path="/models" element={<ModelsView />} />
-          <Route path="/admin" element={<AdminPanel />} />
-          <Route path="/login" element={<LoginView />} />
+          <Route path="/tools"        element={<ToolsView />} />
+          <Route path="/voices"       element={<Navigate to="/tools"    replace />} />
+          <Route path="/desktop"      element={<Navigate to="/tools"    replace />} />
+          <Route path="/settings"     element={<SettingsView />} />
+          <Route path="/status"       element={<Navigate to="/settings" replace />} />
+          <Route path="/admin"        element={<AdminPanel />} />
+          <Route path="/login"        element={<LoginView />} />
         </Routes>
       </AppShell>
 

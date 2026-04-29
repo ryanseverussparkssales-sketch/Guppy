@@ -11,7 +11,7 @@ interface AppShellProps {
 }
 
 // Routes where the TopBar is suppressed — the view owns its own chrome
-const TOPBAR_HIDDEN_ROUTES = new Set(["/assistant"])
+const TOPBAR_HIDDEN_ROUTES = new Set(["/companion", "/workspace", "/codespace", "/assistant"])
 
 /**
  * AppShell - Main layout wrapper for the Guppy application
@@ -26,6 +26,8 @@ const TOPBAR_HIDDEN_ROUTES = new Set(["/assistant"])
 export function AppShell({ children }: AppShellProps) {
   const location = useLocation()
   const isChatRoute = TOPBAR_HIDDEN_ROUTES.has(location.pathname)
+  // On all three primary surfaces, collapse nav to icon-only to maximise content area
+  const isPrimarySurface = ['/companion', '/workspace', '/codespace'].includes(location.pathname)
 
   // Global reminder poller — fires browser notifications when due
   useReminders()
@@ -43,8 +45,8 @@ export function AppShell({ children }: AppShellProps) {
   useHotkeys("ctrl+k, meta+k", () => setCommandPaletteOpen(true), { preventDefault: true })
   useHotkeys("escape", () => setCommandPaletteOpen(false))
 
-  // On chat route: force nav sidebar to icon-only so conversation list has room
-  const effectiveCollapsed = isChatRoute ? true : sidebarCollapsed
+  // On primary surfaces: force nav sidebar to icon-only so content has maximum room
+  const effectiveCollapsed = isPrimarySurface ? true : sidebarCollapsed
 
   return (
     <div className="flex h-screen bg-surface text-on-surface overflow-hidden">

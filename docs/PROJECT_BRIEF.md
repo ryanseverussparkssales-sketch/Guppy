@@ -178,6 +178,7 @@ Boundary intent: preserve the current five-hub product ownership while freezing 
 | P4 | Library Hub Completion | complete | Promote Library to a first-class hub with media player, richer note editing, and broader source reuse | Library Hub is the single destination for files, notes, media, and artifact reuse in chat | Completed April 19, 2026 |
 | P5 | Tools Hub Hardening | complete | Tools Hub gains live tool debugging, execution traces, and per-command permission controls | Tools Hub is the complete operational view of every agent capability | Completed April 19, 2026 |
 | P6 | Platform Hardening + Packaging Readiness | active | Reduce architectural hotspot risk while explicitly stabilizing local/cloud chat, model switching, stats fidelity, guarded PC-control flows, and dual web/desktop surface parity | Release remains repeatable; chat/runtime switching is stable; stats stop drifting from runtime truth; PC-control stays powerful but bounded; web and desktop remain parallel clients over shared contracts | April 20 - June 12, 2026 |
+| P7 | Three-Surface Architecture | active | Replace single AssistantView with Companion (voice/vision/personality), Workspace (operations hub), and Codespace (Docker sandbox + self-triage) | Each surface renders, has dedicated model affinity, shares memory substrate, and cross-surface task escalation works end-to-end | See `docs/MASTER_PHASE_PLAN.md` |
 
 ### P6 Goal Contract (April 22, 2026)
 
