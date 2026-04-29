@@ -642,6 +642,28 @@ def local_chat(
                 return result
             break  # empty parse — don't retry
 
+        except urllib.error.HTTPError as e:
+            last_error = e
+            try:
+                body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                body = ""
+            if re.search(
+                r"out of memory|cudaMalloc failed|hipMalloc failed|"
+                r"CUDA error.*memory|HIP error.*memory|ggml_cuda_pool_alloc|"
+                r"failed to allocate|memory.*exhausted",
+                body,
+                re.IGNORECASE,
+            ):
+                logger.error(
+                    "[LOCAL/%s] OOM — model=%s. Restart server or reduce context. body=%s",
+                    resolved, actual_model, body[:200],
+                )
+            else:
+                logger.warning(
+                    f"[LOCAL/{resolved}] HTTP {e.code} attempt={attempt + 1} model={actual_model}: {e}"
+                )
+            cb.record_failure()
         except (urllib.error.URLError, OSError, TimeoutError) as e:
             last_error = e
             logger.warning(

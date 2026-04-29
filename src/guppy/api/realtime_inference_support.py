@@ -40,6 +40,26 @@ _NO_TOOLS_FALLBACK = (
     "(Anthropic / OpenAI) for tool-enabled responses."
 )
 
+# OOM error detection — covers CUDA (NVIDIA) and ROCm/HIP (AMD) patterns
+_OOM_PATTERNS = _re.compile(
+    r"out of memory|cudaMalloc failed|hipMalloc failed|"
+    r"CUDA error.*memory|HIP error.*memory|ggml_cuda_pool_alloc|"
+    r"failed to allocate|ROCm.*memory|memory.*exhausted",
+    _re.IGNORECASE,
+)
+
+
+def _parse_oom_error(text: str, backend: str = "") -> str | None:
+    """Return an actionable error string if text contains an OOM indicator, else None."""
+    if _OOM_PATTERNS.search(text):
+        suffix = f" (backend: {backend})" if backend else ""
+        return (
+            f"Local model ran out of GPU memory{suffix}. "
+            "Restart the model server or reduce the context window. "
+            "Use Settings → Backends to switch to a lighter model."
+        )
+    return None
+
 
 def _strip_tool_call_markers(text: str) -> str:
     """Remove raw text-embedded tool call blocks from a model response.
@@ -1220,6 +1240,14 @@ async def _stream_llamacpp_tokens(
                                 tc["id"] = tc_delta["id"]
 
         except httpx.HTTPStatusError as exc:
+            body = ""
+            try:
+                body = exc.response.text
+            except Exception:
+                pass
+            oom_msg = _parse_oom_error(body, backend)
+            if oom_msg:
+                raise RuntimeError(oom_msg) from exc
             raise RuntimeError(
                 f"llama.cpp backend '{backend}' returned HTTP {exc.response.status_code}"
             ) from exc
