@@ -12,7 +12,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   ArrowUp, Mic, MicOff, StopCircle, Zap, Camera, X,
-  Sparkles, ChevronDown,
+  Sparkles, ChevronDown, Maximize2, Minimize2,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
@@ -148,6 +148,8 @@ export default function CompanionView() {
   const [ttsEnabled, setTtsEnabled]       = useState(true)
   const [activeConvId, setActiveConvId]   = useState<string | null>(null)
   const [wakeMode, setWakeMode]           = useState(false)
+  const [ambientMode, setAmbientMode]     = useState(false)
+  const [workspaceAlert, setWsAlert]      = useState<string | null>(null)
   const [attachedImage, setAttachedImage] = useState<{ base64: string; url: string; name: string } | null>(null)
 
   const abortRef    = useRef<AbortController | null>(null)
@@ -193,6 +195,46 @@ export default function CompanionView() {
       .then((conv: any) => setActiveConvId(conv?.id ?? null))
       .catch(() => {})
   }, [activeWorkspaceId])
+
+  // Subscribe to workspace SSE alerts for ambient mode
+  useEffect(() => {
+    if (!ambientMode) return
+    const token = localStorage.getItem('accessToken') || ''
+    let cancelled = false
+    async function sub() {
+      try {
+        const res = await fetch('/api/surface/events', { headers: { Authorization: `Bearer ${token}` } })
+        if (!res.body) return
+        const reader = res.body.getReader()
+        const dec = new TextDecoder()
+        let buf = '', evType = ''
+        while (!cancelled) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += dec.decode(value, { stream: true })
+          const lines = buf.split('\n')
+          buf = lines.pop() ?? ''
+          for (const line of lines) {
+            if (line.startsWith('event: ')) evType = line.slice(7).trim()
+            else if (line.startsWith('data: ')) {
+              try {
+                const payload = JSON.parse(line.slice(6))
+                if (evType === 'task_spawned' || evType === 'task_updated') {
+                  const label = payload.title || payload.status || 'Workspace update'
+                  setWsAlert(label)
+                  if (ttsEnabled) voice.speak(label.slice(0, 120))
+                  setTimeout(() => setWsAlert(null), 6000)
+                }
+              } catch { /* ignore */ }
+              evType = ''
+            }
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    sub()
+    return () => { cancelled = true }
+  }, [ambientMode, ttsEnabled, voice])
 
   // Wake word session toggle
   const toggleWakeMode = async () => {
@@ -347,12 +389,95 @@ export default function CompanionView() {
 
   return (
     <div className="flex flex-col h-full bg-surface text-on-surface">
+
+      {/* Ambient mode overlay — fullscreen avatar + workspace alert */}
+      <AnimatePresence>
+        {ambientMode && (
+          <motion.div
+            key="ambient"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-surface flex flex-col items-center justify-center gap-6"
+          >
+            {/* Exit button */}
+            <button
+              onClick={() => setAmbientMode(false)}
+              className="absolute top-4 right-4 p-2 rounded-xl hover:bg-surface-variant text-on-surface-variant/40 hover:text-on-surface transition-colors"
+            >
+              <Minimize2 className="w-5 h-5" />
+            </button>
+
+            {/* Giant avatar */}
+            <AvatarPresence state={avatarState} size="lg" />
+
+            {/* Wake mode status */}
+            <p className={cn(
+              "text-sm transition-colors",
+              wakeMode ? "text-primary/70" : "text-on-surface-variant/30"
+            )}>
+              {wakeMode ? 'Listening for "Hey Guppy"' : 'Say something or type below'}
+            </p>
+
+            {/* Workspace alert banner */}
+            <AnimatePresence>
+              {workspaceAlert && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 20 }}
+                  className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-secondary/20 border border-secondary/30 rounded-2xl px-5 py-3 text-sm text-secondary max-w-sm text-center"
+                >
+                  <Zap className="w-4 h-4 inline-block mr-1.5 mb-0.5" />
+                  {workspaceAlert}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Minimal input in ambient mode */}
+            <div className="absolute bottom-8 w-full max-w-md px-6">
+              <div className="flex items-center gap-2 bg-surface-container rounded-2xl px-3 py-2 border border-outline-variant/20 shadow-lg">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+                  placeholder="Type a message…"
+                  rows={1}
+                  className="flex-1 bg-transparent text-sm text-on-surface placeholder:text-on-surface-variant/40 resize-none outline-none leading-relaxed"
+                />
+                <button
+                  onClick={voice.isListening ? voice.stopListening : voice.startListening}
+                  className={cn(
+                    "p-2 rounded-xl flex-shrink-0 transition-colors",
+                    voice.isListening ? "bg-error text-white animate-pulse" : "text-on-surface-variant/50"
+                  )}
+                >
+                  {voice.isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </button>
+                <button onClick={() => handleSend()} disabled={!input.trim()}
+                  className="p-2 rounded-xl bg-primary text-on-primary disabled:opacity-30 transition-colors flex-shrink-0">
+                  <ArrowUp className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-outline-variant/20 flex-shrink-0">
         <div className="flex items-center gap-2">
           <PersonalityPicker onSwitch={() => {}} />
         </div>
         <div className="flex items-center gap-2">
+          {/* Ambient mode toggle */}
+          <button
+            onClick={() => setAmbientMode(true)}
+            className="p-1.5 rounded-lg text-on-surface-variant/40 hover:text-on-surface hover:bg-surface-variant transition-colors"
+            title="Enter ambient mode"
+          >
+            <Maximize2 className="w-4 h-4" />
+          </button>
           {/* Wake mode toggle */}
           <button
             onClick={toggleWakeMode}

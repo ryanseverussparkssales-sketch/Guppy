@@ -543,12 +543,24 @@ app.include_router(build_workspace_data_router(_server_context))    # /api/works
 from src.guppy.api.routes_codespace import build_codespace_router
 app.include_router(build_codespace_router(_server_context))         # /api/codespace/*
 
-# Start the triage watchdog in the background (debounced file-change monitor)
+from src.guppy.api.routes_screen_monitor import build_screen_monitor_router
+app.include_router(build_screen_monitor_router(_server_context))    # /api/screen/*
+
+from src.guppy.api.routes_voip import build_voip_router
+app.include_router(build_voip_router(_server_context))              # /api/voip/*
+
+# Start background services
 try:
     from src.guppy.codespace.codespace_triage import start_watchdog as _start_watchdog
     _start_watchdog()
 except Exception as _triage_exc:
     logger.warning("Triage watchdog failed to start: %s", _triage_exc)
+
+try:
+    from src.guppy.api.routes_screen_monitor import start_monitor as _start_screen_monitor
+    _start_screen_monitor()
+except Exception as _screen_exc:
+    logger.warning("Screen monitor failed to start: %s", _screen_exc)
 
 # Serve static web UI files
 try:

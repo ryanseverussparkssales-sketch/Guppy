@@ -12,7 +12,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Monitor, Search, Clock, RefreshCw, AlertCircle,
-  Volume2, FileText, Image,
+  Volume2, FileText, Image, BarChart2, Layers, Zap,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
@@ -231,10 +231,131 @@ function SearchTab({ alive }: { alive: boolean | null }) {
   )
 }
 
+// ── TimelineTab ───────────────────────────────────────────────────────────────
+
+interface TimelineWindow {
+  id: string
+  window_start: string
+  window_end: string
+  apps: string[]
+  highlights: string[]
+  item_count: number
+  word_count: number
+}
+
+function TimelineTab() {
+  const [windows, setWindows] = useState<TimelineWindow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [snapping, setSnapping] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await api.get('/api/screen/timeline/today')
+      setWindows(Array.isArray(res.data) ? res.data : [])
+    } catch { /* ignore */ } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const snapshot = async () => {
+    setSnapping(true)
+    try {
+      await api.post('/api/screen/timeline/snapshot?minutes=30')
+      load()
+    } catch { /* ignore */ } finally {
+      setSnapping(false)
+    }
+  }
+
+  function fmtTime(iso: string) {
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+
+  return (
+    <div className="flex flex-col gap-3 h-full">
+      {/* Controls */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-on-surface-variant/60">Today's activity</span>
+        <button
+          onClick={snapshot}
+          disabled={snapping}
+          className="ml-auto flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/15 disabled:opacity-40 transition-colors"
+        >
+          {snapping ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+          Capture now
+        </button>
+        <button onClick={load} className="p-1.5 rounded-lg hover:bg-surface-variant text-on-surface-variant/40 hover:text-on-surface transition-colors">
+          <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
+        </button>
+      </div>
+
+      {/* Timeline list */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 min-h-0">
+        {loading ? (
+          <div className="flex items-center justify-center py-10">
+            <RefreshCw className="w-5 h-5 animate-spin text-on-surface-variant/40" />
+          </div>
+        ) : windows.length === 0 ? (
+          <div className="text-center py-10">
+            <BarChart2 className="w-10 h-10 text-on-surface-variant/15 mx-auto mb-3" />
+            <p className="text-sm text-on-surface-variant/40">No activity captured yet</p>
+            <p className="text-xs text-on-surface-variant/30 mt-1">
+              The monitor captures a snapshot every 30 min. Hit "Capture now" to start.
+            </p>
+          </div>
+        ) : (
+          windows.map((w) => (
+            <div key={w.id} className="bg-surface-container rounded-xl p-3 space-y-2">
+              {/* Time range */}
+              <div className="flex items-center gap-2">
+                <Clock className="w-3.5 h-3.5 text-primary/60 flex-shrink-0" />
+                <span className="text-xs font-medium text-on-surface">
+                  {fmtTime(w.window_start)} – {fmtTime(w.window_end)}
+                </span>
+                <span className="ml-auto text-xs text-on-surface-variant/40">
+                  {w.item_count} captures · {w.word_count} words
+                </span>
+              </div>
+
+              {/* Apps used */}
+              {w.apps.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {w.apps.slice(0, 6).map((app, i) => (
+                    <span key={i} className="text-xs bg-surface px-2 py-0.5 rounded-full text-on-surface-variant/70 border border-outline-variant/20">
+                      {app}
+                    </span>
+                  ))}
+                  {w.apps.length > 6 && (
+                    <span className="text-xs text-on-surface-variant/40">+{w.apps.length - 6}</span>
+                  )}
+                </div>
+              )}
+
+              {/* Highlights */}
+              {w.highlights.length > 0 && (
+                <div className="space-y-1 border-t border-outline-variant/10 pt-2">
+                  {w.highlights.slice(0, 2).map((h, i) => (
+                    <p key={i} className="text-xs text-on-surface-variant/60 leading-relaxed line-clamp-2 italic">
+                      "{h}"
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── ScreenPanel ───────────────────────────────────────────────────────────────
 
 export function ScreenPanel() {
-  const [tab, setTab]   = useState<'recent' | 'search'>('recent')
+  const [tab, setTab]   = useState<'recent' | 'search' | 'timeline'>('recent')
   const [alive, setAlive] = useState<boolean | null>(null)
 
   useEffect(() => {
@@ -262,7 +383,7 @@ export function ScreenPanel() {
 
       {/* Sub-tabs */}
       <div className="flex gap-1 bg-surface-container-low rounded-xl p-1 flex-shrink-0">
-        {(['recent', 'search'] as const).map((t) => (
+        {(['recent', 'search', 'timeline'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -273,14 +394,16 @@ export function ScreenPanel() {
                 : "text-on-surface-variant/60 hover:text-on-surface"
             )}
           >
-            {t === 'recent' ? 'Recent' : 'Search'}
+            {t === 'recent' ? 'Recent' : t === 'search' ? 'Search' : 'Timeline'}
           </button>
         ))}
       </div>
 
       {/* Content */}
       <div className="flex-1 min-h-0">
-        {tab === 'recent' ? <RecentTab alive={alive} /> : <SearchTab alive={alive} />}
+        {tab === 'recent'   && <RecentTab alive={alive} />}
+        {tab === 'search'   && <SearchTab alive={alive} />}
+        {tab === 'timeline' && <TimelineTab />}
       </div>
     </div>
   )

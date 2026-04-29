@@ -8,7 +8,7 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import {
   MessageSquare, LayoutList, Users, Monitor, FolderOpen,
-  Cpu, Bell, Zap, X, CheckCircle2, Clock, AlertCircle,
+  Cpu, Bell, Phone, Zap, X, CheckCircle2, Clock, AlertCircle,
   Loader2, ChevronRight, ChevronDown,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -21,13 +21,14 @@ import { ScreenPanel } from '@/components/workspace/ScreenPanel'
 import { FilesPanel } from '@/components/workspace/FilesPanel'
 import { SystemMetricsPanel } from '@/components/workspace/SystemMetricsPanel'
 import { AutomationPanel } from '@/components/workspace/AutomationPanel'
+import { VoIPPanel } from '@/components/workspace/VoIPPanel'
 
 // Lazy-load the full chat so it doesn't block this view's render
 const AssistantChat = lazy(() => import('./AssistantView'))
 
 // ── Tab config ─────────────────────────────────────────────────────────────────
 
-type Tab = 'chat' | 'agents' | 'crm' | 'screen' | 'files' | 'pc' | 'reminders'
+type Tab = 'chat' | 'agents' | 'crm' | 'screen' | 'files' | 'pc' | 'reminders' | 'voip'
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'chat',      icon: <MessageSquare className="w-4 h-4" />, label: 'Chat'      },
@@ -37,6 +38,7 @@ const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'files',     icon: <FolderOpen    className="w-4 h-4" />, label: 'Files'     },
   { id: 'pc',        icon: <Cpu           className="w-4 h-4" />, label: 'PC'        },
   { id: 'reminders', icon: <Bell          className="w-4 h-4" />, label: 'Reminders' },
+  { id: 'voip',      icon: <Phone         className="w-4 h-4" />, label: 'Calls'     },
 ]
 
 // ── Task types ─────────────────────────────────────────────────────────────────
@@ -398,6 +400,12 @@ export default function WorkspaceView() {
           {activeTab === 'reminders' && (
             <div className="h-full">
               <AutomationPanel />
+            </div>
+          )}
+
+          {activeTab === 'voip' && (
+            <div className="h-full">
+              <VoIPPanel />
             </div>
           )}
         </div>

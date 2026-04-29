@@ -13,10 +13,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   ShieldCheck, ShieldAlert, Zap, RefreshCw, ChevronDown, ChevronRight,
-  Clock, X, CheckCircle2, AlertCircle, Eye,
+  Clock, X, CheckCircle2, AlertCircle, Eye, Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
+import { useAppStore } from '@/store/appStore'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -59,8 +60,22 @@ function relTime(iso: string) {
 // ── RunCard ───────────────────────────────────────────────────────────────────
 
 function RunCard({ run, onViewDetail }: { run: TriageRun; onViewDetail: (id: string) => void }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded]   = useState(false)
+  const { setPendingDraftText }   = useAppStore()
   const hasFailures = run.failures.length > 0
+
+  const analyzeWithAI = async () => {
+    // Fetch the full output, then pre-fill Codespace chat
+    try {
+      const res = await api.get(`/api/codespace/triage/runs/${run.id}`)
+      const output = res.data?.output ?? run.failures.join('\n')
+      const prompt = `Analyze this Guppy dev-check failure and suggest a fix:\n\n\`\`\`\n${output.slice(0, 3000)}\n\`\`\``
+      setPendingDraftText(prompt)
+    } catch {
+      const prompt = `Analyze this dev-check failure:\n\n${run.failures.join('\n')}`
+      setPendingDraftText(prompt)
+    }
+  }
 
   return (
     <div className={cn(
@@ -96,6 +111,15 @@ function RunCard({ run, onViewDetail }: { run: TriageRun; onViewDetail: (id: str
             <p className="text-xs text-error/80 truncate mt-0.5">{run.failures[0]}</p>
           )}
         </div>
+        {run.status === 'failed' && (
+          <button
+            onClick={(e) => { e.stopPropagation(); analyzeWithAI() }}
+            className="p-1 rounded hover:bg-secondary/10 text-on-surface-variant/40 hover:text-secondary transition-colors"
+            title="Analyze failure with AI (opens Codespace chat)"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+          </button>
+        )}
         <button
           onClick={(e) => { e.stopPropagation(); onViewDetail(run.id) }}
           className="p-1 rounded hover:bg-surface-variant text-on-surface-variant/40 hover:text-on-surface transition-colors"
