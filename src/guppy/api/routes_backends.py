@@ -399,4 +399,48 @@ def build_backends_router(ctx: ServerContext) -> APIRouter:
         """Stop a llamacpp server (kills process tree + any external listener on the port)."""
         return await asyncio.to_thread(_do_stop, name)
 
+    @router.get("/llamacpp/agents/probe")
+    async def probe_tool_agents(
+        agents: str = "dispatch,xlam,hermes4",
+        precondition: bool = True,
+        _u: str = Depends(ctx.require_rate_limit),
+    ):
+        """Run tool-capability probe + optional KV-cache preconditioner on the workspace agents.
+
+        Query params:
+          agents        Comma-separated subset: dispatch,xlam,hermes4  (default: all three)
+          precondition  Whether to run the KV-cache warm-up pass after tests (default: true)
+
+        Returns a per-agent report with liveness, chat, and tool_call results.
+        """
+        import sys as _sys
+        from pathlib import Path as _Path
+        _tools_dir = str(_Path(__file__).resolve().parents[3] / "tools")
+        if _tools_dir not in _sys.path:
+            _sys.path.insert(0, _tools_dir)
+
+        try:
+            import verify_tool_agents as _vta
+        except ImportError as _ie:
+            raise HTTPException(status_code=500, detail=f"verify_tool_agents not found: {_ie}")
+
+        requested = [a.strip() for a in agents.split(",") if a.strip() in _vta._AGENTS]
+        if not requested:
+            raise HTTPException(status_code=400, detail="No valid agent names. Choose from: dispatch, xlam, hermes4")
+
+        def _run_all():
+            results = []
+            for name in requested:
+                r = _vta.run_agent(name, skip_precondition=not precondition)
+                results.append(r)
+            return _vta.results_to_dict(results)
+
+        report = await asyncio.to_thread(_run_all)
+        passed = sum(1 for v in report.values() if v["ok"])
+        return {
+            "summary": f"{passed}/{len(requested)} agents fully operational",
+            "agents": report,
+            "precondition_ran": precondition,
+        }
+
     return router
