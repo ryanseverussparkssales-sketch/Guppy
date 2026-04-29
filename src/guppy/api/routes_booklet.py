@@ -15,8 +15,10 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
+
+from src.guppy.api.server_context import ServerContext
 
 # ---------------------------------------------------------------------------
 # Storage path
@@ -184,15 +186,15 @@ class ReorderRequest(BaseModel):
 # Router
 # ---------------------------------------------------------------------------
 
-def build_booklet_router(_ctx=None) -> APIRouter:
+def build_booklet_router(ctx: ServerContext) -> APIRouter:
     router = APIRouter(prefix="/api/booklet", tags=["booklet"])
 
     @router.get("/sections", response_model=list[BookletSection])
-    def list_sections():
+    def list_sections(_user_id: str = Depends(ctx.require_rate_limit)):
         return _sorted(_load())
 
     @router.post("/sections", response_model=BookletSection, status_code=201)
-    def create_section(body: CreateSectionRequest):
+    def create_section(body: CreateSectionRequest, _user_id: str = Depends(ctx.require_rate_limit)):
         sections = _load()
         if any(s["id"] == body.id for s in sections):
             raise HTTPException(409, f"Section '{body.id}' already exists")
@@ -208,7 +210,7 @@ def build_booklet_router(_ctx=None) -> APIRouter:
         return new
 
     @router.patch("/sections/{section_id}", response_model=BookletSection)
-    def update_section(section_id: str, body: UpdateSectionRequest):
+    def update_section(section_id: str, body: UpdateSectionRequest, _user_id: str = Depends(ctx.require_rate_limit)):
         sections = _load()
         for s in sections:
             if s["id"] == section_id:
@@ -223,7 +225,7 @@ def build_booklet_router(_ctx=None) -> APIRouter:
         raise HTTPException(404, f"Section '{section_id}' not found")
 
     @router.delete("/sections/{section_id}", status_code=204)
-    def delete_section(section_id: str):
+    def delete_section(section_id: str, _user_id: str = Depends(ctx.require_rate_limit)):
         sections = _load()
         original = len(sections)
         sections = [s for s in sections if s["id"] != section_id]
@@ -232,7 +234,7 @@ def build_booklet_router(_ctx=None) -> APIRouter:
         _save(sections)
 
     @router.post("/sections/reorder", response_model=list[BookletSection])
-    def reorder_sections(body: ReorderRequest):
+    def reorder_sections(body: ReorderRequest, _user_id: str = Depends(ctx.require_rate_limit)):
         sections = _load()
         index = {s["id"]: s for s in sections}
         reordered = []
@@ -253,7 +255,7 @@ def build_booklet_router(_ctx=None) -> APIRouter:
         return _sorted(reordered)
 
     @router.get("/compiled")
-    def get_compiled():
+    def get_compiled(_user_id: str = Depends(ctx.require_rate_limit)):
         return {"compiled": compile_booklet()}
 
     return router
