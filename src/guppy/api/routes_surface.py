@@ -320,6 +320,7 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
 
     # Build the task message for Hermes4
     from src.guppy.api.routes_realtime import _WORKSPACE_TOOL_SCHEMA, _TOOL_CALL_RE, _execute_workspace_tool
+    from src.guppy.api.realtime_inference_support import _repair_tool_json
 
     system_prompt = (
         "You are the Guppy Workspace agent — an autonomous operator running a background task.\n"
@@ -352,7 +353,10 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
         tool_results: list[dict] = []
         for tc_json in tool_blocks:
             try:
-                tc        = _json.loads(tc_json)
+                tc = _repair_tool_json(tc_json)
+                if tc is None:
+                    tool_results.append({"tool": "?", "error": "malformed tool JSON"})
+                    continue
                 tool_name = tc.get("name", "")
                 tool_args = tc.get("arguments", {})
                 _broadcast_event("task_progress", {"id": task_id, "status": "in_progress", "step": f"Tool: {tool_name}"})

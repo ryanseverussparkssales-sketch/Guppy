@@ -17,6 +17,7 @@ from src.guppy.api.realtime_inference_support import (
     _REPLACE_SENTINEL,
     _SOURCE_SENTINEL,
     _OLLAMA_CHAT_URL,
+    _repair_tool_json,
 )
 from src.guppy.voice import voice as _voice
 
@@ -723,7 +724,10 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     tool_results: list[dict] = []
                     for tc_json in tool_blocks:
                         try:
-                            tc        = json.loads(tc_json)
+                            tc = _repair_tool_json(tc_json)
+                            if tc is None:
+                                tool_results.append({"tool": "?", "error": "malformed tool JSON"})
+                                continue
                             tool_name = tc.get("name", "")
                             tool_args = tc.get("arguments", {})
                             yield f"data: {json.dumps({'tool_exec': tool_name})}\n\n"
@@ -838,7 +842,10 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     tool_results: list[dict] = []
                     for tc_json in tool_blocks:
                         try:
-                            tc        = json.loads(tc_json)
+                            tc = _repair_tool_json(tc_json)
+                            if tc is None:
+                                tool_results.append({"tool": "?", "error": "malformed tool JSON"})
+                                continue
                             tool_name = tc.get("name", "")
                             tool_args = tc.get("arguments", {})
                             yield f"data: {json.dumps({'tool_exec': tool_name})}\n\n"

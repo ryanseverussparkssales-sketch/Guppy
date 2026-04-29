@@ -61,6 +61,55 @@ def _parse_oom_error(text: str, backend: str = "") -> str | None:
     return None
 
 
+# GBNF grammar that constrains llamacpp output to a single JSON tool-call object.
+# Applied to non-streaming task-executor calls where the entire response should
+# be a tool call (or a plain JSON object with a "response" key for prose).
+# Callers can pass this to _stream_llamacpp_tokens(grammar=...) or include it
+# in a direct httpx payload as "grammar": _TOOL_CALL_GBNF.
+_TOOL_CALL_GBNF: str = r"""
+root   ::= object
+value  ::= object | array | string | number | ("true" | "false" | "null") ws
+object ::= "{" ws (pair ("," ws pair)*)? "}" ws
+pair   ::= string ":" ws value
+array  ::= "[" ws (value ("," ws value)*)? "]" ws
+string ::= "\"" (
+    [^\x00-\x1f\x22\x5c] |
+    "\\" (["\\/bfnrt] | "u" [0-9a-fA-F]{4})
+)* "\"" ws
+number ::= ("-"? ([0-9] | [1-9][0-9]*)) ("." [0-9]+)? ([eE][-+]? [0-9]+)? ws
+ws     ::= [ \t\n\r]*
+""".strip()
+
+
+def _repair_tool_json(s: str) -> dict | None:
+    """Try to parse a JSON string from a <tool_call> block, applying common repairs.
+
+    Models occasionally emit: trailing commas, unclosed braces, or extra whitespace.
+    Returns the parsed dict or None if all repair attempts fail.
+    """
+    import json as _json
+
+    # Direct parse
+    try:
+        return _json.loads(s)
+    except _json.JSONDecodeError:
+        pass
+    # Strip trailing commas before } or ]
+    repaired = _re.sub(r",\s*([}\]])", r"\1", s)
+    try:
+        return _json.loads(repaired)
+    except _json.JSONDecodeError:
+        pass
+    # Add missing closing braces
+    open_count = repaired.count("{") - repaired.count("}")
+    if 0 < open_count <= 3:
+        try:
+            return _json.loads(repaired + "}" * open_count)
+        except _json.JSONDecodeError:
+            pass
+    return None
+
+
 def _strip_tool_call_markers(text: str) -> str:
     """Remove raw text-embedded tool call blocks from a model response.
 
@@ -1151,6 +1200,7 @@ async def _stream_llamacpp_tokens(
     max_tool_rounds: int = 6,
     _loop_history: list[str] | None = None,
     escalate_on_all_tool_errors: bool = False,
+    grammar: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Yield content tokens from a llama.cpp OpenAI-compatible SSE stream.
 
@@ -1187,6 +1237,8 @@ async def _stream_llamacpp_tokens(
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
+        if grammar:
+            payload["grammar"] = grammar
 
         full_content = ""
         tool_calls_acc: dict[int, dict] = {}   # delta index → accumulated call
