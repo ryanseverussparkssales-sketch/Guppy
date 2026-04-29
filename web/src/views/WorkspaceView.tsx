@@ -1,23 +1,43 @@
 /**
  * WorkspaceView — Operations Hub
  *
- * Two-panel layout: left = full chat (current AssistantView), right = agent task panel.
- * The right panel shows tasks spawned from any surface, with live status.
- * Backend selector in header. Full tool access.
+ * Icon tab strip: Chat | Agents | CRM | Screen | Files | PC | Reminders
+ * Each tab mounts its panel in a consistent scrollable container.
+ * Chat tab keeps the full AssistantView + collapsible AgentTaskPanel sidebar.
  */
 import { useState, useEffect, lazy, Suspense } from 'react'
 import {
-  Zap, X, CheckCircle2, Clock, AlertCircle, Loader2,
-  ChevronRight, ChevronDown, LayoutList,
+  MessageSquare, LayoutList, Users, Monitor, FolderOpen,
+  Cpu, Bell, Zap, X, CheckCircle2, Clock, AlertCircle,
+  Loader2, ChevronRight, ChevronDown,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
 import { BackendSelector } from '@/components/surface/BackendSelector'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
+import { CRMPanel } from '@/components/workspace/CRMPanel'
+import { ScreenPanel } from '@/components/workspace/ScreenPanel'
+import { FilesPanel } from '@/components/workspace/FilesPanel'
+import { SystemMetricsPanel } from '@/components/workspace/SystemMetricsPanel'
+import { AutomationPanel } from '@/components/workspace/AutomationPanel'
 
 // Lazy-load the full chat so it doesn't block this view's render
 const AssistantChat = lazy(() => import('./AssistantView'))
+
+// ── Tab config ─────────────────────────────────────────────────────────────────
+
+type Tab = 'chat' | 'agents' | 'crm' | 'screen' | 'files' | 'pc' | 'reminders'
+
+const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
+  { id: 'chat',      icon: <MessageSquare className="w-4 h-4" />, label: 'Chat'      },
+  { id: 'agents',    icon: <LayoutList    className="w-4 h-4" />, label: 'Agents'    },
+  { id: 'crm',       icon: <Users         className="w-4 h-4" />, label: 'CRM'       },
+  { id: 'screen',    icon: <Monitor       className="w-4 h-4" />, label: 'Screen'    },
+  { id: 'files',     icon: <FolderOpen    className="w-4 h-4" />, label: 'Files'     },
+  { id: 'pc',        icon: <Cpu           className="w-4 h-4" />, label: 'PC'        },
+  { id: 'reminders', icon: <Bell          className="w-4 h-4" />, label: 'Reminders' },
+]
 
 // ── Task types ─────────────────────────────────────────────────────────────────
 
@@ -34,25 +54,24 @@ interface SurfaceTask {
 }
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
-  queued:    <Clock className="w-3.5 h-3.5 text-on-surface-variant/60" />,
-  running:   <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />,
+  queued:    <Clock       className="w-3.5 h-3.5 text-on-surface-variant/60" />,
+  running:   <Loader2     className="w-3.5 h-3.5 text-primary animate-spin" />,
   complete:  <CheckCircle2 className="w-3.5 h-3.5 text-success" />,
-  failed:    <AlertCircle className="w-3.5 h-3.5 text-error" />,
-  cancelled: <X className="w-3.5 h-3.5 text-on-surface-variant/40" />,
+  failed:    <AlertCircle  className="w-3.5 h-3.5 text-error" />,
+  cancelled: <X           className="w-3.5 h-3.5 text-on-surface-variant/40" />,
 }
 
-// ── Task item ──────────────────────────────────────────────────────────────────
+// ── TaskItem ───────────────────────────────────────────────────────────────────
 
 function TaskItem({ task, onCancel }: { task: SurfaceTask; onCancel: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false)
-
   return (
     <div className={cn(
       "rounded-xl border text-sm transition-colors",
-      task.status === 'running' && "border-primary/30 bg-primary/5",
-      task.status === 'complete' && "border-success/20 bg-success/5",
-      task.status === 'failed' && "border-error/20 bg-error/5",
-      task.status === 'queued' && "border-outline-variant/30 bg-surface-variant/30",
+      task.status === 'running'   && "border-primary/30 bg-primary/5",
+      task.status === 'complete'  && "border-success/20 bg-success/5",
+      task.status === 'failed'    && "border-error/20 bg-error/5",
+      task.status === 'queued'    && "border-outline-variant/30 bg-surface-variant/30",
       task.status === 'cancelled' && "border-outline-variant/10 bg-surface opacity-50",
     )}>
       <div
@@ -72,7 +91,7 @@ function TaskItem({ task, onCancel }: { task: SurfaceTask; onCancel: (id: string
         )}
         {(task.description || task.result) && (
           expanded
-            ? <ChevronDown className="w-3.5 h-3.5 text-on-surface-variant/40 flex-shrink-0" />
+            ? <ChevronDown  className="w-3.5 h-3.5 text-on-surface-variant/40 flex-shrink-0" />
             : <ChevronRight className="w-3.5 h-3.5 text-on-surface-variant/40 flex-shrink-0" />
         )}
       </div>
@@ -101,29 +120,25 @@ function TaskItem({ task, onCancel }: { task: SurfaceTask; onCancel: (id: string
   )
 }
 
-// ── Agent task panel ───────────────────────────────────────────────────────────
+// ── AgentsPanel ────────────────────────────────────────────────────────────────
 
-function AgentTaskPanel() {
-  const [tasks, setTasks]         = useState<SurfaceTask[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [filter, setFilter]       = useState<'all' | 'active' | 'done'>('all')
+function AgentsPanel() {
+  const [tasks, setTasks]     = useState<SurfaceTask[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter]   = useState<'all' | 'active' | 'done'>('all')
 
   const loadTasks = async () => {
     try {
       const res = await api.get('/api/surface/tasks?surface=workspace')
       setTasks(res.data || [])
-    } catch {
-      /* ignore */
-    } finally {
+    } catch { /* ignore */ } finally {
       setLoading(false)
     }
   }
 
-  // SSE subscription for real-time updates
   useEffect(() => {
     loadTasks()
     const token = localStorage.getItem('accessToken') || ''
-    // Use fetch-based SSE so we can send auth header
     let cancelled = false
     let retryTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -136,8 +151,7 @@ function AgentTaskPanel() {
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
         const reader = res.body.getReader()
         const dec = new TextDecoder()
-        let buf = ''
-        let evType = ''
+        let buf = '', evType = ''
         while (!cancelled) {
           const { done, value } = await reader.read()
           if (done) break
@@ -148,10 +162,8 @@ function AgentTaskPanel() {
             if (line.startsWith('event: ')) evType = line.slice(7).trim()
             else if (line.startsWith('data: ')) {
               try {
-                JSON.parse(line.slice(6))  // parse to validate; re-fetch on any task event
-                if (['task_spawned', 'task_updated', 'task_cancelled'].includes(evType)) {
-                  loadTasks()
-                }
+                JSON.parse(line.slice(6))
+                if (['task_spawned', 'task_updated', 'task_cancelled'].includes(evType)) loadTasks()
               } catch { /* ignore */ }
               evType = ''
             }
@@ -184,22 +196,20 @@ function AgentTaskPanel() {
   const activeCount = tasks.filter((t) => ['queued', 'running'].includes(t.status)).length
 
   return (
-    <div className="flex flex-col h-full bg-surface-container-low border-l border-outline-variant/20">
-      {/* Panel header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-outline-variant/20 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <LayoutList className="w-4 h-4 text-on-surface-variant" />
-          <span className="text-sm font-semibold text-on-surface">Agent Tasks</span>
-          {activeCount > 0 && (
-            <span className="px-1.5 py-0.5 text-xs font-medium bg-primary text-on-primary rounded-full">
-              {activeCount}
-            </span>
-          )}
-        </div>
+    <div className="flex flex-col h-full p-4 gap-3">
+      {/* Header */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <LayoutList className="w-4 h-4 text-on-surface-variant" />
+        <span className="text-sm font-semibold text-on-surface">Agent Tasks</span>
+        {activeCount > 0 && (
+          <span className="px-1.5 py-0.5 text-xs font-medium bg-primary text-on-primary rounded-full">
+            {activeCount}
+          </span>
+        )}
       </div>
 
       {/* Filter tabs */}
-      <div className="flex gap-1 px-3 pt-2 pb-1 flex-shrink-0">
+      <div className="flex gap-1 flex-shrink-0">
         {(['all', 'active', 'done'] as const).map((f) => (
           <button
             key={f}
@@ -217,7 +227,7 @@ function AgentTaskPanel() {
       </div>
 
       {/* Task list */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-2 space-y-2">
+      <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 min-h-0">
         {loading ? (
           <div className="flex items-center justify-center pt-8">
             <Loader2 className="w-5 h-5 animate-spin text-on-surface-variant/40" />
@@ -251,14 +261,66 @@ function AgentTaskPanel() {
   )
 }
 
-// ── Main view ──────────────────────────────────────────────────────────────────
+// ── ChatTab ────────────────────────────────────────────────────────────────────
+
+function ChatTab() {
+  const [taskPanelOpen, setTaskPanelOpen] = useState(false)
+
+  return (
+    <div className="flex h-full overflow-hidden">
+      {/* Main chat */}
+      <div className={cn("flex-1 overflow-hidden", taskPanelOpen && "border-r border-outline-variant/20")}>
+        <Suspense fallback={
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="w-6 h-6 animate-spin text-on-surface-variant/40" />
+          </div>
+        }>
+          <AssistantChat />
+        </Suspense>
+      </div>
+
+      {/* Collapsible agent task sidebar */}
+      <AnimatePresence>
+        {taskPanelOpen && (
+          <motion.div
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 300, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
+            className="flex-shrink-0 overflow-hidden bg-surface-container-low"
+            style={{ width: 300 }}
+          >
+            <AgentsPanel />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Toggle button */}
+      <button
+        onClick={() => setTaskPanelOpen(!taskPanelOpen)}
+        className={cn(
+          "absolute bottom-4 right-4 flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl shadow-lg transition-colors z-10",
+          taskPanelOpen
+            ? "bg-primary text-on-primary"
+            : "bg-surface-container text-on-surface-variant hover:bg-surface-container-high"
+        )}
+      >
+        <LayoutList className="w-3.5 h-3.5" />
+        Tasks
+      </button>
+    </div>
+  )
+}
+
+// ── WorkspaceView ──────────────────────────────────────────────────────────────
 
 export default function WorkspaceView() {
-  const [taskPanelOpen, setTaskPanelOpen] = useState(true)
+  const [activeTab, setActiveTab] = useState<Tab>('chat')
 
   return (
     <div className="flex flex-col h-full bg-surface text-on-surface">
-      {/* Workspace header bar */}
+
+      {/* Header bar */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-outline-variant/20 flex-shrink-0 bg-surface-container-low/50">
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 rounded-lg bg-secondary/20 flex items-center justify-center">
@@ -270,49 +332,75 @@ export default function WorkspaceView() {
           <SurfaceStatusBar surface="companion" compact label="Companion" />
           <SurfaceStatusBar surface="codespace" compact label="Codespace" />
           <BackendSelector surface="workspace" compact />
-          <button
-            onClick={() => setTaskPanelOpen(!taskPanelOpen)}
-            className={cn(
-              "text-xs px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5",
-              taskPanelOpen
-                ? "bg-primary/10 text-primary"
-                : "text-on-surface-variant/60 hover:text-on-surface hover:bg-surface-variant"
-            )}
-          >
-            <LayoutList className="w-3.5 h-3.5" />
-            Tasks
-          </button>
         </div>
       </div>
 
-      {/* Content: chat + optional task panel */}
+      {/* Body: icon tab strip (left) + content (right) */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Main chat — full AssistantView */}
-        <div className={cn("flex-1 overflow-hidden", taskPanelOpen && "border-r border-outline-variant/20")}>
-          <Suspense fallback={
-            <div className="flex items-center justify-center h-full">
-              <Loader2 className="w-6 h-6 animate-spin text-on-surface-variant/40" />
-            </div>
-          }>
-            <AssistantChat />
-          </Suspense>
+
+        {/* Icon tab strip */}
+        <div className="flex flex-col items-center py-3 px-1.5 gap-1 border-r border-outline-variant/15 bg-surface-container-low/30 flex-shrink-0 w-14">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              title={t.label}
+              className={cn(
+                "relative w-9 h-9 flex items-center justify-center rounded-xl transition-all",
+                activeTab === t.id
+                  ? "bg-primary/15 text-primary"
+                  : "text-on-surface-variant/50 hover:bg-surface-variant/50 hover:text-on-surface"
+              )}
+            >
+              {t.icon}
+              {/* Active dot */}
+              {activeTab === t.id && (
+                <div className="absolute left-0.5 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-full" />
+              )}
+            </button>
+          ))}
         </div>
 
-        {/* Agent task panel */}
-        <AnimatePresence>
-          {taskPanelOpen && (
-            <motion.div
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 300, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.2, ease: 'easeInOut' }}
-              className="flex-shrink-0 overflow-hidden"
-              style={{ width: 300 }}
-            >
-              <AgentTaskPanel />
-            </motion.div>
+        {/* Tab content */}
+        <div className="flex-1 overflow-hidden relative">
+          {activeTab === 'chat' && <ChatTab />}
+
+          {activeTab === 'agents' && (
+            <div className="h-full overflow-y-auto">
+              <AgentsPanel />
+            </div>
           )}
-        </AnimatePresence>
+
+          {activeTab === 'crm' && (
+            <div className="h-full">
+              <CRMPanel />
+            </div>
+          )}
+
+          {activeTab === 'screen' && (
+            <div className="h-full">
+              <ScreenPanel />
+            </div>
+          )}
+
+          {activeTab === 'files' && (
+            <div className="h-full">
+              <FilesPanel />
+            </div>
+          )}
+
+          {activeTab === 'pc' && (
+            <div className="h-full overflow-y-auto p-4">
+              <SystemMetricsPanel />
+            </div>
+          )}
+
+          {activeTab === 'reminders' && (
+            <div className="h-full">
+              <AutomationPanel />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

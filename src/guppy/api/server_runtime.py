@@ -537,6 +537,9 @@ app.include_router(build_surface_router(_server_context))           # /api/surfa
 from src.guppy.api.routes_companion import build_companion_router
 app.include_router(build_companion_router(_server_context))         # /api/companion/*
 
+from src.guppy.api.routes_workspace_data import build_workspace_data_router
+app.include_router(build_workspace_data_router(_server_context))    # /api/workspace/*
+
 # Serve static web UI files
 try:
     from fastapi.staticfiles import StaticFiles
