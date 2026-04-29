@@ -119,6 +119,155 @@ async def _execute_companion_tool(name: str, args: dict) -> dict:
     return {"ok": False, "error": f"Unknown tool: {name}"}
 
 
+# ── Workspace tool executor ────────────────────────────────────────────────────
+# Workspace has the full tool policy: web, filesystem, shell (read-only),
+# CRM, memory, reminders, media, and task spawning.
+
+_WORKSPACE_TOOL_SCHEMA = """
+## Tools — Workspace Agent (Hermes 4)
+You are an autonomous workspace agent. Use <tool_call> blocks to invoke tools.
+Chain multiple calls to complete tasks. Use tools when they would help — don't just describe.
+
+web_fetch(url, extract="")   — fetch any URL as plain text
+  <tool_call>{"name": "web_fetch", "arguments": {"url": "https://www.gutenberg.org/files/1533/1533-0.txt", "extract": "witches"}}</tool_call>
+
+web_search(query, num_results=5)   — search the web via DuckDuckGo
+  <tool_call>{"name": "web_search", "arguments": {"query": "Project Gutenberg Macbeth plain text", "num_results": 5}}</tool_call>
+
+file_read(path)   — read a local file
+  <tool_call>{"name": "file_read", "arguments": {"path": "C:/Users/Ryan/Documents/notes.txt"}}</tool_call>
+
+file_list(path=".")   — list files in a directory
+  <tool_call>{"name": "file_list", "arguments": {"path": "C:/Users/Ryan/Downloads"}}</tool_call>
+
+shell_run(command)   — read-only shell commands: dir, ls, git status/log/diff, python, type, cat
+  <tool_call>{"name": "shell_run", "arguments": {"command": "dir C:/Users/Ryan/Downloads"}}</tool_call>
+
+contacts_search(query)   — search CRM contacts by name/company/email
+  <tool_call>{"name": "contacts_search", "arguments": {"query": "Smith"}}</tool_call>
+
+memory_write(key, value, category="general")   — store a fact permanently
+  <tool_call>{"name": "memory_write", "arguments": {"key": "macbeth_location", "value": "Saved to C:/Users/Ryan/Downloads/macbeth.txt", "category": "completed"}}</tool_call>
+
+memory_recall(query)   — recall facts from persistent memory
+  <tool_call>{"name": "memory_recall", "arguments": {"query": "where is Macbeth saved"}}</tool_call>
+
+create_reminder(message, delay_minutes=30)   — schedule a reminder for Ryan
+  <tool_call>{"name": "create_reminder", "arguments": {"message": "Read the Macbeth witches scene", "delay_minutes": 60}}</tool_call>
+
+download_media(url, category="general")   — queue a download in qBittorrent
+  <tool_call>{"name": "download_media", "arguments": {"url": "magnet:?xt=urn:btih:...", "category": "books"}}</tool_call>
+"""
+
+_SHELL_SAFE_PREFIXES = (
+    "dir", "ls", "echo", "git status", "git log", "git diff", "git branch",
+    "python --version", "python -c", "python -m", "type ", "cat ", "head ",
+    "tail ", "where ", "which ", "pip list", "pip show",
+)
+
+
+async def _execute_workspace_tool(name: str, args: dict) -> dict:
+    """Execute one workspace tool call. Delegates shared tools to companion executor."""
+    import httpx
+
+    # Shared tools — delegate to companion executor
+    if name in (
+        "web_fetch", "create_reminder", "download_media",
+        "memory_write", "memory_recall", "workspace_task",
+    ):
+        return await _execute_companion_tool(name, args)
+
+    if name == "web_search":
+        query = str(args.get("query", "")).strip()
+        num_results = min(int(args.get("num_results", 5)), 10)
+        if not query:
+            return {"ok": False, "error": "query required"}
+        try:
+            async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+                resp = await client.get(
+                    "https://html.duckduckgo.com/html/",
+                    params={"q": query},
+                    headers={"User-Agent": "Mozilla/5.0 Guppy/1.0"},
+                )
+            # Extract result snippets from DDG HTML response
+            anchors = re.findall(
+                r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a',
+                resp.text, re.DOTALL,
+            )
+            results = [
+                {"url": u, "title": re.sub(r"<[^>]+>", "", t).strip()}
+                for u, t in anchors[:num_results]
+            ]
+            return {"ok": True, "results": results, "query": query}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "file_read":
+        from pathlib import Path
+        path = str(args.get("path", "")).strip()
+        if not path:
+            return {"ok": False, "error": "path required"}
+        try:
+            content = Path(path).read_text(encoding="utf-8", errors="replace")
+            return {"ok": True, "path": path, "content": content[:20000]}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "file_list":
+        from pathlib import Path
+        path = str(args.get("path", ".")).strip() or "."
+        try:
+            p = Path(path)
+            entries = [
+                {
+                    "name": x.name,
+                    "type": "dir" if x.is_dir() else "file",
+                    "size": x.stat().st_size if x.is_file() else 0,
+                }
+                for x in sorted(p.iterdir())
+            ]
+            return {"ok": True, "path": str(p.resolve()), "entries": entries[:200]}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "shell_run":
+        import subprocess
+        command = str(args.get("command", "")).strip()
+        if not command:
+            return {"ok": False, "error": "command required"}
+        cmd_lower = command.lower()
+        if not any(cmd_lower.startswith(p.lower()) for p in _SHELL_SAFE_PREFIXES):
+            return {
+                "ok": False,
+                "error": f"Not in safe-command whitelist (read-only only): {command[:80]}",
+            }
+        try:
+            result = subprocess.run(
+                command, shell=True, capture_output=True, text=True, timeout=15,
+            )
+            return {
+                "ok": True,
+                "stdout": result.stdout[:8000],
+                "stderr": result.stderr[:2000],
+                "returncode": result.returncode,
+            }
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "command timed out (15 s)"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "contacts_search":
+        query = str(args.get("query", "")).strip()
+        try:
+            from src.guppy.api.routes_workspace_data import _contacts_json
+            contacts = _contacts_json(search=query)
+            return {"ok": True, "contacts": contacts[:20]}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    return {"ok": False, "error": f"Unknown workspace tool: {name}"}
+
+
 async def _generate_conversation_title(user_message: str, conv_id: str) -> None:
     """Fire-and-forget: generate a short title for a new conversation.
 
@@ -533,9 +682,121 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
             except Exception:
                 pass  # if the check itself errors, proceed normally
 
+        # Inject workspace tool schema so Hermes4 knows what tools it has
+        if request.surface == "workspace" and _WORKSPACE_TOOL_SCHEMA not in system_prompt:
+            system_prompt = system_prompt + _WORKSPACE_TOOL_SCHEMA
+
         async def _generate():
             full_response = ""
             last_source: str = ""
+
+            # ── Workspace surface: two-pass with full tool-call execution ─────
+            if request.surface == "workspace":
+                first_response = ""
+                try:
+                    async for token in stream_unified_inference(
+                        owner,
+                        request.message,
+                        system_prompt,
+                        mode=request.mode,
+                        history=request.history,
+                        instance_name=active_instance_name,
+                        instance_type=active_instance_type,
+                        active_local_model=_active_local_model,
+                        active_cloud_model=_active_cloud_model,
+                        image_base64=request.image_base64 or None,
+                    ):
+                        if token.startswith(_SOURCE_SENTINEL) or token.startswith(_REPLACE_SENTINEL):
+                            continue
+                        first_response += token
+                except Exception as exc:
+                    owner.logger.error("Workspace pass-1 buffering failed: %s", exc)
+                    yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+                    return
+
+                tool_blocks = _TOOL_CALL_RE.findall(first_response)
+
+                if not tool_blocks:
+                    full_response = first_response
+                    yield f"data: {json.dumps({'replace': first_response})}\n\n"
+                else:
+                    tool_results: list[dict] = []
+                    for tc_json in tool_blocks:
+                        try:
+                            tc        = json.loads(tc_json)
+                            tool_name = tc.get("name", "")
+                            tool_args = tc.get("arguments", {})
+                            yield f"data: {json.dumps({'tool_exec': tool_name})}\n\n"
+                            result = await _execute_workspace_tool(tool_name, tool_args)
+                            tool_results.append({"tool": tool_name, "result": result})
+                        except Exception as exc:
+                            tool_results.append({"tool": "?", "error": str(exc)})
+
+                    tool_result_text = "\n\n".join(
+                        f"[{r['tool']} result]\n{json.dumps(r.get('result', r.get('error', '')), ensure_ascii=False)[:6000]}"
+                        for r in tool_results
+                    )
+                    follow_up_history = list(request.history or []) + [
+                        {"role": "assistant", "content": first_response},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Tool execution complete:\n\n{tool_result_text}\n\n"
+                                "Give a clear response based on these results. "
+                                "Continue with more tool calls if the task needs them."
+                            ),
+                        },
+                    ]
+
+                    try:
+                        async for token in stream_unified_inference(
+                            owner,
+                            "Respond based on the tool results.",
+                            system_prompt,
+                            mode=request.mode,
+                            history=follow_up_history,
+                            instance_name=active_instance_name,
+                            instance_type=active_instance_type,
+                            active_local_model=_active_local_model,
+                            active_cloud_model=_active_cloud_model,
+                            image_base64=None,
+                        ):
+                            if token.startswith(_SOURCE_SENTINEL):
+                                last_source = token[len(_SOURCE_SENTINEL):]
+                                continue
+                            if token.startswith(_REPLACE_SENTINEL):
+                                replaced = token[len(_REPLACE_SENTINEL):]
+                                full_response = replaced
+                                yield f"data: {json.dumps({'replace': replaced})}\n\n"
+                                continue
+                            full_response += token
+                            yield f"data: {json.dumps({'token': token})}\n\n"
+                    except Exception as exc:
+                        owner.logger.error("Workspace pass-2 streaming failed: %s", exc)
+                        yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+                        return
+
+                done_payload: dict = {}
+                if last_source:
+                    done_payload["source"] = last_source
+                yield f"data: {json.dumps({**done_payload, 'done': True})}\n\n" if done_payload else "data: [DONE]\n\n"
+
+                _persist_chat_memory(
+                    session_id=request.session_id,
+                    user_text=request.message,
+                    assistant_text=full_response,
+                    persona_id=str(request.persona or active_instance_persona or "").strip(),
+                    workspace_name=str(active_instance_name or "").strip(),
+                )
+                if request.session_id and full_response:
+                    try:
+                        from src.guppy.api.routes_chat_history import _chat_history_db
+                        conv = _chat_history_db.get_conversation(request.session_id)
+                        if conv and conv.get("message_count", 0) <= 2 and str(conv.get("title", "")).startswith("Conversation "):
+                            asyncio.ensure_future(_generate_conversation_title(request.message, request.session_id))
+                    except Exception:
+                        pass
+                return
 
             # ── Companion surface: two-pass with tool-call detection ───────────
             if request.surface == "companion":

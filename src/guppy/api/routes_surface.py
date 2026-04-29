@@ -281,14 +281,132 @@ class SpawnTaskRequest(BaseModel):
 _bg_log = logging.getLogger(__name__ + ".bg")
 
 
-async def _background_loop() -> None:
-    """24/7 async background task: reminder delivery + workspace task processing.
+_task_executor_running = False   # simple flag — only one task runs at a time
 
-    Runs every 30 s as an asyncio task started in build_surface_router().
-    Reminder delivery: fetches due reminders and broadcasts them as SSE events
-    so any connected browser tab shows a native notification.
-    Task processing: marks long-queued tasks as stale (>6 h) to prevent queue bloat.
+
+async def _run_workspace_task(task_id: str, title: str, description: str) -> None:
+    """Run one queued workspace task through Hermes4 (port 8086).
+
+    Marks the task in_progress → completed/failed, broadcasts SSE events
+    throughout so the Workspace surface can show live progress.
+    The executor calls Hermes4 directly (OpenAI-compat) to avoid circular
+    HTTP auth — the background loop has no JWT token.
     """
+    import httpx, json as _json
+
+    _bg_log.info("[task_exec] starting task %s: %s", task_id, title)
+
+    def _update(status: str, result: str | None = None) -> None:
+        if not _DB_PATH:
+            return
+        try:
+            with _db() as conn:
+                if result is not None:
+                    conn.execute(
+                        "UPDATE surface_tasks SET status=?, result=?, updated_at=? WHERE id=?",
+                        (status, result, _now(), task_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE surface_tasks SET status=?, updated_at=? WHERE id=?",
+                        (status, _now(), task_id),
+                    )
+                conn.commit()
+        except Exception as _e:
+            _bg_log.error("[task_exec] DB update failed: %s", _e)
+
+    _update("in_progress")
+    _broadcast_event("task_progress", {"id": task_id, "status": "in_progress", "step": "Starting"})
+
+    # Build the task message for Hermes4
+    from src.guppy.api.routes_realtime import _WORKSPACE_TOOL_SCHEMA, _TOOL_CALL_RE, _execute_workspace_tool
+
+    system_prompt = (
+        "You are the Guppy Workspace agent — an autonomous operator running a background task.\n"
+        "Complete the task fully. Use tools as needed. Report what you did concisely."
+        + _WORKSPACE_TOOL_SCHEMA
+    )
+    user_message = f"Task: {title}\n\n{description}".strip()
+
+    try:
+        # Call Hermes4 directly (port 8086, OpenAI-compat)
+        payload = {
+            "model": "hermes-3-llama-3.1-8b",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_message},
+            ],
+            "stream": False,
+            "temperature": 0.3,
+            "max_tokens": 2048,
+        }
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            resp = await client.post("http://localhost:8086/v1/chat/completions", json=payload)
+            resp.raise_for_status()
+
+        first_response = resp.json()["choices"][0]["message"]["content"]
+        _broadcast_event("task_progress", {"id": task_id, "status": "in_progress", "step": "Executing tools"})
+
+        # Execute any tool calls in the response
+        tool_blocks = _TOOL_CALL_RE.findall(first_response)
+        tool_results: list[dict] = []
+        for tc_json in tool_blocks:
+            try:
+                tc        = _json.loads(tc_json)
+                tool_name = tc.get("name", "")
+                tool_args = tc.get("arguments", {})
+                _broadcast_event("task_progress", {"id": task_id, "status": "in_progress", "step": f"Tool: {tool_name}"})
+                result = await _execute_workspace_tool(tool_name, tool_args)
+                tool_results.append({"tool": tool_name, "result": result})
+            except Exception as exc:
+                tool_results.append({"tool": "?", "error": str(exc)})
+
+        # If tools were called, get a follow-up summary
+        final_result = first_response
+        if tool_results:
+            tool_result_text = "\n\n".join(
+                f"[{r['tool']}]\n{_json.dumps(r.get('result', r.get('error', '')), ensure_ascii=False)[:3000]}"
+                for r in tool_results
+            )
+            summary_payload = {
+                "model": "hermes-3-llama-3.1-8b",
+                "messages": [
+                    {"role": "system",    "content": system_prompt},
+                    {"role": "user",      "content": user_message},
+                    {"role": "assistant", "content": first_response},
+                    {"role": "user",      "content": (
+                        f"Tool results:\n\n{tool_result_text}\n\n"
+                        "Summarize what was completed in 2-3 sentences."
+                    )},
+                ],
+                "stream": False,
+                "temperature": 0.3,
+                "max_tokens": 512,
+            }
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp2 = await client.post("http://localhost:8086/v1/chat/completions", json=summary_payload)
+                if resp2.status_code < 300:
+                    final_result = resp2.json()["choices"][0]["message"]["content"]
+
+        _update("completed", final_result[:4000])
+        _broadcast_event("task_completed", {
+            "id": task_id, "title": title, "result": final_result[:500],
+        })
+        _bg_log.info("[task_exec] task %s completed", task_id)
+
+    except Exception as exc:
+        _bg_log.error("[task_exec] task %s failed: %s", task_id, exc)
+        _update("failed", str(exc)[:1000])
+        _broadcast_event("task_failed", {"id": task_id, "title": title, "error": str(exc)[:200]})
+
+
+async def _background_loop() -> None:
+    """24/7 async background task: reminder delivery + workspace task execution.
+
+    Runs every 30 s. Delivers due reminders as SSE events, processes one queued
+    workspace task per cycle through Hermes4, and ages stale tasks after 6 h.
+    """
+    global _task_executor_running
     _bg_log.info("[surface.bg] background loop started")
 
     while True:
@@ -310,6 +428,32 @@ async def _background_loop() -> None:
                 )
         except Exception as exc:
             _bg_log.error("[surface.bg] reminder delivery error: %s", exc)
+
+        # ── Workspace task execution ───────────────────────────────────────────
+        # Process one queued workspace task per cycle to keep VRAM pressure low.
+        if not _task_executor_running and _DB_PATH:
+            try:
+                with _db() as conn:
+                    row = conn.execute(
+                        "SELECT id, title, description FROM surface_tasks "
+                        "WHERE surface='workspace' AND status='queued' "
+                        "ORDER BY created_at ASC LIMIT 1"
+                    ).fetchone()
+                if row:
+                    _task_executor_running = True
+                    task_id, title, description = row["id"], row["title"], row["description"]
+
+                    async def _run_and_clear(tid: str, ttl: str, desc: str) -> None:
+                        global _task_executor_running
+                        try:
+                            await _run_workspace_task(tid, ttl, desc)
+                        finally:
+                            _task_executor_running = False
+
+                    asyncio.create_task(_run_and_clear(task_id, title, description))
+            except Exception as exc:
+                _task_executor_running = False
+                _bg_log.error("[surface.bg] task dispatch error: %s", exc)
 
         # ── Stale task cleanup (tasks queued for >6 h become stale) ──────────
         try:
