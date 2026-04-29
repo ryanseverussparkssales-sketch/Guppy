@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-04-29 — Phases 1–5 complete
+**Last updated:** 2026-04-30 — Phases 1–5 complete + 6-gap stability hardening
 
 ---
 
@@ -184,6 +184,13 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - ✅ **Companion tool execution** — `POST /api/companion/action` for web_fetch/create_reminder/download_media/memory_write/memory_recall; `<tool_call>` parser in `/chat/stream` two-pass; Hermes tool schema + memory protocol in all personality presets
 - ✅ **Ollama removed from routing** — `can_stream_ollama=False`; all local routes go to llamacpp; session summarizer switched from guppy-fast to dispatch at port 8085
 - ✅ **Phi-4-mini infrastructure** — registered at port 8091 as true JSON tool_call orchestrator; model file needed to activate
+- ✅ **6-gap stability hardening** (2026-04-30):
+  - **Surface-locked routing** — `_get_surface_local_model()` reads `surface_config` DB per-surface; companion→hermes3, workspace→hermes4 by default; wired into `/chat` + `/chat/stream`
+  - **Per-surface cloud fallback** — `_get_surface_cloud_model()` returns Haiku for companion, Sonnet for workspace/codespace; user override always wins
+  - **`workspace_task` companion tool** — companion can hand tasks to workspace via `<tool_call>workspace_task`; `_spawn_task_direct()` in routes_surface bypasses HTTP auth for trusted internal callers
+  - **Backend watchdog** — daemon thread in routes_backends monitors ports 8085/8087/8086 every 60 s, auto-restarts crashed always-on models
+  - **24/7 background task loop** — asyncio task delivers due reminders as SSE events every 30 s; marks queued tasks stale after 6 h; started via lifespan `background_coroutines`
+  - **Strict-local mode** — companion surface checks local model port liveness before streaming; returns honest "Local model offline" error instead of silent cloud escalation
 - ✅ **MCP plugin manager** — add/remove/enable/test MCP servers; MCPView wired
 - ✅ **Desktop control API** — pyautogui screenshot/click/type (graceful fallback if pyautogui absent)
 - ✅ **Themes** — Dark, Liber Designatum (occult), Fear & Loathing (gonzo), Creem × Rolling Stone (rock mag)
