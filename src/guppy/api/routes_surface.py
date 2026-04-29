@@ -559,6 +559,21 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
         if surface not in SURFACES:
             raise HTTPException(400, f"Unknown surface: {surface}")
         updates: dict[str, Any] = {k: v for k, v in body.model_dump().items() if v is not None}
+
+        # When companion model is switched without an explicit system_prompt, auto-apply
+        # the matching personality preset so Pepe doesn't respond like Hermes3, etc.
+        if surface == "companion" and "model" in updates and "system_prompt" not in updates:
+            try:
+                from src.guppy.api.routes_companion import PERSONALITY_PRESETS
+                preset = next(
+                    (p for p in PERSONALITY_PRESETS.values() if p["model"] == updates["model"]),
+                    None,
+                )
+                if preset:
+                    updates["system_prompt"] = preset["system_prompt"]
+            except Exception:
+                pass
+
         updates["updated_at"] = _now()
         if not updates:
             return {"ok": True}
