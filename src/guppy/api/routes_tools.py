@@ -1,12 +1,16 @@
-"""Tools management API — list, enable, and disable tools available to AI models.
+"""Tools management API — list, enable, disable, create, update, and delete tools.
 
-GET  /tools              — list all tools with enabled state
-POST /tools/:id/enable   — enable a tool
-POST /tools/:id/disable  — disable a tool
+GET    /tools              — list all tools with enabled state
+POST   /tools/:id/enable   — enable a tool
+POST   /tools/:id/disable  — disable a tool
+POST   /tools              — create a custom tool
+PUT    /tools/:id          — update a custom tool
+DELETE /tools/:id          — delete a custom tool
 """
 from __future__ import annotations
 
 import asyncio
+import re
 import sqlite3
 from typing import Any
 
@@ -102,6 +106,47 @@ def _get_all() -> list[dict[str, Any]]:
         return [_row_to_dict(r) for r in conn.execute("SELECT * FROM tools ORDER BY category, name").fetchall()]
 
 
+def _create_custom(name: str, description: str, category: str) -> dict[str, Any]:
+    base_id = re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')[:40] or "custom_tool"
+    with sqlite3.connect(_db_path()) as conn:
+        conn.row_factory = sqlite3.Row
+        existing = {r[0] for r in conn.execute("SELECT id FROM tools").fetchall()}
+        tool_id, suffix = base_id, 1
+        while tool_id in existing:
+            tool_id = f"{base_id}_{suffix}"
+            suffix += 1
+        conn.execute(
+            "INSERT INTO tools (id, name, description, category, type, parameters, is_enabled) VALUES (?,?,?,?,?,?,?)",
+            (tool_id, name, description, category, "custom", "{}", 1),
+        )
+        conn.commit()
+        return _row_to_dict(conn.execute("SELECT * FROM tools WHERE id = ?", (tool_id,)).fetchone())
+
+
+def _update_custom(tool_id: str, name: str, description: str, category: str) -> dict[str, Any]:
+    with sqlite3.connect(_db_path()) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT type FROM tools WHERE id = ?", (tool_id,)).fetchone()
+        if not row or row[0] != "custom":
+            raise KeyError(tool_id)
+        conn.execute(
+            "UPDATE tools SET name=?, description=?, category=? WHERE id=?",
+            (name, description, category, tool_id),
+        )
+        conn.commit()
+        return _row_to_dict(conn.execute("SELECT * FROM tools WHERE id = ?", (tool_id,)).fetchone())
+
+
+def _delete_custom(tool_id: str) -> bool:
+    with sqlite3.connect(_db_path()) as conn:
+        row = conn.execute("SELECT type FROM tools WHERE id = ?", (tool_id,)).fetchone()
+        if not row or row[0] != "custom":
+            return False
+        conn.execute("DELETE FROM tools WHERE id = ?", (tool_id,))
+        conn.commit()
+        return True
+
+
 def _set_enabled(tool_id: str, enabled: bool) -> dict[str, Any]:
     with sqlite3.connect(_db_path()) as conn:
         conn.row_factory = sqlite3.Row
@@ -122,6 +167,34 @@ def build_tools_router(ctx: ServerContext) -> APIRouter:
     @router.get("/tools")
     async def list_tools(_user_id: str = Depends(ctx.require_rate_limit)):
         return await asyncio.to_thread(_get_all)
+
+    @router.post("/tools")
+    async def create_tool(payload: dict[str, Any], _user_id: str = Depends(ctx.require_rate_limit)):
+        name = str(payload.get("name", "")).strip()
+        description = str(payload.get("description", "")).strip()
+        category = str(payload.get("category", "api")).strip() or "api"
+        if not name or not description:
+            raise HTTPException(status_code=400, detail="name and description required")
+        return await asyncio.to_thread(_create_custom, name, description, category)
+
+    @router.put("/tools/{tool_id}")
+    async def update_tool(tool_id: str, payload: dict[str, Any], _user_id: str = Depends(ctx.require_rate_limit)):
+        name = str(payload.get("name", "")).strip()
+        description = str(payload.get("description", "")).strip()
+        category = str(payload.get("category", "api")).strip() or "api"
+        if not name or not description:
+            raise HTTPException(status_code=400, detail="name and description required")
+        try:
+            return await asyncio.to_thread(_update_custom, tool_id, name, description, category)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"Custom tool '{tool_id}' not found")
+
+    @router.delete("/tools/{tool_id}")
+    async def delete_tool(tool_id: str, _user_id: str = Depends(ctx.require_rate_limit)):
+        deleted = await asyncio.to_thread(_delete_custom, tool_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Custom tool '{tool_id}' not found")
+        return {"ok": True}
 
     @router.post("/tools/{tool_id}/enable")
     async def enable_tool(tool_id: str, _user_id: str = Depends(ctx.require_rate_limit)):

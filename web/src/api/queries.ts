@@ -159,6 +159,32 @@ export function useSetToolEnabled() {
   })
 }
 
+export function useCreateTool() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: { name: string; description: string; category: string }) =>
+      api.post('/api/tools', payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.tools }),
+  })
+}
+
+export function useUpdateTool() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ toolId, ...payload }: { toolId: string; name: string; description: string; category: string }) =>
+      api.put(`/api/tools/${toolId}`, payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.tools }),
+  })
+}
+
+export function useDeleteTool() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (toolId: string) => api.delete(`/api/tools/${toolId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.tools }),
+  })
+}
+
 // ── MCP Servers ──────────────────────────────────────────────────────────────
 
 export function useMCPServers(opts?: Partial<UseQueryOptions<MCPServer[]>>) {

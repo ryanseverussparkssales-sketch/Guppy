@@ -33,9 +33,11 @@ import {
   Plug,
   Monitor,
   Mic,
+  X,
+  Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useTools, useSetToolEnabled } from '@/api/queries'
+import { useTools, useSetToolEnabled, useCreateTool, useUpdateTool, useDeleteTool } from '@/api/queries'
 import type { Tool } from '@/api/schemas'
 import MCPView from './MCPView'
 import DesktopView from './DesktopView'
@@ -146,13 +148,30 @@ const MOCK_TOOLS: Tool[] = [
 
 type Tab = 'functions' | 'plugins' | 'desktop' | 'voices'
 
+const CATEGORIES = ['search', 'code', 'file', 'system', 'api', 'desktop', 'vision', 'comms', 'memory', 'tasks', 'media']
+
+type ToolForm = { name: string; description: string; category: string }
+const emptyForm = (): ToolForm => ({ name: '', description: '', category: 'api' })
+
 export default function ToolsView() {
   const toolsQuery = useTools()
   const setToolEnabled = useSetToolEnabled()
+  const createTool = useCreateTool()
+  const updateTool = useUpdateTool()
+  const deleteTool = useDeleteTool()
+
   const [activeTab, setActiveTab] = useState<Tab>('functions')
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [pendingToggles, setPendingToggles] = useState<Record<string, boolean>>({})
+
+  // Add-tool modal
+  const [showAdd, setShowAdd] = useState(false)
+  const [addForm, setAddForm] = useState<ToolForm>(emptyForm())
+
+  // Edit-tool modal (custom tools only)
+  const [editTool, setEditTool] = useState<Tool | null>(null)
+  const [editForm, setEditForm] = useState<ToolForm>(emptyForm())
 
   const isLoading = toolsQuery.isPending
   const error = toolsQuery.error
@@ -185,6 +204,50 @@ export default function ToolsView() {
 
   const getToolEnabled = (tool: Tool) => tool.isEnabled
 
+  const handleAddSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const { name, description, category } = addForm
+    if (!name.trim() || !description.trim()) return
+    try {
+      await createTool.mutateAsync({ name: name.trim(), description: description.trim(), category })
+      toast.success(`Tool "${name.trim()}" created`)
+      setShowAdd(false)
+      setAddForm(emptyForm())
+    } catch {
+      toast.error('Failed to create tool')
+    }
+  }
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editTool) return
+    const { name, description, category } = editForm
+    if (!name.trim() || !description.trim()) return
+    try {
+      await updateTool.mutateAsync({ toolId: editTool.id, name: name.trim(), description: description.trim(), category })
+      toast.success(`Tool "${name.trim()}" updated`)
+      setEditTool(null)
+    } catch {
+      toast.error('Failed to update tool')
+    }
+  }
+
+  const handleDelete = async (tool: Tool) => {
+    if (!window.confirm(`Delete "${tool.name}"?`)) return
+    try {
+      await deleteTool.mutateAsync(tool.id)
+      toast.success(`Tool "${tool.name}" deleted`)
+      setEditTool(null)
+    } catch {
+      toast.error('Failed to delete tool')
+    }
+  }
+
+  const openEdit = (tool: Tool) => {
+    setEditTool(tool)
+    setEditForm({ name: tool.name, description: tool.description, category: tool.category })
+  }
+
   // Don't render tool list state when on non-tool tabs
   const showToolContent = activeTab === 'functions' || activeTab === 'plugins'
 
@@ -201,7 +264,7 @@ export default function ToolsView() {
           </div>
           {activeTab === 'functions' && (
             <button
-              onClick={() => toast.info("Custom tool registration coming in Phase 2")}
+              onClick={() => { setAddForm(emptyForm()); setShowAdd(true) }}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
             >
               <Plus className="w-4 h-4" />
@@ -361,20 +424,15 @@ export default function ToolsView() {
                           )}
                         </button>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => toast.info(`Settings for "${tool.name}" coming soon`)}
-                            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                            title="Tool settings"
-                          >
-                            <Settings className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => toast.info(`Documentation for "${tool.name}" not yet linked`)}
-                            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                            title="Open docs"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </button>
+                          {tool.type === 'custom' && (
+                            <button
+                              onClick={() => openEdit(tool)}
+                              className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                              title="Edit tool"
+                            >
+                              <Settings className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -393,6 +451,118 @@ export default function ToolsView() {
           </div>
         </>
       ) : null}
+
+      {/* Add Tool Modal */}
+      {showAdd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-surface-container border border-border rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-foreground">Add Custom Tool</h2>
+              <button onClick={() => setShowAdd(false)} className="p-1 rounded-lg hover:bg-muted text-muted-foreground"><X className="w-4 h-4" /></button>
+            </div>
+            <form onSubmit={handleAddSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Name</label>
+                <input
+                  type="text"
+                  required
+                  value={addForm.name}
+                  onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="My Custom Tool"
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Description</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={addForm.description}
+                  onChange={e => setAddForm(f => ({ ...f, description: e.target.value }))}
+                  placeholder="What this tool does..."
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Category</label>
+                <select
+                  value={addForm.category}
+                  onChange={e => setAddForm(f => ({ ...f, category: e.target.value }))}
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
+                <button type="submit" disabled={createTool.isPending} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50">
+                  {createTool.isPending ? 'Creating…' : 'Create Tool'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Tool Modal (custom tools only) */}
+      {editTool && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-surface-container border border-border rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-foreground">Edit Tool</h2>
+              <button onClick={() => setEditTool(null)} className="p-1 rounded-lg hover:bg-muted text-muted-foreground"><X className="w-4 h-4" /></button>
+            </div>
+            <form onSubmit={handleEditSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Name</label>
+                <input
+                  type="text"
+                  required
+                  value={editForm.name}
+                  onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Description</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={editForm.description}
+                  onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Category</label>
+                <select
+                  value={editForm.category}
+                  onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))}
+                  className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleDelete(editTool)}
+                  disabled={deleteTool.isPending}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-destructive hover:bg-destructive/10 transition-colors text-sm disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />Delete
+                </button>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setEditTool(null)} className="px-4 py-2 rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
+                  <button type="submit" disabled={updateTool.isPending} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50">
+                    {updateTool.isPending ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
