@@ -7,8 +7,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Mail, Inbox, Send, FileEdit, Star, Search, RefreshCw, X,
-  ChevronRight, AlertCircle, CheckCircle2, Link2, Reply,
-  Trash2, Clock,
+  ChevronRight, CheckCircle2, Link2, Reply,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'

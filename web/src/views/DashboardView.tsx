@@ -18,7 +18,6 @@ export default function DashboardView() {
   const totalRam  = res?.total_ram_gb ? `${Math.round(res.total_ram_gb)}GB` : '—'
   const latency   = metrics?.average_latency_ms?.toFixed(1) ?? '—'
   const models    = status?.local_runtime?.models ?? []
-  const isHealthy = status?.status === 'healthy' || status?.status === 'degraded'
   const statusLabel = status?.status === 'healthy' ? 'Optimal'
     : status?.status === 'degraded' ? 'Degraded'
     : isLoading ? 'Loading…'

@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Calendar, ChevronLeft, ChevronRight, Plus, X, RefreshCw,
-  Clock, MapPin, Link2, AlertCircle, CheckCircle2, Trash2,
+  Clock, MapPin, Link2, CheckCircle2, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'

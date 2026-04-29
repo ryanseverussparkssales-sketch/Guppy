@@ -28,7 +28,6 @@ import {
   ToggleRight,
   Settings,
   Plus,
-  ExternalLink,
   AlertCircle,
   Plug,
   Monitor,

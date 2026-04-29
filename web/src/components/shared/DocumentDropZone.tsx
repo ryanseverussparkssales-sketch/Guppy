@@ -11,7 +11,7 @@
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
-  Upload, File, FileText, Image, FileCode, FilePdf,
+  Upload, File, FileText, Image, FileCode,
   X, Sparkles, RefreshCw, Download, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'

@@ -10,9 +10,8 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
-  CheckSquare, Plus, X, RefreshCw, Flag, Calendar, Tag,
-  ChevronDown, ChevronRight, Circle, CheckCircle2, Clock,
-  AlertCircle, Zap, MoreHorizontal, Trash2,
+  CheckSquare, Plus, X, RefreshCw, Flag,
+  Circle, CheckCircle2, Zap, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'

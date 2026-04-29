@@ -11,7 +11,7 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Folder, FolderOpen, File, ChevronRight, ArrowLeft,
+  Folder, File, ChevronRight, ArrowLeft,
   RefreshCw, Eye, X, HardDrive,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'

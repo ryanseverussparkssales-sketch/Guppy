@@ -9,9 +9,9 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Download, Library, Mic, Search, Plus, X, RefreshCw, Play, Pause,
+  Download, Library, Mic, Search, Plus, RefreshCw, Play, Pause,
   Trash2, AlertCircle, CheckCircle2, BookOpen, Film, Music,
-  Headphones, Upload, FileAudio, Zap, Link, StopCircle,
+  Headphones, Upload, FileAudio,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
@@ -48,6 +48,16 @@ interface Recording {
   file_size: number
   transcript_status: string
   recorded_at: string
+}
+
+interface ProwlarrResult {
+  title?: string
+  Title?: string
+  size?: number
+  seeders?: number
+  indexer?: string
+  downloadUrl?: string
+  magnetUrl?: string
 }
 
 type Tab = 'torrents' | 'library' | 'acquire' | 'record'
@@ -327,9 +337,10 @@ function LibraryTab() {
 
 function AcquireTab() {
   const [query,   setQuery]   = useState('')
-  const [results, setResults] = useState<Record<string, unknown>[]>([])
+  const [results, setResults] = useState<ProwlarrResult[]>([])
   const [loading, setLoading] = useState(false)
-  const [status,  setStatus]  = useState<Record<string, unknown> | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [status,  setStatus]  = useState<Record<string, any> | null>(null)
 
   useEffect(() => {
     api.get('/api/acquisition/status').then((r) => setStatus(r.data)).catch(() => {})

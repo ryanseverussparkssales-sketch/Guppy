@@ -12,7 +12,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Monitor, Search, Clock, RefreshCw, AlertCircle,
-  Volume2, FileText, Image, BarChart2, Layers, Zap, Sparkles,
+  Volume2, FileText, Image, BarChart2, Zap, Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
