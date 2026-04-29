@@ -1,12 +1,16 @@
 /**
  * CodespaceView — Code Sandbox & Self-Triage Surface
  *
- * Code-focused chat with syntax highlighting. Backend defaults to guppy-code / hermes4.
- * Phase 1: clean code chat with backend selector and surface status.
- * Phase 4 will add: Docker sandboxes, self-triage panel, project scaffolding.
+ * Icon tab strip: Chat | Sandbox | Triage
+ * Chat: code-focused assistant with Ctrl+Enter shortcut
+ * Sandbox: Docker container lifecycle + in-browser terminal
+ * Triage: dev-check self-triage runs + watchdog status
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { ArrowUp, StopCircle, Code2, Terminal, FolderCog, Braces } from 'lucide-react'
+import {
+  Code2, Terminal, ShieldCheck, ArrowUp, StopCircle,
+  FolderCog, Braces,
+} from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { useWorkspaceStore, syncManager } from '@/store'
@@ -14,6 +18,20 @@ import { useAppStore } from '@/store/appStore'
 import { MarkdownMessage } from '@/components/chat/MarkdownMessage'
 import { BackendSelector } from '@/components/surface/BackendSelector'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
+import { SandboxPanel } from '@/components/codespace/SandboxPanel'
+import { TriagePanel } from '@/components/codespace/TriagePanel'
+
+// ── Tab config ─────────────────────────────────────────────────────────────────
+
+type Tab = 'chat' | 'sandbox' | 'triage'
+
+const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
+  { id: 'chat',    icon: <Code2       className="w-4 h-4" />, label: 'Chat'    },
+  { id: 'sandbox', icon: <Terminal    className="w-4 h-4" />, label: 'Sandbox' },
+  { id: 'triage',  icon: <ShieldCheck className="w-4 h-4" />, label: 'Triage'  },
+]
+
+// ── Auto-height textarea hook ─────────────────────────────────────────────────
 
 function useAutoHeight(value: string, minRows = 3, maxRows = 12) {
   const ref = useRef<HTMLTextAreaElement>(null)
@@ -29,6 +47,8 @@ function useAutoHeight(value: string, minRows = 3, maxRows = 12) {
   return ref
 }
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
 interface Message {
   id: string
   role: 'user' | 'assistant'
@@ -36,15 +56,18 @@ interface Message {
   ts: string
 }
 
-// Quick-action prompts surfaced as buttons
+// ── Quick prompts ─────────────────────────────────────────────────────────────
+
 const QUICK_PROMPTS = [
-  { icon: <Code2 className="w-3.5 h-3.5" />, label: 'Review this code', prompt: 'Review the following code for bugs, performance issues, and style:\n\n```\n\n```' },
-  { icon: <Terminal className="w-3.5 h-3.5" />, label: 'Write a script', prompt: 'Write a Python script that ' },
-  { icon: <FolderCog className="w-3.5 h-3.5" />, label: 'Scaffold project', prompt: 'Scaffold a new project structure for: ' },
-  { icon: <Braces className="w-3.5 h-3.5" />, label: 'Explain code', prompt: 'Explain this code step by step:\n\n```\n\n```' },
+  { icon: <Code2     className="w-3.5 h-3.5" />, label: 'Review this code',  prompt: 'Review the following code for bugs, performance issues, and style:\n\n```\n\n```' },
+  { icon: <Terminal  className="w-3.5 h-3.5" />, label: 'Write a script',    prompt: 'Write a Python script that ' },
+  { icon: <FolderCog className="w-3.5 h-3.5" />, label: 'Scaffold project',  prompt: 'Scaffold a new project structure for: ' },
+  { icon: <Braces    className="w-3.5 h-3.5" />, label: 'Explain code',      prompt: 'Explain this code step by step:\n\n```\n\n```' },
 ]
 
-export default function CodespaceView() {
+// ── ChatTab ───────────────────────────────────────────────────────────────────
+
+function ChatTab() {
   const { activeWorkspaceId } = useWorkspaceStore()
   const { pendingDraftText, setPendingDraftText } = useAppStore()
 
@@ -58,7 +81,6 @@ export default function CodespaceView() {
   const bottomRef   = useRef<HTMLDivElement>(null)
   const textareaRef = useAutoHeight(input)
 
-  // Inject from drop folder
   useEffect(() => {
     if (pendingDraftText) {
       setInput(pendingDraftText)
@@ -111,7 +133,7 @@ export default function CodespaceView() {
         fullText = await syncManager.getAIResponse(
           activeConvId,
           text,
-          'code',   // codespace mode
+          'code',
           (token: string) => setStreaming((p) => p + token),
           controller.signal,
           (replaced: string) => setStreaming(replaced),
@@ -140,19 +162,19 @@ export default function CodespaceView() {
       }
 
       setMessages((m) => [...m, {
-        id: crypto.randomUUID(),
-        role: 'assistant',
+        id:      crypto.randomUUID(),
+        role:    'assistant',
         content: fullText || streaming,
-        ts: new Date().toISOString(),
+        ts:      new Date().toISOString(),
       }])
       setStreaming('')
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
         setMessages((m) => [...m, {
-          id: crypto.randomUUID(),
-          role: 'assistant',
+          id:      crypto.randomUUID(),
+          role:    'assistant',
           content: '⚠ Something went wrong.',
-          ts: new Date().toISOString(),
+          ts:      new Date().toISOString(),
         }])
       }
     } finally {
@@ -170,25 +192,8 @@ export default function CodespaceView() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-surface text-on-surface">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-outline-variant/20 flex-shrink-0 bg-surface-container-low/50">
-        <div className="flex items-center gap-3">
-          <div className="w-7 h-7 rounded-lg bg-tertiary/20 flex items-center justify-center">
-            <Code2 className="w-3.5 h-3.5 text-tertiary" />
-          </div>
-          <h1 className="text-sm font-semibold text-on-surface">Codespace</h1>
-          <span className="text-xs text-on-surface-variant/50 bg-surface-variant px-2 py-0.5 rounded-full">
-            Ctrl+Enter to send
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <SurfaceStatusBar surface="workspace" compact label="Workspace" />
-          <BackendSelector surface="codespace" compact />
-        </div>
-      </div>
-
-      {/* Quick prompts — shown when no messages yet */}
+    <div className="flex flex-col h-full">
+      {/* Quick prompts — shown when empty */}
       {messages.length === 0 && !isSending && (
         <div className="flex-shrink-0 px-6 pt-8 pb-4">
           <p className="text-sm text-on-surface-variant/60 mb-4 text-center">
@@ -217,10 +222,7 @@ export default function CodespaceView() {
               key={msg.id}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
-              className={cn(
-                "flex gap-3",
-                msg.role === 'user' ? "justify-end" : "justify-start"
-              )}
+              className={cn("flex gap-3", msg.role === 'user' ? "justify-end" : "justify-start")}
             >
               {msg.role === 'assistant' && (
                 <div className="w-7 h-7 rounded-lg bg-tertiary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -242,12 +244,7 @@ export default function CodespaceView() {
           ))}
 
           {streaming && (
-            <motion.div
-              key="streaming"
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex gap-3 justify-start"
-            >
+            <motion.div key="streaming" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3 justify-start">
               <div className="w-7 h-7 rounded-lg bg-tertiary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
                 <Code2 className="w-3.5 h-3.5 text-tertiary" />
               </div>
@@ -259,12 +256,7 @@ export default function CodespaceView() {
           )}
 
           {isSending && !streaming && (
-            <motion.div
-              key="thinking"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex gap-3 justify-start"
-            >
+            <motion.div key="thinking" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-3 justify-start">
               <div className="w-7 h-7 rounded-lg bg-tertiary/20 flex items-center justify-center flex-shrink-0">
                 <Code2 className="w-3.5 h-3.5 text-tertiary" />
               </div>
@@ -282,7 +274,7 @@ export default function CodespaceView() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input — code-friendly: larger, monospace, Ctrl+Enter to send */}
+      {/* Input */}
       <div className="flex-shrink-0 px-6 pb-6 pt-3 border-t border-outline-variant/10">
         <div className="flex items-end gap-2 bg-surface-container rounded-2xl px-3 py-2 shadow-sm border border-outline-variant/20 focus-within:border-tertiary/40 transition-colors">
           <textarea
@@ -318,7 +310,77 @@ export default function CodespaceView() {
           >
             Clear session
           </button>
-          <span className="text-xs text-on-surface-variant/30">Docker sandboxes coming in Phase 4</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── CodespaceView ─────────────────────────────────────────────────────────────
+
+export default function CodespaceView() {
+  const [activeTab, setActiveTab] = useState<Tab>('chat')
+
+  return (
+    <div className="flex flex-col h-full bg-surface text-on-surface">
+
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-outline-variant/20 flex-shrink-0 bg-surface-container-low/50">
+        <div className="flex items-center gap-3">
+          <div className="w-7 h-7 rounded-lg bg-tertiary/20 flex items-center justify-center">
+            <Code2 className="w-3.5 h-3.5 text-tertiary" />
+          </div>
+          <h1 className="text-sm font-semibold text-on-surface">Codespace</h1>
+          {activeTab === 'chat' && (
+            <span className="text-xs text-on-surface-variant/50 bg-surface-variant px-2 py-0.5 rounded-full">
+              Ctrl+Enter to send
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <SurfaceStatusBar surface="workspace" compact label="Workspace" />
+          <BackendSelector surface="codespace" compact />
+        </div>
+      </div>
+
+      {/* Body: icon tab strip (left) + content (right) */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* Icon tab strip */}
+        <div className="flex flex-col items-center py-3 px-1.5 gap-1 border-r border-outline-variant/15 bg-surface-container-low/30 flex-shrink-0 w-14">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              title={t.label}
+              className={cn(
+                "relative w-9 h-9 flex items-center justify-center rounded-xl transition-all",
+                activeTab === t.id
+                  ? "bg-tertiary/15 text-tertiary"
+                  : "text-on-surface-variant/50 hover:bg-surface-variant/50 hover:text-on-surface"
+              )}
+            >
+              {t.icon}
+              {activeTab === t.id && (
+                <div className="absolute left-0.5 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-tertiary rounded-full" />
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab content */}
+        <div className="flex-1 overflow-hidden">
+          {activeTab === 'chat' && <ChatTab />}
+          {activeTab === 'sandbox' && (
+            <div className="h-full">
+              <SandboxPanel />
+            </div>
+          )}
+          {activeTab === 'triage' && (
+            <div className="h-full">
+              <TriagePanel />
+            </div>
+          )}
         </div>
       </div>
     </div>

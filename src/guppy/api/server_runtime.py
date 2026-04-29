@@ -540,6 +540,16 @@ app.include_router(build_companion_router(_server_context))         # /api/compa
 from src.guppy.api.routes_workspace_data import build_workspace_data_router
 app.include_router(build_workspace_data_router(_server_context))    # /api/workspace/*
 
+from src.guppy.api.routes_codespace import build_codespace_router
+app.include_router(build_codespace_router(_server_context))         # /api/codespace/*
+
+# Start the triage watchdog in the background (debounced file-change monitor)
+try:
+    from src.guppy.codespace.codespace_triage import start_watchdog as _start_watchdog
+    _start_watchdog()
+except Exception as _triage_exc:
+    logger.warning("Triage watchdog failed to start: %s", _triage_exc)
+
 # Serve static web UI files
 try:
     from fastapi.staticfiles import StaticFiles
