@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from src.guppy.api import snapshot_realtime_support
 
@@ -127,13 +128,8 @@ def test_chat_voice_response_transcribes_and_cleans_tempfile(tmp_path: Path) -> 
     temp_file.write_bytes(b"audio")
     saved_messages: list[tuple[str, str, str, str | None]] = []
 
-    class _FakeVoice:
-        def transcribe_audio(self, _path: str) -> str:
-            return "hello from voice"
-
     async def run_blocking(func, *args, **kwargs):
-        timeout_seconds = kwargs.pop("timeout_seconds", None)
-        del timeout_seconds
+        kwargs.pop("timeout_seconds", None)
         return func(*args, **kwargs)
 
     owner = SimpleNamespace(
@@ -141,8 +137,6 @@ def test_chat_voice_response_transcribes_and_cleans_tempfile(tmp_path: Path) -> 
         GUPPY_VOICE_AVAILABLE=True,
         GUPPY_MEMORY_AVAILABLE=True,
         CHAT_TIMEOUT_SECONDS=30.0,
-        VOICE_TIMEOUT_SECONDS=10.0,
-        voice=SimpleNamespace(GuppyVoice=lambda: _FakeVoice()),
         memory=SimpleNamespace(
             save_message=lambda session_id, role, content, workspace_name=None: saved_messages.append(
                 (session_id, role, content, workspace_name)
@@ -157,14 +151,16 @@ def test_chat_voice_response_transcribes_and_cleans_tempfile(tmp_path: Path) -> 
         _call_unified_inference=lambda *args, **kwargs: "voice reply",
     )
 
-    payload = asyncio.run(
-        snapshot_realtime_support.chat_voice_response(
-            owner,
-            file=object(),
-            session_id="voice-session",
-            use_claude=True,
+    fake_stt = SimpleNamespace(text="hello from voice", error=None)
+    with patch.object(snapshot_realtime_support._voice, "transcribe", new=AsyncMock(return_value=fake_stt)):
+        payload = asyncio.run(
+            snapshot_realtime_support.chat_voice_response(
+                owner,
+                file=object(),
+                session_id="voice-session",
+                use_claude=True,
+            )
         )
-    )
 
     assert payload == {
         "transcription": "hello from voice",

@@ -6,7 +6,8 @@ import tempfile
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -439,16 +440,14 @@ def test_chat_voice_route_simple_transcription_uses_light_prompt_context() -> No
     client = TestClient(app)
     captured: dict[str, object] = {}
 
-    class _FakeVoice:
-        def transcribe_audio(self, _path):
-            return "ping"
+    _fake_stt = SimpleNamespace(text="ping", error=None)
 
     def _fake_prompt(*_args, **kwargs):
         captured.update(kwargs)
         return "SYSTEM"
 
     try:
-        with patch.object(guppy_api.voice, "GuppyVoice", return_value=_FakeVoice()), patch.object(
+        with patch.object(guppy_api.voice, "transcribe", new=AsyncMock(return_value=_fake_stt)), patch.object(
             guppy_api.core,
             "get_startup_system",
             side_effect=_fake_prompt,
@@ -481,7 +480,7 @@ def test_chat_voice_route_rejects_oversized_upload_before_transcription() -> Non
             guppy_api,
             "VOICE_UPLOAD_MAX_BYTES",
             4,
-        ), patch.object(guppy_api.voice, "GuppyVoice") as voice_ctor:
+        ), patch.object(guppy_api.voice, "transcribe", new=AsyncMock()) as mock_transcribe:
             resp = client.post(
                 "/chat/voice",
                 files={"file": ("sample.wav", b"12345", "audio/wav")},
@@ -489,7 +488,7 @@ def test_chat_voice_route_rejects_oversized_upload_before_transcription() -> Non
 
         assert resp.status_code == 413
         assert "Audio upload exceeds" in resp.json()["detail"]
-        voice_ctor.assert_not_called()
+        mock_transcribe.assert_not_awaited()
     finally:
         app.dependency_overrides.pop(guppy_api.require_rate_limit, None)
 

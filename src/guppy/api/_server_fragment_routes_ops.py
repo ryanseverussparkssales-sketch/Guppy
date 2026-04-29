@@ -18,26 +18,12 @@ async def chat_voice(
         temp_path = await _save_voice_upload_tempfile(file)
 
         try:
-            # Transcribe audio
-            voice_handler = await _run_blocking(
-                voice.GuppyVoice,
-                timeout_seconds=VOICE_TIMEOUT_SECONDS,
-            )
-            if hasattr(voice_handler, "transcribe_audio"):
-                transcription = await _run_blocking(
-                    voice_handler.transcribe_audio,
-                    temp_path,
-                    timeout_seconds=VOICE_TIMEOUT_SECONDS,
-                )
-            elif hasattr(voice_handler, "whisper_model") and voice_handler.whisper_model:
-                segments, _info = await _run_blocking(
-                    voice_handler.whisper_model.transcribe,
-                    temp_path,
-                    timeout_seconds=VOICE_TIMEOUT_SECONDS,
-                )
-                transcription = " ".join(seg.text for seg in segments).strip()
-            else:
-                raise HTTPException(status_code=503, detail="Voice transcription engine not available")
+            # Transcribe audio via Stack C facade
+            audio_bytes = Path(temp_path).read_bytes()
+            stt_result = await voice.transcribe(audio_bytes)
+            if stt_result.error:
+                raise HTTPException(status_code=503, detail=stt_result.error or "STT failed")
+            transcription = stt_result.text
 
             if not transcription:
                 raise HTTPException(status_code=400, detail="Could not transcribe audio")

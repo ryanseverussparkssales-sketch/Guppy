@@ -22,11 +22,14 @@ from PySide6.QtWidgets import (
 from src.guppy.paths import MEMORY_DB_PATH
 
 from ._ui import CYAN, DIM, GREEN, RED, TEXT, YELLOW, apply_mono, make_button, make_label
-from ._voice_support import (
-    record_voice_objects as _record_voice_objects,
-    transcribe_voice_recording as _transcribe_voice_recording,
-    voice_objects as _voice_objects,
-)
+def _voice_objects(_pw):
+    return []
+
+def _record_voice_objects(_pw):
+    return []
+
+def _transcribe_voice_recording(_voice):
+    return ""
 
 try:
     from utils.db_utils import open_db as _open_db

@@ -63,10 +63,11 @@ def check_engines(target: str | None = None) -> list[EngineResult]:
 
 def check_guppy_voice_import() -> tuple[bool, str]:
     try:
-        from src.guppy.voice.voice import GuppyVoice  # noqa: F401
-        return True, "GuppyVoice import OK"
+        from src.guppy.voice import voice as _v  # noqa: F401
+        _ = _v.get_voice_config()
+        return True, "Stack C voice facade import OK"
     except Exception as exc:
-        return False, f"GuppyVoice unavailable: {exc}"
+        return False, f"Voice facade unavailable: {exc}"
 
 
 def print_table(results: list[EngineResult], gv_ok: bool, gv_reason: str) -> None:

@@ -299,54 +299,11 @@ def terminal_mode():
 # ── Voice mode ─────────────────────────────────────────────────────────────────
 
 def voice_mode():
-    """Launch an interactive voice REPL using GuppyVoice (Kokoro TTS + Whisper STT)."""
-    try:
-        from src.guppy.voice.voice import GuppyVoice
-    except ImportError as e:
-        print(f"❌ Could not import GuppyVoice: {e}")
-        print("   Ensure faster-whisper and kokoro are installed.")
-        return
-
-    print("🎙️  Voice mode starting — loading models...")
-    voice = GuppyVoice()
-    voice.speak("Voice mode active, Master Ryan. I am listening.")
-
-    system = get_startup_system()
-    key    = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    msgs   = []
-
-    def on_wake_word(transcription: str):
-        """Called when wake word detected — listen for the full command then respond."""
-        print(f"\n🎙️  Wake word heard. Full capture: '{transcription}'")
-        voice.speak("Yes, sir?")
-        command = voice.listen(duration=8)
-        if not command:
-            voice.speak("I did not catch that, sir.")
-            return
-        print(f"You: {command}")
-        if key and ANT:
-            try:
-                client = anthropic.Anthropic(api_key=key)
-                nonlocal msgs
-                msgs = claude_turn(client, msgs, command, system)
-                # Speak the last assistant reply
-                for m in reversed(msgs):
-                    if isinstance(m, dict) and m.get("role") == "assistant":
-                        content = m.get("content", "")
-                        if isinstance(content, str) and content.strip():
-                            voice.speak(content)
-                        break
-            except Exception as e:
-                voice.speak(f"Error communicating with Claude: {e}")
-        else:
-            voice.speak("Claude API key not set. Running in local mode is not supported for voice yet.")
-
-    voice.start_wake_word_detection(callback_function=on_wake_word)
-
-    print("✅ Wake word detection active. Say 'Guppy' to begin. Press Ctrl+C to exit.")
-    try:
-        while True:
-            time.sleep(1)
+    """Interactive voice REPL — migrated to async Stack C facade (Phase 6.0)."""
+    print("voice_mode() is deprecated. Use the web UI voice interface or call")
+    print("  asyncio.run(guppy.voice.speak(text)) / asyncio.run(guppy.voice.transcribe(audio))")
+    print("directly from Python.")
+    return
     except KeyboardInterrupt:
         print("\n🛑 Stopping voice mode...")
         voice.stop_wake_word_detection()

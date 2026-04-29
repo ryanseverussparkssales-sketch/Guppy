@@ -5,6 +5,8 @@ from typing import Any
 
 from fastapi import HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 
+from src.guppy.voice import voice as _voice
+
 
 async def _await_chat_idempotency_owner(owner: Any, request: Any) -> tuple[str, str, bool]:
     idempotency_key = str(getattr(request, "idempotency_key", "") or "").strip()
@@ -307,25 +309,12 @@ async def chat_voice_response(
         )
         temp_path = await owner._save_voice_upload_tempfile(file)
         try:
-            voice_handler = await owner._run_blocking(
-                owner.voice.GuppyVoice,
-                timeout_seconds=owner.VOICE_TIMEOUT_SECONDS,
-            )
-            if hasattr(voice_handler, "transcribe_audio"):
-                transcription = await owner._run_blocking(
-                    voice_handler.transcribe_audio,
-                    temp_path,
-                    timeout_seconds=owner.VOICE_TIMEOUT_SECONDS,
-                )
-            elif hasattr(voice_handler, "whisper_model") and voice_handler.whisper_model:
-                segments, _info = await owner._run_blocking(
-                    voice_handler.whisper_model.transcribe,
-                    temp_path,
-                    timeout_seconds=owner.VOICE_TIMEOUT_SECONDS,
-                )
-                transcription = " ".join(seg.text for seg in segments).strip()
-            else:
-                raise HTTPException(status_code=503, detail="Voice transcription engine not available")
+            # Transcribe via Stack C facade
+            audio_bytes = Path(temp_path).read_bytes()
+            stt_result = await _voice.transcribe(audio_bytes)
+            if stt_result.error:
+                raise HTTPException(status_code=503, detail=stt_result.error or "STT failed")
+            transcription = stt_result.text
 
             if not transcription:
                 raise HTTPException(status_code=400, detail="Could not transcribe audio")
