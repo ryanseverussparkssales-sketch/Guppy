@@ -125,6 +125,7 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "mode":    "A",
         "note":    "Deep reasoning CPU worker · ~42 GB RAM · zero VRAM · ~4-6 tok/s",
         "vram_gb": 0.0,
+        "cpu_only": True,  # starts on first escalation request — not auto-started at boot
     },
 }
 
@@ -379,6 +380,10 @@ def _run_auto_starts() -> None:
 # faster because the system prompt doesn't need to be re-computed.
 
 _WARMUP_SYSTEM_PROMPTS: dict[str, str] = {
+    8085: (  # dispatch — orchestrator
+        "You are a task dispatcher. Route requests to the appropriate specialist. "
+        "Be concise and accurate."
+    ),
     8087: (  # Hermes3 — companion surface
         "You are Guppy, a helpful AI companion. You are direct, warm, and concise. "
         "You can use tools to help the user with tasks."

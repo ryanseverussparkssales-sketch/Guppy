@@ -1,4 +1,22 @@
+"""DEPRECATED — Tranche C.
+
+All warmup logic has migrated:
+  - KV cache priming → routes_backends._warm_kv_cache() + _WARMUP_SYSTEM_PROMPTS
+  - Model lifecycle + health → services_model_manager.py
+
+This file is kept only for import compatibility during the transition.
+Remove after Tranche E cleanup sweep.
+"""
 from __future__ import annotations
+
+import warnings
+
+warnings.warn(
+    "services_runtime_warmup is deprecated (Tranche C). "
+    "Use services_model_manager.get_model_health() instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import json
 import threading

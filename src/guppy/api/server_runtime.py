@@ -581,6 +581,9 @@ _model_roles_router, _control_settings_router = build_model_roles_router(_server
 app.include_router(_model_roles_router)           # /api/model-roles
 app.include_router(_control_settings_router)       # /api/control/operator-settings
 
+from src.guppy.api.services_model_manager import build_model_health_router
+app.include_router(build_model_health_router(_server_context))  # /api/model-health
+
 # Start background services
 try:
     from src.guppy.codespace.codespace_triage import start_watchdog as _start_watchdog
