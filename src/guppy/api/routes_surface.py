@@ -27,7 +27,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from src.guppy.api.server_context import ServerContext
-from src.guppy.paths import ensure_user_data_dir, USER_DATA_DIR
+from src.guppy.paths import MAIN_DB_PATH, ensure_user_data_dir, USER_DATA_DIR
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -509,7 +509,7 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
     global _DB_PATH
 
     ensure_user_data_dir()
-    _DB_PATH = str(USER_DATA_DIR / "surface.db")
+    _DB_PATH = str(MAIN_DB_PATH)
     _init_db()
 
     router = APIRouter(prefix="/api/surface", tags=["surface"])

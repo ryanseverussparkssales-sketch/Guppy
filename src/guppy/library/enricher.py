@@ -7,9 +7,9 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from src.guppy.paths import USER_DATA_DIR
+from src.guppy.paths import MAIN_DB_PATH, USER_DATA_DIR
 
-_DB_PATH = str(USER_DATA_DIR / "guppy_main.db")
+_DB_PATH = str(MAIN_DB_PATH)
 _CACHE_TTL_DAYS = 30
 
 

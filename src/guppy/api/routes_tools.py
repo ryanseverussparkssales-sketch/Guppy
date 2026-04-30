@@ -17,7 +17,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.guppy.api.server_context import ServerContext
-from src.guppy.paths import ensure_user_data_dir
+from src.guppy.paths import MAIN_DB_PATH, ensure_user_data_dir
 
 
 _SCHEMA = """
@@ -109,7 +109,7 @@ _SEED_TOOLS = [
 
 
 def _db_path() -> str:
-    return str(ensure_user_data_dir() / "tools.db")
+    return str(MAIN_DB_PATH)
 
 
 def _init_db() -> None:

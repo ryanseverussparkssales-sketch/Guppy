@@ -26,16 +26,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.guppy.api.server_context import ServerContext
+from src.guppy.paths import MAIN_DB_PATH
 
 logger = logging.getLogger(__name__)
 
-_DB_PATH = "runtime/email.db"
+_DB_PATH = str(MAIN_DB_PATH)
 
 
 # ── DB ────────────────────────────────────────────────────────────────────────
 
 def _conn() -> sqlite3.Connection:
-    os.makedirs("runtime", exist_ok=True)
+    MAIN_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")

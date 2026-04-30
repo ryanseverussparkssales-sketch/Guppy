@@ -35,6 +35,7 @@ def _env_path(name: str, default: Path) -> Path:
 
 
 USER_DATA_DIR = _default_user_data_dir().resolve()
+MAIN_DB_PATH = _env_path("GUPPY_MAIN_DB_PATH", USER_DATA_DIR / "guppy_main.db")
 MEMORY_DB_PATH = _env_path("GUPPY_MEMORY_DB_PATH", USER_DATA_DIR / "guppy_memory.db")
 LIBRARY_DB_PATH = _env_path("GUPPY_LIBRARY_DB_PATH", USER_DATA_DIR / "library.db")
 USER_MEMORY_DIR = _env_path("GUPPY_MEMORY_DIR", USER_DATA_DIR / "memory")

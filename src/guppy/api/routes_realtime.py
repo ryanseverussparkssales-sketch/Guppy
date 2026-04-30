@@ -409,8 +409,8 @@ def _get_surface_local_model(surface: Optional[str]) -> Optional[str]:
         return _get_active_local_model() or default
     try:
         import sqlite3
-        from src.guppy.paths import USER_DATA_DIR
-        db_path = str(USER_DATA_DIR / "surface.db")
+        from src.guppy.paths import MAIN_DB_PATH
+        db_path = str(MAIN_DB_PATH)
         conn = sqlite3.connect(db_path, check_same_thread=False, timeout=3)
         row = conn.execute(
             "SELECT model FROM surface_config WHERE surface = ?", (surface,)

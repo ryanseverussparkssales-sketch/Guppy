@@ -12,7 +12,7 @@ import sqlite3
 from typing import Any, Dict, List, Optional
 
 from src.guppy.mcp.stdio_client import MCPStdioClient, MCPError
-from src.guppy.paths import ensure_user_data_dir
+from src.guppy.paths import MAIN_DB_PATH, ensure_user_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +133,7 @@ _PRESET_SERVERS = [
 
 
 def _db_path() -> str:
-    return str(ensure_user_data_dir() / "mcp_servers.db")
+    return str(MAIN_DB_PATH)
 
 
 def _init_db() -> None:

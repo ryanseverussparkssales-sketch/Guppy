@@ -30,13 +30,14 @@ from src.guppy.api.server_context import ServerContext
 
 logger = logging.getLogger(__name__)
 
-_DB_PATH   = "runtime/documents.db"
+from src.guppy.paths import MAIN_DB_PATH
+_DB_PATH   = str(MAIN_DB_PATH)
 _UPLOAD_DIR = Path("runtime/uploads")
 
 # ── DB ────────────────────────────────────────────────────────────────────────
 
 def _conn() -> sqlite3.Connection:
-    os.makedirs("runtime", exist_ok=True)
+    MAIN_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")

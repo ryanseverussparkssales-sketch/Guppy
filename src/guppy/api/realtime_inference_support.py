@@ -190,8 +190,8 @@ def _get_db_tools_openai() -> list[dict]:
     try:
         import sqlite3
         import json as _json
-        from src.guppy.paths import ensure_user_data_dir
-        db_path = str(ensure_user_data_dir() / "tools.db")
+        from src.guppy.paths import MAIN_DB_PATH
+        db_path = str(MAIN_DB_PATH)
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(

@@ -22,12 +22,12 @@ from src.guppy.api.server_context import ServerContext
 
 # ── storage ───────────────────────────────────────────────────────────────────
 
-_DB_PATH = "runtime/reminders.db"
+from src.guppy.paths import MAIN_DB_PATH
+_DB_PATH = str(MAIN_DB_PATH)
 
 
 def _get_conn() -> sqlite3.Connection:
-    import os
-    os.makedirs("runtime", exist_ok=True)
+    MAIN_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(_DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("""

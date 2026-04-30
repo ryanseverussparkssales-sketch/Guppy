@@ -15,11 +15,11 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Depends
 
 from src.guppy.api.server_context import ServerContext
-from src.guppy.paths import USER_DATA_DIR
+from src.guppy.paths import MAIN_DB_PATH, USER_DATA_DIR
 
 
 def _db_path() -> str:
-    return str(USER_DATA_DIR / "guppy_main.db")
+    return str(MAIN_DB_PATH)
 
 
 def _window_delta(window: str) -> timedelta:

@@ -30,7 +30,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).parent.parent.parent.parent
-_DB_PATH   = _REPO_ROOT / "runtime" / "self_improve.db"
+_DB_PATH   = _REPO_ROOT / "runtime" / "triage.db"
 
 # ── DB ────────────────────────────────────────────────────────────────────────
 

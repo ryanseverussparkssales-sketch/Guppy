@@ -29,7 +29,7 @@ from pydantic import BaseModel
 
 from src.guppy.api.server_context import ServerContext
 from src.guppy.model_roles import resolve_role
-from src.guppy.paths import USER_DATA_DIR
+from src.guppy.paths import MAIN_DB_PATH, USER_DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS workspace_task_steps (
 
 
 def _db() -> sqlite3.Connection:
-    path = _DB_PATH or str(USER_DATA_DIR / "guppy_main.db")
+    path = _DB_PATH or str(MAIN_DB_PATH)
     conn = sqlite3.connect(path, check_same_thread=False, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")

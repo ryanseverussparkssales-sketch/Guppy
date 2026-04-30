@@ -242,8 +242,8 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
         """Return all personality presets and which is currently active."""
         try:
             import sqlite3
-            from src.guppy.paths import USER_DATA_DIR
-            db_path = str(USER_DATA_DIR / "surface.db")
+            from src.guppy.paths import MAIN_DB_PATH
+            db_path = str(MAIN_DB_PATH)
             with sqlite3.connect(db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 row = conn.execute(
@@ -275,8 +275,8 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
         try:
             import sqlite3
             from datetime import datetime, timezone
-            from src.guppy.paths import USER_DATA_DIR
-            db_path = str(USER_DATA_DIR / "surface.db")
+            from src.guppy.paths import MAIN_DB_PATH
+            db_path = str(MAIN_DB_PATH)
             now = datetime.now(timezone.utc).isoformat()
             with sqlite3.connect(db_path) as conn:
                 conn.execute(

@@ -18,8 +18,8 @@ def _get_enabled_tool_ids() -> set[str]:
     Falls back to an empty set (allow all) if the DB is unavailable.
     """
     try:
-        from src.guppy.paths import ensure_user_data_dir
-        db_path = str(ensure_user_data_dir() / "tools.db")
+        from src.guppy.paths import MAIN_DB_PATH
+        db_path = str(MAIN_DB_PATH)
         with sqlite3.connect(db_path, timeout=2) as conn:
             rows = conn.execute(
                 "SELECT id FROM tools WHERE is_enabled = 1"
