@@ -58,6 +58,14 @@ WAIVED_PATHS: dict[str, Waiver] = {
             "Pinned for refactor to stream_llamacpp.py, stream_ollama.py, stream_anthropic.py."
         ),
     ),
+    "src/guppy/api/routes_surface.py": Waiver(
+        max_lines=800,
+        rationale=(
+            "Surface state machine: SSE event bus, task spawning, workspace task executor, "
+            "background coroutines, surface_config DB, operator settings helpers. "
+            "Waiver raised Tranche B — pinned for extraction in Tranche E."
+        ),
+    ),
     "src/guppy/api/routes_realtime.py": Waiver(
         max_lines=1200,
         rationale=(

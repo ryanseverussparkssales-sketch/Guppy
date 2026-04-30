@@ -1,7 +1,10 @@
-"""Model role registry API.
+"""Model role registry API + operator settings.
 
 GET  /api/model-roles                          — full registry + current assignments
 PUT  /api/model-roles/conversation-partner     — change active conversation partner
+
+GET  /api/control/operator-settings            — current operator settings
+PUT  /api/control/operator-settings            — update operator settings
 """
 from __future__ import annotations
 
@@ -71,6 +74,12 @@ def _ensure_schema() -> None:
 
 class ConversationPartnerRequest(BaseModel):
     role: str
+
+
+class OperatorSettingsRequest(BaseModel):
+    cloud_paid_enabled: bool | None = None
+    cloud_free_enabled: bool | None = None
+    conversation_partner: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -153,4 +162,78 @@ def build_model_roles_router(ctx: ServerContext) -> APIRouter:
 
         return {"ok": True, "conversation_partner": req.role}
 
-    return router
+    # -----------------------------------------------------------------------
+    # /api/control/operator-settings
+    # -----------------------------------------------------------------------
+
+    control_router = APIRouter(prefix="/api/control", tags=["control"])
+
+    @control_router.get("/operator-settings")
+    async def get_operator_settings():
+        """Return current operator settings."""
+        try:
+            with _db() as conn:
+                row = conn.execute(
+                    "SELECT cloud_paid_enabled, cloud_free_enabled, conversation_partner FROM operator_settings WHERE id=1"
+                ).fetchone()
+                if row:
+                    return {
+                        "cloud_paid_enabled": bool(row["cloud_paid_enabled"]),
+                        "cloud_free_enabled": bool(row["cloud_free_enabled"]),
+                        "conversation_partner": row["conversation_partner"],
+                    }
+        except Exception as exc:
+            logger.warning("Could not read operator_settings: %s", exc)
+        return {
+            "cloud_paid_enabled": True,
+            "cloud_free_enabled": False,
+            "conversation_partner": "conversation.default",
+        }
+
+    @control_router.put("/operator-settings")
+    async def update_operator_settings(req: OperatorSettingsRequest):
+        """Update operator settings (partial update — only supplied fields change)."""
+        if req.conversation_partner is not None and req.conversation_partner not in CONVERSATION_PARTNER_ROLES:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Invalid conversation partner role: {req.conversation_partner!r}. "
+                    f"Valid roles: {CONVERSATION_PARTNER_ROLES}"
+                ),
+            )
+        try:
+            with _db() as conn:
+                # Build partial SET clause for only supplied fields
+                updates: list[tuple[str, object]] = []
+                if req.cloud_paid_enabled is not None:
+                    updates.append(("cloud_paid_enabled", int(req.cloud_paid_enabled)))
+                if req.cloud_free_enabled is not None:
+                    updates.append(("cloud_free_enabled", int(req.cloud_free_enabled)))
+                if req.conversation_partner is not None:
+                    updates.append(("conversation_partner", req.conversation_partner))
+                if not updates:
+                    raise HTTPException(status_code=422, detail="No fields to update.")
+                set_clause = ", ".join(f"{col}=?" for col, _ in updates)
+                values = [v for _, v in updates] + [_now(), 1]
+                conn.execute(
+                    f"UPDATE operator_settings SET {set_clause}, updated_at=? WHERE id=?",  # noqa: S608
+                    values,
+                )
+                if conn.execute("SELECT changes()").fetchone()[0] == 0:
+                    conn.execute(
+                        """INSERT INTO operator_settings
+                           (id, cloud_paid_enabled, cloud_free_enabled, conversation_partner, updated_at)
+                           VALUES (1, 1, 0, 'conversation.default', ?)""",
+                        (_now(),),
+                    )
+                conn.commit()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("Failed to update operator_settings: %s", exc)
+            raise HTTPException(status_code=500, detail=str(exc))
+
+        # Return updated settings
+        return await get_operator_settings()
+
+    return router, control_router

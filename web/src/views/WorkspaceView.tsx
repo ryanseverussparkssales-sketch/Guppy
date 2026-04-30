@@ -19,7 +19,6 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import api from '@/api/client'
 import { useSurfaceEvents } from '@/hooks/useSurfaceEvents'
-import { BackendSelector } from '@/components/surface/BackendSelector'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
 import { CRMPanel } from '@/components/workspace/CRMPanel'
 import { ScreenPanel } from '@/components/workspace/ScreenPanel'
@@ -354,7 +353,6 @@ export default function WorkspaceView() {
         <div className="flex items-center gap-2">
           <SurfaceStatusBar surface="companion" compact label="Companion" />
           <SurfaceStatusBar surface="codespace" compact label="Codespace" />
-          <BackendSelector surface="workspace" compact />
           <button
             onClick={handleRefresh}
             title="Refresh data (F5)"

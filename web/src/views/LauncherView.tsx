@@ -6,7 +6,7 @@ import { RefreshCw } from 'lucide-react'
 import DesktopView from './DesktopView'
 import InstancesView from './InstancesView'
 import AgentsView from './AgentsView'
-import ModelsView from './ModelsView'
+import ModelsView from './archive/ModelsView'
 import { useProviders, QK as PQKK } from '@/api/queries'
 
 // ── types ─────────────────────────────────────────────────────────────────────

@@ -1,304 +1,365 @@
-/**
- * Control Panel — model stack + live PC health.
- * Accessible at /control or via tray icon.
+﻿/**
+ * Control Panel — Operator settings + Model Health.
+ *
+ * Three sections:
+ *   1. Cloud Access — toggles for paid/free cloud routing
+ *   2. Conversation Partner — radio cards selecting the active partner model
+ *   3. Model Health — read-only status grid for every core model
  */
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { RefreshCw, Zap, FileText, ExternalLink, Cpu } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useEffect, useCallback } from 'react'
+import { RefreshCw, Cpu, Cloud, CloudOff, CheckCircle2, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface OperatorSettings {
+  cloud_paid_enabled: boolean
+  cloud_free_enabled: boolean
+  conversation_partner: string
+}
+
 interface ModelStatus {
-  key: string; label: string; port: number; alive: boolean
-  vram_gb: number; note: string; auto_start: boolean
+  key: string
+  label: string
+  port: number
+  alive: boolean
+  vram_gb: number
+  note: string
+  auto_start: boolean
 }
 
-interface PCHealth {
-  cpu_pct: number
-  ram_used_gb: number; ram_total_gb: number; ram_pct: number
-  disk_used_gb: number; disk_total_gb: number; disk_pct: number
-  gpu?: {
-    vram_used_mb: number; vram_total_mb: number; vram_pct: number
-    gpu_use_pct?: number; label: string
-  } | null
-}
+// ---------------------------------------------------------------------------
+// Partner card definitions
+// ---------------------------------------------------------------------------
 
-function Gauge({ label, pct, sub, color = 'primary' }: {
-  label: string; pct: number; sub: string; color?: string
+const PARTNER_OPTIONS = [
+  {
+    role: 'conversation.default',
+    label: 'Hermes 3',
+    sub: 'Fast chat · uncensored',
+    description: 'Default conversation model. Snappy, tool-capable.',
+  },
+  {
+    role: 'conversation.partner.writing',
+    label: 'Rocinante',
+    sub: 'Writing · roleplay',
+    description: 'Creative writing and long-form roleplay partner.',
+  },
+  {
+    role: 'conversation.partner.study',
+    label: 'Pepe',
+    sub: 'Study · funny',
+    description: 'Study sessions and casual, humorous assistance.',
+  },
+  {
+    role: 'conversation.partner.vision',
+    label: 'MiniCPM',
+    sub: 'Vision · private',
+    description: 'Vision + speech model. On-device, no cloud.',
+  },
+]
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function Toggle({
+  label,
+  sublabel,
+  checked,
+  onChange,
+  icon,
+}: {
+  label: string
+  sublabel: string
+  checked: boolean
+  onChange: (v: boolean) => void
+  icon: React.ReactNode
 }) {
-  const clamp = Math.min(100, Math.max(0, pct))
-  const arc   = (clamp / 100) * 220   // degrees of stroke
-  const r = 28
-  const circ = 2 * Math.PI * r
-  const dash  = (arc / 360) * circ
-  const gap   = circ - dash
-  const colorMap: Record<string, string> = {
-    primary: '#6366f1', green: '#4ade80', cyan: '#22d3ee',
-    amber: '#fbbf24', red: '#f87171',
-  }
-  const strokeColor = pct > 90 ? '#f87171' : pct > 75 ? '#fbbf24' : (colorMap[color] ?? colorMap.primary)
-
   return (
-    <div className="flex flex-col items-center gap-1">
-      <svg width="72" height="72" viewBox="0 0 72 72" className="-rotate-[110deg]">
-        <circle cx="36" cy="36" r={r} fill="none" stroke="currentColor"
-          strokeWidth="5" className="text-surface-container" />
-        <circle cx="36" cy="36" r={r} fill="none"
-          stroke={strokeColor} strokeWidth="5"
-          strokeDasharray={`${dash} ${gap}`}
-          strokeLinecap="round"
-          style={{ transition: 'stroke-dasharray 0.4s ease' }} />
-      </svg>
-      <div className="text-center -mt-1">
-        <p className="text-base font-bold text-on-surface leading-none">{Math.round(pct)}%</p>
-        <p className="text-[10px] font-semibold text-on-surface-variant/60 uppercase tracking-wide">{label}</p>
-        <p className="text-[10px] text-on-surface-variant/40 mt-0.5">{sub}</p>
+    <button
+      onClick={() => onChange(!checked)}
+      className={cn(
+        'flex items-center gap-4 p-4 rounded-xl border transition-all text-left w-full',
+        checked
+          ? 'border-primary/30 bg-primary/8 text-on-surface'
+          : 'border-outline-variant/20 bg-surface-container/30 text-on-surface-variant/60',
+      )}
+    >
+      <div
+        className={cn(
+          'flex-shrink-0 p-2 rounded-lg transition-colors',
+          checked ? 'bg-primary/15 text-primary' : 'bg-surface-container text-on-surface-variant/40',
+        )}
+      >
+        {icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium">{label}</p>
+        <p className="text-xs text-on-surface-variant/50 mt-0.5">{sublabel}</p>
+      </div>
+      <div
+        className={cn(
+          'flex-shrink-0 w-11 h-6 rounded-full relative transition-colors',
+          checked ? 'bg-primary' : 'bg-outline-variant/30',
+        )}
+      >
+        <span
+          className={cn(
+            'absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform',
+            checked && 'translate-x-5',
+          )}
+        />
+      </div>
+    </button>
+  )
+}
+
+function PartnerCard({
+  option,
+  selected,
+  onSelect,
+}: {
+  option: (typeof PARTNER_OPTIONS)[0]
+  selected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      onClick={onSelect}
+      className={cn(
+        'p-4 rounded-xl border text-left transition-all w-full',
+        selected
+          ? 'border-primary/40 bg-primary/8 ring-1 ring-primary/20'
+          : 'border-outline-variant/15 bg-surface-container/30 hover:bg-surface-container/50',
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className={cn('text-sm font-semibold', selected ? 'text-primary' : 'text-on-surface')}>
+            {option.label}
+          </p>
+          <p className="text-[11px] text-on-surface-variant/50 mt-0.5">{option.sub}</p>
+        </div>
+        <div
+          className={cn(
+            'w-4 h-4 rounded-full border-2 flex-shrink-0 mt-0.5 transition-colors',
+            selected ? 'border-primary bg-primary' : 'border-outline-variant/40 bg-transparent',
+          )}
+        />
+      </div>
+      <p className="text-[11px] text-on-surface-variant/40 mt-2 leading-relaxed">
+        {option.description}
+      </p>
+    </button>
+  )
+}
+
+function ModelRow({ m }: { m: ModelStatus }) {
+  const isCpu = m.vram_gb === 0
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-3 px-4 py-2.5 rounded-xl border',
+        m.alive
+          ? 'border-green-500/20 bg-green-500/5'
+          : 'border-outline-variant/15 bg-surface-container/20',
+      )}
+    >
+      <div className="flex-shrink-0">
+        {isCpu ? (
+          <Cpu
+            className={cn(
+              'w-3.5 h-3.5',
+              m.alive ? 'text-cyan-400' : 'text-on-surface-variant/25',
+            )}
+          />
+        ) : (
+          <span
+            className={cn(
+              'block w-2.5 h-2.5 rounded-full',
+              m.alive
+                ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.6)]'
+                : 'bg-on-surface-variant/20',
+            )}
+          />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-on-surface">{m.label}</span>
+          <span className="text-[10px] text-on-surface-variant/30">:{m.port}</span>
+          {m.auto_start && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary/70">
+              always-on
+            </span>
+          )}
+        </div>
+        <p className="text-[11px] text-on-surface-variant/35 truncate">{m.note}</p>
+      </div>
+      <span className="text-[10px] text-on-surface-variant/25 flex-shrink-0 hidden sm:block">
+        {m.vram_gb > 0 ? `${m.vram_gb} GB` : 'CPU'}
+      </span>
+      <div className="flex-shrink-0">
+        {m.alive ? (
+          <CheckCircle2 className="w-3.5 h-3.5 text-green-400/70" />
+        ) : (
+          <XCircle className="w-3.5 h-3.5 text-on-surface-variant/20" />
+        )}
       </div>
     </div>
   )
 }
 
+// ---------------------------------------------------------------------------
+// Main view
+// ---------------------------------------------------------------------------
+
 export default function ControlView() {
-  const [models, setModels]         = useState<ModelStatus[]>([])
-  const [pc, setPc]                 = useState<PCHealth | null>(null)
-  const [loading, setLoading]       = useState(true)
-  const [restarting, setRestarting] = useState<string | null>(null)
-  const [logKey, setLogKey]         = useState<string | null>(null)
-  const [logLines, setLogLines]     = useState<string[]>([])
-  const [logLoading, setLogLoading] = useState(false)
-  const logRef = useRef<HTMLDivElement>(null)
+  const [settings, setSettings] = useState<OperatorSettings>({
+    cloud_paid_enabled: true,
+    cloud_free_enabled: false,
+    conversation_partner: 'conversation.default',
+  })
+  const [models, setModels] = useState<ModelStatus[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
 
   const fetchAll = useCallback(async () => {
     try {
-      const [backendsRes, pcRes] = await Promise.all([
-        api.get('/api/backends/llamacpp'),
-        api.get('/api/control/pc').catch(() => null),
+      const [settingsRes, backendsRes] = await Promise.all([
+        api.get('/api/control/operator-settings'),
+        api.get('/api/backends/llamacpp').catch(() => ({ data: [] })),
       ])
-      // backends API returns array; map name→key for ModelStatus
+      setSettings(settingsRes.data)
       const raw: any[] = backendsRes.data ?? []
-      setModels(raw.map(b => ({
-        key: b.name, label: b.label, port: b.port,
-        alive: b.alive, vram_gb: b.vram_gb, note: b.note,
-        auto_start: b.auto_start,
-      })))
-      if (pcRes) setPc(pcRes.data)
-    } catch { /* ignore */ }
-    finally { setLoading(false) }
+      setModels(
+        raw.map(b => ({
+          key: b.name,
+          label: b.label,
+          port: b.port,
+          alive: b.alive,
+          vram_gb: b.vram_gb,
+          note: b.note,
+          auto_start: b.auto_start,
+        })),
+      )
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
     fetchAll()
-    const id = setInterval(fetchAll, 8000)
+    const id = setInterval(fetchAll, 10_000)
     return () => clearInterval(id)
   }, [fetchAll])
 
-  const fetchLog = useCallback(async (key: string) => {
-    setLogLoading(true); setLogKey(key)
+  const patch = useCallback(async (update: Partial<OperatorSettings>) => {
+    setSaving(true)
     try {
-      const res = await api.get(`/api/control/logs/${key}`, { params: { lines: 100 } })
-      setLogLines(res.data.lines ?? ['(no log file)'])
-    } catch { setLogLines(['(failed to load)']) }
-    finally {
-      setLogLoading(false)
-      setTimeout(() => logRef.current?.scrollTo(0, logRef.current.scrollHeight), 50)
+      const res = await api.put('/api/control/operator-settings', update)
+      setSettings(res.data)
+    } catch {
+      // ignore — keep optimistic state
+    } finally {
+      setSaving(false)
     }
   }, [])
 
-  const handleWake = async (key: string) => {
-    try { await api.post(`/api/backends/llamacpp/${key}/start`) } catch { /* ignore */ }
-    setTimeout(fetchAll, 3000)
-  }
-
-  const handleRestart = async (key: string) => {
-    setRestarting(key)
-    try { await api.post(`/api/control/models/${key}/restart`) } catch { /* ignore */ }
-    finally { setRestarting(null); setTimeout(fetchAll, 4000) }
-  }
-
   const alive = models.filter(m => m.alive).length
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <RefreshCw className="w-5 h-5 text-on-surface-variant/40 animate-spin" />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-background text-on-surface p-6">
-      <div className="max-w-5xl mx-auto space-y-8">
+      <div className="max-w-2xl mx-auto space-y-8">
 
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Control Panel</h1>
-            <p className="text-sm text-on-surface-variant/60 mt-0.5">
-              {loading ? 'Checking…' : `${alive} / ${models.length} models live`}
+            <h1 className="text-2xl font-bold">Operator Controls</h1>
+            <p className="text-sm text-on-surface-variant/50 mt-0.5">
+              {alive} / {models.length} models live
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            {[
-              { label: 'Companion', path: '/companion' },
-              { label: 'Workspace', path: '/workspace' },
-              { label: 'Codespace', path: '/codespace' },
-            ].map(({ label, path }) => (
-              <a key={path} href={path}
-                className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-outline-variant/20 bg-surface-container/40 hover:bg-surface-container transition-all text-on-surface-variant">
-                {label} <ExternalLink className="w-3 h-3 opacity-50" />
-              </a>
-            ))}
-            <button onClick={fetchAll}
-              className="text-on-surface-variant/40 hover:text-on-surface-variant transition-colors">
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          <button
+            onClick={fetchAll}
+            className="text-on-surface-variant/40 hover:text-on-surface-variant transition-colors"
+          >
+            <RefreshCw className={cn('w-4 h-4', saving && 'animate-spin')} />
+          </button>
         </div>
 
-        {/* PC Health */}
-        {pc && (
-          <div>
-            <h2 className="text-xs font-semibold text-on-surface-variant/50 uppercase tracking-wider mb-4">
-              System Health
-            </h2>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 p-6 rounded-2xl border border-outline-variant/15 bg-surface-container/30">
-              <Gauge
-                label="CPU"
-                pct={pc.cpu_pct}
-                sub={`${pc.cpu_pct.toFixed(0)}%`}
-                color="primary"
-              />
-              <Gauge
-                label="RAM"
-                pct={pc.ram_pct}
-                sub={`${pc.ram_used_gb}/${pc.ram_total_gb} GB`}
-                color="green"
-              />
-              <Gauge
-                label="Disk"
-                pct={pc.disk_pct}
-                sub={`${pc.disk_used_gb.toFixed(0)}/${pc.disk_total_gb.toFixed(0)} GB`}
-                color="amber"
-              />
-              {pc.gpu ? (
-                <Gauge
-                  label={pc.gpu.label ?? 'GPU VRAM'}
-                  pct={pc.gpu.vram_pct ?? 0}
-                  sub={`${((pc.gpu.vram_used_mb ?? 0) / 1024).toFixed(1)}/${((pc.gpu.vram_total_mb ?? 0) / 1024).toFixed(1)} GB`}
-                  color="cyan"
-                />
-              ) : (
-                <div className="flex flex-col items-center gap-1 opacity-40">
-                  <Cpu className="w-8 h-8 text-on-surface-variant/40" />
-                  <p className="text-[10px] text-on-surface-variant/40">GPU N/A</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Model stack */}
-        <div>
+        {/* 1. Cloud Access */}
+        <section>
           <h2 className="text-xs font-semibold text-on-surface-variant/50 uppercase tracking-wider mb-3">
-            Model Stack
+            Cloud Access
           </h2>
-          <div className="space-y-1.5">
-            {models.map(m => {
-              const isRestarting = restarting === m.key
-              const isCpu = m.vram_gb === 0
-              return (
-                <motion.div key={m.key} layout
-                  className={cn(
-                    'flex items-center gap-3 px-4 py-3 rounded-xl border transition-all',
-                    m.alive
-                      ? 'border-green-500/20 bg-green-500/5'
-                      : 'border-outline-variant/15 bg-surface-container/30',
-                  )}>
-                  {/* Status dot */}
-                  <div className="flex-shrink-0">
-                    {isCpu
-                      ? <Cpu className={cn('w-3.5 h-3.5', m.alive ? 'text-cyan-400' : 'text-on-surface-variant/30')} />
-                      : <span className={cn('block w-2.5 h-2.5 rounded-full',
-                          m.alive ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.7)]' : 'bg-on-surface-variant/20'
-                        )} />
-                    }
-                  </div>
-
-                  {/* Label + note */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-on-surface">{m.label}</span>
-                      <span className="text-[10px] text-on-surface-variant/30">:{m.port}</span>
-                      {m.auto_start && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary/70">always-on</span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-on-surface-variant/40 truncate">{m.note}</p>
-                  </div>
-
-                  <span className="text-[10px] text-on-surface-variant/25 hidden sm:block flex-shrink-0">
-                    {m.vram_gb > 0 ? `${m.vram_gb}GB` : 'CPU'}
-                  </span>
-
-                  {/* Actions */}
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <button onClick={() => fetchLog(m.key)} title="View logs"
-                      className="p-1.5 rounded-lg text-on-surface-variant/30 hover:text-on-surface-variant/70 hover:bg-surface-container transition-all">
-                      <FileText className="w-3.5 h-3.5" />
-                    </button>
-                    {!m.alive && (
-                      <button onClick={() => handleWake(m.key)} title="Start model"
-                        className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg border border-primary/30 text-primary/70 hover:bg-primary/10 transition-all">
-                        <Zap className="w-3 h-3" /> Wake
-                      </button>
-                    )}
-                    {m.alive && (
-                      <button onClick={() => handleRestart(m.key)} disabled={!!isRestarting}
-                        className={cn(
-                          'flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg border transition-all',
-                          isRestarting
-                            ? 'border-outline-variant/20 text-on-surface-variant/30 cursor-not-allowed'
-                            : 'border-outline-variant/20 text-on-surface-variant/40 hover:border-red-400/30 hover:text-red-400/70',
-                        )}>
-                        <RefreshCw className={cn('w-3 h-3', isRestarting && 'animate-spin')} />
-                        {isRestarting ? 'Restarting…' : 'Restart'}
-                      </button>
-                    )}
-                  </div>
-                </motion.div>
-              )
-            })}
+          <div className="space-y-2">
+            <Toggle
+              label="Paid Cloud"
+              sublabel="Claude (Anthropic) · GPT-4 (OpenAI) — requires API key"
+              checked={settings.cloud_paid_enabled}
+              onChange={v => patch({ cloud_paid_enabled: v })}
+              icon={<Cloud className="w-4 h-4" />}
+            />
+            <Toggle
+              label="Free Cloud"
+              sublabel="Mistral · Cohere free tier — no cost, rate-limited"
+              checked={settings.cloud_free_enabled}
+              onChange={v => patch({ cloud_free_enabled: v })}
+              icon={<CloudOff className="w-4 h-4" />}
+            />
           </div>
-        </div>
+        </section>
 
-        {/* Log viewer */}
-        <AnimatePresence>
-          {logKey && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
-              className="rounded-xl border border-outline-variant/20 bg-surface-container/60 overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2 border-b border-outline-variant/15">
-                <span className="text-xs font-medium text-on-surface-variant/60">
-                  {logLoading ? 'Loading…' : `Logs: ${logKey}`}
-                </span>
-                <div className="flex gap-2">
-                  <button onClick={() => fetchLog(logKey)}
-                    className="text-on-surface-variant/40 hover:text-on-surface-variant transition-colors">
-                    <RefreshCw className="w-3 h-3" />
-                  </button>
-                  <button onClick={() => setLogKey(null)}
-                    className="text-on-surface-variant/40 hover:text-on-surface-variant transition-colors">
-                    ✕
-                  </button>
-                </div>
-              </div>
-              <div ref={logRef}
-                className="h-64 overflow-y-auto p-4 font-mono text-[11px] text-on-surface-variant/60 leading-5 space-y-0.5">
-                {logLines.map((line, i) => (
-                  <div key={i} className={cn(
-                    line.toLowerCase().includes('error') && 'text-red-400/80',
-                    line.toLowerCase().includes('warn')  && 'text-amber-400/70',
-                    line.toLowerCase().includes('llm_load') && 'text-green-400/70',
-                  )}>
-                    {line || ' '}
-                  </div>
-                ))}
-              </div>
-            </motion.div>
+        {/* 2. Conversation Partner */}
+        <section>
+          <h2 className="text-xs font-semibold text-on-surface-variant/50 uppercase tracking-wider mb-3">
+            Conversation Partner
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {PARTNER_OPTIONS.map(opt => (
+              <PartnerCard
+                key={opt.role}
+                option={opt}
+                selected={settings.conversation_partner === opt.role}
+                onSelect={() =>
+                  settings.conversation_partner !== opt.role &&
+                  patch({ conversation_partner: opt.role })
+                }
+              />
+            ))}
+          </div>
+        </section>
+
+        {/* 3. Model Health */}
+        <section>
+          <h2 className="text-xs font-semibold text-on-surface-variant/50 uppercase tracking-wider mb-3">
+            Model Health
+          </h2>
+          {models.length === 0 ? (
+            <p className="text-sm text-on-surface-variant/40 italic">No models registered.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {models.map(m => (
+                <ModelRow key={m.key} m={m} />
+              ))}
+            </div>
           )}
-        </AnimatePresence>
+        </section>
 
       </div>
     </div>

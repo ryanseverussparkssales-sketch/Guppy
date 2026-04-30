@@ -577,7 +577,9 @@ from src.guppy.api.routes_control import build_control_router
 app.include_router(build_control_router(_server_context), prefix="/api/control")  # /api/control/*
 
 from src.guppy.api.routes_model_roles import build_model_roles_router
-app.include_router(build_model_roles_router(_server_context))  # /api/model-roles
+_model_roles_router, _control_settings_router = build_model_roles_router(_server_context)
+app.include_router(_model_roles_router)           # /api/model-roles
+app.include_router(_control_settings_router)       # /api/control/operator-settings
 
 # Start background services
 try:
