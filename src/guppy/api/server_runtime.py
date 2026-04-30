@@ -587,6 +587,9 @@ app.include_router(build_model_health_router(_server_context))  # /api/model-hea
 from src.guppy.api.routes_conversations import build_conversations_router
 app.include_router(build_conversations_router(_server_context))  # /api/conversations
 
+from src.guppy.api.routes_workspace import build_workspace_router
+app.include_router(build_workspace_router(_server_context))  # /api/workspace
+
 # Start background services
 try:
     from src.guppy.codespace.codespace_triage import start_watchdog as _start_watchdog

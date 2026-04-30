@@ -117,7 +117,7 @@ class MessageResponse(BaseModel):
 
 async def _execute_conversation_tool(name: str, args: dict) -> dict:
     """Execute one conversation tool call. Returns a result dict.
-    
+
     Whitelist: web_fetch, create_reminder, download_media, memory_write,
     memory_recall, workspace_task.
     """
