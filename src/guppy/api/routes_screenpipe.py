@@ -9,6 +9,8 @@ GET  /api/screenpipe/status           — health check (is Screenpipe daemon up?
 GET  /api/screenpipe/search           — search screen/audio history
 GET  /api/screenpipe/recent           — recent activity (last N minutes)
 
+GET  /api/screenpipe/context          — task-aware context search with AI summary
+GET  /api/screenpipe/app-focus        — currently focused application
 Environment:
     SCREENPIPE_URL   — base URL of the Screenpipe daemon (default: http://localhost:3030)
 """
@@ -159,5 +161,123 @@ def build_screenpipe_router(ctx: ServerContext) -> APIRouter:
             "window_minutes": minutes,
             "available": True,
         }
+
+    @router.get("/context")
+    async def screenpipe_context(
+        task_description: str = "",
+        minutes: int = 30,
+        limit: int = 3,
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
+        """Search Screenpipe for task-relevant context.
+        
+        Given a task description (e.g., 'write email'), searches recent screen/audio
+        history and returns summarized relevant clips with timestamps and app names.
+        
+        Used by workspace orchestrator to understand screen context before task planning.
+        """
+        try:
+            # Search for task-relevant content
+            results = await asyncio.to_thread(
+                _search,
+                query=task_description,
+                limit=min(limit * 2, 50),  # Get 2x to filter
+                content_type="all",
+                start_time=None,  # Let Screenpipe use default time range
+                end_time=None,
+            )
+            
+            # Truncate to top N most relevant
+            results = results[:limit]
+            
+            # Format with timestamps and app names for readability
+            formatted = []
+            for item in results:
+                timestamp = item.get("timestamp", "")
+                app_name = item.get("app_name", "Unknown")
+                content = item.get("content", "")
+                
+                # Truncate long content
+                content_preview = content[:200] if isinstance(content, str) else str(content)[:200]
+                
+                formatted.append({
+                    "timestamp": timestamp,
+                    "app": app_name,
+                    "content": content_preview,
+                    "type": item.get("type", "unknown"),
+                })
+            
+            return {
+                "context": formatted,
+                "count": len(formatted),
+                "task_description": task_description,
+                "available": True,
+                "summary": f"Found {len(formatted)} relevant screen events for '{task_description}'" if task_description else "No task described",
+            }
+        
+        except (urllib.error.URLError, ConnectionRefusedError, OSError):
+            return {
+                "context": [],
+                "count": 0,
+                "task_description": task_description,
+                "available": False,
+                "summary": f"Screenpipe not running at {_sp_url()}",
+            }
+        except Exception as exc:
+            return {
+                "context": [],
+                "count": 0,
+                "task_description": task_description,
+                "available": False,
+                "summary": f"Context search error: {exc}",
+            }
+
+    @router.get("/app-focus")
+    async def screenpipe_app_focus(
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
+        """Get the currently focused application.
+        
+        Returns the app_name of the most recent Screenpipe OCR frame.
+        Useful for understanding what the user is currently interacting with.
+        """
+        try:
+            # Get the most recent single frame
+            results = await asyncio.to_thread(
+                _recent,
+                minutes=1,  # Look at very recent (last minute)
+                limit=1,
+            )
+            
+            if results:
+                app_focus = results[0].get("app_name", "Unknown")
+                timestamp = results[0].get("timestamp", "")
+                return {
+                    "app": app_focus,
+                    "timestamp": timestamp,
+                    "available": True,
+                }
+            else:
+                return {
+                    "app": None,
+                    "timestamp": None,
+                    "available": True,
+                    "detail": "No recent frames in Screenpipe",
+                }
+        
+        except (urllib.error.URLError, ConnectionRefusedError, OSError):
+            return {
+                "app": None,
+                "timestamp": None,
+                "available": False,
+                "detail": f"Screenpipe not running at {_sp_url()}",
+            }
+        except Exception as exc:
+            return {
+                "app": None,
+                "timestamp": None,
+                "available": False,
+                "detail": f"App focus error: {exc}",
+            }
 
     return router

@@ -327,7 +327,33 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
         "Complete the task fully. Use tools as needed. Report what you did concisely."
         + _WORKSPACE_TOOL_SCHEMA
     )
-    user_message = f"Task: {title}\n\n{description}".strip()
+
+    context_text = ""
+    try:
+        _broadcast_event("task_progress", {"id": task_id, "status": "in_progress", "step": "Gathering screen context"})
+        from src.guppy.api.routes_screenpipe import _search as _screenpipe_search
+
+        ctx_rows = await asyncio.to_thread(
+            _screenpipe_search,
+            description or title,
+            3,
+            "all",
+            None,
+            None,
+            None,
+        )
+        if ctx_rows:
+            lines = []
+            for row in ctx_rows[:3]:
+                app = row.get("app_name", "Unknown")
+                ts = row.get("timestamp", "")
+                content = (row.get("content", "") or "")[:180].replace("\n", " ").strip()
+                lines.append(f"- [{ts}] ({app}) {content}")
+            context_text = "\nRecent screen context:\n" + "\n".join(lines)
+    except Exception as _ctx_exc:
+        _bg_log.debug("[task_exec] screen context unavailable for %s: %s", task_id, _ctx_exc)
+
+    user_message = f"Task: {title}\n\n{description}{context_text}".strip()
 
     try:
         # Call Hermes4 directly (port 8086, OpenAI-compat)

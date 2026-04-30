@@ -201,6 +201,8 @@ async def _execute_workspace_tool(tool_name: str, tool_args: dict) -> dict:
 
     elif tool_name == "screenpipe_search":
         query = str(tool_args.get("query", "")).strip()
+        # Legacy workspace endpoint remains a lightweight passthrough.
+        # Full task executor tool logic lives in routes_realtime.py.
         return {"ok": True, "query": query, "results": []}
 
     elif tool_name == "pc_screenshot":
@@ -397,9 +399,21 @@ def build_workspace_router(ctx: ServerContext) -> APIRouter:
 
     @router.get("/tasks/{task_id}/stream")
     async def stream_task(task_id: str):
-        """Stream live task output via SSE. Stub."""
+        """Stream live task output via SSE.
+
+        Emits state and step updates until the task reaches a terminal state.
+        """
+
+        terminal_states = {
+            TaskState.COMPLETE.value,
+            TaskState.FAILED.value,
+            TaskState.CANCELLED.value,
+        }
 
         async def _stream():
+            last_state = None
+            last_step_count = -1
+
             with _db() as conn:
                 task = conn.execute(
                     "SELECT state FROM workspace_tasks WHERE id = ?", (task_id,)
@@ -408,9 +422,71 @@ def build_workspace_router(ctx: ServerContext) -> APIRouter:
                     yield f"data: {json.dumps({'error': 'Task not found'})}\n\n"
                     return
 
-                yield f"data: {json.dumps({'task_id': task_id, 'state': task['state']})}\n\n"
-                # Stub — full orchestrator streaming in Tranche F
-                yield "data: [DONE]\n\n"
+            while True:
+                with _db() as conn:
+                    task = conn.execute(
+                        "SELECT state, error, result FROM workspace_tasks WHERE id = ?",
+                        (task_id,),
+                    ).fetchone()
+
+                    if not task:
+                        yield f"data: {json.dumps({'error': 'Task not found'})}\n\n"
+                        return
+
+                    steps = conn.execute(
+                        """SELECT step_number, tool_name, result, requires_confirmation,
+                                  confirmation_given, completed_at
+                           FROM workspace_task_steps
+                           WHERE task_id = ? ORDER BY step_number ASC""",
+                        (task_id,),
+                    ).fetchall()
+
+                state = task["state"]
+                if state != last_state:
+                    payload = {
+                        "event": "state",
+                        "task_id": task_id,
+                        "state": state,
+                        "error": task["error"],
+                    }
+                    yield f"data: {json.dumps(payload)}\n\n"
+                    last_state = state
+
+                if len(steps) != last_step_count:
+                    serialized_steps = []
+                    for row in steps:
+                        serialized_steps.append(
+                            {
+                                "step_number": row["step_number"],
+                                "tool_name": row["tool_name"],
+                                "result": json.loads(row["result"]) if row["result"] else None,
+                                "requires_confirmation": bool(row["requires_confirmation"]),
+                                "confirmation_given": bool(row["confirmation_given"]),
+                                "completed_at": row["completed_at"],
+                            }
+                        )
+
+                    payload = {
+                        "event": "steps",
+                        "task_id": task_id,
+                        "steps": serialized_steps,
+                    }
+                    yield f"data: {json.dumps(payload)}\n\n"
+                    last_step_count = len(steps)
+
+                if state in terminal_states:
+                    done_payload = {
+                        "event": "done",
+                        "task_id": task_id,
+                        "state": state,
+                        "result": task["result"],
+                        "error": task["error"],
+                    }
+                    yield f"data: {json.dumps(done_payload)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+
+                await asyncio.sleep(1)
 
         return StreamingResponse(_stream(), media_type="text/event-stream")
 

@@ -146,6 +146,9 @@ shell_run(command)   — read-only shell commands: dir, ls, git status/log/diff,
 contacts_search(query)   — search CRM contacts by name/company/email
   <tool_call>{"name": "contacts_search", "arguments": {"query": "Smith"}}</tool_call>
 
+screenpipe_search(query, limit=5)   — search recent screen/audio context via Screenpipe
+    <tool_call>{"name": "screenpipe_search", "arguments": {"query": "invoice draft", "limit": 5}}</tool_call>
+
 memory_write(key, value, category="general")   — store a fact permanently
   <tool_call>{"name": "memory_write", "arguments": {"key": "macbeth_location", "value": "Saved to C:/Users/Ryan/Downloads/macbeth.txt", "category": "completed"}}</tool_call>
 
@@ -264,6 +267,41 @@ async def _execute_workspace_tool(name: str, args: dict) -> dict:
             return {"ok": True, "contacts": contacts[:20]}
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+    if name == "screenpipe_search":
+        query = str(args.get("query", "")).strip()
+        limit = min(max(int(args.get("limit", 5)), 1), 20)
+        if not query:
+            return {"ok": False, "error": "query required"}
+        try:
+            from src.guppy.api.routes_screenpipe import _search
+
+            results = await asyncio.to_thread(
+                _search,
+                query,
+                limit,
+                "all",
+                None,
+                None,
+                None,
+            )
+            formatted = [
+                {
+                    "timestamp": r.get("timestamp", ""),
+                    "app": r.get("app_name", "Unknown"),
+                    "content": (r.get("content", "") or "")[:240],
+                    "type": r.get("type", "unknown"),
+                }
+                for r in results[:limit]
+            ]
+            return {
+                "ok": True,
+                "query": query,
+                "count": len(formatted),
+                "results": formatted,
+            }
+        except Exception as e:
+            return {"ok": False, "error": f"screenpipe_search failed: {e}"}
 
     return {"ok": False, "error": f"Unknown workspace tool: {name}"}
 

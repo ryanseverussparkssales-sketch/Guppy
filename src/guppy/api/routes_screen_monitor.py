@@ -1,8 +1,8 @@
 """Screen activity monitor — timeline aggregation over Screenpipe data.
 
 Groups raw Screenpipe OCR/audio captures into 30-minute activity windows,
-stores them in SQLite, and exposes a timeline API. After each snapshot an
-Ollama (guppy-fast) call generates a one-sentence AI activity summary
+stores them in SQLite, and exposes a timeline API. After each snapshot a
+Hermes 3 call generates a one-sentence AI activity summary
 ("You were working on…"). A background job runs every 30 minutes; the UI
 can also trigger on-demand snapshots.
 
@@ -122,7 +122,7 @@ def _word_count(items: list[dict]) -> int:
 # ── AI summary ────────────────────────────────────────────────────────────────
 
 def _generate_ai_summary(apps: list[str], highlights: list[str]) -> str:
-    """Call guppy-fast to produce a one-sentence 'you were working on…' label."""
+    """Call hermes3 (llamacpp port 8087) to produce a one-sentence 'you were working on…' label."""
     if not apps and not highlights:
         return ""
     context_parts: list[str] = []
@@ -139,20 +139,26 @@ def _generate_ai_summary(apps: list[str], highlights: list[str]) -> str:
     try:
         import json as _json, urllib.request as _req
         payload = _json.dumps({
-            "model": "guppy-fast",
-            "prompt": prompt,
+            "model": "hermes3",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "max_tokens": 60,
             "stream": False,
-            "options": {"num_predict": 60, "temperature": 0.3},
         }).encode()
         request = _req.Request(
-            "http://127.0.0.1:11434/api/generate",
+            "http://127.0.0.1:8087/v1/chat/completions",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",
         )
         with _req.urlopen(request, timeout=25) as resp:
             data = _json.loads(resp.read().decode())
-            return data.get("response", "").strip().split("\n")[0].strip()
+            # Extract text from OpenAI chat completion format
+            choices = data.get("choices", [])
+            if choices:
+                content = choices[0].get("message", {}).get("content", "")
+                return content.strip().split("\n")[0].strip()
+            return ""
     except Exception as exc:
         logger.debug("[screen_monitor] AI summary failed: %s", exc)
         return ""
