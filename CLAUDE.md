@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-04-30 — Phases 1–5 complete + 6-gap stability hardening + 7-item 2026 best-practices pass
+**Last updated:** 2026-04-30 — Tranches G–I complete (Screenpipe, Library, DB consolidation)
 
 ---
 
@@ -209,6 +209,9 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - ✅ **Twilio outbound calling** — live REST call placement (needs credentials)
 - ✅ **Desktop launcher** — `Desktop\Guppy Launcher.lnk` updated via `tools/ensure_desktop_launcher.ps1`
 - ✅ **Web UI rebuilt** — static assets in `static/` reflect all current views and themes
+- ✅ **Tranche G (2026-04-30) — Screenpipe Integration** — ScreenPanel timeline/search/recent; AI activity summaries; routes_screen_monitor.py; Screenpipe context in realtime_inference_support
+- ✅ **Tranche H (2026-04-30) — BookDrop / Library Surface** — LibraryView, routes_library.py, OPDS 1.2 feed, OpenLibrary enricher, library_metadata cache in guppy_main.db
+- ✅ **Tranche I (2026-04-30) — DB Consolidation** — src/guppy/db/ module, MAIN_DB_PATH constant, all 20+ route files converge on guppy_main.db; stale per-feature DBs eliminated; docs/DATABASES.md created
 
 **For detailed implementation notes on completed initiatives, see `SHIPPING_LOG.md` in the Guppy repo.**
 
@@ -243,14 +246,18 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - `bin/launch_api_supervised.bat` — For external monitoring/restart on crash
 - `bin/launch_automation_test.bat` — Guided automation test entrypoint
 
-### Model Roster (Ollama)
-| Model | Base | VRAM | Role |
-|-------|------|------|------|
-| `guppy-fast` | qwen2.5:7b | ~5 GB | Fast butler, simple queries |
-| `vault-scraper` | qwen2.5:7b | shared | Digital Seed Vault extraction |
-| `guppy-code` | qwen2.5-coder:14b | ~9 GB | Code review, debug |
-| `guppy` | qwen2.5:32b | ~20 GB | Complex butler tasks |
-| `guppy-teach` | qwen2.5:32b | shared | Socratic teaching |
+### Model Role Registry
+
+→ See `docs/MODEL_ROUTING.md` for full table.
+
+**Always-on stack (22 GB VRAM):**
+| Surface role | Key | Port | Model |
+|---|---|---|---|
+| Companion fast chat | `llamacpp-hermes3` | 8087 | Hermes 3 8B Q8_0 |
+| Workspace/codespace reasoning | `llamacpp-hermes4` | 8086 | Hermes 4 14B Q5_K_M |
+| Orchestrator / summarizer | `llamacpp-dispatch` | 8085 | Qwen2.5-3B Q4_K_M |
+
+**Ollama is removed from routing.** `can_stream_ollama=False`. All local routes go to llamacpp.
 
 ### Model Roster (llama.cpp — ROCm/HIP)
 | Backend key | Model | Port | VRAM | Role |
@@ -267,7 +274,7 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 | `llamacpp-chat` | Llama 3.3 70B Instruct Q4_K_M | 8090 | 0 VRAM (~42 GB RAM) | CPU-only flagship chat; ~4-6 tok/s on Ryzen 9 9900X |
 | `llamacpp-phi4-mini` | Phi-4-mini-instruct Q4_K_M | 8091 | ~2.5 GB | True JSON tool_call orchestrator — upgrade path to replace dispatch; model file needed |
 
-**Gemma 4 E4B PLE warning:** llama.cpp issue #22243 — PLE (Per-Layer Embeddings) architecture not fully implemented; output quality is silently degraded. The `gemma-4-heretic-ara` fine-tune shares this issue. Use Hermes or Rocinante for tool-capable or quality-sensitive tasks. Gemma 4 26B-A4B or 31B work correctly.
+**Gemma 4 E4B PLE warning:** llama.cpp issue #22243 — PLE (Per-Layer Embeddings) architecture not fully implemented; output quality is silently degraded. Use Hermes or Rocinante for tool-capable or quality-sensitive tasks.
 
 ---
 
