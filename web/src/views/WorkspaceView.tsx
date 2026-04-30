@@ -29,6 +29,7 @@ import { CalendarPanel } from '@/components/workspace/CalendarPanel'
 import { EmailPanel } from '@/components/workspace/EmailPanel'
 import { MediaLibraryPanel } from '@/components/workspace/MediaLibraryPanel'
 import { TaskManagerPanel } from '@/components/workspace/TaskManagerPanel'
+import { TaskPanel } from '@/components/workspace/TaskPanel'
 import { AutomationPanel } from '@/components/workspace/AutomationPanel'
 import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
 import { DocumentsPanel } from '@/components/workspace/DocumentsPanel'
@@ -136,12 +137,13 @@ function TaskItem({ task, onCancel }: { task: SurfaceTask; onCancel: (id: string
   )
 }
 
+
 // ── AgentsPanel ────────────────────────────────────────────────────────────────
 
 function AgentsPanel() {
-  const [tasks, setTasks]     = useState<SurfaceTask[]>([])
-  const [loading, setLoading] = useState(true)
-  const [filter, setFilter]   = useState<'all' | 'active' | 'done'>('all')
+  // Simplified to use new TaskPanel component wired to /api/workspace/tasks
+  return <TaskPanel />
+}
 
   const loadTasks = async () => {
     try {

@@ -1,13 +1,12 @@
 /**
- * CompanionView — Voice / Chat / Vision / Personality Surface
+ * ConversationsView — Voice / Chat / Vision / Personality Surface
  *
- * Phase 2 enhancements:
+ * Features:
+ * - Persistent sessions with session picker
+ * - Switchable conversation partners (Hermes3, Rocinante, Pepe, MiniCPM)
  * - AvatarPresence with animated states
- * - Personality quick-switcher (sharp/creative/voice/thinking)
- * - Camera / image upload for vision queries
- * - Voice session toggle (wake-word mode)
- * - Tool policy enforcement (companion whitelist)
- * - Enhanced escalation with context packaging
+ * - Voice + vision support
+ * - Delegation to Workspace via workspace_task tool
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
@@ -26,6 +25,7 @@ import { AvatarPresence, type AvatarState } from '@/components/surface/AvatarPre
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
 import { PersonaModelPicker } from '@/components/surface/PersonaModelPicker'
 import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
+import { SessionPicker, PartnerSelector } from '@/components/conversations/SessionPicker'
 import api, { streamChat } from '@/api/client'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -159,9 +159,13 @@ function PersonalityPicker({ onSwitch }: { onSwitch: () => void }) {
 
 // ── Main view ──────────────────────────────────────────────────────────────────
 
-export default function CompanionView() {
+export default function ConversationsView() {
   const { activeWorkspaceId } = useWorkspaceStore()
   const { pendingDraftText, setPendingDraftText } = useAppStore()
+
+  // Session management
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  const [currentPartner, setCurrentPartner] = useState<string>('llamacpp-hermes3')
 
   const [messages, setMessages]           = useState<Message[]>(() => {
     try {
@@ -390,20 +394,54 @@ export default function CompanionView() {
         }
       }
 
-      // Companion uses its own direct stream — never goes through syncManager/workspace history.
+      // Stream from conversations API
       if (!fullText) {
-        await streamChat(
-          {
-            message: text,
-            mode: activePersona || 'local',
-            surface: 'companion',
-            is_voice: isVoice,
-            ...(currentImage?.base64 ? { image_base64: currentImage.base64 } : {}),
+        const token = localStorage.getItem('accessToken')
+        const response = await fetch('/api/conversations/chat/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-          (token) => { fullText += token; setStreaming((p) => p + token); tryFlushTTS(token) },
-          controller.signal,
-          (replaced) => { fullText = replaced; setStreaming(replaced) },
-        )
+          body: JSON.stringify({
+            message: text,
+            session_id: currentSessionId,
+            image_base64: currentImage?.base64,
+          }),
+          signal: controller.signal,
+        })
+
+        if (!response.ok) throw new Error(`Stream failed: ${response.status}`)
+
+        const reader = response.body!.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+
+          const lines = buffer.split('\n')
+          buffer = lines.pop() ?? ''
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            const payload = line.slice(6).trim()
+            if (payload === '[DONE]') break
+            try {
+              const parsed = JSON.parse(payload)
+              if (parsed.error) throw new Error(parsed.error)
+              if (parsed.token) {
+                fullText += parsed.token
+                setStreaming((p) => p + parsed.token)
+                tryFlushTTS(parsed.token)
+              }
+            } catch (e) {
+              console.error('Parse error:', e)
+            }
+          }
+        }
       }
 
       const finalText = fullText || streaming
@@ -436,7 +474,7 @@ export default function CompanionView() {
       setIsSending(false)
       abortRef.current = null
     }
-  }, [input, isSending, activeConvId, ttsEnabled, voice, streaming, attachedImage])
+  }, [input, isSending, currentSessionId, ttsEnabled, voice, streaming, attachedImage, currentPartner])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -547,6 +585,27 @@ export default function CompanionView() {
       <div className="flex items-center justify-between px-5 py-3 border-b border-outline-variant/20 flex-shrink-0">
         <div className="flex items-center gap-2">
           <PersonalityPicker onSwitch={() => {}} />
+        </div>
+        <div className="flex flex-col w-full">
+          <SessionPicker
+            currentSessionId={currentSessionId}
+            onSelectSession={(id) => {
+              setCurrentSessionId(id)
+              setMessages([])
+            }}
+            onNewSession={async () => {
+              try {
+                const res = await api.post('/api/conversations/sessions', {
+                  session_title: `Chat ${new Date().toLocaleTimeString()}`,
+                })
+                setCurrentSessionId(res.data?.id)
+                setMessages([])
+              } catch {
+                toast.error('Could not create session')
+              }
+            }}
+          />
+          <PartnerSelector currentPartner={currentPartner} onSelectPartner={setCurrentPartner} />
         </div>
         <div className="flex items-center gap-2">
           {/* Ambient mode toggle */}
