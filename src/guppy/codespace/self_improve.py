@@ -103,10 +103,9 @@ def propose_fix(run_id: str, failure_text: str) -> dict[str, Any]:
     pid = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
 
-    # Try guppy-code first (14B code specialist), fall back to guppy-fast
+    # Try hermes4 (workspace.worker.primary – 14B code specialist) then hermes3 (8B fast fallback)
     prompt = _FIX_PROMPT_TEMPLATE.format(failures=failure_text[:3000])
-        # Try hermes4 (workspace.worker.primary – 14B code specialist) then hermes3 (8B fast fallback)
-        response = _ask_inference(prompt, model="hermes-4-14b") or _ask_inference(prompt, model="hermes-3-8b-lorablated")
+    response = _ask_inference(prompt, model="hermes-4-14b") or _ask_inference(prompt, model="hermes-3-8b-lorablated")
 
     if not response or "NO_FIX" in response:
         diff    = ""
