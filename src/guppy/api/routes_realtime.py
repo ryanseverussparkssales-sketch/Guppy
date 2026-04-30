@@ -16,7 +16,6 @@ from src.guppy.api.realtime_inference_support import (
     stream_unified_inference,
     _REPLACE_SENTINEL,
     _SOURCE_SENTINEL,
-    _OLLAMA_CHAT_URL,
     _repair_tool_json,
 )
 from src.guppy.voice import voice as _voice
@@ -617,8 +616,8 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     idempotency_key, error=str(e), status_code=500
                 )
             user_msg = str(e)
-            if "ollama" in user_msg.lower() or "11434" in user_msg or "connect" in user_msg.lower():
-                user_msg = f"Cannot reach local inference backend. Start Ollama and try again. ({e})"
+            if "llamacpp" in user_msg.lower() or "8087" in user_msg or "connect" in user_msg.lower():
+                user_msg = f"Cannot reach local inference backend. Start llamacpp (hermes3 on port 8087) and try again. ({e})"
             raise HTTPException(status_code=500, detail=user_msg)
 
     @router.post("/chat/stream")
@@ -706,6 +705,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         active_local_model=_active_local_model,
                         active_cloud_model=_active_cloud_model,
                         image_base64=request.image_base64 or None,
+                        skip_tools=True,
                     ):
                         if token.startswith(_SOURCE_SENTINEL) or token.startswith(_REPLACE_SENTINEL):
                             continue
@@ -714,6 +714,9 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     owner.logger.error("Workspace pass-1 buffering failed: %s", exc)
                     yield f"data: {json.dumps({'error': str(exc)})}\n\n"
                     return
+
+                if not first_response.strip():
+                    first_response = "Ready — what do you need?"
 
                 tool_blocks = _TOOL_CALL_RE.findall(first_response)
 
@@ -822,6 +825,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         active_local_model=_active_local_model,
                         active_cloud_model=_active_cloud_model,
                         image_base64=request.image_base64 or None,
+                        skip_tools=True,
                     ):
                         if token.startswith(_SOURCE_SENTINEL) or token.startswith(_REPLACE_SENTINEL):
                             continue
@@ -830,6 +834,11 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     owner.logger.error("Companion pass-1 buffering failed: %s", exc)
                     yield f"data: {json.dumps({'error': str(exc)})}\n\n"
                     return
+
+                # If the model generated nothing, substitute a polite fallback so the
+                # frontend never receives an empty replace (which shows confusing UI).
+                if not first_response.strip():
+                    first_response = "I'm here — could you rephrase that?"
 
                 tool_blocks = _TOOL_CALL_RE.findall(first_response)
 

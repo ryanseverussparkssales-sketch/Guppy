@@ -12,7 +12,12 @@ def build_core_router(ctx: ServerContext) -> APIRouter:
 
     @router.get("/")
     async def root():
-        """Root health-check endpoint — takes priority over the SPA catch-all."""
+        """Serve the SPA index for the root path."""
+        from pathlib import Path
+        from fastapi.responses import FileResponse, JSONResponse
+        index = Path(__file__).parent.parent.parent.parent / "static" / "index.html"
+        if index.exists():
+            return FileResponse(str(index))
         return {"message": "Guppy API is running", "status": "healthy"}
 
     @router.get("/health")

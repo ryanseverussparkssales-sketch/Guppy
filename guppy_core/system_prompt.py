@@ -270,23 +270,3 @@ def get_startup_system(
         return system
     except Exception:
         return SYSTEM
-
-
-def to_ollama_tools(tools: list) -> list:
-    """
-    Convert Anthropic-format tool definitions to Ollama's function-calling format.
-
-    Anthropic: {"name": ..., "description": ..., "input_schema": {...}}
-    Ollama:    {"type": "function", "function": {"name": ..., "description": ..., "parameters": {...}}}
-    """
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": t["name"],
-                "description": t["description"],
-                "parameters": t["input_schema"],
-            },
-        }
-        for t in tools
-    ]

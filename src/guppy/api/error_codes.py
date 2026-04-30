@@ -75,12 +75,11 @@ class ErrorCode(str, Enum):
     PROVIDER_CREDENTIAL_INVALID = "PROVIDER_CREDENTIAL_INVALID"
     PROVIDER_CREDENTIAL_EXPIRED = "PROVIDER_CREDENTIAL_EXPIRED"
 
-    # ========== OLLAMA (OLLAMA_*) ==========
-    OLLAMA_NOT_RUNNING = "OLLAMA_NOT_RUNNING"
-    OLLAMA_CONNECTION_FAILED = "OLLAMA_CONNECTION_FAILED"
-    OLLAMA_MODEL_NOT_FOUND = "OLLAMA_MODEL_NOT_FOUND"
-    OLLAMA_INFERENCE_FAILED = "OLLAMA_INFERENCE_FAILED"
-    OLLAMA_PULL_FAILED = "OLLAMA_PULL_FAILED"
+    # ========== LOCAL MODEL (LOCAL_MODEL_*) ==========
+    LOCAL_MODEL_NOT_RUNNING = "LOCAL_MODEL_NOT_RUNNING"
+    LOCAL_MODEL_CONNECTION_FAILED = "LOCAL_MODEL_CONNECTION_FAILED"
+    LOCAL_MODEL_NOT_FOUND = "LOCAL_MODEL_NOT_FOUND"
+    LOCAL_MODEL_INFERENCE_FAILED = "LOCAL_MODEL_INFERENCE_FAILED"
 
     # ========== SETTINGS (SETTINGS_*) ==========
     SETTINGS_NOT_FOUND = "SETTINGS_NOT_FOUND"
@@ -157,12 +156,11 @@ ERROR_METADATA: Dict[ErrorCode, Tuple[int, str, str, str]] = {
     ErrorCode.PROVIDER_CREDENTIAL_INVALID: (400, "Invalid provider credentials", "provider", "warning"),
     ErrorCode.PROVIDER_CREDENTIAL_EXPIRED: (401, "Provider credentials have expired", "provider", "warning"),
 
-    # OLLAMA
-    ErrorCode.OLLAMA_NOT_RUNNING: (503, "Local AI service (Ollama) is not running", "ollama", "warning"),
-    ErrorCode.OLLAMA_CONNECTION_FAILED: (503, "Cannot connect to local AI service", "ollama", "warning"),
-    ErrorCode.OLLAMA_MODEL_NOT_FOUND: (404, "AI model not found locally", "ollama", "info"),
-    ErrorCode.OLLAMA_INFERENCE_FAILED: (500, "AI inference failed", "ollama", "warning"),
-    ErrorCode.OLLAMA_PULL_FAILED: (500, "Failed to download AI model", "ollama", "warning"),
+    # LOCAL MODEL (llamacpp)
+    ErrorCode.LOCAL_MODEL_NOT_RUNNING: (503, "Local AI service (llamacpp) is not running", "local_model", "warning"),
+    ErrorCode.LOCAL_MODEL_CONNECTION_FAILED: (503, "Cannot connect to local AI service", "local_model", "warning"),
+    ErrorCode.LOCAL_MODEL_NOT_FOUND: (404, "AI model not found locally", "local_model", "info"),
+    ErrorCode.LOCAL_MODEL_INFERENCE_FAILED: (500, "AI inference failed", "local_model", "warning"),
 
     # SETTINGS
     ErrorCode.SETTINGS_NOT_FOUND: (404, "Settings not found", "settings", "info"),
@@ -212,9 +210,9 @@ RETRYABLE_ERRORS = {
     ErrorCode.DB_QUERY_FAILED,
     ErrorCode.SYSTEM_TIMEOUT,
     ErrorCode.SYSTEM_TOO_MANY_REQUESTS,
-    ErrorCode.OLLAMA_NOT_RUNNING,
-    ErrorCode.OLLAMA_CONNECTION_FAILED,
-    ErrorCode.OLLAMA_INFERENCE_FAILED,
+    ErrorCode.LOCAL_MODEL_NOT_RUNNING,
+    ErrorCode.LOCAL_MODEL_CONNECTION_FAILED,
+    ErrorCode.LOCAL_MODEL_INFERENCE_FAILED,
     ErrorCode.PROVIDER_RATE_LIMITED,
     ErrorCode.PROVIDER_API_FAILED,
     ErrorCode.CHAT_AI_RESPONSE_FAILED,
@@ -223,8 +221,8 @@ RETRYABLE_ERRORS = {
 }
 
 CIRCUIT_BREAKER_ERRORS = {
-    ErrorCode.OLLAMA_NOT_RUNNING,
-    ErrorCode.OLLAMA_CONNECTION_FAILED,
+    ErrorCode.LOCAL_MODEL_NOT_RUNNING,
+    ErrorCode.LOCAL_MODEL_CONNECTION_FAILED,
     ErrorCode.PROVIDER_API_FAILED,
     ErrorCode.SYSTEM_SERVICE_UNAVAILABLE,
 }

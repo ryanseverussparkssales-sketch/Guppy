@@ -70,11 +70,17 @@ export default function ControlView() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [statusRes, pcRes] = await Promise.all([
-        api.get('/api/control/status'),
+      const [backendsRes, pcRes] = await Promise.all([
+        api.get('/api/backends/llamacpp'),
         api.get('/api/control/pc').catch(() => null),
       ])
-      setModels(statusRes.data.models ?? [])
+      // backends API returns array; map name→key for ModelStatus
+      const raw: any[] = backendsRes.data ?? []
+      setModels(raw.map(b => ({
+        key: b.name, label: b.label, port: b.port,
+        alive: b.alive, vram_gb: b.vram_gb, note: b.note,
+        auto_start: b.auto_start,
+      })))
       if (pcRes) setPc(pcRes.data)
     } catch { /* ignore */ }
     finally { setLoading(false) }

@@ -26,7 +26,7 @@ import { AvatarPresence, type AvatarState } from '@/components/surface/AvatarPre
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
 import { PersonaModelPicker } from '@/components/surface/PersonaModelPicker'
 import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
-import api from '@/api/client'
+import api, { streamChat } from '@/api/client'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -245,13 +245,7 @@ export default function CompanionView() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streaming])
 
-  useEffect(() => {
-    if (!activeWorkspaceId) return
-    syncManager
-      .createConversation(activeWorkspaceId, `Companion ${new Date().toLocaleDateString()}`)
-      .then((conv: any) => setActiveConvId(conv?.id ?? null))
-      .catch(() => {})
-  }, [activeWorkspaceId])
+  // Companion manages its own in-memory session — no workspace history leakage.
 
   // Load active persona model from surface_config
   useEffect(() => {
@@ -396,69 +390,33 @@ export default function CompanionView() {
         }
       }
 
-      // Standard chat path (or fallback)
-      if (!fullText && activeConvId) {
-        await syncManager.addMessage(activeConvId, 'user', text)
-        fullText = await syncManager.getAIResponse(
-          activeConvId,
-          text,
-          'local',
-          (token: string) => { setStreaming((p) => p + token); tryFlushTTS(token) },
-          controller.signal,
-          (replaced: string) => setStreaming(replaced),
-          () => {},
-          currentImage?.base64,
-          'companion',
-          isVoice,
-        )
-      } else if (!fullText) {
-        const res = await fetch('/api/chat/stream', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('accessToken') || ''}`,
+      // Companion uses its own direct stream — never goes through syncManager/workspace history.
+      if (!fullText) {
+        await streamChat(
+          {
+            message: text,
+            mode: activePersona || 'local',
+            surface: 'companion',
+            is_voice: isVoice,
+            ...(currentImage?.base64 ? { image_base64: currentImage.base64 } : {}),
           },
-          body: JSON.stringify({ message: text, mode: 'local', surface: 'companion', is_voice: isVoice }),
-          signal: controller.signal,
-        })
-        if (res.body) {
-          const reader = res.body.getReader()
-          const dec = new TextDecoder()
-          let buf = ''
-          outer: while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            buf += dec.decode(value, { stream: true })
-            const lines = buf.split('\n')
-            buf = lines.pop() ?? ''
-            for (const line of lines) {
-              if (!line.startsWith('data: ')) continue
-              const payload = line.slice(6).trim()
-              if (payload === '[DONE]') break outer
-              try {
-                const ev = JSON.parse(payload)
-                if (ev.tool_exec) {
-                  setStreaming(`using ${ev.tool_exec}…`)
-                } else if (ev.replace !== undefined) {
-                  fullText = ev.replace
-                  setStreaming(fullText)
-                } else if (ev.token) {
-                  fullText += ev.token
-                  setStreaming(fullText)
-                  tryFlushTTS(ev.token)
-                } else if (ev.done || ev.error) {
-                  break outer
-                }
-              } catch { /* non-JSON SSE line */ }
-            }
-          }
-        }
+          (token) => { fullText += token; setStreaming((p) => p + token); tryFlushTTS(token) },
+          controller.signal,
+          (replaced) => { fullText = replaced; setStreaming(replaced) },
+        )
       }
 
       const finalText = fullText || streaming
-      setMessages((m) => [...m, {
-        id: crypto.randomUUID(), role: 'assistant', content: finalText, ts: new Date().toISOString(),
-      }])
+      if (finalText.trim()) {
+        setMessages((m) => [...m, {
+          id: crypto.randomUUID(), role: 'assistant', content: finalText, ts: new Date().toISOString(),
+        }])
+      } else {
+        setMessages((m) => [...m, {
+          id: crypto.randomUUID(), role: 'assistant',
+          content: "(model returned empty — it may still be warming up. Try again in a moment)", ts: new Date().toISOString(),
+        }])
+      }
       setStreaming('')
 
       // Flush any remaining partial sentence from the accumulator.

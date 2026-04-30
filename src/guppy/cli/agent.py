@@ -1,7 +1,7 @@
 """
 guppy_agent.py — Terminal interface for Guppy
 ==============================================
-Handles terminal I/O, Claude API turns, Ollama turns,
+Handles terminal I/O, Claude API turns, llamacpp local turns,
 voice mode, and the Open WebUI browser launcher.
 All shared tool logic lives in guppy_core.py.
 """
@@ -16,7 +16,7 @@ try:
 except ImportError:
     ANT = False
 
-from guppy_core import SYSTEM, TOOLS, run_tool, is_online, get_startup_system, to_ollama_tools
+from guppy_core import SYSTEM, TOOLS, run_tool, is_online, get_startup_system
 
 CLAUDE_MODEL = (os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6").strip() or "claude-sonnet-4-6")
 CLAUDE_BACKUP_MODEL = os.environ.get("ANTHROPIC_BACKUP_MODEL", "claude-haiku-4-5-20251001").strip()
@@ -130,62 +130,38 @@ def claude_turn(client, msgs, user, system: str):
     return msgs
 
 
-# ── Ollama turn (terminal) ─────────────────────────────────────────────────────
+# ── llamacpp turn (terminal) ──────────────────────────────────────────────────
 
-def ollama_turn(msgs, user, system: str, model: str = "guppy"):
+def llamacpp_turn(msgs, user, system: str, port: int = 8087, model: str = "hermes-3-8b-lorablated"):
+    """Send one turn to a llamacpp server via OpenAI-compat /v1/chat/completions."""
     if _SAVE: _save_msg(SESSION_ID, "user", user)
     msgs.append({"role": "user", "content": user})
     all_msgs = [{"role": "system", "content": system}] + msgs
-    ollama_tools = to_ollama_tools(TOOLS)
 
-    while True:
-        payload = json.dumps({
-            "model": model,
-            "messages": all_msgs,
-            "tools": ollama_tools,
-            "stream": False,
-            "options": {"temperature": 1.0, "top_p": 0.95, "top_k": 64},
-        }).encode()
-        req = urllib.request.Request(
-            "http://localhost:11434/api/chat",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                data = json.loads(resp.read())
-        except Exception as e:
-            print(f"\n❌ Ollama error: {e}")
-            return msgs
+    payload = json.dumps({
+        "model": model,
+        "messages": all_msgs,
+        "stream": False,
+        "temperature": 1.0,
+    }).encode()
+    req = urllib.request.Request(
+        f"http://localhost:{port}/v1/chat/completions",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read())
+    except Exception as e:
+        print(f"\n❌ llamacpp error (port {port}): {e}")
+        return msgs
 
-        msg = data["message"]
-        all_msgs.append(msg)
-
-        reply_text = (msg.get("content") or "").strip()
-        if reply_text:
-            print(f"\n{model.title()}: {reply_text}")
-            if _SAVE: _save_msg(SESSION_ID, "assistant", reply_text)
-
-        tool_calls = msg.get("tool_calls", [])
-        if not tool_calls:
-            msgs.append({"role": "assistant", "content": reply_text})
-            break
-
-        for tc in tool_calls:
-            name = tc["function"]["name"]
-            args = tc["function"]["arguments"]
-            preview = str(list(args.values())[0])[:60] if args else ""
-            print(f"\n  ⚙️  [{name}] {preview}")
-            result = run_tool(name, args)
-            result_str = (
-                f"Screenshot saved: {result['path']} ({result['size']})"
-                if isinstance(result, dict) and result.get("_screenshot")
-                else str(result)
-            )
-            print(f"     ↳ {result_str[:120]}{'...' if len(result_str) > 120 else ''}")
-            all_msgs.append({"role": "tool", "content": result_str})
-
+    reply_text = (data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+    if reply_text:
+        print(f"\nGuppy: {reply_text}")
+        if _SAVE: _save_msg(SESSION_ID, "assistant", reply_text)
+    msgs.append({"role": "assistant", "content": reply_text})
     return msgs
 
 
@@ -263,7 +239,7 @@ def terminal_mode():
         except Exception:
             pass
     if mode == "local":
-        print("🔧 Local mode (Ollama) — use /web for browser interface")
+        print("🔧 Local mode (llamacpp) — use /web for browser interface")
     else:
         print("☁️  Claude mode — full tool access with vision")
     system = get_startup_system()  # load memory briefing once for this session
@@ -290,7 +266,7 @@ def terminal_mode():
                 if mode == "claude":
                     msgs = claude_turn(client, msgs, user_input, system)
                 else:
-                    msgs = ollama_turn(msgs, user_input, system)
+                    msgs = llamacpp_turn(msgs, user_input, system)
         except (EOFError, KeyboardInterrupt):
             print("\n👋 Goodbye, Master Ryan!")
             break

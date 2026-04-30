@@ -1,31 +1,24 @@
-"""Unified local inference client: Ollama, LM Studio, Lemonade, llama.cpp (ROCm/HIP).
+"""Unified local inference client — llama.cpp (ROCm/HIP) only.
+
+All local inference routes through llama.cpp OpenAI-compatible servers.
+Ollama, LM Studio, and Lemonade are not supported and not routed.
 
 Circuit breaker: 3 consecutive failures → 30 s cooldown before retrying.
 Retry: up to 2 retries with exponential backoff (0.5 s, 1.0 s).
 
 Backend selection (GUPPY_LOCAL_RUNTIME_BACKEND env var):
-  auto           — probe Ollama (11434) then LM Studio (1234), use whichever answers (default)
-  ollama         — Ollama at 127.0.0.1:11434 (override with GUPPY_OLLAMA_BASE_URL)
-  lmstudio       — LM Studio at 127.0.0.1:1234 (override with GUPPY_LMSTUDIO_BASE_URL)
-  lemonade       — Lemonade at 127.0.0.1:8000 (override with GUPPY_LEMONADE_BASE_URL)
-  llamacpp-gemma      — llama.cpp Gemma 4 E4B Heretic ARA at 127.0.0.1:8080 (GUPPY_LLAMACPP_GEMMA_URL)
-  llamacpp-qwen3      — llama.cpp Qwen3 35B-A3B MoE at 127.0.0.1:8083 (GUPPY_LLAMACPP_QWEN3_URL)
-  llamacpp-pepe       — llama.cpp Assistant Pepe 8B at 127.0.0.1:8082 (GUPPY_LLAMACPP_PEPE_URL)
-  llamacpp-minicpm    — llama.cpp MiniCPM-o 4.5 Omni at 127.0.0.1:8084 (GUPPY_LLAMACPP_MINICPM_URL)
-  llamacpp-dispatch   — llama.cpp Qwen2.5-3B-Instruct dispatcher at 127.0.0.1:8085 (GUPPY_LLAMACPP_DISPATCH_URL)
-  llamacpp-hermes4    — llama.cpp Hermes 4 14B at 127.0.0.1:8086 (GUPPY_LLAMACPP_HERMES4_URL)
-  llamacpp-hermes3    — llama.cpp Hermes 3 8B Lorablated at 127.0.0.1:8087 (GUPPY_LLAMACPP_HERMES3_URL)
-  llamacpp-rocinante  — llama.cpp Rocinante X 12B at 127.0.0.1:8088 (GUPPY_LLAMACPP_ROCINANTE_URL)
-  llamacpp-xlam       — llama.cpp xLAM-2-8B-fc-r at 127.0.0.1:8089  (GUPPY_LLAMACPP_XLAM_URL)
-  llamacpp-chat       — llama.cpp Llama 3.3 70B CPU-only at 127.0.0.1:8090 (GUPPY_LLAMACPP_CHAT_URL)
-  llamacpp-phi4-mini  — llama.cpp Phi-4-mini-instruct at 127.0.0.1:8091  (GUPPY_LLAMACPP_PHI4_MINI_URL)
+  llamacpp-gemma      — Gemma 4 E4B Heretic ARA at 127.0.0.1:8080 (GUPPY_LLAMACPP_GEMMA_URL)
+  llamacpp-pepe       — Assistant Pepe 8B at 127.0.0.1:8082 (GUPPY_LLAMACPP_PEPE_URL)
+  llamacpp-qwen3      — Qwen3 35B-A3B MoE at 127.0.0.1:8083 (GUPPY_LLAMACPP_QWEN3_URL)
+  llamacpp-minicpm    — MiniCPM-o 4.5 Omni at 127.0.0.1:8084 (GUPPY_LLAMACPP_MINICPM_URL)
+  llamacpp-dispatch   — Qwen2.5-3B-Instruct dispatcher at 127.0.0.1:8085 (GUPPY_LLAMACPP_DISPATCH_URL)
+  llamacpp-hermes4    — Hermes 4 14B at 127.0.0.1:8086 (GUPPY_LLAMACPP_HERMES4_URL)
+  llamacpp-hermes3    — Hermes 3 8B Lorablated at 127.0.0.1:8087 (GUPPY_LLAMACPP_HERMES3_URL) [default]
+  llamacpp-rocinante  — Rocinante X 12B at 127.0.0.1:8088 (GUPPY_LLAMACPP_ROCINANTE_URL)
+  llamacpp-xlam       — xLAM-2-8B-fc-r at 127.0.0.1:8089  (GUPPY_LLAMACPP_XLAM_URL)
+  llamacpp-chat       — Llama 3.3 70B CPU-only at 127.0.0.1:8090 (GUPPY_LLAMACPP_CHAT_URL)
+  llamacpp-phi4-mini  — Phi-4-mini-instruct at 127.0.0.1:8091  (GUPPY_LLAMACPP_PHI4_MINI_URL)
   local_harness       — Generic OpenAI-compat harness at 127.0.0.1:8001 (GUPPY_LOCAL_HARNESS_BASE_URL)
-
-LM Studio model resolution:
-  LM Studio exposes long model IDs (e.g. "org/model-GGUF/file.gguf").
-  When the requested model name isn't found verbatim, the client automatically
-  falls back to the first loaded model so callers never need to configure
-  LM Studio model names explicitly.
 """
 from __future__ import annotations
 
@@ -76,30 +69,6 @@ def _bootstrap_env() -> None:
 _bootstrap_env()
 
 _BACKENDS: Dict[str, Dict[str, Any]] = {
-    "ollama": {
-        "default_url": "http://127.0.0.1:11434",
-        "chat_path": "/api/chat",
-        "tags_path": "/api/tags",
-        "pull_path": "/api/pull",
-        "delete_path": "/api/delete",
-        "format": "ollama",
-    },
-    "lmstudio": {
-        "default_url": "http://127.0.0.1:1234",
-        "chat_path": "/v1/chat/completions",
-        "tags_path": "/api/v1/models",
-        "pull_path": None,
-        "delete_path": None,
-        "format": "openai",
-    },
-    "lemonade": {
-        "default_url": "http://127.0.0.1:8000",
-        "chat_path": "/chat/completions",
-        "tags_path": "/models",
-        "pull_path": None,
-        "delete_path": None,
-        "format": "openai",
-    },
     # ── llama.cpp (ROCm/HIP) — one server per model, OpenAI-compatible ────────
     "llamacpp-gemma": {
         "default_url": "http://127.0.0.1:8080",
@@ -209,9 +178,6 @@ _BACKENDS: Dict[str, Dict[str, Any]] = {
 }
 
 _ENV_URL_KEYS: Dict[str, str] = {
-    "ollama":          "GUPPY_OLLAMA_BASE_URL",
-    "lmstudio":        "GUPPY_LMSTUDIO_BASE_URL",
-    "lemonade":        "GUPPY_LEMONADE_BASE_URL",
     "llamacpp-gemma":    "GUPPY_LLAMACPP_GEMMA_URL",
     "llamacpp-qwen3":    "GUPPY_LLAMACPP_QWEN3_URL",
     "llamacpp-pepe":     "GUPPY_LLAMACPP_PEPE_URL",
@@ -279,6 +245,18 @@ _LLAMACPP_MODEL_ROUTE: Dict[str, str] = {
     "phi-4-mini":               "llamacpp-phi4-mini",
     "phi4-mini":                "llamacpp-phi4-mini",
     "phi4":                     "llamacpp-phi4-mini",
+    # Self-referential backend-key aliases so surface_config keys work as mode values
+    "llamacpp-gemma":           "llamacpp-gemma",
+    "llamacpp-qwen3":           "llamacpp-qwen3",
+    "llamacpp-pepe":            "llamacpp-pepe",
+    "llamacpp-minicpm":         "llamacpp-minicpm",
+    "llamacpp-dispatch":        "llamacpp-dispatch",
+    "llamacpp-hermes4":         "llamacpp-hermes4",
+    "llamacpp-hermes3":         "llamacpp-hermes3",
+    "llamacpp-rocinante":       "llamacpp-rocinante",
+    "llamacpp-xlam":            "llamacpp-xlam",
+    "llamacpp-chat":            "llamacpp-chat",
+    "llamacpp-phi4-mini":       "llamacpp-phi4-mini",
 }
 
 # Canonical model name for each llamacpp backend (first/preferred alias).

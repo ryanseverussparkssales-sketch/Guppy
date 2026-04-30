@@ -1198,29 +1198,33 @@ def _exec_tool(name: str, inp: dict, *, instance_name: str | None = None):
                 img_b64 = base64.standard_b64encode(buf.getvalue()).decode()
 
                 # Prefer local vision model; fall back to Claude if key available
-                _local_vision = os.environ.get("GUPPY_VISION_MODEL", "guppy-vision")
-                _ollama_base = os.environ.get("GUPPY_OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+                # Prefer llamacpp vision model (MiniCPM-o on port 8084); fall back to Claude
+                _llamacpp_vision_port = int(os.environ.get("GUPPY_VISION_PORT", "8084"))
+                _llamacpp_vision_base = os.environ.get("GUPPY_VISION_BASE_URL", f"http://127.0.0.1:{_llamacpp_vision_port}").rstrip("/")
+                _local_vision = os.environ.get("GUPPY_VISION_MODEL", "minicpm-o-4.5")
                 import urllib.request as _urlreq, json as _json
                 _payload = _json.dumps({
                     "model": _local_vision,
                     "messages": [{
                         "role": "user",
-                        "content": instruction,
-                        "images": [img_b64],
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
+                            {"type": "text", "text": instruction},
+                        ],
                     }],
                     "stream": False,
-                    "options": {"num_predict": 1024},
+                    "max_tokens": 1024,
                 }).encode()
                 try:
                     _req = _urlreq.Request(
-                        f"{_ollama_base}/api/chat",
+                        f"{_llamacpp_vision_base}/v1/chat/completions",
                         data=_payload,
                         headers={"Content-Type": "application/json"},
                         method="POST",
                     )
                     with _urlreq.urlopen(_req, timeout=60) as _r:
                         _data = _json.loads(_r.read())
-                    return (_data.get("message", {}).get("content") or "No text extracted.").strip()
+                    return ((_data.get("choices") or [{}])[0].get("message", {}).get("content") or "No text extracted.").strip()
                 except Exception:
                     pass
                 # Claude fallback

@@ -11,14 +11,18 @@ from typing import Any
 
 def detect_voice_backends() -> tuple[str, str, list[str]]:
     tts, stt, details = "sapi", "none", []
+    # Prefer edge_tts (Azure Neural voices) > kokoro > sapi
     try:
-        if importlib.util.find_spec("kokoro") is not None:
+        if importlib.util.find_spec("edge_tts") is not None:
+            tts = "edge_tts"
+            details.append("edge_tts module found -> Azure Neural voices")
+        elif importlib.util.find_spec("kokoro") is not None:
             tts = "kokoro"
             details.append("kokoro module found")
         else:
-            details.append("kokoro unavailable -> sapi fallback")
+            details.append("edge_tts/kokoro unavailable -> sapi fallback")
     except Exception:
-        details.append("kokoro unavailable -> sapi fallback")
+        details.append("voice detection error -> sapi fallback")
 
     probe_whisper = os.environ.get("GUPPY_API_PROBE_WHISPER", "0").strip().lower() in {"1", "true", "yes", "on"}
     try:

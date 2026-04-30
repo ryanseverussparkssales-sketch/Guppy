@@ -394,7 +394,13 @@ def _inject_semantic_context(system_prompt: str, user_text: str, owner: Any) -> 
 async def _inject_semantic_context_async(system_prompt: str, user_text: str, owner: Any) -> str:
     """Async wrapper — runs the synchronous ChromaDB/SQLite read in a thread pool."""
     import asyncio
-    return await asyncio.to_thread(_inject_semantic_context, system_prompt, user_text, owner)
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_inject_semantic_context, system_prompt, user_text, owner),
+            timeout=2.0,
+        )
+    except asyncio.TimeoutError:
+        return system_prompt
 
 
 # ── Tool-list injection ────────────────────────────────────────────────────────
@@ -436,13 +442,18 @@ import time as _time
 from pathlib import Path as _Path
 
 _FS_SNAPSHOT_CACHE: dict[str, tuple[float, str]] = {}
-_FS_SNAPSHOT_TTL = 30.0  # seconds
-_FS_MAX_ENTRIES = 60
+_FS_SNAPSHOT_TTL = 60.0  # seconds
+_FS_MAX_ENTRIES = 40
 _FS_MAX_DEPTH = 2
+_FS_SCAN_TIMEOUT = 2.0   # seconds — bail out if walk takes longer
 _FS_SKIP_DIRS = {
     ".git", ".venv", "venv", "__pycache__", "node_modules",
     ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist", "build",
     ".tmp", "static", "coverage", ".eggs",
+    # Windows-specific large/volatile dirs
+    "AppData", "AppData (x86)", "OneDrive", "Pictures", "Videos",
+    "Music", "Downloads", "screenpipe", "Screenpipe", ".screenpipe",
+    "WindowsApps", "Temp", "temp",
 }
 _FS_CODE_EXTS = {
     ".py", ".ts", ".tsx", ".js", ".jsx",
@@ -469,8 +480,12 @@ def _scan_workspace_sync(directory: str) -> str:
         return ""
 
     entries: list[str] = []
+    deadline = _time.monotonic() + _FS_SCAN_TIMEOUT
     try:
         for dirpath, dirnames, filenames in _os.walk(root, topdown=True):
+            if _time.monotonic() > deadline:
+                entries.append("  ... (scan timeout)")
+                break
             depth = len(_Path(dirpath).relative_to(root).parts)
             if depth >= _FS_MAX_DEPTH:
                 dirnames.clear()
@@ -532,9 +547,15 @@ def _inject_workspace_context_sync(system_prompt: str, owner: Any) -> str:
 
 
 async def _inject_workspace_context_async(system_prompt: str, owner: Any) -> str:
-    """Async wrapper — filesystem walk runs in a thread pool."""
+    """Async wrapper — filesystem walk runs in a thread pool with a hard timeout."""
     import asyncio
-    return await asyncio.to_thread(_inject_workspace_context_sync, system_prompt, owner)
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_inject_workspace_context_sync, system_prompt, owner),
+            timeout=3.0,
+        )
+    except asyncio.TimeoutError:
+        return system_prompt
 
 
 def call_unified_inference(
@@ -562,7 +583,7 @@ def call_unified_inference(
             )
         raise RuntimeError(
             "Inference router unavailable and no ANTHROPIC_API_KEY set. "
-            "Start Ollama (port 11434) or LM Studio (port 1234) first."
+            "Start a llamacpp backend (e.g. hermes3 on port 8087) first."
         )
 
     router = owner.get_router()
@@ -596,7 +617,7 @@ def call_unified_inference(
         _backend_port = int(_backend_url.rsplit(":", 1)[-1]) if ":" in _backend_url else 0
         if _backend_port and _llc_port_alive(_backend_port):
             requested_mode = "local"
-        # else: backend offline — fall through as "auto" so Ollama is used
+        # else: backend offline — fall through as "auto"; cloud escalation may occur
 
     # Track whether the active model is a llamacpp-backed key (used in the except block)
     is_llamacpp = bool(active_local_model and active_local_model in _LOCAL_LLAMACPP_ROUTES)
@@ -645,7 +666,7 @@ def call_unified_inference(
         return response
 
     except Exception as exc:
-        if requested_mode in {"local", "code", "claude", "ollama"}:
+        if requested_mode in {"local", "code", "claude"}:
             owner.logger.error("Inference failed in explicit mode '%s': %s", requested_mode, exc)
             raise
         if not owner.os.environ.get("ANTHROPIC_API_KEY"):
@@ -702,7 +723,7 @@ def _run_local_mode(
 ) -> tuple[str, str, dict[str, Any]]:
     task_type = router._classify_task(user_text, augmented_system_prompt)
 
-    # If the surface has a llamacpp model selected, call it directly — don't route through Ollama.
+    # If the surface has a llamacpp model selected, call it directly.
     if active_local_model and active_local_model in _LOCAL_LLAMACPP_ROUTES:
         from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
         _backend = _LOCAL_LLAMACPP_ROUTES.get(active_local_model, "")
@@ -713,12 +734,13 @@ def _run_local_mode(
             response = _call_llamacpp_sync(active_local_model=active_local_model, messages=messages)
             return response, "llamacpp", {"route_mode": "local", "model": active_local_model}
 
-    _ollama_model = (
+    # Use active_local_model only if it is NOT already a llamacpp-routed key.
+    _local_model = (
         active_local_model
         if (active_local_model and active_local_model not in _LOCAL_LLAMACPP_ROUTES)
         else None
     )
-    model_name = _ollama_model or router.LOCAL_TIER_MAP.get(task_type, router.LOCAL_MODEL)
+    model_name = _local_model or router.LOCAL_TIER_MAP.get(task_type, router.LOCAL_MODEL)
     paired = owner.os.environ.get("GUPPY_LOCAL_PAIRED", "0").strip().lower() in {
         "1",
         "true",
@@ -734,7 +756,7 @@ def _run_local_mode(
             router_messages,
         )
         if not result:
-            raise RuntimeError("Local-only paired mode failed (Ollama/model unavailable)")
+            raise RuntimeError("Local-only paired mode failed (model unavailable)")
         response = str(result.get("response", "")).strip()
         if not response:
             raise RuntimeError("Local-only paired mode returned empty response")
@@ -823,26 +845,7 @@ def _run_routed_mode(
         source = "haiku" if "haiku" in (target_model or "").lower() else "sonnet"
         return response, source, {"route_decision": route_decision}
 
-    if executor in {"ollama", "ollama_paired", "llamacpp"}:
-        if executor == "ollama_paired":
-            result = router.query_local_paired(
-                augmented_system_prompt,
-                user_text,
-                str(route_decision.get("task_type", "complex") or "complex"),
-                owner.core.TOOLS,
-                router_messages,
-            )
-            if not result:
-                raise RuntimeError("Local paired route failed")
-            response = str(result.get("response", "")).strip()
-            if not response:
-                raise RuntimeError("Local paired route returned empty response")
-            return (
-                response,
-                str(result.get("source", "local")),
-                dict(result.get("metadata", {})),
-            )
-
+    if executor in {"llamacpp"}:
         response = owner._call_selected_local_runtime(
             user_text,
             augmented_system_prompt,
@@ -936,89 +939,8 @@ def call_claude_with_tools(
     return final_text or "No response produced."
 
 
-def call_ollama_with_tools(
-    owner: Any,
-    user_text: str,
-    system_prompt: str,
-    *,
-    instance_name: Optional[str] = None,
-    instance_type: Optional[str] = None,
-    model_override: Optional[str] = None,
-) -> str:
-    model = str(model_override or owner.os.environ.get("OLLAMA_MODEL", "guppy")).strip() or "guppy"
-    ok, err = owner.core.check_ollama(model)
-    if not ok:
-        raise RuntimeError(err)
-
-    all_msgs = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_text},
-    ]
-    ollama_tools = owner.core.to_ollama_tools(owner.core.TOOLS)
-    final_text = ""
-
-    while True:
-        payload = json.dumps(
-            {
-                "model": model,
-                "messages": all_msgs,
-                "tools": ollama_tools,
-                "stream": False,
-                "keep_alive": "10m",
-                "options": {
-                    "temperature": 0.8,
-                    "top_p": 0.95,
-                    "top_k": 40,
-                    "num_predict": 4096,
-                },
-            }
-        ).encode()
-        req = urllib.request.Request(
-            "http://localhost:11434/api/chat",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=180) as response:
-            data = json.loads(response.read().decode())
-
-        msg = data.get("message", {})
-        content = _strip_tool_call_markers((msg.get("content") or "").strip())
-        if content:
-            final_text = content
-
-        tool_calls = msg.get("tool_calls") or []
-        clean_assistant = {"role": "assistant", "content": content}
-        if tool_calls:
-            clean_assistant["tool_calls"] = tool_calls
-        all_msgs.append(clean_assistant)
-
-        if not tool_calls:
-            break
-
-        for tool_call in tool_calls:
-            fn = tool_call.get("function", {})
-            name = fn.get("name", "")
-            args = fn.get("arguments", {})
-            if isinstance(args, str):
-                try:
-                    args = json.loads(args)
-                except Exception:
-                    args = {}
-            result = owner.core.run_tool(
-                name,
-                args if isinstance(args, dict) else {},
-                instance_name=instance_name,
-                instance_type=instance_type,
-            )
-            all_msgs.append({"role": "tool", "content": str(result)})
-
-    return final_text or "No response produced."
-
-
 # ── Streaming support ─────────────────────────────────────────────────────────
 
-_OLLAMA_CHAT_URL = "http://127.0.0.1:11434/api/chat"
 _TOOL_CALL_SENTINEL = "\x00TOOL_CALLS:"
 # Sent as the final token when streamed content needs to be replaced by the UI
 # (e.g. post-stream tool-marker cleanup). Frontend checks for this prefix.
@@ -1511,6 +1433,7 @@ async def stream_unified_inference(
     active_local_model: Optional[str] = None,
     active_cloud_model: Optional[str] = None,
     image_base64: Optional[str] = None,
+    skip_tools: bool = False,
 ) -> AsyncGenerator[str, None]:
     """
     Async generator yielding content tokens for the chat response.
@@ -1916,10 +1839,10 @@ async def stream_unified_inference(
                                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
                             ],
                         }
-                # Merge core.TOOLS + all enabled db tools so the model can call
-                # calibre, gutenberg, screenpipe, etc. even when they're not in
-                # the C++ core's auto-discovered catalog.
-                _openai_tools = _merged_openai_tools(owner)
+                # skip_tools=True: caller (e.g. workspace two-pass buffering) handles
+                # tool execution itself via <tool_call> markup detection; passing
+                # OpenAI function-calling tools here causes hermes4 to loop.
+                _openai_tools = None if skip_tools else _merged_openai_tools(owner)
 
                 def _llamacpp_tool_runner(name: str, args: dict) -> str:
                     return str(

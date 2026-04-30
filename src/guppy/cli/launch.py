@@ -186,11 +186,11 @@ def _setup_api_env() -> None:
     os.environ.setdefault("GUPPY_API_RELOAD", "0")
     os.environ.setdefault("GUPPY_JWT_SECRET", "dev-secret-key-change-in-production")
     os.environ.setdefault("TURNSTILE_SECRET", "dev-turnstile-secret")
-    # Default to local inference via Ollama (GPU-accelerated on Windows via HIP).
-    # Switch backends with GUPPY_LOCAL_RUNTIME_BACKEND=lmstudio|vllm|lemonade|auto
+    # Default to local inference via llamacpp (GPU-accelerated via ROCm/HIP).
+    # Switch backends with GUPPY_LOCAL_RUNTIME_BACKEND=llamacpp-hermes4|llamacpp-hermes3|...
     # Only falls back to cloud (Claude) if ANTHROPIC_API_KEY is explicitly set.
     os.environ.setdefault("GUPPY_DEFAULT_MODE", "local")
-    os.environ.setdefault("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama")
+    os.environ.setdefault("GUPPY_LOCAL_RUNTIME_BACKEND", "llamacpp-hermes3")
     if not os.environ.get("GUPPY_JWT_SECRET") or os.environ.get("GUPPY_JWT_SECRET") == "dev-secret-key-change-in-production":
         _console.print("[bold yellow][launch][/bold yellow] WARNING: GUPPY_JWT_SECRET is not set — using dev default")
     if not os.environ.get("TURNSTILE_SECRET") or os.environ.get("TURNSTILE_SECRET") == "dev-turnstile-secret":

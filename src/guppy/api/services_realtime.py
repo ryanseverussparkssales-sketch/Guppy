@@ -113,7 +113,13 @@ def build_chat_system_prompt(
     history: Any = None,
     surface: str | None = None,
 ) -> str:
+    from datetime import datetime as _dt
     from src.guppy.api._server_fragment_bootstrap import _WORKSPACE_TOOL_BLOCK
+    _now = _dt.now()
+    _date_line = (
+        f"Current date and time: {_now.strftime('%A, %B %d, %Y')} at {_now.strftime('%I:%M %p')}. "
+        f"User's name: Ryan Sparks."
+    )
     use_rich_prompt_context = should_use_rich_prompt_context(
         message=message,
         mode=mode,
@@ -125,6 +131,7 @@ def build_chat_system_prompt(
         include_memory_context=use_rich_prompt_context,
         include_semantic_context=use_rich_prompt_context,
     )
+    system_prompt = _date_line + "\n\n" + system_prompt
     # Inject user-authored instructions (booklet sections with mode="always")
     try:
         from src.guppy.api.routes_booklet import compile_booklet

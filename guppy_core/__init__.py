@@ -7,10 +7,10 @@ existing `from guppy_core import X` calls continue to work unchanged.
 Submodules (import directly for leaner imports):
   guppy_core.debug_flags   — runtime constants, circuit-breaker config
   guppy_core.beta_policy   — beta-restricted-mode allowlist
-  guppy_core.network_utils — is_online(), check_ollama()
+  guppy_core.network_utils — is_online(), check_llamacpp()
   guppy_core.tool_metrics  — circuit-breaker helpers, get_tool_health_snapshot()
   guppy_core.tool_registry — TOOLS list, _validate_tool_input()
-  guppy_core.system_prompt — SYSTEM prompt, get_startup_system(), to_ollama_tools()
+  guppy_core.system_prompt — SYSTEM prompt, get_startup_system()
   guppy_core.tool_runner   — run_tool(), _exec_tool(), _morning_brief()
 
 Adding a new tool? Edit TOOLS in guppy_core/tool_registry.py and
@@ -27,7 +27,7 @@ from guppy_core.debug_flags import (  # noqa: F401
 from guppy_core.beta_policy import (  # noqa: F401
     BETA_RESTRICTED_MODE, BETA_TOOL_ALLOWLIST, get_beta_policy_snapshot,
 )
-from guppy_core.network_utils import is_online, check_ollama  # noqa: F401
+from guppy_core.network_utils import is_online, check_llamacpp  # noqa: F401
 from guppy_core.tool_metrics import (  # noqa: F401
     _tool_metric, _record_tool_call, _tool_guard,
     _is_tool_blocked, _mark_tool_success, _mark_tool_failure,
@@ -36,7 +36,7 @@ from guppy_core.tool_metrics import (  # noqa: F401
 from guppy_core.tool_registry import TOOLS, _validate_tool_input  # noqa: F401
 from guppy_core.system_prompt import (  # noqa: F401
     SYSTEM, REPORTS_DIR,
-    _needs_memory_context, get_startup_system, to_ollama_tools,
+    _needs_memory_context, get_startup_system,
 )
 from guppy_core.tool_runner import run_tool  # noqa: F401
 

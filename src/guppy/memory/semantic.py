@@ -1,7 +1,12 @@
 """Semantic memory for Guppy with dual backends.
 
-Default backend: SQLite + local Ollama embeddings (stable).
-Optional backend: ChromaDB + local Ollama embeddings (opt-in, hardened settings).
+Default backend: SQLite + llamacpp Hermes 3 embeddings (stable).
+Optional backend: ChromaDB + llamacpp Hermes 3 embeddings (opt-in, hardened settings).
+
+Embedding endpoint: Hermes 3 at localhost:8087 via /v1/embeddings (OpenAI-compat).
+Override with GUPPY_EMBED_BASE_URL env var.
+When the embed server is offline, semantic memory degrades gracefully
+(operations log a warning and return empty results rather than crashing).
 
 Select backend with env var:
 - GUPPY_SEMANTIC_BACKEND=sqlite (default)
@@ -11,11 +16,14 @@ Select backend with env var:
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from src.guppy.paths import CHROMA_DIR, MEMORY_DB_PATH
 from src.guppy.memory.backend_adapter import get_memory_backend_id, get_memory_backend_impl
@@ -25,10 +33,10 @@ from utils.db_utils import open_db as _open_db
 import requests
 
 DB_PATH = MEMORY_DB_PATH
-EMBED_MODEL = os.environ.get("GUPPY_EMBED_MODEL", "nomic-embed-text").strip() or "nomic-embed-text"
+EMBED_MODEL = os.environ.get("GUPPY_EMBED_MODEL", "hermes-3-8b-lorablated").strip() or "hermes-3-8b-lorablated"
 CHROMA_PATH = CHROMA_DIR
-# Override to point at a vLLM embedding model: GUPPY_EMBED_BASE_URL=http://127.0.0.1:8000
-_EMBED_BASE_URL = os.environ.get("GUPPY_EMBED_BASE_URL", "http://localhost:11434").strip().rstrip("/")
+# Override to point at any OpenAI-compat embedding server: GUPPY_EMBED_BASE_URL=http://127.0.0.1:8087
+_EMBED_BASE_URL = os.environ.get("GUPPY_EMBED_BASE_URL", "http://localhost:8087").strip().rstrip("/")
 
 
 def _backend() -> str:
@@ -60,8 +68,8 @@ def _conn() -> sqlite3.Connection:
 
 
 def _is_openai_compat_embed() -> bool:
-    """True when GUPPY_EMBED_BASE_URL points at a vLLM/OpenAI-compat server."""
-    return "11434" not in _EMBED_BASE_URL
+    """Always True — we only support OpenAI-compat /v1/embeddings now."""
+    return True
 
 
 def _embed_text(text: str) -> list[float]:
@@ -69,8 +77,7 @@ def _embed_text(text: str) -> list[float]:
     if not text:
         raise RuntimeError("Cannot embed empty text")
 
-    if _is_openai_compat_embed():
-        # vLLM / OpenAI-compat: POST /v1/embeddings
+    try:
         r = requests.post(
             f"{_EMBED_BASE_URL}/v1/embeddings",
             json={"model": EMBED_MODEL, "input": text},
@@ -81,35 +88,13 @@ def _embed_text(text: str) -> list[float]:
         emb = (data.get("data") or [{}])[0].get("embedding") or []
         if emb:
             return [float(x) for x in emb]
-        raise RuntimeError("vLLM embedding response missing embedding vector")
-
-    # Ollama: prefer modern batch endpoint
-    try:
-        r = requests.post(
-            f"{_EMBED_BASE_URL}/api/embed",
-            json={"model": EMBED_MODEL, "input": [text]},
-            timeout=45,
+        raise RuntimeError("Embedding response missing embedding vector")
+    except requests.RequestException as exc:
+        logger.warning(
+            "Embed server unreachable at %s — semantic memory degraded: %s",
+            _EMBED_BASE_URL, exc,
         )
-        r.raise_for_status()
-        data = r.json()
-        emb = (data.get("embeddings") or [[]])[0]
-        if emb:
-            return [float(x) for x in emb]
-    except Exception:
-        pass
-
-    # Ollama back-compat endpoint
-    r = requests.post(
-        f"{_EMBED_BASE_URL}/api/embeddings",
-        json={"model": EMBED_MODEL, "prompt": text},
-        timeout=45,
-    )
-    r.raise_for_status()
-    data = r.json()
-    emb = data.get("embedding")
-    if not emb:
-        raise RuntimeError("Ollama embedding response missing embedding vector")
-    return [float(x) for x in emb]
+        return []
 
 
 def _embed_texts(texts: list[str]) -> list[list[float]]:
@@ -119,32 +104,25 @@ def _embed_texts(texts: list[str]) -> list[list[float]]:
         raise RuntimeError("Cannot embed empty text list")
 
     if _is_openai_compat_embed():
-        r = requests.post(
-            f"{_EMBED_BASE_URL}/v1/embeddings",
-            json={"model": EMBED_MODEL, "input": cleaned},
-            timeout=60,
-        )
-        r.raise_for_status()
-        data = r.json()
-        items = data.get("data") or []
-        embs = [item.get("embedding") or [] for item in items]
-        if embs and all(embs):
-            return [[float(x) for x in row] for row in embs]
-        raise RuntimeError("vLLM batch embedding response malformed")
-
-    try:
-        r = requests.post(
-            f"{_EMBED_BASE_URL}/api/embed",
-            json={"model": EMBED_MODEL, "input": cleaned},
-            timeout=60,
-        )
-        r.raise_for_status()
-        data = r.json()
-        embs = data.get("embeddings")
-        if embs and isinstance(embs, list):
-            return [[float(x) for x in row] for row in embs]
-    except Exception:
-        pass
+        try:
+            r = requests.post(
+                f"{_EMBED_BASE_URL}/v1/embeddings",
+                json={"model": EMBED_MODEL, "input": cleaned},
+                timeout=60,
+            )
+            r.raise_for_status()
+            data = r.json()
+            items = data.get("data") or []
+            embs = [item.get("embedding") or [] for item in items]
+            if embs and all(embs):
+                return [[float(x) for x in row] for row in embs]
+        except requests.RequestException as exc:
+            logger.warning(
+                "Embed server unreachable at %s — semantic memory degraded: %s",
+                _EMBED_BASE_URL, exc,
+            )
+            return [[] for _ in cleaned]
+        raise RuntimeError("Batch embedding response malformed")
 
     return [_embed_text(t) for t in cleaned]
 
@@ -165,11 +143,11 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-class _OllamaEmbeddingFunction:
-    """Chroma-compatible embedding function without extra ollama Python package."""
+class _LlamacppEmbeddingFunction:
+    """Chroma-compatible embedding function for llamacpp /v1/embeddings."""
 
     def name(self) -> str:
-        return f"ollama-http-{EMBED_MODEL}"
+        return f"llamacpp-{EMBED_MODEL}"
 
     def __call__(self, input):
         texts = input if isinstance(input, list) else [str(input)]
@@ -191,7 +169,7 @@ def _get_chroma_collection():
         allow_reset=False,
     )
     client = chromadb.PersistentClient(path=str(CHROMA_PATH), settings=settings)
-    return client.get_or_create_collection("guppy_memory", embedding_function=_OllamaEmbeddingFunction())
+    return client.get_or_create_collection("guppy_memory", embedding_function=_LlamacppEmbeddingFunction())
 
 
 def _remember_sqlite(k: str, v: str, c: str) -> str:

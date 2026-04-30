@@ -63,15 +63,15 @@ def _check_import(name: str) -> tuple[bool, str]:
         return False, str(exc)
 
 
-def _check_ollama() -> tuple[bool, str]:
+def _check_llamacpp(port: int = 8087) -> tuple[bool, str]:
     try:
         import json
         import urllib.request
 
-        request = urllib.request.urlopen("http://localhost:11434/api/tags", timeout=3)
+        request = urllib.request.urlopen(f"http://localhost:{port}/v1/models", timeout=3)
         data = json.loads(request.read())
-        models = [model["name"] for model in data.get("models", [])]
-        return True, f"Running - {', '.join(models[:6]) or 'no models'}"
+        models = [m.get("id", "?") for m in data.get("data", [])]
+        return True, f"Running on port {port} — {', '.join(models[:4]) or 'no models'}"
     except Exception as exc:  # pragma: no cover - live environment dependent
         return False, str(exc)
 
@@ -115,7 +115,8 @@ def _format_log_lines(entries: list[dict[str, object]]) -> str:
 
 class StatusTab(QWidget):
     CHECKS = [
-        ("Ollama", _check_ollama),
+        ("llamacpp (hermes3:8087)", lambda: _check_llamacpp(8087)),
+        ("llamacpp (hermes4:8086)", lambda: _check_llamacpp(8086)),
         ("edge-tts", lambda: _check_import("edge_tts")),
         ("sounddevice", lambda: _check_import("sounddevice")),
         ("SpeechRecognition", lambda: _check_import("speech_recognition")),
@@ -343,7 +344,7 @@ class EmergencyTab(QWidget):
 
         try:
             if hasattr(self._pw, "_mode"):
-                forced_local = getattr(self._pw, "_mode", "") == "ollama"
+                forced_local = getattr(self._pw, "_mode", "") == "llamacpp"
                 self._local_btn.setChecked(forced_local)
                 self._local_btn.setText(f"FORCE LOCAL: {'ON' if forced_local else 'OFF'}")
                 self._local_btn.setStyleSheet(
@@ -376,8 +377,8 @@ class EmergencyTab(QWidget):
             self._local_btn.setChecked(False)
             return
         try:
-            current = getattr(self._pw, "_mode", "ollama")
-            self._pw._mode = "ollama" if current != "ollama" else "claude"
+            current = getattr(self._pw, "_mode", "llamacpp")
+            self._pw._mode = "llamacpp" if current != "llamacpp" else "claude"
             self._refresh_flags()
         except Exception as exc:
             QMessageBox.warning(self, "Error", str(exc))

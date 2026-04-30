@@ -11,7 +11,8 @@ from src.guppy.paths import MEMPALACE_DIR
 import requests
 
 DEFAULT_PALACE_PATH = MEMPALACE_DIR
-EMBED_MODEL = "nomic-embed-text"
+EMBED_MODEL = "hermes-3-8b-lorablated"
+EMBED_BASE_URL = os.environ.get("GUPPY_EMBED_BASE_URL", "http://localhost:8087").strip().rstrip("/")
 DB_FILENAME = "mempalace_drawers.sqlite3"
 
 def get_mempalace_path() -> Path:
@@ -27,30 +28,32 @@ def _embed_texts(texts: list[str]) -> list[list[float]]:
 
     try:
         response = requests.post(
-            "http://localhost:11434/api/embed",
+            f"{EMBED_BASE_URL}/v1/embeddings",
             json={"model": EMBED_MODEL, "input": cleaned},
             timeout=60,
         )
         response.raise_for_status()
         payload = response.json()
-        embeddings = payload.get("embeddings")
-        if embeddings and isinstance(embeddings, list):
-            return [[float(value) for value in row] for row in embeddings]
+        items = payload.get("data") or []
+        embeddings = [item.get("embedding") or [] for item in items]
+        if embeddings and all(embeddings):
+            return [[float(v) for v in row] for row in embeddings]
     except Exception:
         pass
 
+    # Per-text fallback
     vectors: list[list[float]] = []
     for text in cleaned:
         response = requests.post(
-            "http://localhost:11434/api/embeddings",
-            json={"model": EMBED_MODEL, "prompt": text},
+            f"{EMBED_BASE_URL}/v1/embeddings",
+            json={"model": EMBED_MODEL, "input": text},
             timeout=45,
         )
         response.raise_for_status()
         payload = response.json()
-        embedding = payload.get("embedding")
+        embedding = (payload.get("data") or [{}])[0].get("embedding") or []
         if not embedding:
-            raise RuntimeError("Ollama embedding response missing embedding vector")
+            raise RuntimeError("Embedding response missing embedding vector")
         vectors.append([float(value) for value in embedding])
     return vectors
 
