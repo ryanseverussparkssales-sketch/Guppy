@@ -65,13 +65,13 @@ def chat_timeout_for_request(mode: str, command: str = "") -> float:
 def required_local_model_for_mode(mode: str) -> str | None:
     m = (mode or "").strip().lower()
     if m in {"local", "ollama"}:
-        return (os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()
+        return (os.environ.get("GUPPY_LOCAL_COMPLEX_MODEL", "hermes-4-14b") or "hermes-4-14b").strip()
     if m == "teaching":
-        return (os.environ.get("GUPPY_LOCAL_TEACH_MODEL", "guppy-teach") or "guppy-teach").strip()
+        return (os.environ.get("GUPPY_LOCAL_TEACH_MODEL", "hermes-4-14b") or "hermes-4-14b").strip()
     if m == "code":
-        return (os.environ.get("GUPPY_LOCAL_CODE_MODEL", "guppy-code") or "guppy-code").strip()
+        return (os.environ.get("GUPPY_LOCAL_CODE_MODEL", "hermes-4-14b") or "hermes-4-14b").strip()
     if m == "vault":
-        return (os.environ.get("GUPPY_LOCAL_VAULT_MODEL", "vault-scraper") or "vault-scraper").strip()
+        return (os.environ.get("GUPPY_LOCAL_VAULT_MODEL", "hermes-3-8b-lorablated") or "hermes-3-8b-lorablated").strip()
     return None
 
 

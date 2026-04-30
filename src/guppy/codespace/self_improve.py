@@ -105,7 +105,8 @@ def propose_fix(run_id: str, failure_text: str) -> dict[str, Any]:
 
     # Try guppy-code first (14B code specialist), fall back to guppy-fast
     prompt = _FIX_PROMPT_TEMPLATE.format(failures=failure_text[:3000])
-    response = _ask_inference(prompt, model="guppy-code") or _ask_inference(prompt, model="guppy-fast")
+        # Try hermes4 (workspace.worker.primary – 14B code specialist) then hermes3 (8B fast fallback)
+        response = _ask_inference(prompt, model="hermes-4-14b") or _ask_inference(prompt, model="hermes-3-8b-lorablated")
 
     if not response or "NO_FIX" in response:
         diff    = ""

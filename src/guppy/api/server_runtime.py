@@ -576,6 +576,9 @@ app.include_router(build_desktop_router(_server_context))           # /api/deskt
 from src.guppy.api.routes_control import build_control_router
 app.include_router(build_control_router(_server_context), prefix="/api/control")  # /api/control/*
 
+from src.guppy.api.routes_model_roles import build_model_roles_router
+app.include_router(build_model_roles_router(_server_context))  # /api/model-roles
+
 # Start background services
 try:
     from src.guppy.codespace.codespace_triage import start_watchdog as _start_watchdog

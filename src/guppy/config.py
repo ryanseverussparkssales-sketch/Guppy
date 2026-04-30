@@ -53,11 +53,9 @@ class GuppySettings(BaseSettings):
     guppy_api_reload: bool = Field(default=False, description="Enable uvicorn auto-reload (dev only).")
 
     # ── Models ────────────────────────────────────────────────────────────────
-    ollama_model: str = Field(default="guppy")
-    ollama_fast_model: str = Field(default="guppy-fast")
-    ollama_teach_model: str = Field(default="guppy-teach")
-    ollama_code_model: str = Field(default="guppy-code")
-    ollama_vault_model: str = Field(default="vault-scraper")
+    # llamacpp model role defaults (resolved via model_roles registry at runtime)
+    llamacpp_default_model: str = Field(default="hermes-3-8b-lorablated",  description="Default conversation model (conversation.default role)")
+    llamacpp_worker_model:  str = Field(default="hermes-4-14b",            description="Workspace worker model (workspace.worker.primary role)")
 
     # ── llama.cpp (ROCm/HIP) model names ─────────────────────────────────────
     llamacpp_gemma_model: str = Field(default="gemma-4-heretic-ara",    description="Model ID for llamacpp-gemma server.")

@@ -58,6 +58,22 @@ WAIVED_PATHS: dict[str, Waiver] = {
             "Pinned for refactor to stream_llamacpp.py, stream_ollama.py, stream_anthropic.py."
         ),
     ),
+    "src/guppy/api/routes_realtime.py": Waiver(
+        max_lines=1200,
+        rationale=(
+            "Main chat/stream route handler: ChatRequest validation, surface-locked routing, "
+            "per-surface model/cloud resolution, SSE streaming, tool-call two-pass parser, "
+            "workspace task executor, KV cache warm hooks. "
+            "Waiver raised Tranche A — pinned for extraction to routes_realtime_stream.py."
+        ),
+    ),
+    "src/guppy/inference/local_client.py": Waiver(
+        max_lines=720,
+        rationale=(
+            "Unified llamacpp client: health checks, streaming, embeddings, OOM parsing, "
+            "grammar-constrained tool calls. Minor overage; waiver raised Tranche A."
+        ),
+    ),
 }
 
 

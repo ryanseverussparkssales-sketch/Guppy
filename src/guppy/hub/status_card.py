@@ -140,9 +140,8 @@ class StatusSettingsCard(QFrame):
         model_settings_lines = [
             f"ANTHROPIC_MODEL={os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-4-6')}",
             f"ANTHROPIC_BACKUP_MODEL={os.environ.get('ANTHROPIC_BACKUP_MODEL', 'claude-haiku-4-5-20251001')}",
-            f"OLLAMA_MODEL={os.environ.get('OLLAMA_MODEL', 'guppy')}",
-            f"GUPPY_LOCAL_CODE_MODEL={os.environ.get('GUPPY_LOCAL_CODE_MODEL', 'guppy-code')}",
-            f"GUPPY_LOCAL_VAULT_MODEL={os.environ.get('GUPPY_LOCAL_VAULT_MODEL', 'vault-scraper')}",
+            f"GUPPY_LOCAL_CODE_MODEL={os.environ.get('GUPPY_LOCAL_CODE_MODEL', 'hermes-4-14b')}",
+            f"GUPPY_LOCAL_VAULT_MODEL={os.environ.get('GUPPY_LOCAL_VAULT_MODEL', 'hermes-3-8b-lorablated')}",
             f"GUPPY_RUNTIME_PROFILE={os.environ.get('GUPPY_RUNTIME_PROFILE', 'standard')}",
         ]
         self._settings_lbl.setText(" | ".join(model_settings_lines))

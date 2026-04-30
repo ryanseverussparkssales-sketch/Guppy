@@ -61,8 +61,8 @@ SURFACE_DEFAULTS: dict[str, dict[str, str]] = {
         "tool_policy":   "full",
     },
     "codespace": {
-        "backend":       "ollama",
-        "model":         "guppy-code",
+        "backend":       "llamacpp",
+        "model":         "llamacpp-hermes4",
         "fallback_model": "llamacpp-hermes4",
         "mode":          "code",
         "system_prompt": (

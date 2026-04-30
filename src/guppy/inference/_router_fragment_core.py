@@ -49,9 +49,12 @@ class InferenceRouter:
     """
 
     # Configuration
-    OLLAMA_API = "http://127.0.0.1:11434/api/chat"
-    OLLAMA_TIMEOUT = 10       # fallback path timeout (cloud-first modes)
-    OLLAMA_LOCAL_TIMEOUT = 60 # local-only mode -- allow full 32B inference time
+    LOCAL_MODEL_TIMEOUT = 10       # fallback path timeout (cloud-first modes)
+    LOCAL_MODEL_TIMEOUT_LONG = 60  # local-only mode — allow full inference time
+    LOCAL_LLAMACPP_TIMEOUT = 60    # alias for local-only llamacpp paths
+    # Legacy aliases — kept so any remaining references don't break at runtime
+    OLLAMA_TIMEOUT = LOCAL_MODEL_TIMEOUT
+    OLLAMA_LOCAL_TIMEOUT = LOCAL_MODEL_TIMEOUT_LONG
 
     # Local model roster -- llama.cpp backends (primary); Ollama is no longer in the routing path.
     # Route aliases: "hermes-4-14b" -> llamacpp-hermes4 (8086), "hermes-3-8b-lorablated" -> llamacpp-hermes3 (8087)
@@ -59,7 +62,7 @@ class InferenceRouter:
     LOCAL_FAST_MODEL  = "hermes-3-8b-lorablated" # simple/fast -- uncensored 8B
     LOCAL_TEACH_MODEL = "hermes-4-14b"           # teaching -- quality over speed
     LOCAL_CODE_MODEL  = "hermes-4-14b"           # code review/debug
-    LOCAL_VAULT_MODEL = "vault-scraper"           # structured media extraction (Ollama-only special case)
+    LOCAL_VAULT_MODEL = "hermes-3-8b-lorablated"  # structured media extraction (llamacpp-hermes3)
 
     LOCAL_TIER_MAP: Dict[str, str] = {
         "simple":    LOCAL_FAST_MODEL,   # hermes3 -- fast 8B
@@ -101,10 +104,7 @@ class InferenceRouter:
         # and long-lived router instances do not change behavior mid-lifecycle
         # when unrelated code mutates process-level environment variables.
         self.semantic_classifier_enabled = self._bool_env("GUPPY_SEMANTIC_CLASSIFIER", True)
-        self._legacy_model_aliases = {
-            "guppy-teach": "merlin",
-            "guppy-code": "merlin-code",
-        }
+        self._legacy_model_aliases = {}  # Ollama model aliases removed (llamacpp-only runtime)
 
         # Runtime model overrides for low-compute/night runs.
         self.low_compute_mode = self._bool_env("GUPPY_LOW_COMPUTE_MODE", False)
@@ -451,12 +451,12 @@ class InferenceRouter:
             return {
                 "task_type": "simple",
                 "route": "local_vault",
-                "route_reason": "vault mode -> vault-scraper (qwen2.5:7b, structured extraction)",
-                "executor": "ollama",
+                    "route_reason": "vault mode -> hermes3 (structured extraction via llamacpp)",
+                    "executor": "llamacpp",
                 "system_profile": "vault",
                 "model": self.LOCAL_VAULT_MODEL,
                 "backup_model": "",
-                "timeout": self.OLLAMA_LOCAL_TIMEOUT,
+                    "timeout": self.LOCAL_LLAMACPP_TIMEOUT,
                 "local_only": True,
                 "haiku_boost": haiku_boost,
                 "haiku_boost_mode": self.HAIKU_BOOST_ENRICH,
