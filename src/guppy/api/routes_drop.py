@@ -116,6 +116,42 @@ def _process_file(path: str) -> None:
 
     _drop_queue.append(item)
 
+    # Auto-add dropped book files into the library and trigger enrichment.
+    try:
+        ext = p.suffix.lower()
+        if ext in {".pdf", ".epub", ".mobi"}:
+            from src.guppy.api import routes_library as _lib
+            from src.guppy.library.enricher import enrich as _enrich
+
+            lib_data = _lib._load()
+            exists = any(str(x.get("file_path", "")) == resolved for x in lib_data.get("items", []))
+            if not exists:
+                now = _lib._now()
+                meta = _enrich(p.stem, "")
+                lib_item = {
+                    "id": str(uuid.uuid4()),
+                    "type": "artifact",
+                    "title": p.stem,
+                    "content": f"Imported from GuppyDrop: {p.name}",
+                    "collection": None,
+                    "tags": ["guppydrop", ext.lstrip(".")],
+                    "is_favorite": False,
+                    "created_at": now,
+                    "updated_at": now,
+                    "file_path": resolved,
+                    "file_ext": ext,
+                    "metadata_status": "enriched" if meta.get("found") else "missing",
+                    "cover_url": meta.get("cover_url"),
+                    "description": meta.get("description"),
+                    "isbn": meta.get("isbn"),
+                    "subjects": meta.get("subjects") or [],
+                    "publish_year": meta.get("publish_year"),
+                }
+                lib_data.setdefault("items", []).append(lib_item)
+                _lib._save(lib_data)
+    except Exception as exc:
+        _log.debug("[Drop] Auto-library sync skipped: %s", exc)
+
     # Broadcast to all SSE clients (thread-safe via call_soon_threadsafe)
     if _loop is not None:
         _loop.call_soon_threadsafe(_broadcast, item)

@@ -32,6 +32,10 @@ import {
   Edit,
   X,
   Loader2,
+  Upload,
+  BookOpen,
+  WandSparkles,
+  Link2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
@@ -47,6 +51,14 @@ interface LibraryItem {
   is_favorite: boolean
   created_at: string
   updated_at: string
+  file_path?: string | null
+  file_ext?: string | null
+  metadata_status?: 'pending' | 'enriched' | 'missing' | 'failed'
+  cover_url?: string | null
+  description?: string | null
+  isbn?: string | null
+  subjects?: string[]
+  publish_year?: number | null
 }
 
 interface Collection {
@@ -87,6 +99,12 @@ export default function LibraryView() {
   const [editingItem, setEditingItem] = useState<LibraryItem | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [editContent, setEditContent] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [dragActive, setDragActive] = useState(false)
+  const [readerItem, setReaderItem] = useState<LibraryItem | null>(null)
+  const [acquireUrl, setAcquireUrl] = useState('')
+  const [acquireQuery, setAcquireQuery] = useState('')
+  const [requiresAcquireConfirm, setRequiresAcquireConfirm] = useState(false)
 
   const titleRef = useRef<HTMLInputElement>(null)
   const collectionInputRef = useRef<HTMLInputElement>(null)
@@ -229,6 +247,71 @@ export default function LibraryView() {
     }
   }
 
+  const handleDropUpload = async (file: File) => {
+    const ext = file.name.toLowerCase().split('.').pop() || ''
+    if (!['pdf', 'epub', 'mobi'].includes(ext)) {
+      toast.error('Only PDF, EPUB, and MOBI are supported')
+      return
+    }
+
+    const form = new FormData()
+    form.append('file', file)
+    if (selectedCollection) {
+      form.append('collection', selectedCollection)
+    }
+
+    setUploading(true)
+    try {
+      const res = await api.post<LibraryItem>('/api/library/drop', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setItems(prev => [res.data, ...prev])
+      toast.success('File imported to library')
+    } catch {
+      toast.error('BookDrop upload failed')
+    } finally {
+      setUploading(false)
+      setDragActive(false)
+    }
+  }
+
+  const handleEnrich = async (itemId: string) => {
+    try {
+      const res = await api.post<LibraryItem>(`/api/library/items/${itemId}/enrich`)
+      setItems(prev => prev.map(i => i.id === itemId ? res.data : i))
+      toast.success('Metadata enrichment complete')
+    } catch {
+      toast.error('Metadata enrichment failed')
+    }
+  }
+
+  const handleAcquire = async (confirmed = false) => {
+    if (!acquireUrl.trim() && !acquireQuery.trim()) {
+      toast.error('Enter a URL or search query')
+      return
+    }
+
+    try {
+      const res = await api.post('/api/library/acquire', {
+        url: acquireUrl.trim() || undefined,
+        query: acquireQuery.trim() || undefined,
+        confirmed,
+      })
+      if (res.data?.requires_confirmation) {
+        setRequiresAcquireConfirm(true)
+        toast.message('Confirm acquisition to continue')
+        return
+      }
+
+      setRequiresAcquireConfirm(false)
+      setAcquireUrl('')
+      setAcquireQuery('')
+      toast.success('Acquisition queued')
+    } catch {
+      toast.error('Acquisition request failed')
+    }
+  }
+
   const openNewItem = () => {
     setShowNewItem(true)
     setTimeout(() => titleRef.current?.focus(), 50)
@@ -237,6 +320,13 @@ export default function LibraryView() {
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr)
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+
+  const metadataLabel = (status?: string) => {
+    if (status === 'enriched') return 'Enriched'
+    if (status === 'missing') return 'No metadata'
+    if (status === 'failed') return 'Enrichment failed'
+    return 'Pending'
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -311,6 +401,8 @@ export default function LibraryView() {
             <button
               onClick={() => { setShowNewCollection(true); setTimeout(() => collectionInputRef.current?.focus(), 50) }}
               className="p-1 rounded hover:bg-muted text-muted-foreground"
+              title="New collection"
+              aria-label="New collection"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -339,7 +431,7 @@ export default function LibraryView() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
-        <div className="p-4 border-b border-border">
+        <div className="p-4 border-b border-border space-y-3">
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
@@ -349,6 +441,76 @@ export default function LibraryView() {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
+          </div>
+
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={(e) => {
+              e.preventDefault()
+              const file = e.dataTransfer.files?.[0]
+              if (file) void handleDropUpload(file)
+            }}
+            className={cn(
+              'rounded-lg border-2 border-dashed p-3 flex items-center justify-between gap-3 transition-colors',
+              dragActive ? 'border-primary bg-primary/5' : 'border-border bg-muted/40'
+            )}
+          >
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Upload className="w-4 h-4" />
+              Drop PDF/EPUB/MOBI here (BookDrop)
+            </div>
+            <label className="px-3 py-1.5 text-xs rounded-md bg-card border border-border cursor-pointer hover:bg-muted">
+              Choose file
+              <input
+                type="file"
+                className="hidden"
+                accept=".pdf,.epub,.mobi"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) void handleDropUpload(file)
+                }}
+              />
+            </label>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <input
+              type="text"
+              placeholder="Acquire by URL"
+              value={acquireUrl}
+              onChange={(e) => setAcquireUrl(e.target.value)}
+              className="px-3 py-2 bg-muted border border-border rounded-lg text-sm"
+            />
+            <input
+              type="text"
+              placeholder="Or search query"
+              value={acquireQuery}
+              onChange={(e) => setAcquireQuery(e.target.value)}
+              className="px-3 py-2 bg-muted border border-border rounded-lg text-sm"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => void handleAcquire(false)}
+                className="px-3 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                Request Acquire
+              </button>
+              {requiresAcquireConfirm && (
+                <button
+                  onClick={() => void handleAcquire(true)}
+                  className="px-3 py-2 text-sm rounded-lg border border-amber-500 text-amber-600 hover:bg-amber-50"
+                >
+                  Confirm
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="text-xs text-muted-foreground flex items-center gap-2">
+            <Link2 className="w-3.5 h-3.5" />
+            OPDS: /api/library/opds
+            {uploading && <span className="ml-2">Uploading…</span>}
           </div>
         </div>
 
@@ -388,14 +550,17 @@ export default function LibraryView() {
                           <Icon className="w-4 h-4" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="font-medium text-foreground truncate">{item.title}</h3>
                             <span className="px-2 py-0.5 text-xs rounded-full bg-muted text-muted-foreground capitalize">
                               {item.type}
                             </span>
+                            <span className="px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary">
+                              {metadataLabel(item.metadata_status)}
+                            </span>
                           </div>
                           <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
-                            {item.content}
+                            {item.description || item.content}
                           </p>
                           <div className="flex items-center gap-2 mt-2">
                             {item.tags.slice(0, 3).map(tag => (
@@ -411,6 +576,22 @@ export default function LibraryView() {
                       </div>
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
+                          onClick={(e) => { e.stopPropagation(); void handleEnrich(item.id) }}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                          title="Enrich metadata"
+                        >
+                          <WandSparkles className="w-4 h-4" />
+                        </button>
+                        {item.file_path && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setReaderItem(item) }}
+                            className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                            title="Open reader"
+                          >
+                            <BookOpen className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
                           onClick={(e) => { e.stopPropagation(); toggleFavorite(item.id) }}
                           className={cn(
                             "p-1.5 rounded-lg transition-colors",
@@ -418,6 +599,8 @@ export default function LibraryView() {
                               ? "text-warning hover:bg-warning/10"
                               : "text-muted-foreground hover:bg-muted"
                           )}
+                          title={item.is_favorite ? 'Remove favorite' : 'Add favorite'}
+                          aria-label={item.is_favorite ? 'Remove favorite' : 'Add favorite'}
                         >
                           <Star className={cn("w-4 h-4", item.is_favorite && "fill-current")} />
                         </button>
@@ -452,13 +635,33 @@ export default function LibraryView() {
         </div>
       </div>
 
+      {/* Reader Modal */}
+      {readerItem && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/60">
+          <div className="p-3 flex items-center justify-between bg-card border-b border-border">
+            <div className="font-medium">{readerItem.title}</div>
+            <button
+              onClick={() => setReaderItem(null)}
+              className="px-3 py-1.5 text-sm rounded-md border border-border hover:bg-muted"
+            >
+              Close
+            </button>
+          </div>
+          <iframe
+            title={readerItem.title}
+            src={`/api/library/items/${readerItem.id}/read`}
+            className="flex-1 w-full bg-white"
+          />
+        </div>
+      )}
+
       {/* New Collection Modal */}
       {showNewCollection && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowNewCollection(false)}>
           <div className="bg-surface border border-outline-variant rounded-xl shadow-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-on-surface">New Collection</h3>
-              <button onClick={() => setShowNewCollection(false)}><X className="w-4 h-4 text-on-surface-variant" /></button>
+              <button onClick={() => setShowNewCollection(false)} title="Close" aria-label="Close"><X className="w-4 h-4 text-on-surface-variant" /></button>
             </div>
             <input
               ref={collectionInputRef}
@@ -488,7 +691,7 @@ export default function LibraryView() {
           <div className="bg-surface border border-outline-variant rounded-xl shadow-2xl p-6 w-full max-w-lg" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-on-surface">Edit Item</h3>
-              <button onClick={() => setEditingItem(null)}><X className="w-4 h-4 text-on-surface-variant" /></button>
+              <button onClick={() => setEditingItem(null)} title="Close" aria-label="Close"><X className="w-4 h-4 text-on-surface-variant" /></button>
             </div>
             <div className="space-y-3">
               <input
@@ -501,6 +704,7 @@ export default function LibraryView() {
                 value={editContent}
                 onChange={e => setEditContent(e.target.value)}
                 rows={5}
+                placeholder="Item content"
                 className="w-full px-3 py-2 rounded-lg bg-surface-variant border border-outline-variant text-sm font-mono text-on-surface placeholder:text-on-surface-variant/50 outline-none focus:border-primary resize-none"
               />
             </div>
@@ -524,7 +728,7 @@ export default function LibraryView() {
           <div className="bg-surface border border-outline-variant rounded-xl shadow-2xl p-6 w-full max-w-lg" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-on-surface">New Library Item</h3>
-              <button onClick={() => setShowNewItem(false)}><X className="w-4 h-4 text-on-surface-variant" /></button>
+              <button onClick={() => setShowNewItem(false)} title="Close" aria-label="Close"><X className="w-4 h-4 text-on-surface-variant" /></button>
             </div>
             <div className="space-y-3">
               <div className="flex gap-2">

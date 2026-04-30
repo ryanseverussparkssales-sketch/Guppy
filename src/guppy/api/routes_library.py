@@ -7,13 +7,16 @@ Collections group items; item_count is computed dynamically.
 from __future__ import annotations
 
 import json
+import mimetypes
+import os
 import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
 
 from src.guppy.api.server_context import ServerContext
@@ -29,10 +32,26 @@ _COLORS = [
 ]
 
 _ID_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
+_BOOK_EXTENSIONS = {".pdf", ".epub", ".mobi"}
 
 # ---------------------------------------------------------------------------
 # Storage helpers
 # ---------------------------------------------------------------------------
+
+
+def _library_root() -> Path:
+    configured = os.environ.get("GUPPY_LIBRARY_PATH", "").strip()
+    if configured:
+        root = Path(configured).expanduser().resolve()
+    else:
+        root = (_REPO_ROOT / "runtime" / "library").resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _sanitize_filename(name: str) -> str:
+    safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", name).strip("._")
+    return safe or f"library_{uuid.uuid4().hex[:8]}"
 
 def _load() -> dict:
     if not _LIBRARY_PATH.exists():
@@ -97,6 +116,14 @@ class LibraryItem(BaseModel):
     is_favorite: bool = False
     created_at: str
     updated_at: str
+    file_path: str | None = None
+    file_ext: str | None = None
+    metadata_status: str = "pending"  # pending | enriched | missing | failed
+    cover_url: str | None = None
+    description: str | None = None
+    isbn: str | None = None
+    subjects: list[str] = []
+    publish_year: int | None = None
 
 
 class CreateItemRequest(BaseModel):
@@ -216,6 +243,14 @@ def build_library_router(ctx: ServerContext) -> APIRouter:
             "is_favorite": False,
             "created_at": now,
             "updated_at": now,
+            "file_path": None,
+            "file_ext": None,
+            "metadata_status": "pending",
+            "cover_url": None,
+            "description": None,
+            "isbn": None,
+            "subjects": [],
+            "publish_year": None,
         }
         data["items"].append(new)
         _save(data)
@@ -256,5 +291,221 @@ def build_library_router(ctx: ServerContext) -> APIRouter:
         if len(data["items"]) == orig:
             raise HTTPException(404, f"Item '{item_id}' not found")
         _save(data)
+
+    @router.post("/items/{item_id}/enrich", response_model=LibraryItem)
+    async def enrich_item(
+        item_id: str,
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
+        from src.guppy.library.enricher import enrich
+
+        data = _load()
+        for item in data["items"]:
+            if item["id"] != item_id:
+                continue
+
+            item["metadata_status"] = "pending"
+            metadata = enrich(item.get("title", ""), "")
+            item["cover_url"] = metadata.get("cover_url")
+            item["description"] = metadata.get("description")
+            item["isbn"] = metadata.get("isbn")
+            item["subjects"] = metadata.get("subjects") or []
+            item["publish_year"] = metadata.get("publish_year")
+            item["metadata_status"] = "enriched" if metadata.get("found") else "missing"
+            item["updated_at"] = _now()
+            _save(data)
+            return item
+
+        raise HTTPException(404, f"Item '{item_id}' not found")
+
+    @router.post("/drop", response_model=LibraryItem, status_code=201)
+    async def drop_file(
+        file: UploadFile = File(...),
+        collection: str | None = Form(default=None),
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
+        filename = _sanitize_filename(file.filename or "document")
+        ext = Path(filename).suffix.lower()
+        if ext not in _BOOK_EXTENSIONS:
+            raise HTTPException(400, "Only PDF, EPUB, and MOBI are supported")
+
+        root = _library_root()
+        stored_name = f"{uuid.uuid4().hex}_{filename}"
+        stored_path = root / stored_name
+
+        content = await file.read()
+        stored_path.write_bytes(content)
+
+        now = _now()
+        data = _load()
+        item = {
+            "id": str(uuid.uuid4()),
+            "type": "artifact",
+            "title": Path(filename).stem,
+            "content": f"Imported from BookDrop: {filename}",
+            "collection": collection,
+            "tags": ["bookdrop", ext.lstrip(".")],
+            "is_favorite": False,
+            "created_at": now,
+            "updated_at": now,
+            "file_path": str(stored_path),
+            "file_ext": ext,
+            "metadata_status": "pending",
+            "cover_url": None,
+            "description": None,
+            "isbn": None,
+            "subjects": [],
+            "publish_year": None,
+        }
+        data["items"].append(item)
+        _save(data)
+
+        # Best effort enrichment at intake.
+        try:
+            from src.guppy.library.enricher import enrich
+
+            metadata = enrich(item["title"], "")
+            item["cover_url"] = metadata.get("cover_url")
+            item["description"] = metadata.get("description")
+            item["isbn"] = metadata.get("isbn")
+            item["subjects"] = metadata.get("subjects") or []
+            item["publish_year"] = metadata.get("publish_year")
+            item["metadata_status"] = "enriched" if metadata.get("found") else "missing"
+            item["updated_at"] = _now()
+            _save(data)
+        except Exception:
+            item["metadata_status"] = "failed"
+            item["updated_at"] = _now()
+            _save(data)
+
+        return item
+
+    @router.get("/items/{item_id}/read")
+    async def read_item_file(
+        item_id: str,
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
+        data = _load()
+        item = next((x for x in data["items"] if x["id"] == item_id), None)
+        if not item:
+            raise HTTPException(404, f"Item '{item_id}' not found")
+
+        file_path = item.get("file_path")
+        if not file_path:
+            raise HTTPException(400, "Item has no readable file")
+
+        path = Path(file_path)
+        if not path.exists():
+            raise HTTPException(404, "Library file not found")
+
+        media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        return FileResponse(path=str(path), media_type=media_type, filename=path.name)
+
+    @router.get("/opds")
+    async def opds_catalog(
+        request: Request,
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
+        data = _load()
+        publications = []
+        for item in data["items"]:
+            if item.get("type") != "artifact" or not item.get("file_path"):
+                continue
+            ext = str(item.get("file_ext") or "").lower().lstrip(".")
+            publications.append(
+                {
+                    "metadata": {
+                        "title": item.get("title"),
+                        "modified": item.get("updated_at"),
+                    },
+                    "links": [
+                        {
+                            "href": str(request.url_for("read_item_file", item_id=item["id"])),
+                            "type": mimetypes.guess_type(item.get("file_path", ""))[0] or "application/octet-stream",
+                            "rel": "http://opds-spec.org/acquisition/open-access",
+                        },
+                        {
+                            "href": str(request.url_for("opds_item", item_id=item["id"])),
+                            "type": "application/opds+json",
+                            "rel": "self",
+                        },
+                    ],
+                }
+            )
+
+        return {
+            "metadata": {"title": "Guppy Library", "numberOfItems": len(publications)},
+            "links": [{"rel": "self", "href": str(request.url), "type": "application/opds+json"}],
+            "publications": publications,
+        }
+
+    @router.get("/opds/item/{item_id}", name="opds_item")
+    async def opds_item(
+        item_id: str,
+        request: Request,
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
+        data = _load()
+        item = next((x for x in data["items"] if x["id"] == item_id), None)
+        if not item:
+            raise HTTPException(404, f"Item '{item_id}' not found")
+
+        if not item.get("file_path"):
+            raise HTTPException(400, "Item has no downloadable file")
+
+        return {
+            "metadata": {
+                "title": item.get("title"),
+                "identifier": item.get("isbn") or item_id,
+                "subject": item.get("subjects") or [],
+                "published": item.get("publish_year"),
+                "description": item.get("description") or "",
+            },
+            "links": [
+                {
+                    "href": str(request.url_for("read_item_file", item_id=item_id)),
+                    "type": mimetypes.guess_type(item.get("file_path", ""))[0] or "application/octet-stream",
+                    "rel": "http://opds-spec.org/acquisition/open-access",
+                }
+            ],
+        }
+
+    @router.post("/acquire")
+    async def acquire_item(
+        payload: dict,
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
+        policy = os.environ.get("LIBRARY_ACQUISITION_POLICY", "user_approved").strip().lower()
+        if policy not in {"open_content_only", "user_approved", "unrestricted"}:
+            policy = "user_approved"
+
+        query = str(payload.get("query") or "").strip()
+        url = str(payload.get("url") or "").strip()
+        confirmed = bool(payload.get("confirmed", False))
+
+        if not query and not url:
+            raise HTTPException(400, "Provide either query or url")
+
+        if policy == "open_content_only" and url and "gutenberg.org" not in url.lower():
+            raise HTTPException(403, "Acquisition policy allows only open content URLs")
+
+        if policy == "user_approved" and not confirmed:
+            return {
+                "ok": False,
+                "requires_confirmation": True,
+                "policy": policy,
+                "message": "Confirm this acquisition before queueing download.",
+                "query": query,
+                "url": url,
+            }
+
+        return {
+            "ok": True,
+            "policy": policy,
+            "queued": True,
+            "query": query,
+            "url": url,
+            "note": "Acquisition request accepted. Queue integration can be wired to media downloader.",
+        }
 
     return router

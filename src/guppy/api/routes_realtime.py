@@ -70,6 +70,14 @@ async def _execute_companion_tool(name: str, args: dict) -> dict:
         category = str(args.get("category", "general")).strip()
         if not url:
             return {"ok": False, "error": "url required"}
+
+        policy = os.environ.get("LIBRARY_ACQUISITION_POLICY", "user_approved").strip().lower()
+        if policy == "open_content_only":
+            return {
+                "ok": False,
+                "error": "download_media disabled by LIBRARY_ACQUISITION_POLICY=open_content_only",
+            }
+
         try:
             # Call qBittorrent Web API directly (bypasses Guppy auth)
             qb_base = os.environ.get("QBITTORRENT_URL", "http://localhost:8080").rstrip("/")
