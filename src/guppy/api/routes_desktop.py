@@ -9,6 +9,9 @@ POST /api/desktop/shortcut     — send key combination (e.g. "ctrl+c")
 POST /api/desktop/scroll       — scroll wheel at position
 POST /api/desktop/drag         — click-drag from one point to another
 POST /api/desktop/read-screen  — vision OCR on screen region via LLM
+POST /api/desktop/screenshot-parsed — capture + parse UI elements
+POST /api/desktop/click-element — grounded click by element description
+POST /api/desktop/type-in       — grounded type into element by description
 """
 from __future__ import annotations
 
@@ -25,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from src.guppy.api.server_context import ServerContext
+from src.guppy.workspace import screen_parser
 
 # ── pyautogui availability ────────────────────────────────────────────────────
 try:
@@ -344,5 +348,125 @@ def build_desktop_router(ctx: ServerContext) -> APIRouter:
         quality     = max(1, min(95, quality))
         result = await asyncio.to_thread(_sync_read_screen, region, instruction, quality)
         return {"result": result}
+
+    @router.post("/screenshot-parsed")
+    async def screenshot_parsed(
+        payload: Dict[str, Any] = {},
+        _user: str = Depends(ctx.require_rate_limit),
+    ) -> Dict[str, Any]:
+        """Capture screen and parse UI elements.
+        
+        Returns screenshot as base64 + list of detected UI elements.
+        Tries OmniParser first, falls back to MiniCPM vision.
+        """
+        def _do_parse():
+            import hashlib
+            _require_pya()
+            img = screen_parser.capture_screen()
+            if not img:
+                raise HTTPException(status_code=500, detail="Failed to capture screen")
+            
+            elements = screen_parser.parse_screen(img)
+            
+            # Encode screenshot
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=82)
+            img_b64 = base64.standard_b64encode(buf.getvalue()).decode()
+            
+            # Screenshot hash for tracing
+            img_bytes = buf.getvalue()
+            img_hash = hashlib.sha256(img_bytes).hexdigest()[:8]
+            
+            return {
+                "screenshot": f"data:image/jpeg;base64,{img_b64}",
+                "width": img.width,
+                "height": img.height,
+                "screenshot_hash": img_hash,
+                "elements": [elem.to_dict() for elem in elements],
+                "element_count": len(elements),
+            }
+        
+        try:
+            return await asyncio.to_thread(_do_parse)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Parse error: {str(e)}")
+
+    @router.post("/click-element")
+    async def click_element(
+        payload: Dict[str, Any],
+        _user: str = Depends(ctx.require_rate_limit),
+    ) -> Dict[str, Any]:
+        """Click a UI element by natural language description.
+        
+        Body: { description: "Submit button" }
+        
+        Captures screen, parses elements, finds best match, grounds click.
+        """
+        def _do_click():
+            _require_pya()
+            description = str(payload.get("description", "")).strip()
+            if not description:
+                raise ValueError("description required")
+            
+            # Ground the click
+            coords = screen_parser.ground_click(description)
+            if not coords:
+                raise ValueError(f"Could not find element matching '{description}'")
+            
+            x, y = coords
+            pyautogui.click(x, y)
+            return {
+                "description": description,
+                "x": x,
+                "y": y,
+                "result": f"Clicked '{description}' at ({x}, {y})"
+            }
+        
+        try:
+            return await asyncio.to_thread(_do_click)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Click error: {str(e)}")
+
+    @router.post("/type-in")
+    async def type_in(
+        payload: Dict[str, Any],
+        _user: str = Depends(ctx.require_rate_limit),
+    ) -> Dict[str, Any]:
+        """Type text into a UI element by description.
+        
+        Body: { description: "search bar", text: "hello world" }
+        
+        Grounds focus to element, then types text.
+        """
+        def _do_type_in():
+            _require_pya()
+            description = str(payload.get("description", "")).strip()
+            text = str(payload.get("text", ""))
+            
+            if not description or not text:
+                raise ValueError("description and text required")
+            
+            # Ground the click to focus element
+            coords = screen_parser.ground_click(description)
+            if not coords:
+                raise ValueError(f"Could not find element matching '{description}'")
+            
+            x, y = coords
+            pyautogui.click(x, y)
+            time.sleep(0.2)  # Wait for focus
+            pyautogui.write(text, interval=0.03)
+            
+            return {
+                "description": description,
+                "text": text[:100],  # Truncate in response
+                "x": x,
+                "y": y,
+                "result": f"Typed into '{description}' at ({x}, {y})"
+            }
+        
+        try:
+            return await asyncio.to_thread(_do_type_in)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Type error: {str(e)}")
 
     return router

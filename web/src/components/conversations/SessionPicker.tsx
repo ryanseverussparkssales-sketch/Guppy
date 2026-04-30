@@ -1,6 +1,6 @@
 /**
  * Session and Partner Management Components for ConversationsView
- * 
+ *
  * Provides UI for:
  * - Session picker (sidebar panel)
  * - Partner selector (modal/dropdown)

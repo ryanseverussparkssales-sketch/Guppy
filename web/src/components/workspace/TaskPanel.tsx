@@ -1,6 +1,6 @@
 /**
  * Task Panel Component for WorkspaceView
- * 
+ *
  * Displays:
  * - Task list with state badges
  * - Step trace accordion for each task
