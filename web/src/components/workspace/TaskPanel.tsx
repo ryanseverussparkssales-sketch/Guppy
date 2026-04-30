@@ -8,7 +8,7 @@
  * - Real-time SSE updates
  */
 
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ChevronDown, Play, XCircle, Check, AlertCircle, Clock } from 'lucide-react'
 import { toast } from 'sonner'
 import api from '@/api/client'
@@ -20,14 +20,15 @@ export interface WorkspaceTask {
   source: string
   state: string
   created_at: string
-  completed_at?: string
+  completed_at?: string | null
 }
 
 export interface WorkspaceTaskDetail extends WorkspaceTask {
-  started_at?: string
-  result?: string
-  error?: string
+  started_at?: string | null
+  result?: string | null
+  error?: string | null
   steps: WorkspaceTaskStep[]
+  events: WorkspaceTaskEvent[]
 }
 
 export interface WorkspaceTaskStep {
@@ -35,11 +36,19 @@ export interface WorkspaceTaskStep {
   step_number: number
   tool_name: string
   tool_args: Record<string, unknown>
-  result?: Record<string, unknown>
+  result?: Record<string, unknown> | null
   requires_confirmation: boolean
   confirmation_given: boolean
   created_at: string
-  completed_at?: string
+  completed_at?: string | null
+}
+
+export interface WorkspaceTaskEvent {
+  id: string
+  task_id?: string | null
+  event_type: string
+  payload: Record<string, unknown>
+  created_at: string
 }
 
 const STATE_COLORS = {
@@ -59,9 +68,9 @@ export function TaskPanel() {
   const [tasks, setTasks] = useState<WorkspaceTask[]>([])
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
   const [detailedTask, setDetailedTask] = useState<WorkspaceTaskDetail | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
 
-  const loadTasks = async () => {
+  const loadTasks = useCallback(async () => {
     setLoading(true)
     try {
       const r = await api.get('/api/workspace/tasks')
@@ -72,14 +81,17 @@ export function TaskPanel() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    loadTasks()
-    // Refresh every 5 seconds
-    const interval = setInterval(loadTasks, 5000)
-    return () => clearInterval(interval)
-  }, [])
+    const refresh = () => { void loadTasks() }
+    const initial = setTimeout(refresh, 0)
+    const interval = setInterval(refresh, 5000)
+    return () => {
+      clearTimeout(initial)
+      clearInterval(interval)
+    }
+  }, [loadTasks])
 
   const loadTaskDetail = async (taskId: string) => {
     try {
@@ -94,7 +106,8 @@ export function TaskPanel() {
     try {
       await api.post(`/api/workspace/tasks/${taskId}/run`)
       toast.success('Task started')
-      loadTasks()
+      await loadTasks()
+      await loadTaskDetail(taskId)
     } catch (e) {
       console.error('Failed to run task:', e)
       toast.error('Could not start task')
@@ -105,7 +118,8 @@ export function TaskPanel() {
     try {
       await api.post(`/api/workspace/tasks/${taskId}/cancel`)
       toast.success('Task cancelled')
-      loadTasks()
+      await loadTasks()
+      await loadTaskDetail(taskId)
     } catch (e) {
       console.error('Failed to cancel task:', e)
       toast.error('Could not cancel task')
@@ -116,7 +130,8 @@ export function TaskPanel() {
     try {
       await api.post(`/api/workspace/tasks/${taskId}/confirm`, { step_id: stepId })
       toast.success('Action confirmed')
-      loadTaskDetail(taskId)
+      await loadTasks()
+      await loadTaskDetail(taskId)
     } catch (e) {
       console.error('Failed to confirm action:', e)
       toast.error('Could not confirm action')

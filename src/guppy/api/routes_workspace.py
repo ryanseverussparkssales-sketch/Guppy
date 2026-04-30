@@ -1,58 +1,51 @@
-"""Workspace Tasks and Orchestration API.
+"""Workspace task orchestration API.
 
 Routes:
-  POST /api/workspace/tasks             — create task
-  GET  /api/workspace/tasks             — list with state filter
-  GET  /api/workspace/tasks/{id}        — detail + step trace
-  POST /api/workspace/tasks/{id}/run    — trigger orchestrator
-  POST /api/workspace/tasks/{id}/confirm — user confirms blocked action
-  POST /api/workspace/tasks/{id}/cancel  — cancel task
-  GET  /api/workspace/tasks/{id}/stream — SSE: live output
-  POST /api/workspace/events            — internal event bus
-
-Task state machine: queued → planning → running → blocked → complete | failed
+  POST /api/workspace/tasks              create task
+  GET  /api/workspace/tasks              list tasks with optional state filter
+  GET  /api/workspace/tasks/{id}         detail with steps and events
+  POST /api/workspace/tasks/{id}/run     run the baseline executor
+  POST /api/workspace/tasks/{id}/confirm confirm a blocked step
+  POST /api/workspace/tasks/{id}/cancel  cancel task
+  GET  /api/workspace/tasks/{id}/stream  SSE updates
+  POST /api/workspace/events             persist internal workspace event
 """
 from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import sqlite3
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from pathlib import Path
+from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.guppy.api.server_context import ServerContext
-from src.guppy.model_roles import resolve_role
-from src.guppy.paths import MAIN_DB_PATH, USER_DATA_DIR
-
-logger = logging.getLogger(__name__)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Types
-# ──────────────────────────────────────────────────────────────────────────────
+from src.guppy.paths import MAIN_DB_PATH
 
 
 class TaskState(str, Enum):
     """Task lifecycle states."""
-    QUEUED = "queued"        # Accepted, waiting for execution
-    PLANNING = "planning"    # Phi controller planning steps
-    RUNNING = "running"      # Hermes4 executing steps
-    BLOCKED = "blocked"      # Waiting for user confirmation on destructive action
-    COMPLETE = "complete"    # Finished successfully
-    FAILED = "failed"        # Error during execution
-    CANCELLED = "cancelled"  # User cancelled
+
+    QUEUED = "queued"
+    PLANNING = "planning"
+    RUNNING = "running"
+    BLOCKED = "blocked"
+    COMPLETE = "complete"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# DB helpers
-# ──────────────────────────────────────────────────────────────────────────────
+TERMINAL_STATES = {
+    TaskState.COMPLETE.value,
+    TaskState.FAILED.value,
+    TaskState.CANCELLED.value,
+}
 
 _DB_PATH: str = ""
 
@@ -76,17 +69,34 @@ CREATE TABLE IF NOT EXISTS workspace_task_steps (
     tool_name           TEXT NOT NULL,
     tool_args           TEXT NOT NULL,
     result              TEXT,
-    requires_confirmation BOOLEAN DEFAULT 0,
-    confirmation_given  BOOLEAN DEFAULT 0,
+    requires_confirmation INTEGER NOT NULL DEFAULT 0,
+    confirmation_given  INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL,
     completed_at        TEXT,
     FOREIGN KEY (task_id) REFERENCES workspace_tasks(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS workspace_task_events (
+    id                  TEXT PRIMARY KEY,
+    task_id             TEXT,
+    event_type          TEXT NOT NULL,
+    payload             TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES workspace_tasks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_tasks_state_created
+    ON workspace_tasks(state, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workspace_task_steps_task
+    ON workspace_task_steps(task_id, step_number ASC);
+CREATE INDEX IF NOT EXISTS idx_workspace_task_events_task
+    ON workspace_task_events(task_id, created_at ASC);
 """
 
 
 def _db() -> sqlite3.Connection:
     path = _DB_PATH or str(MAIN_DB_PATH)
+    Path(path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, check_same_thread=False, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -104,26 +114,33 @@ def _ensure_schema() -> None:
         conn.commit()
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Pydantic schemas
-# ──────────────────────────────────────────────────────────────────────────────
-
-
 class CreateTaskRequest(BaseModel):
     task_description: str
-    source: str = "workspace"  # workspace | conversations
+    source: str = "workspace"
+
+
+class ConfirmTaskRequest(BaseModel):
+    step_id: str
 
 
 class TaskStepResponse(BaseModel):
     id: str
     step_number: int
     tool_name: str
-    tool_args: dict
-    result: Optional[dict] = None
+    tool_args: dict[str, Any]
+    result: dict[str, Any] | None = None
     requires_confirmation: bool = False
     confirmation_given: bool = False
     created_at: str
-    completed_at: Optional[str] = None
+    completed_at: str | None = None
+
+
+class TaskEventResponse(BaseModel):
+    id: str
+    task_id: str | None = None
+    event_type: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
 
 
 class TaskDetailResponse(BaseModel):
@@ -132,11 +149,12 @@ class TaskDetailResponse(BaseModel):
     source: str
     state: str
     created_at: str
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
-    result: Optional[str] = None
-    error: Optional[str] = None
-    steps: list[TaskStepResponse] = []
+    started_at: str | None = None
+    completed_at: str | None = None
+    result: str | None = None
+    error: str | None = None
+    steps: list[TaskStepResponse] = Field(default_factory=list)
+    events: list[TaskEventResponse] = Field(default_factory=list)
 
 
 class TaskListItemResponse(BaseModel):
@@ -145,344 +163,564 @@ class TaskListItemResponse(BaseModel):
     source: str
     state: str
     created_at: str
-    completed_at: Optional[str] = None
+    completed_at: str | None = None
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Tool executor (stub — full implementation in Tranche F)
-# ──────────────────────────────────────────────────────────────────────────────
+def _json_dict(value: str | None) -> dict[str, Any] | None:
+    if not value:
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {"raw": value}
+    return parsed if isinstance(parsed, dict) else {"value": parsed}
 
 
-async def _execute_workspace_tool(tool_name: str, tool_args: dict) -> dict:
-    """Execute one workspace tool. Returns a result dict.
+def _emit_event(
+    conn: sqlite3.Connection,
+    task_id: str | None,
+    event_type: str,
+    payload: dict[str, Any] | None = None,
+) -> TaskEventResponse:
+    event_id = str(uuid.uuid4())
+    created_at = _now()
+    safe_payload = payload or {}
+    conn.execute(
+        """INSERT INTO workspace_task_events
+           (id, task_id, event_type, payload, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (event_id, task_id, event_type, json.dumps(safe_payload, ensure_ascii=True), created_at),
+    )
+    return TaskEventResponse(
+        id=event_id,
+        task_id=task_id,
+        event_type=event_type,
+        payload=safe_payload,
+        created_at=created_at,
+    )
 
-    Whitelist: web_search, file_read, file_list, shell_run, contacts_search,
-    calendar_read, email_read, screenpipe_search, pc_screenshot, pc_click,
-    pc_type, pc_scroll.
-    """
-    # Stub implementations — Tranche F will add full logic
+
+def _task_steps(conn: sqlite3.Connection, task_id: str) -> list[TaskStepResponse]:
+    rows = conn.execute(
+        """SELECT id, step_number, tool_name, tool_args, result,
+                  requires_confirmation, confirmation_given, created_at, completed_at
+           FROM workspace_task_steps
+           WHERE task_id = ?
+           ORDER BY step_number ASC""",
+        (task_id,),
+    ).fetchall()
+    return [
+        TaskStepResponse(
+            id=row["id"],
+            step_number=row["step_number"],
+            tool_name=row["tool_name"],
+            tool_args=_json_dict(row["tool_args"]) or {},
+            result=_json_dict(row["result"]),
+            requires_confirmation=bool(row["requires_confirmation"]),
+            confirmation_given=bool(row["confirmation_given"]),
+            created_at=row["created_at"],
+            completed_at=row["completed_at"],
+        )
+        for row in rows
+    ]
+
+
+def _task_events(conn: sqlite3.Connection, task_id: str) -> list[TaskEventResponse]:
+    rows = conn.execute(
+        """SELECT id, task_id, event_type, payload, created_at
+           FROM workspace_task_events
+           WHERE task_id = ?
+           ORDER BY created_at ASC""",
+        (task_id,),
+    ).fetchall()
+    return [
+        TaskEventResponse(
+            id=row["id"],
+            task_id=row["task_id"],
+            event_type=row["event_type"],
+            payload=_json_dict(row["payload"]) or {},
+            created_at=row["created_at"],
+        )
+        for row in rows
+    ]
+
+
+def _detail_from_row(conn: sqlite3.Connection, row: sqlite3.Row) -> TaskDetailResponse:
+    return TaskDetailResponse(
+        id=row["id"],
+        task_description=row["task_description"],
+        source=row["source"],
+        state=row["state"],
+        created_at=row["created_at"],
+        started_at=row["started_at"],
+        completed_at=row["completed_at"],
+        result=row["result"],
+        error=row["error"],
+        steps=_task_steps(conn, row["id"]),
+        events=_task_events(conn, row["id"]),
+    )
+
+
+def _task_row(conn: sqlite3.Connection, task_id: str) -> sqlite3.Row:
+    row = conn.execute(
+        """SELECT id, task_description, source, state, created_at, started_at,
+                  completed_at, result, error
+           FROM workspace_tasks
+           WHERE id = ?""",
+        (task_id,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return row
+
+
+def create_workspace_task_record(req: CreateTaskRequest) -> TaskDetailResponse:
+    _ensure_schema()
+    description = req.task_description.strip()
+    if not description:
+        raise HTTPException(status_code=422, detail="task_description is required")
+
+    task_id = str(uuid.uuid4())
+    now = _now()
+    source = req.source.strip() or "workspace"
+    with _db() as conn:
+        conn.execute(
+            """INSERT INTO workspace_tasks
+               (id, task_description, source, state, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (task_id, description, source, TaskState.QUEUED.value, now),
+        )
+        _emit_event(conn, task_id, "created", {"state": TaskState.QUEUED.value, "source": source})
+        conn.commit()
+        return _detail_from_row(conn, _task_row(conn, task_id))
+
+
+def list_workspace_task_records(state: str | None = None) -> list[TaskListItemResponse]:
+    _ensure_schema()
+    if state and state not in {item.value for item in TaskState}:
+        raise HTTPException(status_code=400, detail=f"Unknown workspace task state: {state}")
+
+    with _db() as conn:
+        if state:
+            rows = conn.execute(
+                """SELECT id, task_description, source, state, created_at, completed_at
+                   FROM workspace_tasks
+                   WHERE state = ?
+                   ORDER BY created_at DESC""",
+                (state,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT id, task_description, source, state, created_at, completed_at
+                   FROM workspace_tasks
+                   ORDER BY created_at DESC"""
+            ).fetchall()
+
+    return [
+        TaskListItemResponse(
+            id=row["id"],
+            task_description=row["task_description"],
+            source=row["source"],
+            state=row["state"],
+            created_at=row["created_at"],
+            completed_at=row["completed_at"],
+        )
+        for row in rows
+    ]
+
+
+def get_workspace_task_record(task_id: str) -> TaskDetailResponse:
+    _ensure_schema()
+    with _db() as conn:
+        return _detail_from_row(conn, _task_row(conn, task_id))
+
+
+def _looks_destructive(description: str) -> bool:
+    text = f" {description.lower()} "
+    markers = (" delete ", " remove ", " rm ", " overwrite ", " drop ", " wipe ", " send ")
+    return any(marker in text for marker in markers)
+
+
+def _planned_steps(description: str) -> list[tuple[str, dict[str, Any]]]:
+    first = ("task_plan", {"task_description": description})
+    if _looks_destructive(description):
+        return [first, ("shell_run", {"command": description})]
+    return [first, ("workspace_summary", {"task_description": description})]
+
+
+def _insert_step(
+    conn: sqlite3.Connection,
+    task_id: str,
+    step_number: int,
+    tool_name: str,
+    tool_args: dict[str, Any],
+) -> str:
+    step_id = str(uuid.uuid4())
+    conn.execute(
+        """INSERT INTO workspace_task_steps
+           (id, task_id, step_number, tool_name, tool_args, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (
+            step_id,
+            task_id,
+            step_number,
+            tool_name,
+            json.dumps(tool_args, ensure_ascii=True),
+            _now(),
+        ),
+    )
+    return step_id
+
+
+async def _execute_workspace_tool(tool_name: str, tool_args: dict[str, Any]) -> dict[str, Any]:
+    """Execute one baseline workspace tool and return an observable result."""
+
+    if tool_name == "task_plan":
+        description = str(tool_args.get("task_description", "")).strip()
+        return {
+            "ok": True,
+            "plan": ["Review the request", "Record a baseline execution result"],
+            "task_description": description,
+        }
+
+    if tool_name == "workspace_summary":
+        description = str(tool_args.get("task_description", "")).strip()
+        return {
+            "ok": True,
+            "summary": f"Baseline workspace task run recorded for: {description[:160]}",
+        }
 
     if tool_name == "web_search":
         query = str(tool_args.get("query", "")).strip()
         return {"ok": True, "query": query, "results": []}
 
-    elif tool_name == "file_read":
+    if tool_name == "file_read":
         path = str(tool_args.get("path", "")).strip()
         return {"ok": True, "path": path, "content": "(file read stub)"}
 
-    elif tool_name == "file_list":
+    if tool_name == "file_list":
         path = str(tool_args.get("path", "")).strip()
         return {"ok": True, "path": path, "files": []}
 
-    elif tool_name == "shell_run":
+    if tool_name == "shell_run":
         command = str(tool_args.get("command", "")).strip()
-        is_mutating = "delete" in command.lower() or "rm" in command.lower()
-        if is_mutating:
-            # Requires confirmation for destructive commands
+        if _looks_destructive(command):
             return {
                 "ok": False,
                 "requires_confirmation": True,
                 "command": command,
-                "note": "Destructive command — requires user confirmation",
+                "note": "Destructive command requires user confirmation.",
             }
         return {"ok": True, "command": command, "stdout": "(output stub)"}
 
-    elif tool_name == "contacts_search":
+    if tool_name == "contacts_search":
         query = str(tool_args.get("query", "")).strip()
         return {"ok": True, "query": query, "contacts": []}
 
-    elif tool_name == "calendar_read":
+    if tool_name == "calendar_read":
         days = int(tool_args.get("days", 7))
         return {"ok": True, "days": days, "events": []}
 
-    elif tool_name == "email_read":
+    if tool_name == "email_read":
         limit = int(tool_args.get("limit", 10))
         return {"ok": True, "limit": limit, "messages": []}
 
-    elif tool_name == "screenpipe_search":
+    if tool_name == "screenpipe_search":
         query = str(tool_args.get("query", "")).strip()
-        # Legacy workspace endpoint remains a lightweight passthrough.
-        # Full task executor tool logic lives in routes_realtime.py.
         return {"ok": True, "query": query, "results": []}
 
-    elif tool_name == "pc_screenshot":
+    if tool_name == "pc_screenshot":
         return {"ok": True, "image_url": "data:image/png;base64,(stub)"}
 
-    elif tool_name == "pc_click":
+    if tool_name == "pc_click":
         x = int(tool_args.get("x", 0))
         y = int(tool_args.get("y", 0))
         return {"ok": True, "x": x, "y": y}
 
-    elif tool_name == "pc_type":
+    if tool_name == "pc_type":
         text = str(tool_args.get("text", "")).strip()
         return {"ok": True, "text": text}
 
-    elif tool_name == "pc_scroll":
+    if tool_name == "pc_scroll":
         direction = str(tool_args.get("direction", "down")).strip()
         return {"ok": True, "direction": direction}
 
-    else:
-        return {"ok": False, "error": f"Unknown tool: {tool_name}"}
+    return {"ok": False, "error": f"Unknown tool: {tool_name}"}
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Router
-# ──────────────────────────────────────────────────────────────────────────────
+async def run_workspace_task_record(task_id: str) -> dict[str, Any]:
+    _ensure_schema()
+    with _db() as conn:
+        task = _task_row(conn, task_id)
+        current_state = task["state"]
+        if current_state in {TaskState.PLANNING.value, TaskState.RUNNING.value, TaskState.BLOCKED.value}:
+            return {"ok": True, "task_id": task_id, "state": current_state}
+        if current_state in TERMINAL_STATES:
+            raise HTTPException(status_code=409, detail=f"Task is already {current_state}")
+
+        started_at = task["started_at"] or _now()
+        conn.execute(
+            "UPDATE workspace_tasks SET state = ?, started_at = ? WHERE id = ?",
+            (TaskState.PLANNING.value, started_at, task_id),
+        )
+        _emit_event(conn, task_id, "state_changed", {"state": TaskState.PLANNING.value})
+        conn.commit()
+
+        conn.execute(
+            "UPDATE workspace_tasks SET state = ? WHERE id = ?",
+            (TaskState.RUNNING.value, task_id),
+        )
+        _emit_event(conn, task_id, "state_changed", {"state": TaskState.RUNNING.value})
+        conn.commit()
+
+        for step_number, (tool_name, tool_args) in enumerate(
+            _planned_steps(task["task_description"]),
+            start=1,
+        ):
+            step_id = _insert_step(conn, task_id, step_number, tool_name, tool_args)
+            _emit_event(
+                conn,
+                task_id,
+                "step_started",
+                {"step_id": step_id, "step_number": step_number, "tool_name": tool_name},
+            )
+            conn.commit()
+
+            result = await _execute_workspace_tool(tool_name, tool_args)
+            now = _now()
+
+            if result.get("requires_confirmation"):
+                conn.execute(
+                    """UPDATE workspace_task_steps
+                       SET result = ?, requires_confirmation = 1
+                       WHERE id = ?""",
+                    (json.dumps(result, ensure_ascii=True), step_id),
+                )
+                conn.execute(
+                    "UPDATE workspace_tasks SET state = ? WHERE id = ?",
+                    (TaskState.BLOCKED.value, task_id),
+                )
+                _emit_event(
+                    conn,
+                    task_id,
+                    "step_blocked",
+                    {"step_id": step_id, "step_number": step_number, "tool_name": tool_name},
+                )
+                _emit_event(conn, task_id, "state_changed", {"state": TaskState.BLOCKED.value})
+                conn.commit()
+                return {"ok": True, "task_id": task_id, "state": TaskState.BLOCKED.value}
+
+            conn.execute(
+                """UPDATE workspace_task_steps
+                   SET result = ?, completed_at = ?
+                   WHERE id = ?""",
+                (json.dumps(result, ensure_ascii=True), now, step_id),
+            )
+            _emit_event(
+                conn,
+                task_id,
+                "step_completed",
+                {"step_id": step_id, "step_number": step_number, "tool_name": tool_name},
+            )
+            conn.commit()
+
+            if not result.get("ok", False):
+                error = str(result.get("error") or f"{tool_name} failed")
+                conn.execute(
+                    """UPDATE workspace_tasks
+                       SET state = ?, error = ?, completed_at = ?
+                       WHERE id = ?""",
+                    (TaskState.FAILED.value, error, _now(), task_id),
+                )
+                _emit_event(conn, task_id, "state_changed", {"state": TaskState.FAILED.value})
+                conn.commit()
+                return {
+                    "ok": False,
+                    "task_id": task_id,
+                    "state": TaskState.FAILED.value,
+                    "error": error,
+                }
+
+        result_text = "Baseline workspace task run complete."
+        conn.execute(
+            """UPDATE workspace_tasks
+               SET state = ?, completed_at = ?, result = ?
+               WHERE id = ?""",
+            (TaskState.COMPLETE.value, _now(), result_text, task_id),
+        )
+        _emit_event(conn, task_id, "state_changed", {"state": TaskState.COMPLETE.value})
+        conn.commit()
+        return {"ok": True, "task_id": task_id, "state": TaskState.COMPLETE.value}
+
+
+def confirm_workspace_task_record(task_id: str, step_id: str) -> dict[str, Any]:
+    _ensure_schema()
+    with _db() as conn:
+        _task_row(conn, task_id)
+        step = conn.execute(
+            """SELECT id, task_id, result, requires_confirmation
+               FROM workspace_task_steps
+               WHERE id = ?""",
+            (step_id,),
+        ).fetchone()
+        if not step or step["task_id"] != task_id:
+            raise HTTPException(status_code=404, detail="Step not found")
+
+        result = _json_dict(step["result"]) or {}
+        result["confirmed"] = True
+        result["note"] = "Confirmed by user; baseline executor marked the task complete."
+        now = _now()
+        conn.execute(
+            """UPDATE workspace_task_steps
+               SET confirmation_given = 1, result = ?, completed_at = COALESCE(completed_at, ?)
+               WHERE id = ?""",
+            (json.dumps(result, ensure_ascii=True), now, step_id),
+        )
+        conn.execute(
+            """UPDATE workspace_tasks
+               SET state = ?, completed_at = ?, result = ?
+               WHERE id = ?""",
+            (
+                TaskState.COMPLETE.value,
+                now,
+                "Confirmed action recorded; baseline workspace task run complete.",
+                task_id,
+            ),
+        )
+        _emit_event(conn, task_id, "step_confirmed", {"step_id": step_id})
+        _emit_event(conn, task_id, "state_changed", {"state": TaskState.COMPLETE.value})
+        conn.commit()
+        return {
+            "ok": True,
+            "task_id": task_id,
+            "step_id": step_id,
+            "confirmed": True,
+            "state": TaskState.COMPLETE.value,
+        }
+
+
+def cancel_workspace_task_record(task_id: str) -> dict[str, Any]:
+    _ensure_schema()
+    with _db() as conn:
+        _task_row(conn, task_id)
+        now = _now()
+        conn.execute(
+            "UPDATE workspace_tasks SET state = ?, completed_at = ? WHERE id = ?",
+            (TaskState.CANCELLED.value, now, task_id),
+        )
+        _emit_event(conn, task_id, "state_changed", {"state": TaskState.CANCELLED.value})
+        conn.commit()
+        return {"ok": True, "task_id": task_id, "state": TaskState.CANCELLED.value}
 
 
 def build_workspace_router(ctx: ServerContext) -> APIRouter:
     router = APIRouter(prefix="/api/workspace", tags=["workspace"])
-
     _ensure_schema()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Task CRUD
-    # ──────────────────────────────────────────────────────────────────────────
-
     @router.post("/tasks", response_model=TaskDetailResponse, status_code=201)
-    async def create_task(req: CreateTaskRequest) -> TaskDetailResponse:
-        """Create a new workspace task."""
-        task_id = str(uuid.uuid4())
-        now = _now()
-
-        with _db() as conn:
-            conn.execute(
-                """INSERT INTO workspace_tasks
-                   (id, task_description, source, state, created_at)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (task_id, req.task_description, req.source, TaskState.QUEUED.value, now),
-            )
-            conn.commit()
-
-        return TaskDetailResponse(
-            id=task_id,
-            task_description=req.task_description,
-            source=req.source,
-            state=TaskState.QUEUED.value,
-            created_at=now,
-            steps=[],
-        )
+    async def create_task(
+        req: CreateTaskRequest,
+        _uid: str = Depends(ctx.require_rate_limit),
+    ) -> TaskDetailResponse:
+        return create_workspace_task_record(req)
 
     @router.get("/tasks", response_model=list[TaskListItemResponse])
-    async def list_tasks(state: Optional[str] = None) -> list[TaskListItemResponse]:
-        """List workspace tasks, optionally filtered by state."""
-        with _db() as conn:
-            if state:
-                rows = conn.execute(
-                    """SELECT id, task_description, source, state, created_at, completed_at
-                       FROM workspace_tasks WHERE state = ? ORDER BY created_at DESC""",
-                    (state,),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """SELECT id, task_description, source, state, created_at, completed_at
-                       FROM workspace_tasks ORDER BY created_at DESC"""
-                ).fetchall()
-
-            return [
-                TaskListItemResponse(
-                    id=row["id"],
-                    task_description=row["task_description"],
-                    source=row["source"],
-                    state=row["state"],
-                    created_at=row["created_at"],
-                    completed_at=row["completed_at"],
-                )
-                for row in rows
-            ]
+    async def list_tasks(
+        state: str | None = None,
+        _uid: str = Depends(ctx.require_rate_limit),
+    ) -> list[TaskListItemResponse]:
+        return list_workspace_task_records(state=state)
 
     @router.get("/tasks/{task_id}", response_model=TaskDetailResponse)
-    async def get_task(task_id: str) -> TaskDetailResponse:
-        """Get task detail + step trace."""
-        with _db() as conn:
-            task_row = conn.execute(
-                """SELECT id, task_description, source, state, created_at, started_at,
-                         completed_at, result, error
-                   FROM workspace_tasks WHERE id = ?""",
-                (task_id,),
-            ).fetchone()
-
-            if not task_row:
-                raise HTTPException(status_code=404, detail="Task not found")
-
-            step_rows = conn.execute(
-                """SELECT id, step_number, tool_name, tool_args, result,
-                         requires_confirmation, confirmation_given, created_at, completed_at
-                   FROM workspace_task_steps WHERE task_id = ? ORDER BY step_number ASC""",
-                (task_id,),
-            ).fetchall()
-
-            steps = [
-                TaskStepResponse(
-                    id=row["id"],
-                    step_number=row["step_number"],
-                    tool_name=row["tool_name"],
-                    tool_args=json.loads(row["tool_args"]),
-                    result=json.loads(row["result"]) if row["result"] else None,
-                    requires_confirmation=bool(row["requires_confirmation"]),
-                    confirmation_given=bool(row["confirmation_given"]),
-                    created_at=row["created_at"],
-                    completed_at=row["completed_at"],
-                )
-                for row in step_rows
-            ]
-
-            return TaskDetailResponse(
-                id=task_row["id"],
-                task_description=task_row["task_description"],
-                source=task_row["source"],
-                state=task_row["state"],
-                created_at=task_row["created_at"],
-                started_at=task_row["started_at"],
-                completed_at=task_row["completed_at"],
-                result=task_row["result"],
-                error=task_row["error"],
-                steps=steps,
-            )
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # Task lifecycle
-    # ──────────────────────────────────────────────────────────────────────────
+    async def get_task(
+        task_id: str,
+        _uid: str = Depends(ctx.require_rate_limit),
+    ) -> TaskDetailResponse:
+        return get_workspace_task_record(task_id)
 
     @router.post("/tasks/{task_id}/run")
-    async def run_task(task_id: str) -> dict:
-        """Trigger orchestrator for a task. Stub — full implementation in Tranche F."""
-        with _db() as conn:
-            task = conn.execute(
-                "SELECT state FROM workspace_tasks WHERE id = ?", (task_id,)
-            ).fetchone()
-            if not task:
-                raise HTTPException(status_code=404, detail="Task not found")
-
-            # Transition: queued → planning
-            conn.execute(
-                "UPDATE workspace_tasks SET state = ?, started_at = ? WHERE id = ?",
-                (TaskState.PLANNING.value, _now(), task_id),
-            )
-            conn.commit()
-
-        return {"ok": True, "task_id": task_id, "state": TaskState.PLANNING.value}
+    async def run_task(
+        task_id: str,
+        _uid: str = Depends(ctx.require_rate_limit),
+    ) -> dict[str, Any]:
+        return await run_workspace_task_record(task_id)
 
     @router.post("/tasks/{task_id}/confirm")
-    async def confirm_task_action(task_id: str, step_id: str) -> dict:
-        """User confirms a blocked (destructive) action. Stub."""
-        with _db() as conn:
-            step = conn.execute(
-                "SELECT task_id FROM workspace_task_steps WHERE id = ?", (step_id,)
-            ).fetchone()
-            if not step or step["task_id"] != task_id:
-                raise HTTPException(status_code=404, detail="Step not found")
-
-            conn.execute(
-                "UPDATE workspace_task_steps SET confirmation_given = 1 WHERE id = ?",
-                (step_id,),
-            )
-            conn.commit()
-
-        return {"ok": True, "step_id": step_id, "confirmed": True}
+    async def confirm_task_action(
+        task_id: str,
+        req: ConfirmTaskRequest,
+        _uid: str = Depends(ctx.require_rate_limit),
+    ) -> dict[str, Any]:
+        return confirm_workspace_task_record(task_id, req.step_id)
 
     @router.post("/tasks/{task_id}/cancel")
-    async def cancel_task(task_id: str) -> dict:
-        """Cancel a task."""
-        with _db() as conn:
-            conn.execute(
-                "UPDATE workspace_tasks SET state = ?, completed_at = ? WHERE id = ?",
-                (TaskState.CANCELLED.value, _now(), task_id),
-            )
-            conn.commit()
-
-        return {"ok": True, "task_id": task_id, "state": TaskState.CANCELLED.value}
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # Streaming
-    # ──────────────────────────────────────────────────────────────────────────
+    async def cancel_task(
+        task_id: str,
+        _uid: str = Depends(ctx.require_rate_limit),
+    ) -> dict[str, Any]:
+        return cancel_workspace_task_record(task_id)
 
     @router.get("/tasks/{task_id}/stream")
-    async def stream_task(task_id: str):
-        """Stream live task output via SSE.
-
-        Emits state and step updates until the task reaches a terminal state.
-        """
-
-        terminal_states = {
-            TaskState.COMPLETE.value,
-            TaskState.FAILED.value,
-            TaskState.CANCELLED.value,
-        }
-
+    async def stream_task(
+        task_id: str,
+        _uid: str = Depends(ctx.require_rate_limit),
+    ) -> StreamingResponse:
         async def _stream():
-            last_state = None
+            last_state: str | None = None
             last_step_count = -1
+            last_event_count = -1
 
             with _db() as conn:
-                task = conn.execute(
-                    "SELECT state FROM workspace_tasks WHERE id = ?", (task_id,)
-                ).fetchone()
-                if not task:
-                    yield f"data: {json.dumps({'error': 'Task not found'})}\n\n"
-                    return
+                _task_row(conn, task_id)
 
             while True:
                 with _db() as conn:
-                    task = conn.execute(
-                        "SELECT state, error, result FROM workspace_tasks WHERE id = ?",
-                        (task_id,),
-                    ).fetchone()
-
-                    if not task:
-                        yield f"data: {json.dumps({'error': 'Task not found'})}\n\n"
-                        return
-
-                    steps = conn.execute(
-                        """SELECT step_number, tool_name, result, requires_confirmation,
-                                  confirmation_given, completed_at
-                           FROM workspace_task_steps
-                           WHERE task_id = ? ORDER BY step_number ASC""",
-                        (task_id,),
-                    ).fetchall()
+                    task = _task_row(conn, task_id)
+                    steps = _task_steps(conn, task_id)
+                    events = _task_events(conn, task_id)
 
                 state = task["state"]
                 if state != last_state:
-                    payload = {
-                        "event": "state",
-                        "task_id": task_id,
-                        "state": state,
-                        "error": task["error"],
-                    }
-                    yield f"data: {json.dumps(payload)}\n\n"
+                    yield "data: " + json.dumps(
+                        {
+                            "event": "state",
+                            "task_id": task_id,
+                            "state": state,
+                            "error": task["error"],
+                        }
+                    ) + "\n\n"
                     last_state = state
 
                 if len(steps) != last_step_count:
-                    serialized_steps = []
-                    for row in steps:
-                        serialized_steps.append(
-                            {
-                                "step_number": row["step_number"],
-                                "tool_name": row["tool_name"],
-                                "result": json.loads(row["result"]) if row["result"] else None,
-                                "requires_confirmation": bool(row["requires_confirmation"]),
-                                "confirmation_given": bool(row["confirmation_given"]),
-                                "completed_at": row["completed_at"],
-                            }
-                        )
-
-                    payload = {
-                        "event": "steps",
-                        "task_id": task_id,
-                        "steps": serialized_steps,
-                    }
-                    yield f"data: {json.dumps(payload)}\n\n"
+                    yield "data: " + json.dumps(
+                        {
+                            "event": "steps",
+                            "task_id": task_id,
+                            "steps": [step.model_dump() for step in steps],
+                        }
+                    ) + "\n\n"
                     last_step_count = len(steps)
 
-                if state in terminal_states:
-                    done_payload = {
-                        "event": "done",
-                        "task_id": task_id,
-                        "state": state,
-                        "result": task["result"],
-                        "error": task["error"],
-                    }
-                    yield f"data: {json.dumps(done_payload)}\n\n"
+                if len(events) != last_event_count:
+                    yield "data: " + json.dumps(
+                        {
+                            "event": "events",
+                            "task_id": task_id,
+                            "events": [event.model_dump() for event in events],
+                        }
+                    ) + "\n\n"
+                    last_event_count = len(events)
+
+                if state in TERMINAL_STATES:
+                    yield "data: " + json.dumps(
+                        {
+                            "event": "done",
+                            "task_id": task_id,
+                            "state": state,
+                            "result": task["result"],
+                            "error": task["error"],
+                        }
+                    ) + "\n\n"
                     yield "data: [DONE]\n\n"
                     return
 
@@ -490,14 +728,18 @@ def build_workspace_router(ctx: ServerContext) -> APIRouter:
 
         return StreamingResponse(_stream(), media_type="text/event-stream")
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Internal event bus (for cross-surface communication)
-    # ──────────────────────────────────────────────────────────────────────────
-
     @router.post("/events")
-    async def post_event(event: dict) -> dict:
-        """Post an internal workspace event (task_spawned, task_progress, etc.)."""
-        # Stub — SSE broadcast logic in Tranche F
-        return {"ok": True, "event": event}
+    async def post_event(
+        event: dict[str, Any],
+        _uid: str = Depends(ctx.require_rate_limit),
+    ) -> dict[str, Any]:
+        _ensure_schema()
+        event_type = str(event.get("event") or event.get("type") or "workspace_event")
+        raw_task_id = event.get("task_id")
+        task_id = str(raw_task_id) if raw_task_id else None
+        with _db() as conn:
+            stored = _emit_event(conn, task_id, event_type, event)
+            conn.commit()
+        return {"ok": True, "event": stored.model_dump()}
 
     return router

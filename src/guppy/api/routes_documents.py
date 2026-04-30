@@ -2,13 +2,14 @@
 
 Accepts file uploads (drag-and-drop or picker) from any surface — Companion,
 Workspace, or Codespace. Files are stored in runtime/uploads/. An optional
-AI analysis step asks guppy-fast to summarise the document content.
+AI analysis step asks the configured local llama.cpp runtime to summarise the
+document content.
 
 GET    /api/documents                 — list uploaded documents (newest first)
 POST   /api/documents/upload          — multipart upload (file + optional metadata)
 GET    /api/documents/{id}            — single document metadata + text preview
 DELETE /api/documents/{id}            — delete document + file
-POST   /api/documents/{id}/analyze    — trigger AI summary (guppy-fast via Ollama)
+POST   /api/documents/{id}/analyze    — trigger AI summary via local runtime
 GET    /api/documents/{id}/download   — serve the original file
 """
 from __future__ import annotations
@@ -23,14 +24,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from src.guppy.api.server_context import ServerContext
+from src.guppy.inference.local_client import _BACKEND_DEFAULT_MODELS, local_chat
+from src.guppy.paths import MAIN_DB_PATH
 
 logger = logging.getLogger(__name__)
 
-from src.guppy.paths import MAIN_DB_PATH
 _DB_PATH   = str(MAIN_DB_PATH)
 _UPLOAD_DIR = Path("runtime/uploads")
 
@@ -107,8 +109,8 @@ def _extract_text(file_path: Path, mime: str) -> str:
     return ""
 
 
-def _ask_ollama_summary(text: str) -> str:
-    """Call guppy-fast to generate a short document summary."""
+def _ask_local_summary(text: str) -> str:
+    """Call the local OpenAI-compatible runtime for a short document summary."""
     if not text.strip():
         return ""
     prompt = (
@@ -117,24 +119,28 @@ def _ask_ollama_summary(text: str) -> str:
         f"DOCUMENT:\n{text[:4000]}\n\nSUMMARY:"
     )
     try:
-        import json as _json, urllib.request as _req
-        payload = _json.dumps({
-            "model": "guppy-fast",
-            "prompt": prompt,
-            "stream": False,
-            "options": {"num_predict": 120, "temperature": 0.2},
-        }).encode()
-        request = _req.Request(
-            "http://127.0.0.1:11434/api/generate",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
+        backend = (os.environ.get("GUPPY_DOCUMENT_SUMMARY_BACKEND", "") or "").strip().lower()
+        model = (os.environ.get("GUPPY_DOCUMENT_SUMMARY_MODEL", "") or "").strip()
+        if not model:
+            model = _BACKEND_DEFAULT_MODELS.get(backend, "") if backend else ""
+        if not model:
+            model = _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes3", "local-model")
+        result = local_chat(
+            model,
+            [
+                {"role": "system", "content": "You summarize documents clearly and concisely."},
+                {"role": "user", "content": prompt},
+            ],
+            timeout=40,
+            num_predict=160,
+            max_retries=0,
+            backend=backend or None,
         )
-        with _req.urlopen(request, timeout=40) as resp:
-            data = _json.loads(resp.read().decode())
-            return data.get("response", "").strip()
+        if not result:
+            return ""
+        return str(result.get("response") or "").strip()
     except Exception as exc:
-        logger.debug("[documents] Ollama summary failed: %s", exc)
+        logger.debug("[documents] local summary failed: %s", exc)
         return ""
 
 
@@ -252,8 +258,8 @@ def build_documents_router(ctx: ServerContext) -> APIRouter:
         if not text:
             return {"ok": False, "message": "No text content to analyze"}
 
-        # Run synchronously (guppy-fast is fast enough)
-        summary = _ask_ollama_summary(text)
+        # Run synchronously; analysis failures should not affect document storage.
+        summary = _ask_local_summary(text)
         if summary:
             with _conn() as conn:
                 conn.execute(
@@ -262,7 +268,10 @@ def build_documents_router(ctx: ServerContext) -> APIRouter:
                 )
                 conn.commit()
             return {"ok": True, "summary": summary}
-        return {"ok": False, "message": "AI summary unavailable (Ollama not running?)"}
+        raise HTTPException(
+            status_code=503,
+            detail="AI summary unavailable: local llama.cpp runtime did not return a response",
+        )
 
     @router.get("/{doc_id}/download")
     def download_document(doc_id: str, _uid: str = Depends(ctx.require_rate_limit)):

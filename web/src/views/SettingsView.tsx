@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import {
   Cloud, Key, Mic, Wrench, Users, Eye, EyeOff,
   Save, Trash2, RefreshCw, CheckCircle, ExternalLink,
-  Sun, Moon, Monitor, ToggleLeft, ToggleRight, Lock,
+  ToggleLeft, ToggleRight, Lock,
   Plug, Check, Edit2, X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -104,8 +104,10 @@ function CloudTab() {
 
   useEffect(() => { fetchSettings() }, [fetchSettings])
 
-  const configured = (key: string) =>
-    key === 'local' ? true : (settings?.credentials?.[key]?.configured ?? false)
+  const configured = (key: string) => {
+    const credentials = settings?.credentials as Record<string, { configured: boolean } | undefined> | undefined
+    return key === 'local' ? true : (credentials?.[key]?.configured ?? false)
+  }
 
   const save = async (key: string) => {
     const val = inputs[key]?.trim()
@@ -194,8 +196,10 @@ function CredentialsTab() {
 
   useEffect(() => { fetchSettings() }, [fetchSettings])
 
-  const configured = (key: string) =>
-    settings?.credentials?.[key]?.configured ?? false
+  const configured = (key: string) => {
+    const credentials = settings?.credentials as Record<string, { configured: boolean } | undefined> | undefined
+    return credentials?.[key]?.configured ?? false
+  }
 
   const save = async (key: string) => {
     const val = inputs[key]?.trim()

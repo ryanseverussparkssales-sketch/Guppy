@@ -34,7 +34,6 @@ import {
   Loader2,
   Upload,
   BookOpen,
-  WandSparkles,
   Link2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -580,7 +579,7 @@ export default function LibraryView() {
                           className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
                           title="Enrich metadata"
                         >
-                          <WandSparkles className="w-4 h-4" />
+                          <Sparkles className="w-4 h-4" />
                         </button>
                         {item.file_path && (
                           <button

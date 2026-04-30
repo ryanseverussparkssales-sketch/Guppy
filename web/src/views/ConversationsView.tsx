@@ -16,17 +16,15 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { useWorkspaceStore, syncManager } from '@/store'
 import { useAppStore } from '@/store/appStore'
 import { MarkdownMessage } from '@/components/chat/MarkdownMessage'
 import { useVoice } from '@/hooks/useVoice'
 import { useSurfaceEvents } from '@/hooks/useSurfaceEvents'
 import { AvatarPresence, type AvatarState } from '@/components/surface/AvatarPresence'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
-import { PersonaModelPicker } from '@/components/surface/PersonaModelPicker'
 import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
 import { SessionPicker, PartnerSelector } from '@/components/conversations/SessionPicker'
-import api, { streamChat } from '@/api/client'
+import api from '@/api/client'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -53,6 +51,28 @@ interface PersonalityData {
 
 interface VoiceOption { id: string; name: string; lang: string }
 interface ProviderOption { id: string; name: string; available: boolean }
+
+// Sentence-boundary regex: period/!/? optionally followed by quote, then whitespace or end
+const SENTENCE_END_RE = /[.!?]["']?(\s+|$)/
+
+function getSurfaceEventData(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== 'object') return {}
+  const record = payload as Record<string, unknown>
+  const nested = record.data
+  return nested && typeof nested === 'object' ? nested as Record<string, unknown> : record
+}
+
+function textValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value === null || value === undefined) return ''
+  return String(value)
+}
+
+function isAbortError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const name = (err as { name?: unknown }).name
+  return name === 'AbortError'
+}
 
 async function loadVoiceMeta() {
   try {
@@ -160,12 +180,11 @@ function PersonalityPicker({ onSwitch }: { onSwitch: () => void }) {
 // ── Main view ──────────────────────────────────────────────────────────────────
 
 export default function ConversationsView() {
-  const { activeWorkspaceId } = useWorkspaceStore()
   const { pendingDraftText, setPendingDraftText } = useAppStore()
 
   // Session management
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
-  const [currentPartner, setCurrentPartner] = useState<string>('llamacpp-hermes3')
+  const [currentPartner, setCurrentPartner] = useState<string | null>(null)
 
   const [messages, setMessages]           = useState<Message[]>(() => {
     try {
@@ -177,7 +196,6 @@ export default function ConversationsView() {
   const [streaming, setStreaming]         = useState('')
   const [isSending, setIsSending]         = useState(false)
   const [ttsEnabled, setTtsEnabled]       = useState(true)
-  const [activeConvId, setActiveConvId]   = useState<string | null>(null)
   const [voiceOptions, setVoiceOptions]   = useState<VoiceOption[]>([])
   const [selectedVoiceId, setSelectedVoiceId] = useState('bm_lewis')
   const [ttsProvider, setTtsProvider]     = useState('auto')
@@ -187,8 +205,6 @@ export default function ConversationsView() {
   const [ambientMode, setAmbientMode]     = useState(false)
   const [workspaceAlert, setWsAlert]      = useState<string | null>(null)
   const [pendingTaskCount, setPendingTaskCount] = useState(0)
-  const [activePersona, setActivePersona] = useState('llamacpp-hermes3')
-  const [pickerOpen, setPickerOpen]       = useState(false)
   const [attachedImage, setAttachedImage] = useState<{ base64: string; url: string; name: string } | null>(null)
 
   const abortRef              = useRef<AbortController | null>(null)
@@ -200,11 +216,12 @@ export default function ConversationsView() {
   // Tracks workspace tasks delegated by companion: id → title
   const pendingDelegatesRef   = useRef<Map<string, string>>(new Map())
 
-  // Sentence-boundary regex: period/!/?  optionally followed by quote, then whitespace or end
-  const SENTENCE_END_RE = /[.!?]["']?(\s+|$)/
-
   useEffect(() => {
-    try { sessionStorage.setItem('companion_messages', JSON.stringify(messages.slice(-50))) } catch {}
+    try {
+      sessionStorage.setItem('companion_messages', JSON.stringify(messages.slice(-50)))
+    } catch {
+      // sessionStorage may be unavailable in private browsing or test environments.
+    }
   }, [messages])
 
   const voice = useVoice({
@@ -238,11 +255,13 @@ export default function ConversationsView() {
 
   // Inject from GuppyDrop folder
   useEffect(() => {
-    if (pendingDraftText) {
+    if (!pendingDraftText) return
+    const id = window.setTimeout(() => {
       setInput(pendingDraftText)
       setPendingDraftText(null)
       setTimeout(() => textareaRef.current?.focus(), 50)
-    }
+    }, 0)
+    return () => window.clearTimeout(id)
   }, [pendingDraftText, setPendingDraftText, textareaRef])
 
   useEffect(() => {
@@ -251,49 +270,43 @@ export default function ConversationsView() {
 
   // Companion manages its own in-memory session — no workspace history leakage.
 
-  // Load active persona model from surface_config
-  useEffect(() => {
-    api.get('/api/surface/config').then((r: any) => {
-      const model = r.data?.companion?.model
-      if (model && model !== 'auto') setActivePersona(model)
-    }).catch(() => {})
-  }, [])
-
   // Subscribe to cross-surface SSE events.
   // task_spawned/progress: visible in ambient mode; task_completed/reminder: always speak.
-  useSurfaceEvents((type, payload: any) => {
-    const data = payload?.data ?? payload ?? {}
+  useSurfaceEvents((type, payload: unknown) => {
+    const data = getSurfaceEventData(payload)
     if (type === 'task_spawned') {
       // Track tasks the companion delegated so we can announce completion
-      if (data.id && data.title) {
-        pendingDelegatesRef.current.set(data.id, data.title)
+      const id = textValue(data.id)
+      const title = textValue(data.title)
+      if (id && title) {
+        pendingDelegatesRef.current.set(id, title)
         setPendingTaskCount(pendingDelegatesRef.current.size)
       }
       if (ambientMode) {
-        const label = data.title || 'Workspace task started'
+        const label = title || 'Workspace task started'
         setWsAlert(String(label).slice(0, 80))
         setTimeout(() => setWsAlert(null), 6000)
         if (ttsEnabled) voice.speakQueued(String(label).slice(0, 120))
       }
     }
     if (type === 'task_progress' && ambientMode) {
-      const label = data.step || data.title || 'Working…'
+      const label = textValue(data.step) || textValue(data.title) || 'Working...'
       setWsAlert(String(label).slice(0, 80))
       setTimeout(() => setWsAlert(null), 4000)
     }
     if (type === 'task_completed' || type === 'task_failed') {
       // Always announce completions and failures — not just in ambient mode
-      pendingDelegatesRef.current.delete(data.id ?? '')
+      pendingDelegatesRef.current.delete(textValue(data.id))
       setPendingTaskCount(pendingDelegatesRef.current.size)
       const verb  = type === 'task_completed' ? 'Done' : 'Failed'
-      const title = (data.title || 'Workspace task').slice(0, 60)
+      const title = (textValue(data.title) || 'Workspace task').slice(0, 60)
       const label = `${verb}: ${title}`
       setWsAlert(label)
       setTimeout(() => setWsAlert(null), 8000)
       if (ttsEnabled) voice.speakQueued(label)
     }
     if (type === 'reminder_due') {
-      const msg = data.message || 'Reminder'
+      const msg = textValue(data.message) || 'Reminder'
       setWsAlert(String(msg).slice(0, 80))
       setTimeout(() => setWsAlert(null), 8000)
       if (ttsEnabled) voice.speakQueued(String(msg).slice(0, 200))
@@ -407,6 +420,7 @@ export default function ConversationsView() {
             message: text,
             session_id: currentSessionId,
             image_base64: currentImage?.base64,
+            is_voice: isVoice,
           }),
           signal: controller.signal,
         })
@@ -432,6 +446,7 @@ export default function ConversationsView() {
             try {
               const parsed = JSON.parse(payload)
               if (parsed.error) throw new Error(parsed.error)
+              if (parsed.session_id) setCurrentSessionId(parsed.session_id)
               if (parsed.token) {
                 fullText += parsed.token
                 setStreaming((p) => p + parsed.token)
@@ -461,8 +476,8 @@ export default function ConversationsView() {
       // Sentence-by-sentence TTS already started during streaming — this
       // catches the final fragment that didn't end with punctuation.
       tryFlushTTS('', true)
-    } catch (err: any) {
-      if (err?.name !== 'AbortError') {
+    } catch (err: unknown) {
+      if (!isAbortError(err)) {
         setMessages((m) => [...m, {
           id: crypto.randomUUID(), role: 'assistant',
           content: '⚠ Something went wrong. Try again.', ts: new Date().toISOString(),
@@ -474,7 +489,7 @@ export default function ConversationsView() {
       setIsSending(false)
       abortRef.current = null
     }
-  }, [input, isSending, currentSessionId, ttsEnabled, voice, streaming, attachedImage, currentPartner])
+  }, [input, isSending, currentSessionId, ttsEnabled, voice, streaming, attachedImage])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -490,14 +505,26 @@ export default function ConversationsView() {
     reader.readAsDataURL(file)
   }
 
+  const clearMessages = () => {
+    setMessages([])
+    try {
+      sessionStorage.removeItem('companion_messages')
+    } catch {
+      // sessionStorage may be unavailable in private browsing or test environments.
+    }
+  }
+
   const escalateToWorkspace = async (content: string) => {
     try {
-      await api.post('/api/surface/spawn', {
-        surface:     'workspace',
-        title:       content.slice(0, 80),
-        description: content,
-        source:      'companion',
+      const res = await api.post('/api/workspace/tasks', {
+        task_description: content,
+        source: 'conversations',
       })
+      const taskId = res.data?.id
+      if (taskId) {
+        pendingDelegatesRef.current.set(taskId, content.slice(0, 80))
+        setPendingTaskCount(pendingDelegatesRef.current.size)
+      }
       toast.success('Sent to Workspace')
     } catch {
       toast.error('Could not escalate to Workspace')
@@ -631,25 +658,7 @@ export default function ConversationsView() {
           </button>
           <SurfaceStatusBar surface="workspace" compact label="Workspace" />
           <button
-            onClick={() => setPickerOpen(p => !p)}
-            className={cn(
-              "text-xs px-2.5 py-1 rounded-full border transition-colors",
-              pickerOpen
-                ? "bg-secondary/10 border-secondary/30 text-secondary"
-                : "border-outline-variant/20 text-on-surface-variant/50 hover:text-on-surface-variant"
-            )}
-            title="Switch voice model"
-          >
-            {activePersona === 'llamacpp-hermes3' ? 'Hermes 3'
-              : activePersona === 'llamacpp-pepe' ? 'Pepe'
-              : activePersona === 'llamacpp-rocinante' ? 'Rocinante'
-              : activePersona === 'llamacpp-minicpm' ? 'MiniCPM'
-              : activePersona === 'llamacpp-chat' ? 'Llama 70B'
-              : activePersona === 'auto' ? 'Cloud'
-              : activePersona}
-          </button>
-          <button
-            onClick={() => { setMessages([]); try { sessionStorage.removeItem('companion_messages') } catch {} }}
+            onClick={clearMessages}
             title="Clear conversation (Escape)"
             className="w-7 h-7 flex items-center justify-center rounded-lg text-on-surface-variant/40 hover:text-on-surface-variant hover:bg-surface-variant/50 transition-colors"
           >
@@ -657,26 +666,6 @@ export default function ConversationsView() {
           </button>
         </div>
       </div>
-
-      {/* Persona model picker — slides down from header */}
-      <AnimatePresence>
-        {pickerOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden border-b border-outline-variant/20 bg-surface-container-low/60 flex-shrink-0"
-          >
-            <div className="px-5 py-4">
-              <PersonaModelPicker
-                currentModel={activePersona}
-                onSwitch={(key) => { setActivePersona(key); setPickerOpen(false) }}
-              />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Avatar — shown when no messages or always-visible */}
       <div className={cn(
@@ -910,7 +899,7 @@ export default function ConversationsView() {
             </select>
           )}
 
-          <button onClick={() => { setMessages([]); try { sessionStorage.removeItem('companion_messages') } catch {} }}
+          <button onClick={clearMessages}
             className="text-xs text-on-surface-variant/40 hover:text-on-surface-variant transition-colors ml-auto">
             Clear
           </button>

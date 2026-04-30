@@ -13,8 +13,8 @@ the template default for that step:
     {"agent_overrides": {"Triage": "builtin-fast", "Code Expert": "my-uuid"}}
 
 Supported backends per step:
-  - Ollama (guppy, guppy-fast, etc.)
   - llama.cpp via OpenAI-compat (gemma-4-heretic-ara, qwen3-35b-uncensored, assistant-pepe-8b)
+  - local_harness via OpenAI-compatible chat completions
   Cloud providers are not yet supported in pipeline steps (async boundary).
 """
 from __future__ import annotations
@@ -23,7 +23,6 @@ import asyncio
 import json
 import sqlite3
 import time
-import urllib.request
 import uuid
 from typing import Any, AsyncGenerator
 
@@ -31,13 +30,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from src.guppy.api.server_context import ServerContext
-from src.guppy.paths import MAIN_DB_PATH, ensure_user_data_dir
 from src.guppy.inference.local_client import (
+    _BACKEND_DEFAULT_MODELS,
     _LLAMACPP_MODEL_ROUTE,
-    _resolve_url,
-    _BACKENDS,
+    local_chat,
 )
-
+from src.guppy.paths import MAIN_DB_PATH
 
 # ── Template definitions ──────────────────────────────────────────────────────
 # Steps reference agent IDs. Resolved at execution time so live agent edits
@@ -263,61 +261,43 @@ def _resolve_step(step: dict, agent_overrides: dict | None) -> dict:
 
 # ── Inference routing ─────────────────────────────────────────────────────────
 
-_OLLAMA_BASE = "http://127.0.0.1:11434"
+_PIPELINE_MODEL_ALIASES = {
+    "guppy-fast": _BACKEND_DEFAULT_MODELS.get("llamacpp-dispatch", "qwen2.5-3b-instruct"),
+    "guppy-code": _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes4", "hermes-4-14b"),
+    "guppy": _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes3", "hermes-3-8b-lorablated"),
+    "guppy-teach": _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes3", "hermes-3-8b-lorablated"),
+    "vault-scraper": _BACKEND_DEFAULT_MODELS.get("llamacpp-phi4-mini", "phi-4-mini-instruct"),
+}
+
+
+def _resolve_pipeline_model(model: str) -> str:
+    normalized = str(model or "").strip()
+    if not normalized:
+        return _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes3", "local-model")
+    return _PIPELINE_MODEL_ALIASES.get(normalized.lower(), normalized)
 
 
 def _call_step_model(model: str, system: str, user_text: str, timeout: int = 180) -> str:
-    """Call the right backend for a model name — Ollama or llama.cpp.
-
-    Routes by checking _LLAMACPP_MODEL_ROUTE first. Falls back to Ollama for
-    unknown model names (correct for all guppy-* Ollama models).
-    """
-    backend = _LLAMACPP_MODEL_ROUTE.get(model)
-    if backend:
-        cfg = _BACKENDS.get(backend, {})
-        url = f"{_resolve_url(backend)}{cfg.get('chat_path', '/v1/chat/completions')}"
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_text},
-            ],
-            "stream": False,
-            "max_tokens": 2048,
-            "temperature": 0.8,
-            "top_p": 0.95,
-        }
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read())
-        choices = data.get("choices", [])
-        if not choices:
-            return ""
-        return str(choices[0].get("message", {}).get("content", "") or "").strip()
-
-    # Default: Ollama
-    payload = {
-        "model": model,
-        "messages": [
+    """Call a local OpenAI-compatible backend for a pipeline step."""
+    resolved_model = _resolve_pipeline_model(model)
+    backend = _LLAMACPP_MODEL_ROUTE.get(resolved_model.strip().lower())
+    result = local_chat(
+        resolved_model,
+        [
             {"role": "system", "content": system},
             {"role": "user", "content": user_text},
         ],
-        "stream": False,
-    }
-    req = urllib.request.Request(
-        f"{_OLLAMA_BASE}/api/chat",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+        timeout=timeout,
+        num_predict=2048,
+        max_retries=0,
+        backend=backend,
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = json.loads(resp.read())
-    return str(data.get("message", {}).get("content", "") or "").strip()
+    response = str((result or {}).get("response") or "").strip()
+    if response:
+        return response
+    raise RuntimeError(
+        "Local pipeline inference unavailable: local llama.cpp runtime did not return a response"
+    )
 
 
 # ── Sequential pipeline runner ────────────────────────────────────────────────

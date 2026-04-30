@@ -273,7 +273,24 @@ _BACKEND_DEFAULT_MODELS: Dict[str, str] = {
     "llamacpp-xlam":       "Llama-xLAM-2-8B-fc-r-Q4_K_M.gguf",
     "llamacpp-chat":       "Llama-3.3-70B-Instruct-Q4_K_M.gguf",
     "llamacpp-phi4-mini":  "Phi-4-mini-instruct-Q4_K_M.gguf",
+    "local_harness":       "local-model",
 }
+
+_DEFAULT_BACKEND = "llamacpp-hermes3" if "llamacpp-hermes3" in _BACKENDS else "local_harness"
+_AUTO_PROBE_PREFERENCE = (
+    "llamacpp-hermes3",
+    "local_harness",
+    "llamacpp-dispatch",
+    "llamacpp-hermes4",
+    "llamacpp-qwen3",
+    "llamacpp-gemma",
+    "llamacpp-pepe",
+    "llamacpp-minicpm",
+    "llamacpp-rocinante",
+    "llamacpp-xlam",
+    "llamacpp-chat",
+    "llamacpp-phi4-mini",
+)
 
 # ── circuit breakers ──────────────────────────────────────────────────────────
 
@@ -335,24 +352,20 @@ def _resolve_url(backend: str) -> str:
 
 _auto_cache: Dict[str, Any] = {"backend": None, "expires_at": 0.0}
 _auto_lock = threading.Lock()
-# Probe order: Ollama first (most common), then LM Studio
-_AUTO_PROBE_ORDER = ("ollama", "lmstudio")
+_AUTO_PROBE_ORDER = tuple(name for name in _AUTO_PROBE_PREFERENCE if name in _BACKENDS)
 
 
 def _probe_headers(name: str) -> Dict[str, str]:
-    """Build probe headers, including auth for LM Studio."""
-    h: Dict[str, str] = {"Accept": "application/json"}
-    if name == "lmstudio":
-        key = os.environ.get("GUPPY_LMSTUDIO_API_KEY", "").strip()
-        if key:
-            h["Authorization"] = f"Bearer {key}"
-    return h
+    """Build probe headers for OpenAI-compatible local servers."""
+    return {"Accept": "application/json"}
 
 
 def _probe_backends(timeout: float = 1.5) -> str:
     """Ping each backend in order; return the first that responds."""
     for name in _AUTO_PROBE_ORDER:
-        cfg = _BACKENDS[name]
+        cfg = _BACKENDS.get(name)
+        if not cfg:
+            continue
         url = f"{_resolve_url(name)}{cfg['tags_path']}"
         try:
             req = urllib.request.Request(url, headers=_probe_headers(name), method="GET")
@@ -362,8 +375,8 @@ def _probe_backends(timeout: float = 1.5) -> str:
             return name
         except Exception:
             continue
-    logger.info("[LOCAL/auto] no backend detected, defaulting to ollama")
-    return "ollama"
+    logger.info("[LOCAL/auto] no backend detected, defaulting to %s", _DEFAULT_BACKEND)
+    return _DEFAULT_BACKEND
 
 
 def _resolve_backend() -> str:
@@ -379,7 +392,10 @@ def _resolve_backend() -> str:
             _auto_cache["backend"] = detected
             _auto_cache["expires_at"] = now + 30.0
         return detected
-    return raw if raw in _BACKENDS else "ollama"
+    if raw in _BACKENDS:
+        return raw
+    logger.info("[LOCAL] unsupported backend '%s', defaulting to %s", raw, _DEFAULT_BACKEND)
+    return _DEFAULT_BACKEND
 
 
 _probe_cache: Dict[str, Any] = {}
@@ -427,75 +443,22 @@ _lmstudio_cache_lock = threading.Lock()
 
 
 def _get_lmstudio_models(timeout: float = 2.0) -> List[str]:
-    """Return LM Studio model IDs, cached for 15 s."""
-    now = time.monotonic()
-    with _lmstudio_cache_lock:
-        if _lmstudio_model_cache["expires_at"] > now:
-            return list(_lmstudio_model_cache["models"])
+    """Return LM Studio model IDs.
 
-    models = list_local_models("lmstudio", timeout=timeout)
-    with _lmstudio_cache_lock:
-        _lmstudio_model_cache["models"] = models
-        _lmstudio_model_cache["expires_at"] = now + 15.0
-    return models
+    LM Studio is no longer a routed local backend. Keep this compatibility
+    shim side-effect free so legacy callers do not fall into a removed backend.
+    """
+    return []
 
 
 def _get_lmstudio_loaded_model() -> Optional[str]:
-    """Return the first model that has a loaded instance in LM Studio, or None."""
-    key = os.environ.get("GUPPY_LMSTUDIO_API_KEY", "").strip()
-    url = f"{_resolve_url('lmstudio')}/api/v1/models"
-    try:
-        req = urllib.request.Request(url, headers=_probe_headers("lmstudio"), method="GET")
-        with urllib.request.urlopen(req, timeout=3.0) as r:
-            data = json.loads(r.read().decode())
-        for m in data.get("models", []):
-            if m.get("loaded_instances"):
-                return m.get("key") or m.get("id")
-    except Exception:
-        pass
+    """Return the loaded LM Studio model, if that backend is supported."""
     return None
 
 
 def _resolve_lmstudio_model(requested: str) -> str:
-    """Map a Guppy logical model name to an LM Studio model ID.
-
-    Prefers the currently loaded model over the requested name, since
-    LM Studio users pick models in the UI — no config needed.
-    """
-    loaded = _get_lmstudio_loaded_model()
-    if loaded:
-        if requested != loaded:
-            logger.info(f"[LOCAL/lmstudio] '{requested}' → using loaded model '{loaded}'")
-        return loaded
-    available = _get_lmstudio_models()
-    if not available:
-        return requested
-    if requested in available:
-        return requested
-    resolved = available[0]
-    if requested != resolved:
-        logger.info(f"[LOCAL/lmstudio] '{requested}' not found — using '{resolved}'")
-    return resolved
-
-
-# ── payload builders ──────────────────────────────────────────────────────────
-
-def _build_ollama_payload(
-    model: str,
-    messages: List[Dict[str, Any]],
-    tools: Optional[list],
-    num_predict: int,
-) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "stream": False,
-        "keep_alive": "10m",
-        "options": {"temperature": 0.8, "top_p": 0.95, "top_k": 40, "num_predict": num_predict},
-    }
-    if tools:
-        payload["tools"] = tools
-    return payload
+    """Compatibility shim for legacy imports; LM Studio is not routed."""
+    return requested
 
 
 def _build_openai_payload(
@@ -516,18 +479,6 @@ def _build_openai_payload(
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
     return payload
-
-
-# ── response parsers ──────────────────────────────────────────────────────────
-
-def _parse_ollama(data: Dict[str, Any], model: str, backend: str) -> Dict[str, Any]:
-    return {
-        "response": data.get("message", {}).get("content", ""),
-        "model": model,
-        "source": "local",
-        "tool_calls": data.get("message", {}).get("tool_calls", []),
-        "metadata": {"timestamp": datetime.now().isoformat(), "backend": backend},
-    }
 
 
 def _parse_openai(data: Dict[str, Any], model: str, backend: str) -> Optional[Dict[str, Any]]:
@@ -568,29 +519,25 @@ def local_chat(
     """Send a chat request to the configured local backend.
 
     Returns a response dict or None on failure. Respects the circuit breaker.
-    For LM Studio, automatically maps to the currently loaded model.
     """
     resolved = (backend or _resolve_backend()).strip().lower()
     if resolved not in _BACKENDS:
         # Try routing by model name (covers llamacpp-* servers)
-        resolved = _LLAMACPP_MODEL_ROUTE.get(model, "ollama")
+        resolved = _LLAMACPP_MODEL_ROUTE.get(model.strip().lower(), _DEFAULT_BACKEND)
 
     cb = _get_cb(resolved)
     if cb.is_open:
         logger.warning(f"[LOCAL/{resolved}] circuit breaker OPEN — skipping {model}")
         return None
 
-    # LM Studio: resolve logical name → actual loaded model ID
-    actual_model = _resolve_lmstudio_model(model) if resolved == "lmstudio" else model
+    actual_model = model
 
     cfg = _BACKENDS[resolved]
     url = f"{_resolve_url(resolved)}{cfg['chat_path']}"
-    if cfg["format"] == "ollama":
-        payload = _build_ollama_payload(actual_model, messages, tools, num_predict)
-        parse = lambda d: _parse_ollama(d, actual_model, resolved)
-    else:
-        payload = _build_openai_payload(actual_model, messages, tools, num_predict)
-        parse = lambda d: _parse_openai(d, actual_model, resolved)
+    payload = _build_openai_payload(actual_model, messages, tools, num_predict)
+
+    def parse(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        return _parse_openai(data, actual_model, resolved)
 
     last_error: Optional[Exception] = None
     for attempt in range(max_retries + 1):
@@ -600,10 +547,6 @@ def local_chat(
             time.sleep(backoff)
         try:
             headers: Dict[str, str] = {"Content-Type": "application/json"}
-            if resolved == "lmstudio":
-                auth = _probe_headers("lmstudio")
-                if "Authorization" in auth:
-                    headers["Authorization"] = auth["Authorization"]
             req = urllib.request.Request(
                 url,
                 data=json.dumps(payload).encode(),
@@ -667,11 +610,11 @@ def list_local_models(backend: Optional[str] = None, timeout: float = 4.0) -> Li
     """Return available model names from the local backend.
 
     Results are cached for 15 s per backend so repeated /providers polls don't
-    each incur a full round-trip to Ollama / LM Studio.
+    each incur a full round-trip to the local OpenAI-compatible server.
     """
     resolved = (backend or _resolve_backend()).strip().lower()
     if resolved not in _BACKENDS:
-        resolved = "ollama"
+        resolved = _DEFAULT_BACKEND
 
     now = time.monotonic()
     with _models_cache_lock:
@@ -687,11 +630,7 @@ def list_local_models(backend: Optional[str] = None, timeout: float = 4.0) -> Li
         req = urllib.request.Request(url, headers=headers, method="GET")
         with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read().decode())
-        if cfg["format"] == "ollama":
-            models = [m.get("name", "") for m in data.get("models", []) if m.get("name")]
-        # LM Studio native: {"models": [{"key": "org/model"}]}
-        # LM Studio OpenAI-compat: {"data": [{"id": "..."}]}
-        elif "models" in data:
+        if "models" in data:
             models = [m.get("key", m.get("id", "")) for m in data.get("models", []) if m.get("key") or m.get("id")]
         else:
             models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]

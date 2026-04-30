@@ -939,6 +939,29 @@ def call_claude_with_tools(
     return final_text or "No response produced."
 
 
+def call_ollama_with_tools(
+    owner: Any,
+    user_text: str,
+    system_prompt: str,
+    *,
+    instance_name: Optional[str] = None,
+    instance_type: Optional[str] = None,
+    model_override: Optional[str] = None,
+) -> str:
+    """Compatibility shim for legacy call sites.
+
+    The runtime still exposes `_call_ollama_with_tools`, but local inference now
+    goes through the selected llama.cpp/local runtime instead of direct Ollama.
+    """
+    return owner._call_selected_local_runtime(
+        user_text,
+        system_prompt,
+        instance_name=instance_name,
+        instance_type=instance_type,
+        model_override=model_override,
+    )
+
+
 # ── Streaming support ─────────────────────────────────────────────────────────
 
 _TOOL_CALL_SENTINEL = "\x00TOOL_CALLS:"

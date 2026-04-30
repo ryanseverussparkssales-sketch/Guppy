@@ -8,6 +8,7 @@ All model selection goes through this module.
 from __future__ import annotations
 
 import logging
+import sqlite3
 
 logger = logging.getLogger(__name__)
 
@@ -117,8 +118,10 @@ def get_active_conversation_partner() -> str:
     if the DB is unavailable or no partner is set.
     """
     try:
-        from guppy.api.db import get_db_connection  # type: ignore[import]
-        with get_db_connection() as conn:
+        from src.guppy.paths import MAIN_DB_PATH, ensure_user_data_dir
+
+        ensure_user_data_dir()
+        with sqlite3.connect(str(MAIN_DB_PATH), timeout=10) as conn:
             row = conn.execute(
                 "SELECT conversation_partner FROM operator_settings LIMIT 1"
             ).fetchone()
@@ -159,8 +162,10 @@ def get_registry_info() -> dict:
 def _get_active_partner_role() -> str:
     """Return the currently active conversation partner role key."""
     try:
-        from guppy.api.db import get_db_connection  # type: ignore[import]
-        with get_db_connection() as conn:
+        from src.guppy.paths import MAIN_DB_PATH, ensure_user_data_dir
+
+        ensure_user_data_dir()
+        with sqlite3.connect(str(MAIN_DB_PATH), timeout=10) as conn:
             row = conn.execute(
                 "SELECT conversation_partner FROM operator_settings LIMIT 1"
             ).fetchone()

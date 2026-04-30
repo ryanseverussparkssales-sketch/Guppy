@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { FileText, Upload, Trash2, Sparkles, Download, RefreshCw, AlertCircle, X } from 'lucide-react'
+import { FileText, Upload, Trash2, Sparkles, Download, RefreshCw, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
 

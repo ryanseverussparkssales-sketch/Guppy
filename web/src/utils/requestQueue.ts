@@ -76,7 +76,8 @@ export class RequestQueue {
 
     // Evict the oldest entry when at capacity
     if (this.queue.size >= this.MAX_QUEUE_SIZE) {
-      const oldest = this.getSortedRequests().at(-1)
+      const sortedRequests = this.getSortedRequests()
+      const oldest = sortedRequests[sortedRequests.length - 1]
       if (oldest) this.queue.delete(oldest.id)
     }
 

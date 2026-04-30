@@ -6,19 +6,15 @@
  * Each tab mounts its panel in a consistent scrollable container.
  * Chat tab keeps the full AssistantView + collapsible AgentTaskPanel sidebar.
  */
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import {
   MessageSquare, LayoutList, Users, Monitor, FolderOpen,
-  Cpu, Phone, Zap, X, CheckCircle2, Clock, AlertCircle,
-  Loader2, ChevronRight, ChevronDown, Calendar, Mail, Library,
+  Cpu, Phone, Zap, AlertCircle, Calendar, Mail, Library,
   CheckSquare, RefreshCw, FileText, Wrench,
 } from 'lucide-react'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
-import { toast } from 'sonner'
-import api from '@/api/client'
-import { useSurfaceEvents } from '@/hooks/useSurfaceEvents'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
 import { CRMPanel } from '@/components/workspace/CRMPanel'
 import { ScreenPanel } from '@/components/workspace/ScreenPanel'
@@ -56,206 +52,11 @@ const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'tools',    icon: <Wrench        className="w-4 h-4" />, label: 'Tools'    },
 ]
 
-// ── Task types ─────────────────────────────────────────────────────────────────
-
-interface SurfaceTask {
-  id: string
-  surface: string
-  source: string
-  title: string
-  description: string
-  status: 'queued' | 'running' | 'complete' | 'failed' | 'cancelled'
-  result?: string
-  created_at: string
-  updated_at: string
-}
-
-const STATUS_ICONS: Record<string, React.ReactNode> = {
-  queued:    <Clock       className="w-3.5 h-3.5 text-on-surface-variant/60" />,
-  running:   <Loader2     className="w-3.5 h-3.5 text-primary animate-spin" />,
-  complete:  <CheckCircle2 className="w-3.5 h-3.5 text-success" />,
-  failed:    <AlertCircle  className="w-3.5 h-3.5 text-error" />,
-  cancelled: <X           className="w-3.5 h-3.5 text-on-surface-variant/40" />,
-}
-
-// ── TaskItem ───────────────────────────────────────────────────────────────────
-
-function TaskItem({ task, onCancel }: { task: SurfaceTask; onCancel: (id: string) => void }) {
-  const [expanded, setExpanded] = useState(false)
-  return (
-    <div className={cn(
-      "rounded-xl border text-sm transition-colors",
-      task.status === 'running'   && "border-primary/30 bg-primary/5",
-      task.status === 'complete'  && "border-success/20 bg-success/5",
-      task.status === 'failed'    && "border-error/20 bg-error/5",
-      task.status === 'queued'    && "border-outline-variant/30 bg-surface-variant/30",
-      task.status === 'cancelled' && "border-outline-variant/10 bg-surface opacity-50",
-    )}>
-      <div
-        className="flex items-center gap-2 px-3 py-2 cursor-pointer"
-        onClick={() => setExpanded(!expanded)}
-      >
-        {STATUS_ICONS[task.status]}
-        <span className="flex-1 font-medium text-on-surface truncate">{task.title}</span>
-        <span className="text-xs text-on-surface-variant/50 flex-shrink-0">{task.source}</span>
-        {(task.status === 'queued' || task.status === 'running') && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onCancel(task.id) }}
-            className="p-0.5 rounded hover:bg-surface-variant text-on-surface-variant/40 hover:text-error transition-colors"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        )}
-        {(task.description || task.result) && (
-          expanded
-            ? <ChevronDown  className="w-3.5 h-3.5 text-on-surface-variant/40 flex-shrink-0" />
-            : <ChevronRight className="w-3.5 h-3.5 text-on-surface-variant/40 flex-shrink-0" />
-        )}
-      </div>
-      <AnimatePresence>
-        {expanded && (task.description || task.result) && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden"
-          >
-            <div className="px-3 pb-2 space-y-1">
-              {task.description && (
-                <p className="text-xs text-on-surface-variant">{task.description}</p>
-              )}
-              {task.result && (
-                <p className="text-xs text-on-surface bg-surface/60 rounded-lg px-2 py-1.5 font-mono">
-                  {task.result}
-                </p>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
-
 // ── AgentsPanel ────────────────────────────────────────────────────────────────
 
 function AgentsPanel() {
   // Simplified to use new TaskPanel component wired to /api/workspace/tasks
   return <TaskPanel />
-}
-
-  const loadTasks = async () => {
-    try {
-      const res = await api.get('/api/surface/tasks?surface=workspace')
-      setTasks(res.data || [])
-    } catch { /* ignore */ } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => { loadTasks() }, [])
-
-  useSurfaceEvents((type, payload: any) => {
-    const RELOAD_EVENTS = [
-      'task_spawned', 'task_updated', 'task_cancelled',
-      'task_progress', 'task_completed', 'task_failed',
-    ]
-    if (RELOAD_EVENTS.includes(type)) loadTasks()
-
-    if (type === 'task_completed') {
-      const title = payload?.data?.title || payload?.title || 'Task'
-      toast.success(`Workspace: ${String(title).slice(0, 60)} — done`)
-    }
-    if (type === 'task_failed') {
-      const title = payload?.data?.title || payload?.title || 'Task'
-      toast.error(`Workspace task failed: ${String(title).slice(0, 50)}`)
-    }
-    if (type === 'reminder_due') {
-      const msg = payload?.data?.message || payload?.message || 'Reminder'
-      toast.info(`⏰ ${String(msg).slice(0, 120)}`, { duration: 8000 })
-    }
-  })
-
-  const cancelTask = async (id: string) => {
-    try {
-      await api.delete(`/api/surface/tasks/${id}`)
-      setTasks((t) => t.map((x) => x.id === id ? { ...x, status: 'cancelled' } : x))
-    } catch { /* ignore */ }
-  }
-
-  const filtered = tasks.filter((t) => {
-    if (filter === 'active') return ['queued', 'running'].includes(t.status)
-    if (filter === 'done')   return ['complete', 'failed', 'cancelled'].includes(t.status)
-    return true
-  })
-
-  const activeCount = tasks.filter((t) => ['queued', 'running'].includes(t.status)).length
-
-  return (
-    <div className="flex flex-col h-full p-4 gap-3">
-      {/* Header */}
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <LayoutList className="w-4 h-4 text-on-surface-variant" />
-        <span className="text-sm font-semibold text-on-surface">Agent Tasks</span>
-        {activeCount > 0 && (
-          <span className="px-1.5 py-0.5 text-xs font-medium bg-primary text-on-primary rounded-full">
-            {activeCount}
-          </span>
-        )}
-      </div>
-
-      {/* Filter tabs */}
-      <div className="flex gap-1 flex-shrink-0">
-        {(['all', 'active', 'done'] as const).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={cn(
-              "text-xs px-2.5 py-1 rounded-lg capitalize transition-colors",
-              filter === f
-                ? "bg-primary/10 text-primary font-medium"
-                : "text-on-surface-variant/60 hover:text-on-surface"
-            )}
-          >
-            {f}
-          </button>
-        ))}
-      </div>
-
-      {/* Task list */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 min-h-0">
-        {loading ? (
-          <div className="flex items-center justify-center pt-8">
-            <Loader2 className="w-5 h-5 animate-spin text-on-surface-variant/40" />
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="text-center pt-10">
-            <Zap className="w-8 h-8 text-on-surface-variant/20 mx-auto mb-2" />
-            <p className="text-xs text-on-surface-variant/40">
-              {filter === 'active' ? 'No active tasks' : 'No tasks yet'}
-            </p>
-            <p className="text-xs text-on-surface-variant/30 mt-1">
-              Escalate from Companion to queue tasks here
-            </p>
-          </div>
-        ) : (
-          <AnimatePresence>
-            {filtered.map((task) => (
-              <motion.div
-                key={task.id}
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, height: 0 }}
-              >
-                <TaskItem task={task} onCancel={cancelTask} />
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        )}
-      </div>
-    </div>
-  )
 }
 
 // ── ChatTab ────────────────────────────────────────────────────────────────────

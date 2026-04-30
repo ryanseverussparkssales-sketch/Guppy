@@ -20,7 +20,7 @@ from src.guppy.model_roles import (
     CONVERSATION_PARTNER_ROLES,
     get_registry_info,
 )
-from src.guppy.paths import USER_DATA_DIR
+from src.guppy.paths import MAIN_DB_PATH, ensure_user_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS operator_settings (
 
 
 def _db() -> sqlite3.Connection:
-    path = _DB_PATH or str(USER_DATA_DIR / "guppy_main.db")
+    ensure_user_data_dir()
+    path = _DB_PATH or str(MAIN_DB_PATH)
     conn = sqlite3.connect(path, check_same_thread=False, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -87,20 +88,22 @@ class OperatorSettingsRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def build_model_roles_router(ctx: ServerContext) -> APIRouter:
+def build_model_roles_router(ctx: ServerContext) -> tuple[APIRouter, APIRouter]:
     global _DB_PATH
     from src.guppy.api.routes_surface import _DB_PATH as _surface_db_path
     if _surface_db_path:
         _DB_PATH = _surface_db_path
     else:
-        _DB_PATH = str(USER_DATA_DIR / "guppy_main.db")
+        _DB_PATH = str(MAIN_DB_PATH)
 
     _ensure_schema()
 
     router = APIRouter(prefix="/api/model-roles", tags=["model-roles"])
 
     @router.get("")
-    async def get_model_roles():
+    async def get_model_roles(
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
         """Return the full model role registry with current assignments."""
         info = get_registry_info()
         # Add current operator settings
@@ -125,7 +128,10 @@ def build_model_roles_router(ctx: ServerContext) -> APIRouter:
         return info
 
     @router.put("/conversation-partner")
-    async def set_conversation_partner(req: ConversationPartnerRequest):
+    async def set_conversation_partner(
+        req: ConversationPartnerRequest,
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
         """Change the active conversation partner role.
 
         Body: {"role": "conversation.partner.writing"}
@@ -169,7 +175,9 @@ def build_model_roles_router(ctx: ServerContext) -> APIRouter:
     control_router = APIRouter(prefix="/api/control", tags=["control"])
 
     @control_router.get("/operator-settings")
-    async def get_operator_settings():
+    async def get_operator_settings(
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
         """Return current operator settings."""
         try:
             with _db() as conn:
@@ -191,7 +199,10 @@ def build_model_roles_router(ctx: ServerContext) -> APIRouter:
         }
 
     @control_router.put("/operator-settings")
-    async def update_operator_settings(req: OperatorSettingsRequest):
+    async def update_operator_settings(
+        req: OperatorSettingsRequest,
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
         """Update operator settings (partial update — only supplied fields change)."""
         if req.conversation_partner is not None and req.conversation_partner not in CONVERSATION_PARTNER_ROLES:
             raise HTTPException(

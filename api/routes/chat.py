@@ -9,6 +9,7 @@ import logging
 import os
 import time
 from collections.abc import AsyncIterator
+from importlib.util import find_spec
 from typing import Literal
 
 from fastapi import APIRouter, Depends
@@ -59,12 +60,12 @@ class ChatResponse(BaseModel):
 def _select_backend() -> str:
     backend = os.environ.get("GUPPY_AI_BACKEND", "auto").strip().lower()
     if backend == "openai":
-        return "openai"
+        return "openai" if find_spec("openai") else "mock-local"
     if backend == "anthropic":
-        return "anthropic"
-    if os.environ.get("OPENAI_API_KEY"):
+        return "anthropic" if find_spec("anthropic") else "mock-local"
+    if os.environ.get("OPENAI_API_KEY") and find_spec("openai"):
         return "openai"
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    if os.environ.get("ANTHROPIC_API_KEY") and find_spec("anthropic"):
         return "anthropic"
     return "mock-local"
 

@@ -1,7 +1,14 @@
 # Guppy — Master Tranche Codex
 **Authored:** 2026-04-29  
 **Authority:** This document is the single source of truth for the Guppy recovery and build-out plan. It supersedes any conflicting tranche lists in chat history.  
-**Status:** Ready to execute. Tranches are ordered. Each has acceptance criteria.
+**Status:** Target contract, not a completion receipt. Tranches are ordered and have acceptance criteria, but current implementation state varies by item.
+
+**Implementation status note (2026-04-30):**
+- **Skeleton** means module/table/route shape exists, but the behavior may be stubbed or not end-to-end verified.
+- **Wired** means the route is mounted or the schema is inventoried and guarded by import/path tests.
+- **Working** means focused behavior tests or smoke evidence exercise the user-facing path.
+
+Current sweep status: Tranches A-H are partially skeleton/wired, not uniformly working. Known gaps include conversation partner role/backend resolution in the dedicated conversations route, stubbed workspace task execution, Library API item persistence still using JSON while DB tables are now inventoried by migration, and Screenpipe/AI summary behavior remaining best-effort when local llama.cpp services are offline.
 
 ---
 

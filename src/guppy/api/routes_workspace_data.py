@@ -10,15 +10,16 @@ GET  /api/workspace/pipeline/templates — available pipeline templates
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from src.guppy.api.server_context import ServerContext
 from src.guppy.paths import MEMORY_DB_PATH
-
 
 # ── DB helpers ─────────────────────────────────────────────────────────────────
 
@@ -43,10 +44,11 @@ def _contacts_json(search: str = "") -> list[dict[str, Any]]:
 
 
 def _tasks_json(status: str = "pending") -> list[dict[str, Any]]:
+    normalized_status = "done" if status == "completed" else status
     with _mem_conn() as conn:
         rows = conn.execute(
             "SELECT * FROM tasks WHERE status=? ORDER BY created DESC LIMIT 200",
-            (status,),
+            (normalized_status,),
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -64,6 +66,17 @@ class ContactCreate(BaseModel):
 class TaskCreate(BaseModel):
     task:     str
     due_date: str = ""
+
+
+def _create_crm_task(body: TaskCreate) -> dict[str, Any]:
+    from src.guppy.memory import memory_store
+
+    result = memory_store.add_task_record(
+        MEMORY_DB_PATH,
+        task=body.task,
+        due_date=body.due_date,
+    )
+    return {"ok": True, "message": result}
 
 
 # ── Router ─────────────────────────────────────────────────────────────────────
@@ -116,6 +129,55 @@ def build_workspace_data_router(ctx: ServerContext) -> APIRouter:
 
     @router.get("/tasks")
     def list_tasks(
+        status: str | None = None,
+        state: str | None = None,
+        _uid: str = Depends(ctx.require_rate_limit),
+    ):
+        try:
+            if status is not None and state is None:
+                return _tasks_json(status=status)
+
+            from src.guppy.api.routes_workspace import list_workspace_task_records
+
+            return [item.model_dump() for item in list_workspace_task_records(state=state)]
+        except Exception as e:
+            if isinstance(e, HTTPException):
+                raise
+            raise HTTPException(500, f"Could not read tasks: {e}")
+
+    @router.post("/tasks")
+    def add_task(
+        body: dict[str, Any],
+        response: Response,
+        _uid: str = Depends(ctx.require_rate_limit),
+    ):
+        try:
+            if "task_description" in body:
+                from src.guppy.api.routes_workspace import (
+                    CreateTaskRequest,
+                    create_workspace_task_record,
+                )
+
+                task = create_workspace_task_record(
+                    CreateTaskRequest(
+                        task_description=str(body.get("task_description") or ""),
+                        source=str(body.get("source") or "workspace"),
+                    )
+                )
+                response.status_code = 201
+                return task.model_dump()
+
+            if "task" not in body:
+                raise HTTPException(422, "task_description or task is required")
+
+            return _create_crm_task(TaskCreate(**body))
+        except Exception as e:
+            if isinstance(e, HTTPException):
+                raise
+            raise HTTPException(500, f"Could not add task: {e}")
+
+    @router.get("/crm/tasks")
+    def list_crm_tasks(
         status: str = "pending",
         _uid: str = Depends(ctx.require_rate_limit),
     ):
@@ -124,19 +186,13 @@ def build_workspace_data_router(ctx: ServerContext) -> APIRouter:
         except Exception as e:
             raise HTTPException(500, f"Could not read tasks: {e}")
 
-    @router.post("/tasks")
-    def add_task(
+    @router.post("/crm/tasks")
+    def add_crm_task(
         body: TaskCreate,
         _uid: str = Depends(ctx.require_rate_limit),
     ):
         try:
-            from src.guppy.memory import memory_store
-            result = memory_store.add_task_record(
-                MEMORY_DB_PATH,
-                task=body.task,
-                due_date=body.due_date,
-            )
-            return {"ok": True, "message": result}
+            return _create_crm_task(body)
         except Exception as e:
             raise HTTPException(500, f"Could not add task: {e}")
 
@@ -159,13 +215,20 @@ def build_workspace_data_router(ctx: ServerContext) -> APIRouter:
         except Exception as e:
             raise HTTPException(500, f"Could not delete task: {e}")
 
+    @router.put("/crm/tasks/{task_id}/complete")
+    def complete_crm_task(task_id: int, _uid: str = Depends(ctx.require_rate_limit)):
+        return complete_task(task_id, _uid)
+
+    @router.delete("/crm/tasks/{task_id}")
+    def delete_crm_task(task_id: int, _uid: str = Depends(ctx.require_rate_limit)):
+        return delete_task(task_id, _uid)
+
     # ── Pipeline pass-through ──────────────────────────────────────────────────
 
     @router.get("/pipeline/history")
     async def pipeline_history(_uid: str = Depends(ctx.require_rate_limit)):
         """Proxy to /api/pipeline/history for workspace panel convenience."""
         try:
-            import httpx, os
             port = int(os.environ.get("GUPPY_API_PORT", "8081"))
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(
@@ -179,7 +242,6 @@ def build_workspace_data_router(ctx: ServerContext) -> APIRouter:
     @router.get("/pipeline/templates")
     async def pipeline_templates(_uid: str = Depends(ctx.require_rate_limit)):
         try:
-            import httpx, os
             port = int(os.environ.get("GUPPY_API_PORT", "8081"))
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(

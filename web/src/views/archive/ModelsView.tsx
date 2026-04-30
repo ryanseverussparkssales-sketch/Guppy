@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Download, Trash2, RefreshCw, CheckCircle, XCircle, Brain, Cloud, Cpu, Activity, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import api from '../api/client'
+import api from '@/api/client'
 
 const _BACKEND_LABELS: Record<string, string> = {
   ollama:              'Ollama',

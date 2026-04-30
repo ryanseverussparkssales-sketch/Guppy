@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse
 
 from src.guppy.api._server_fragment_models import TokenResponse, TurnstileToken
 from src.guppy.api.server_context import ServerContext
@@ -11,12 +14,12 @@ def build_core_router(ctx: ServerContext) -> APIRouter:
     router = APIRouter()
 
     @router.get("/")
-    async def root():
-        """Serve the SPA index for the root path."""
-        from pathlib import Path
-        from fastapi.responses import FileResponse, JSONResponse
+    async def root(request: Request):
+        """Serve the SPA to browsers and JSON health to API callers."""
         index = Path(__file__).parent.parent.parent.parent / "static" / "index.html"
-        if index.exists():
+        accept = request.headers.get("accept", "")
+        wants_html = "text/html" in accept and "application/json" not in accept
+        if index.exists() and wants_html:
             return FileResponse(str(index))
         return {"message": "Guppy API is running", "status": "healthy"}
 

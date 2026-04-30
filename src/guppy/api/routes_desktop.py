@@ -18,16 +18,18 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
-import json
 import os
 import time
-import urllib.request
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
 
 from src.guppy.api.server_context import ServerContext
+from src.guppy.inference.local_client import (
+    _BACKEND_DEFAULT_MODELS,
+    _LLAMACPP_MODEL_ROUTE,
+    local_chat,
+)
 from src.guppy.workspace import screen_parser
 
 # ── pyautogui availability ────────────────────────────────────────────────────
@@ -89,27 +91,48 @@ def _image_to_b64(img: Any, quality: int = 85) -> str:
 
 # ── Vision / OCR helper ───────────────────────────────────────────────────────
 
-def _run_vision(img_b64: str, instruction: str) -> str:
-    """Send image to local vision model or Claude fallback."""
-    local_model = os.environ.get("GUPPY_VISION_MODEL", "guppy-vision")
-    ollama_base = os.environ.get("GUPPY_OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+_VISION_MODEL_ALIASES = {
+    "guppy-vision": _BACKEND_DEFAULT_MODELS.get("llamacpp-minicpm", "minicpm-o-4.5"),
+    "guppy-vision-pro": _BACKEND_DEFAULT_MODELS.get("llamacpp-minicpm", "minicpm-o-4.5"),
+}
 
-    payload = json.dumps({
-        "model": local_model,
-        "messages": [{"role": "user", "content": instruction, "images": [img_b64]}],
-        "stream": False,
-        "options": {"num_predict": 2048},
-    }).encode()
+
+def _resolve_vision_model() -> str:
+    raw = (os.environ.get("GUPPY_VISION_MODEL", "") or "").strip()
+    if not raw:
+        return _BACKEND_DEFAULT_MODELS.get("llamacpp-minicpm", "minicpm-o-4.5")
+    return _VISION_MODEL_ALIASES.get(raw.lower(), raw)
+
+
+def _run_local_vision(img_b64: str, instruction: str) -> str:
+    model = _resolve_vision_model()
+    backend = _LLAMACPP_MODEL_ROUTE.get(model.strip().lower())
+    result = local_chat(
+        model,
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": instruction},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"},
+                    },
+                ],
+            }
+        ],
+        timeout=60,
+        num_predict=2048,
+        max_retries=0,
+        backend=backend,
+    )
+    return str((result or {}).get("response") or "").strip()
+
+
+def _run_vision(img_b64: str, instruction: str) -> str:
+    """Send image to local llama.cpp vision model or Claude fallback."""
     try:
-        req = urllib.request.Request(
-            f"{ollama_base}/api/chat",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=60) as r:
-            data = json.loads(r.read())
-        text = (data.get("message", {}).get("content") or "").strip()
+        text = _run_local_vision(img_b64, instruction)
         if text:
             return text
     except Exception:
@@ -118,7 +141,13 @@ def _run_vision(img_b64: str, instruction: str) -> str:
     # Claude fallback
     api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
-        return "Vision unavailable: local model unreachable and no ANTHROPIC_API_KEY set."
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Vision unavailable: local llama.cpp vision runtime did not return a "
+                "response and ANTHROPIC_API_KEY is not set"
+            ),
+        )
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
@@ -136,7 +165,10 @@ def _run_vision(img_b64: str, instruction: str) -> str:
         )
         return resp.content[0].text if resp.content else "No response."
     except Exception as e:
-        return f"Vision error: {e}"
+        raise HTTPException(
+            status_code=503,
+            detail=f"Vision unavailable: local llama.cpp and Claude fallback failed: {e}",
+        )
 
 
 # ── Sync worker functions (run in thread) ─────────────────────────────────────
@@ -355,7 +387,7 @@ def build_desktop_router(ctx: ServerContext) -> APIRouter:
         _user: str = Depends(ctx.require_rate_limit),
     ) -> Dict[str, Any]:
         """Capture screen and parse UI elements.
-        
+
         Returns screenshot as base64 + list of detected UI elements.
         Tries OmniParser first, falls back to MiniCPM vision.
         """
@@ -365,18 +397,18 @@ def build_desktop_router(ctx: ServerContext) -> APIRouter:
             img = screen_parser.capture_screen()
             if not img:
                 raise HTTPException(status_code=500, detail="Failed to capture screen")
-            
+
             elements = screen_parser.parse_screen(img)
-            
+
             # Encode screenshot
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=82)
             img_b64 = base64.standard_b64encode(buf.getvalue()).decode()
-            
+
             # Screenshot hash for tracing
             img_bytes = buf.getvalue()
             img_hash = hashlib.sha256(img_bytes).hexdigest()[:8]
-            
+
             return {
                 "screenshot": f"data:image/jpeg;base64,{img_b64}",
                 "width": img.width,
@@ -385,7 +417,7 @@ def build_desktop_router(ctx: ServerContext) -> APIRouter:
                 "elements": [elem.to_dict() for elem in elements],
                 "element_count": len(elements),
             }
-        
+
         try:
             return await asyncio.to_thread(_do_parse)
         except Exception as e:
@@ -397,9 +429,9 @@ def build_desktop_router(ctx: ServerContext) -> APIRouter:
         _user: str = Depends(ctx.require_rate_limit),
     ) -> Dict[str, Any]:
         """Click a UI element by natural language description.
-        
+
         Body: { description: "Submit button" }
-        
+
         Captures screen, parses elements, finds best match, grounds click.
         """
         def _do_click():
@@ -407,12 +439,12 @@ def build_desktop_router(ctx: ServerContext) -> APIRouter:
             description = str(payload.get("description", "")).strip()
             if not description:
                 raise ValueError("description required")
-            
+
             # Ground the click
             coords = screen_parser.ground_click(description)
             if not coords:
                 raise ValueError(f"Could not find element matching '{description}'")
-            
+
             x, y = coords
             pyautogui.click(x, y)
             return {
@@ -421,7 +453,7 @@ def build_desktop_router(ctx: ServerContext) -> APIRouter:
                 "y": y,
                 "result": f"Clicked '{description}' at ({x}, {y})"
             }
-        
+
         try:
             return await asyncio.to_thread(_do_click)
         except Exception as e:
@@ -433,29 +465,29 @@ def build_desktop_router(ctx: ServerContext) -> APIRouter:
         _user: str = Depends(ctx.require_rate_limit),
     ) -> Dict[str, Any]:
         """Type text into a UI element by description.
-        
+
         Body: { description: "search bar", text: "hello world" }
-        
+
         Grounds focus to element, then types text.
         """
         def _do_type_in():
             _require_pya()
             description = str(payload.get("description", "")).strip()
             text = str(payload.get("text", ""))
-            
+
             if not description or not text:
                 raise ValueError("description and text required")
-            
+
             # Ground the click to focus element
             coords = screen_parser.ground_click(description)
             if not coords:
                 raise ValueError(f"Could not find element matching '{description}'")
-            
+
             x, y = coords
             pyautogui.click(x, y)
             time.sleep(0.2)  # Wait for focus
             pyautogui.write(text, interval=0.03)
-            
+
             return {
                 "description": description,
                 "text": text[:100],  # Truncate in response
@@ -463,7 +495,7 @@ def build_desktop_router(ctx: ServerContext) -> APIRouter:
                 "y": y,
                 "result": f"Typed into '{description}' at ({x}, {y})"
             }
-        
+
         try:
             return await asyncio.to_thread(_do_type_in)
         except Exception as e:

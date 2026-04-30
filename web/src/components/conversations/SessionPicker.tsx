@@ -24,10 +24,59 @@ export interface ConversationSession {
 
 export interface ConversationPartner {
   role: string
+  backend: string
   label: string
   description: string
   port: string
   model: string
+}
+
+interface ModelRoleData {
+  backend?: string
+  label?: string
+  description?: string
+  port?: string
+  model?: string
+  conversation_partner_eligible?: boolean
+  active_partner?: boolean
+}
+
+interface ModelRolesResponse {
+  roles?: Record<string, ModelRoleData>
+  conversation_partner_roles?: string[]
+  active_conversation_partner?: string
+  active_conversation_partner_role?: string
+  active_conversation_partner_backend?: string
+  operator_settings?: {
+    conversation_partner?: string
+  }
+}
+
+function resolvePartnerRole(
+  candidate: unknown,
+  roles: Record<string, ModelRoleData>,
+): string | null {
+  if (typeof candidate !== 'string' || !candidate.trim()) return null
+  if (roles[candidate]) return candidate
+
+  const backendMatch = Object.entries(roles).find(([, data]) => data.backend === candidate)
+  return backendMatch?.[0] ?? null
+}
+
+function getResponseStatus(err: unknown): number | undefined {
+  return (err as { response?: { status?: number } }).response?.status
+}
+
+async function persistConversationPartner(role: string) {
+  try {
+    await api.put('/api/model-roles/conversation-partner', { role })
+    return
+  } catch (err: unknown) {
+    const status = getResponseStatus(err)
+    if (status !== 404 && status !== 405 && status !== 501) throw err
+  }
+
+  await api.put('/api/control/operator-settings', { conversation_partner: role })
 }
 
 /**
@@ -59,9 +108,11 @@ export function SessionPicker({
     }
   }
 
-  useEffect(() => {
-    if (open) loadSessions()
-  }, [open])
+  const toggleSessions = () => {
+    const nextOpen = !open
+    setOpen(nextOpen)
+    if (nextOpen) void loadSessions()
+  }
 
   const deleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -78,7 +129,7 @@ export function SessionPicker({
   return (
     <div className="px-3 py-2 border-b border-outline-variant/20">
       <button
-        onClick={() => setOpen(!open)}
+        onClick={toggleSessions}
         className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-sm hover:bg-surface-variant/50 transition-colors"
       >
         <span className="font-medium text-on-surface">Sessions</span>
@@ -154,6 +205,7 @@ export function PartnerSelector({
 }) {
   const [partners, setPartners] = useState<ConversationPartner[]>([])
   const [loading, setLoading] = useState(true)
+  const [savingRole, setSavingRole] = useState<string | null>(null)
 
   useEffect(() => {
     const loadPartners = async () => {
@@ -161,31 +213,47 @@ export function PartnerSelector({
         // Get all model roles + current operator settings
         const [rolesRes, settingsRes] = await Promise.all([
           api.get('/api/model-roles'),
-          api.get('/api/control/operator-settings'),
+          api.get('/api/control/operator-settings').catch(() => ({ data: null })),
         ])
 
-        const roles = rolesRes.data || {}
-        const settings = settingsRes.data || {}
-        const activePartner = settings.conversation_partner || 'conversation.default'
+        const payload = (rolesRes.data || {}) as ModelRolesResponse
+        const roles = payload.roles || (payload as Record<string, ModelRoleData>)
+        const settings = settingsRes.data || payload.operator_settings || {}
+        const activePartner =
+          resolvePartnerRole(settings.conversation_partner, roles) ||
+          resolvePartnerRole(payload.operator_settings?.conversation_partner, roles) ||
+          resolvePartnerRole(payload.active_conversation_partner_role, roles) ||
+          resolvePartnerRole(payload.active_conversation_partner, roles) ||
+          resolvePartnerRole(payload.active_conversation_partner_backend, roles) ||
+          Object.entries(roles).find(([, data]) => data.active_partner)?.[0] ||
+          'conversation.default'
 
         // Filter to conversation partners only
-        const partnerList = Object.entries(roles)
-          .filter(([key]) => key.startsWith('conversation.partner') || key === 'conversation.default')
-          .map(([, data]: any) => ({
-            role: data.backend || '',
-            label: data.label || '',
-            description: data.description || '',
-            port: data.port || '',
-            model: data.model || '',
+        const roleOrder = payload.conversation_partner_roles?.length
+          ? payload.conversation_partner_roles
+          : Object.keys(roles)
+
+        const partnerList = roleOrder
+          .filter((role) => {
+            const data = roles[role]
+            return Boolean(
+              data &&
+              (data.conversation_partner_eligible ||
+                role.startsWith('conversation.partner') ||
+                role === 'conversation.default')
+            )
+          })
+          .map((role) => ({
+            role,
+            backend: roles[role].backend || '',
+            label: roles[role].label || role,
+            description: roles[role].description || '',
+            port: roles[role].port || '',
+            model: roles[role].model || '',
           }))
 
         setPartners(partnerList)
-
-        // Set current partner
-        if (currentPartner === null && activePartner) {
-          const roleData = roles[activePartner] || {}
-          onSelectPartner(roleData.backend || 'llamacpp-hermes3')
-        }
+        onSelectPartner(activePartner)
       } catch (e) {
         console.error('Failed to load partners:', e)
         toast.error('Could not load partner options')
@@ -195,7 +263,22 @@ export function PartnerSelector({
     }
 
     loadPartners()
-  }, [])
+  }, [onSelectPartner])
+
+  const selectPartner = async (role: string) => {
+    if (role === currentPartner || savingRole) return
+    setSavingRole(role)
+    try {
+      await persistConversationPartner(role)
+      onSelectPartner(role)
+      toast.success('Conversation partner updated')
+    } catch (e) {
+      console.error('Failed to update partner:', e)
+      toast.error('Could not update conversation partner')
+    } finally {
+      setSavingRole(null)
+    }
+  }
 
   if (loading) {
     return <div className="px-3 py-2 text-xs text-on-surface-variant/50">Loading partners…</div>
@@ -208,12 +291,14 @@ export function PartnerSelector({
         {partners.map((partner) => (
           <button
             key={partner.role}
-            onClick={() => onSelectPartner(partner.role)}
+            onClick={() => selectPartner(partner.role)}
+            disabled={savingRole !== null}
             className={cn(
               "px-2 py-2.5 rounded-lg border transition-all text-left",
               currentPartner === partner.role
                 ? "border-primary/50 bg-primary/10"
-                : "border-outline-variant/20 hover:border-outline-variant/50"
+                : "border-outline-variant/20 hover:border-outline-variant/50",
+              savingRole !== null && "opacity-60 cursor-wait"
             )}
           >
             <p className="text-xs font-medium text-on-surface">{partner.label}</p>

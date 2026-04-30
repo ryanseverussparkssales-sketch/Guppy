@@ -19,16 +19,21 @@ import re
 import sqlite3
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from src.guppy.api.realtime_inference_support import stream_unified_inference, _repair_tool_json
+from src.guppy.api.realtime_inference_support import (
+    _REPLACE_SENTINEL,
+    _SOURCE_SENTINEL,
+    _repair_tool_json,
+    stream_unified_inference,
+)
 from src.guppy.api.server_context import ServerContext
-from src.guppy.model_roles import get_active_conversation_partner, resolve_role
-from src.guppy.paths import USER_DATA_DIR
+from src.guppy.model_roles import get_active_conversation_partner
+from src.guppy.paths import MAIN_DB_PATH, ensure_user_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +65,8 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 
 
 def _db() -> sqlite3.Connection:
-    path = _DB_PATH or str(USER_DATA_DIR / "guppy_main.db")
+    ensure_user_data_dir()
+    path = _DB_PATH or str(MAIN_DB_PATH)
     conn = sqlite3.connect(path, check_same_thread=False, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -76,6 +82,45 @@ def _ensure_schema() -> None:
     with _db() as conn:
         conn.executescript(_CONVERSATIONS_SCHEMA)
         conn.commit()
+
+
+_CONVERSATION_SYSTEM_PROMPT = """
+You are Guppy in the dedicated Conversations surface: warm, direct, and useful.
+Answer naturally and keep continuity with the provided session history.
+
+If a tool is truly needed, emit a raw tool block in this exact form:
+<tool_call>{"name":"tool_name","arguments":{}}</tool_call>
+
+Allowed tools are web_fetch, create_reminder, download_media, memory_write,
+memory_recall, and workspace_task. Do not request any other tool.
+""".strip()
+
+
+async def _stream_conversation_inference(
+    ctx: ServerContext,
+    *,
+    message: str,
+    backend: str,
+    history: list[dict],
+    image_base64: str | None = None,
+) -> AsyncGenerator[str, None]:
+    """Adapt the conversations route shape to the shared realtime stream helper."""
+    async for token in stream_unified_inference(
+        ctx.owner,
+        message,
+        _CONVERSATION_SYSTEM_PROMPT,
+        mode="local",
+        history=history,
+        active_local_model=backend,
+        image_base64=image_base64 or None,
+        skip_tools=True,
+    ):
+        if token.startswith(_SOURCE_SENTINEL):
+            continue
+        if token.startswith(_REPLACE_SENTINEL):
+            yield token[len(_REPLACE_SENTINEL) :]
+            continue
+        yield token
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -228,7 +273,9 @@ async def _execute_and_format_conversation_tools(
     for match in _TOOL_CALL_RE.finditer(assistant_text):
         json_str = match.group(1)
         try:
-            call = json.loads(_repair_tool_json(json_str))
+            call = _repair_tool_json(json_str)
+            if not isinstance(call, dict):
+                continue
             name = call.get("name")
             args = call.get("arguments", {})
             if not name:
@@ -268,10 +315,12 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
     # ──────────────────────────────────────────────────────────────────────────
 
     @router.post("/sessions", response_model=SessionResponse)
-    async def create_session() -> SessionResponse:
+    async def create_session(
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ) -> SessionResponse:
         """Create a new conversation session."""
         session_id = str(uuid.uuid4())
-        backend = resolve_role(get_active_conversation_partner())
+        backend = get_active_conversation_partner()
         now = _now()
 
         with _db() as conn:
@@ -293,7 +342,9 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
         )
 
     @router.get("/sessions", response_model=list[SessionResponse])
-    async def list_sessions() -> list[SessionResponse]:
+    async def list_sessions(
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ) -> list[SessionResponse]:
         """List all conversation sessions."""
         with _db() as conn:
             rows = conn.execute(
@@ -319,7 +370,10 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
         return result
 
     @router.get("/sessions/{session_id}/messages", response_model=list[MessageResponse])
-    async def get_session_messages(session_id: str) -> list[MessageResponse]:
+    async def get_session_messages(
+        session_id: str,
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ) -> list[MessageResponse]:
         """Get all messages in a session."""
         with _db() as conn:
             rows = conn.execute(
@@ -340,7 +394,10 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
             ]
 
     @router.delete("/sessions/{session_id}")
-    async def delete_session(session_id: str) -> dict:
+    async def delete_session(
+        session_id: str,
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ) -> dict:
         """Delete a session and all its messages."""
         with _db() as conn:
             conn.execute("DELETE FROM conversations WHERE id = ?", (session_id,))
@@ -352,12 +409,15 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
     # ──────────────────────────────────────────────────────────────────────────
 
     @router.post("/chat")
-    async def chat(req: ChatRequest) -> dict:
+    async def chat(
+        req: ChatRequest,
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ) -> dict:
         """Non-streaming chat endpoint."""
         # Get or create session
         session_id = req.session_id
         if not session_id:
-            backend = resolve_role(get_active_conversation_partner())
+            backend = get_active_conversation_partner()
             session_id = str(uuid.uuid4())
             now = _now()
             with _db() as conn:
@@ -400,12 +460,12 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
         # Run inference
         full_response = ""
         try:
-            async for token in stream_unified_inference(
-                surface="conversations",
-                model_backend=backend,
+            async for token in _stream_conversation_inference(
+                ctx,
+                message=req.message,
+                backend=backend,
                 history=history,
-                is_voice=False,
-                system_prompt=None,
+                image_base64=req.image_base64,
             ):
                 full_response += token
         except Exception as e:
@@ -443,12 +503,15 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
     # ──────────────────────────────────────────────────────────────────────────
 
     @router.post("/chat/stream")
-    async def chat_stream(req: ChatRequest):
+    async def chat_stream(
+        req: ChatRequest,
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
         """Streaming chat via SSE."""
         # Get or create session
         session_id = req.session_id
         if not session_id:
-            backend = resolve_role(get_active_conversation_partner())
+            backend = get_active_conversation_partner()
             session_id = str(uuid.uuid4())
             now = _now()
             with _db() as conn:
@@ -492,12 +555,12 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
             """Stream tokens + handle tool calls + save final response."""
             full_response = ""
             try:
-                async for token in stream_unified_inference(
-                    surface="conversations",
-                    model_backend=backend,
+                async for token in _stream_conversation_inference(
+                    ctx,
+                    message=req.message,
+                    backend=backend,
                     history=history,
-                    is_voice=False,
-                    system_prompt=None,
+                    image_base64=req.image_base64,
                 ):
                     full_response += token
                     yield f"data: {json.dumps({'token': token, 'session_id': session_id})}\n\n"

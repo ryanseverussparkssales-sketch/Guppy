@@ -6,15 +6,21 @@ Pattern: capture → parse → decide → ground action → safety gate → exec
 
 OmniParser v2 ONNX integration with MiniCPM vision fallback.
 """
+from __future__ import annotations
 
-import os
 import json
 import logging
-from typing import Optional
-from dataclasses import dataclass, asdict
+import os
+from dataclasses import asdict, dataclass
 from pathlib import Path
-import numpy as np
-from PIL import Image
+from typing import Optional
+
+try:
+    from PIL import Image
+    _PIL_IMPORT_ERROR: Exception | None = None
+except Exception as exc:  # Pillow is optional for API importability.
+    Image = None  # type: ignore[assignment]
+    _PIL_IMPORT_ERROR = exc
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +48,8 @@ def capture_screen() -> Optional[Image.Image]:
         PIL Image of current screen, or None if pyautogui unavailable
     """
     try:
+        if Image is None:
+            raise RuntimeError(f"Pillow unavailable: {_PIL_IMPORT_ERROR}")
         import pyautogui
         screenshot = pyautogui.screenshot()
         return screenshot
@@ -116,10 +124,10 @@ def _parse_screen_with_minicpm(image: Image.Image) -> list[UIElement]:
     and their approximate locations, then parses JSON response into UIElement list.
     """
     try:
-        import io
         import base64
+        import io
+
         import requests
-        from pathlib import Path
 
         # Encode image to base64
         buf = io.BytesIO()
@@ -227,6 +235,9 @@ def parse_screen(image: Image.Image) -> list[UIElement]:
         List of detected UI elements, empty list if parsing fails
     """
     if not image:
+        return []
+    if Image is None:
+        logger.error("Cannot parse screen because Pillow is unavailable: %s", _PIL_IMPORT_ERROR)
         return []
 
     # Try OmniParser first
