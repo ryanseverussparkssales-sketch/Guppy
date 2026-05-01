@@ -656,7 +656,7 @@ export default function ConversationsView() {
           >
             {wakeMode ? '🎙 Wake on' : '🎙 Wake off'}
           </button>
-          <SurfaceStatusBar surface="workspace" compact label="Workspace" />
+          <SurfaceStatusBar surface="companion" compact label="Companion" />
           <button
             onClick={clearMessages}
             title="Clear conversation (Escape)"

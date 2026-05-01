@@ -339,7 +339,7 @@ export default function CodespaceView() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <SurfaceStatusBar surface="workspace" compact label="Workspace" />
+          <SurfaceStatusBar surface="codespace" compact label="Codespace" />
         </div>
       </div>
 

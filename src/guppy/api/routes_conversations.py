@@ -110,11 +110,11 @@ async def _stream_conversation_inference(
         ctx.owner,
         message,
         _CONVERSATION_SYSTEM_PROMPT,
-        mode="local",
+        mode="auto",
         history=history,
-        active_local_model=backend,
         image_base64=image_base64 or None,
-        skip_tools=True,
+        skip_tools=False,
+        surface="companion",
     ):
         if token.startswith(_SOURCE_SENTINEL):
             continue

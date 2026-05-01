@@ -56,35 +56,35 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     // Navigation
     {
       id: "nav-intelligence",
-      label: "Intelligence",
-      description: "View system dashboard",
+      label: "Companion",
+      description: "Open companion conversation surface",
       icon: <Sparkles size={16} />,
       category: "Navigation",
-      action: () => navigate("dashboard"),
+      action: () => navigate("companion"),
     },
     {
       id: "nav-research",
-      label: "Research",
-      description: "Start a new conversation",
+      label: "Workspace",
+      description: "Open workspace surface",
       icon: <Search size={16} />,
       category: "Navigation",
-      action: () => navigate("assistant"),
+      action: () => navigate("workspace"),
     },
     {
-      id: "nav-workspace",
-      label: "Workspace",
-      description: "Manage running instances",
+      id: "nav-codespace",
+      label: "Codespace",
+      description: "Open codespace surface",
       icon: <LayoutGrid size={16} />,
       category: "Navigation",
-      action: () => navigate("instances"),
+      action: () => navigate("codespace"),
     },
     {
-      id: "nav-briefings",
-      label: "Briefings",
-      description: "Configure neural architectures",
+      id: "nav-control",
+      label: "Control",
+      description: "Manage services and backends",
       icon: <FileText size={16} />,
       category: "Navigation",
-      action: () => navigate("models"),
+      action: () => navigate("control"),
     },
     {
       id: "nav-library",
@@ -105,11 +105,11 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     // Actions
     {
       id: "action-new-briefing",
-      label: "New Briefing",
-      description: "Start a fresh research session",
+      label: "New Conversation",
+      description: "Start a fresh companion session",
       icon: <Plus size={16} />,
       category: "Actions",
-      action: () => navigate("assistant"),
+      action: () => navigate("companion"),
     },
     {
       id: "action-new-instance",
@@ -120,7 +120,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       action: async () => {
         try {
           await api.post('/api/instances', { name: `instance-${Date.now()}` })
-          navigate("instances")
+          navigate("control")
           toast.success("Instance created")
         } catch {
           toast.error("Failed to create instance")
@@ -133,7 +133,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       description: "Activate a dormant instance",
       icon: <Play size={16} />,
       category: "Actions",
-      action: () => navigate("instances"),
+      action: () => navigate("control"),
     },
     {
       id: "action-stop-all",
@@ -147,7 +147,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           const running = (res.data.instances || []).filter((i: any) => i.status === 'running')
           await Promise.all(running.map((i: any) => api.post(`/api/instances/${i.name}/stop`)))
           toast.success(`Halted ${running.length} node(s)`)
-          navigate("instances")
+          navigate("control")
         } catch {
           toast.error("Failed to halt nodes")
         }
