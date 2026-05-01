@@ -452,27 +452,13 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
 
         # ── web_fetch ──────────────────────────────────────────────────────────
         if action == "web_fetch":
-            import re as _re
+            from src.guppy.api.web_fetch_safe import safe_web_fetch
             url     = str(p.get("url", "")).strip()
             extract = str(p.get("extract", "")).strip().lower()
-            if not url:
-                raise HTTPException(400, "url required")
-            try:
-                async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-                    resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 Guppy/1.0"})
-                    text = resp.text
-                if "<html" in text.lower()[:500]:
-                    text = _re.sub(r"<[^>]+>", " ", text)
-                    text = _re.sub(r"[ \t]{3,}", " ", text)
-                    text = _re.sub(r"\n{4,}", "\n\n", text)
-                text = text[:20000]
-                if extract:
-                    idx = text.lower().find(extract)
-                    if idx >= 0:
-                        text = text[max(0, idx - 100): idx + 6000]
-                return {"ok": True, "text": text, "url": url, "length": len(text)}
-            except Exception as e:
-                raise HTTPException(502, f"web_fetch failed: {e}")
+            result = await safe_web_fetch(url, extract=extract)
+            if not result["ok"]:
+                raise HTTPException(502, f"web_fetch failed: {result['error']}")
+            return result
 
         # ── create_reminder ────────────────────────────────────────────────────
         if action == "create_reminder":

@@ -30,26 +30,10 @@ async def _execute_companion_tool(name: str, args: dict) -> dict:
     import httpx
 
     if name == "web_fetch":
+        from src.guppy.api.web_fetch_safe import safe_web_fetch
         url     = str(args.get("url", "")).strip()
         extract = str(args.get("extract", "")).strip().lower()
-        if not url:
-            return {"ok": False, "error": "url required"}
-        try:
-            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-                resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 Guppy/1.0"})
-                text = resp.text
-            if "<html" in text.lower()[:500]:
-                text = re.sub(r"<[^>]+>", " ", text)
-                text = re.sub(r"[ \t]{3,}", " ", text)
-                text = re.sub(r"\n{4,}", "\n\n", text)
-            text = text[:20000]
-            if extract:
-                idx = text.lower().find(extract)
-                if idx >= 0:
-                    text = text[max(0, idx - 100): idx + 6000]
-            return {"ok": True, "text": text[:8000], "url": url}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        return await safe_web_fetch(url, extract=extract)
 
     if name == "create_reminder":
         from src.guppy.api.routes_reminders import create_reminder

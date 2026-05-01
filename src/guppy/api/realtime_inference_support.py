@@ -237,12 +237,60 @@ _HISTORY_SNIPPET_MAX_CHARS = 240
 _HISTORY_TURNS_SHOWN = 8
 _CHAT_HISTORY_LIMIT = 12
 
+# Context window in tokens for each backend.  Used by _trim_history_to_tokens()
+# to dynamically cap history rather than using the fixed 12-turn limit.
+# Rough estimate: 1 token ≈ 4 chars.  Reserve 1024 tokens for system prompt +
+# current user message + model response headroom.
+_BACKEND_CONTEXT_TOKENS: dict[str, int] = {
+    "llamacpp-hermes3":    8192,    # Hermes 3 8B — 8K context
+    "llamacpp-hermes4":   32768,    # Hermes 4 14B — 32K context
+    "llamacpp-dispatch":   4096,    # Qwen2.5-3B — 4K context
+    "llamacpp-phi4-mini": 131072,   # Phi-4-mini — 128K context
+    "llamacpp-pepe":       8192,    # Assistant Pepe 8B
+    "llamacpp-rocinante": 16384,    # Rocinante 12B
+    "llamacpp-xlam":       8192,    # xLAM-2-8B
+    "llamacpp-minicpm":    8192,    # MiniCPM-o
+    "llamacpp-qwen3":     40960,    # Qwen3 35B MoE
+    "llamacpp-chat":      32768,    # Llama 3.3 70B
+    "llamacpp-gemma":      8192,    # Gemma 4 E4B
+}
+_DEFAULT_CONTEXT_TOKENS = 8192
+_CONTEXT_RESERVE_TOKENS = 1024
+_CHARS_PER_TOKEN = 4  # conservative estimate
 
-def sanitize_chat_history(history: Any, limit: int = _CHAT_HISTORY_LIMIT) -> list[dict[str, str]]:
+
+def _trim_history_to_tokens(
+    history: list[dict[str, str]],
+    backend: str | None,
+    limit: int = _CHAT_HISTORY_LIMIT,
+) -> list[dict[str, str]]:
+    """Return a token-budget-aware slice of chat history.
+
+    Uses a rough chars-per-token estimate.  Never returns more than ``limit``
+    turns.  Preserves the most *recent* turns when trimming.
+    """
+    max_tokens = _BACKEND_CONTEXT_TOKENS.get(backend or "", _DEFAULT_CONTEXT_TOKENS)
+    budget_chars = (max_tokens - _CONTEXT_RESERVE_TOKENS) * _CHARS_PER_TOKEN
+    # Apply fixed turn cap first (most-recent N turns)
+    capped = history[-max(1, limit):]
+    # Then trim from the front until the total char count fits in the budget
+    while capped:
+        total = sum(len(m.get("content", "")) for m in capped)
+        if total <= budget_chars:
+            break
+        capped = capped[1:]
+    return capped
+
+
+def sanitize_chat_history(
+    history: Any,
+    limit: int = _CHAT_HISTORY_LIMIT,
+    backend: str | None = None,
+) -> list[dict[str, str]]:
     if not isinstance(history, list):
         return []
     out: list[dict[str, str]] = []
-    for item in history[-max(1, limit):]:
+    for item in history:
         if not isinstance(item, dict):
             continue
         role = str(item.get("role", "")).strip().lower()
@@ -250,7 +298,8 @@ def sanitize_chat_history(history: Any, limit: int = _CHAT_HISTORY_LIMIT) -> lis
         if role not in {"user", "assistant"} or not content:
             continue
         out.append({"role": role, "content": content[:_CHAT_CONTENT_MAX_CHARS]})
-    return out
+    # Apply token-aware trimming (respects both hard turn limit and context budget)
+    return _trim_history_to_tokens(out, backend=backend, limit=limit)
 
 
 def extract_text_from_anthropic_blocks(blocks) -> str:
@@ -1451,8 +1500,8 @@ async def stream_unified_inference(
             _model = _LOCAL_BACKEND_DEFAULT_MODELS.get(key, "")
             return _model if (_port and _sp_port_alive(_port) and _model) else ""
 
-        def _sp_make_messages() -> list[dict]:
-            return build_router_messages(augmented_system, user_text, sanitize_chat_history(history))
+        def _sp_make_messages(backend: str | None = None) -> list[dict]:
+            return build_router_messages(augmented_system, user_text, sanitize_chat_history(history, backend=backend))
 
         def _sp_tool_runner(name: str, args: dict) -> str:
             return str(owner.core.run_tool(name, args,
@@ -1505,7 +1554,7 @@ async def stream_unified_inference(
             # Pass-1: Hermes3 (fast 8B, basic tools only)
             _h3m = _sp_backend_alive("llamacpp-hermes3")
             if _h3m:
-                _msgs = _sp_make_messages()
+                _msgs = _sp_make_messages("llamacpp-hermes3")
                 _tools = _sp_companion_tools() if not skip_tools else None
                 try:
                     async for tok in _stream_llamacpp_tokens(
@@ -1523,7 +1572,7 @@ async def stream_unified_inference(
             for _orch_key in ("llamacpp-phi4-mini", "llamacpp-dispatch"):
                 _om = _sp_backend_alive(_orch_key)
                 if _om:
-                    _msgs = _sp_make_messages()
+                    _msgs = _sp_make_messages(_orch_key)
                     try:
                         async for tok in _stream_llamacpp_tokens(
                             model=_om, backend=_orch_key,
@@ -1574,7 +1623,7 @@ async def stream_unified_inference(
             for _orch_key in ("llamacpp-phi4-mini", "llamacpp-dispatch"):
                 _om = _sp_backend_alive(_orch_key)
                 if _om:
-                    _msgs = _sp_make_messages()
+                    _msgs = _sp_make_messages(_orch_key)
                     try:
                         async for tok in _stream_llamacpp_tokens(
                             model=_om, backend=_orch_key,
@@ -1591,7 +1640,7 @@ async def stream_unified_inference(
             for _w_key in ("llamacpp-hermes4", "llamacpp-hermes3"):
                 _wm = _sp_backend_alive(_w_key)
                 if _wm:
-                    _msgs = _sp_make_messages()
+                    _msgs = _sp_make_messages(_w_key)
                     try:
                         async for tok in _stream_llamacpp_tokens(
                             model=_wm, backend=_w_key,
@@ -1642,7 +1691,7 @@ async def stream_unified_inference(
             for _w_key in ("llamacpp-hermes4", "llamacpp-hermes3"):
                 _wm = _sp_backend_alive(_w_key)
                 if _wm:
-                    _msgs = _sp_make_messages()
+                    _msgs = _sp_make_messages(_w_key)
                     try:
                         async for tok in _stream_llamacpp_tokens(
                             model=_wm, backend=_w_key,

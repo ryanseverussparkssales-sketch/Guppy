@@ -7,6 +7,7 @@ Routes:
   POST /api/conversations/sessions      — create session
   GET  /api/conversations/sessions/{id}/messages
   DELETE /api/conversations/sessions/{id}
+  GET  /api/conversations/search?q=...  — full-text search across messages
 
 Conversations always use the active conversation partner model (operator-selectable).
 Tool envelope: web_fetch, create_reminder, download_media, memory_write, memory_recall, workspace_task only.
@@ -170,26 +171,10 @@ async def _execute_conversation_tool(ctx: ServerContext, name: str, args: dict[s
     import httpx
 
     if name == "web_fetch":
+        from src.guppy.api.web_fetch_safe import safe_web_fetch
         url = str(args.get("url", "")).strip()
         extract = str(args.get("extract", "")).strip().lower()
-        if not url:
-            return {"ok": False, "error": "url required"}
-        try:
-            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-                resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 Guppy/1.0"})
-                text = resp.text
-            if "<html" in text.lower()[:500]:
-                text = re.sub(r"<[^>]+>", " ", text)
-                text = re.sub(r"[ \t]{3,}", " ", text)
-                text = re.sub(r"\n{4,}", "\n\n", text)
-            text = text[:20000]
-            if extract:
-                idx = text.lower().find(extract)
-                if idx >= 0:
-                    text = text[max(0, idx - 100) : idx + 6000]
-            return {"ok": True, "text": text[:8000], "url": url}
-        except Exception as e:
-            return {"ok": False, "error": str(e), "url": url}
+        return await safe_web_fetch(url, extract=extract)
 
     elif name == "create_reminder":
         text = str(args.get("text", "")).strip()
@@ -500,6 +485,68 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
             conn.execute("DELETE FROM conversation_sessions WHERE id = ?", (session_id,))
             conn.commit()
         return {"ok": True}
+
+    @router.get("/search")
+    async def search_conversations(
+        q: str,
+        limit: int = 20,
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ) -> dict:
+        """Full-text search across conversation messages.
+
+        Returns sessions with matching messages, ranked by recency.
+        Each result includes the session metadata and up to 3 matching snippets.
+        """
+        if not q or len(q.strip()) < 2:
+            raise HTTPException(400, "query must be at least 2 characters")
+        q = q.strip()
+        limit = max(1, min(limit, 100))
+
+        pattern = f"%{q}%"
+        with _db() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    s.id          AS session_id,
+                    s.session_title,
+                    s.updated_at,
+                    m.id          AS message_id,
+                    m.role,
+                    m.content,
+                    m.created_at  AS message_at
+                FROM conversation_session_messages m
+                JOIN conversation_sessions s ON m.conversation_id = s.id
+                WHERE m.content LIKE ? COLLATE NOCASE
+                ORDER BY s.updated_at DESC, m.created_at ASC
+                LIMIT ?
+                """,
+                (pattern, limit * 5),
+            ).fetchall()
+
+        # Group by session, collect up to 3 snippet per session
+        seen_sessions: dict[str, dict] = {}
+        for row in rows:
+            sid = row["session_id"]
+            if sid not in seen_sessions:
+                seen_sessions[sid] = {
+                    "session_id": sid,
+                    "session_title": row["session_title"],
+                    "updated_at": row["updated_at"],
+                    "snippets": [],
+                }
+            if len(seen_sessions[sid]["snippets"]) < 3:
+                content = row["content"]
+                idx = content.lower().find(q.lower())
+                snippet = content[max(0, idx - 60) : idx + 200].strip() if idx >= 0 else content[:200]
+                seen_sessions[sid]["snippets"].append({
+                    "message_id": row["message_id"],
+                    "role": row["role"],
+                    "snippet": snippet,
+                    "message_at": row["message_at"],
+                })
+
+        results = list(seen_sessions.values())[:limit]
+        return {"query": q, "total": len(results), "results": results}
 
     # ──────────────────────────────────────────────────────────────────────────
     # Chat (non-streaming)
