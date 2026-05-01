@@ -9,10 +9,10 @@
  *   GET  /api/workspace/contacts?q=
  *   POST /api/workspace/contacts
  *   DELETE /api/workspace/contacts/{name}
- *   GET  /api/workspace/tasks?status=
- *   POST /api/workspace/tasks
- *   PUT  /api/workspace/tasks/{id}/complete
- *   DELETE /api/workspace/tasks/{id}
+ *   GET  /api/workspace/crm/tasks?status=
+ *   POST /api/workspace/crm/tasks
+ *   PUT  /api/workspace/crm/tasks/{id}/complete
+ *   DELETE /api/workspace/crm/tasks/{id}
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
@@ -238,7 +238,7 @@ function TasksTab() {
   const load = useCallback(async (s = statusFilter) => {
     setLoading(true)
     try {
-      const res = await api.get(`/api/workspace/tasks?status=${s}`)
+      const res = await api.get(`/api/workspace/crm/tasks?status=${s}`)
       setTasks(res.data || [])
     } catch { /* ignore */ } finally {
       setLoading(false)
@@ -251,7 +251,7 @@ function TasksTab() {
     if (!newTask.trim()) return
     setSaving(true)
     try {
-      await api.post('/api/workspace/tasks', { task: newTask, due_date: newDue })
+      await api.post('/api/workspace/crm/tasks', { task: newTask, due_date: newDue })
       setNewTask(''); setNewDue('')
       load(statusFilter)
     } catch { /* ignore */ } finally {
@@ -261,14 +261,14 @@ function TasksTab() {
 
   const complete = async (id: number) => {
     try {
-      await api.put(`/api/workspace/tasks/${id}/complete`)
+      await api.put(`/api/workspace/crm/tasks/${id}/complete`)
       setTasks((t) => t.filter((x) => x.id !== id))
     } catch { /* ignore */ }
   }
 
   const remove = async (id: number) => {
     try {
-      await api.delete(`/api/workspace/tasks/${id}`)
+      await api.delete(`/api/workspace/crm/tasks/${id}`)
       setTasks((t) => t.filter((x) => x.id !== id))
     } catch { /* ignore */ }
   }

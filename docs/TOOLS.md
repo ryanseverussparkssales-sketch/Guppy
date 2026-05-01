@@ -462,5 +462,5 @@ For **smooth desktop control and chat**:
 For issues or questions:
 - Check CLAUDE.md for architecture
 - Review logs in `src/guppy/api/auth.py` (line 464)
-- Run diagnostic: `.venv\Scripts\python.exe tools/verify_ollama_runtime.py`
+- Run diagnostic: `.venv\Scripts\python.exe tools/verify_local_model_runtime.py`
 

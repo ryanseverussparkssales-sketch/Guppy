@@ -172,7 +172,7 @@ The first code tranche should be:
 
 1. Manifest loader
    - Add a loader/validator for `config/local_llm/models.json`.
-   - First target: `tools/verify_ollama_runtime.py`
+   - First target: `tools/verify_local_model_runtime.py`
 2. Harness runner
    - Add `tools/local_llm_harness.py` that reads the prompt pack and writes benchmark artifacts.
 3. Memory comparison seam

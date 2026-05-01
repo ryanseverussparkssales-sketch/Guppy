@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-05-01T05:23:34.558449+00:00",
+  "checks": {
+    "providers": {
+      "status": "OK",
+      "packages": {
+        "anthropic": "0.86.0",
+        "openai": "2.29.0"
+      }
+    },
+    "local_models": {
+      "status": "SKIPPED",
+      "backends": {}
+    },
+    "voice": {
+      "status": "OK",
+      "engines": {
+        "EDGE TTS": "READY",
+        "KOKORO": "MISSING",
+        "WINDOWS SAPI": "READY",
+        "ELEVENLABS": "MISSING"
+      }
+    },
+    "agents": {
+      "status": "SKIPPED",
+      "agents": {}
+    },
+    "chat_api": {
+      "status": "OK",
+      "http": 200
+    },
+    "challengers": {
+      "status": "OK",
+      "summary": {}
+    }
+  },
+  "overall": "PASS"
+}

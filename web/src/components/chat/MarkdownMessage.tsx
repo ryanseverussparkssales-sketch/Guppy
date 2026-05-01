@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { createHighlighter, type Highlighter } from 'shiki'
+import type { HighlighterCore, LanguageRegistration, ThemeRegistration } from 'shiki/core'
 import DOMPurify from 'dompurify'
 
 // Shiki produces only <pre><code><span> with class/style attrs — allow exactly that.
@@ -18,12 +18,35 @@ const SUPPORTED_LANGS = [
   'yaml', 'toml', 'rust', 'go', 'text',
 ]
 
-let _highlighterPromise: Promise<Highlighter> | null = null
+let _highlighterPromise: Promise<HighlighterCore> | null = null
 function getHighlighter() {
   if (!_highlighterPromise) {
-    _highlighterPromise = createHighlighter({
-      themes: ['github-dark'],
-      langs: SUPPORTED_LANGS,
+    _highlighterPromise = Promise.all([
+      import('shiki/core'),
+      import('@shikijs/engine-javascript'),
+      import('@shikijs/themes/github-dark'),
+      import('@shikijs/langs/python'),
+      import('@shikijs/langs/javascript'),
+      import('@shikijs/langs/typescript'),
+      import('@shikijs/langs/tsx'),
+      import('@shikijs/langs/jsx'),
+      import('@shikijs/langs/bash'),
+      import('@shikijs/langs/json'),
+      import('@shikijs/langs/markdown'),
+      import('@shikijs/langs/html'),
+      import('@shikijs/langs/css'),
+      import('@shikijs/langs/sql'),
+      import('@shikijs/langs/yaml'),
+      import('@shikijs/langs/toml'),
+      import('@shikijs/langs/rust'),
+      import('@shikijs/langs/go'),
+    ]).then(([core, engine, theme, ...languageModules]) => {
+      const langs = languageModules.flatMap((module) => module.default) as LanguageRegistration[]
+      return core.createHighlighterCore({
+        themes: [theme.default as ThemeRegistration],
+        langs,
+        engine: engine.createJavaScriptRegexEngine(),
+      })
     })
   }
   return _highlighterPromise

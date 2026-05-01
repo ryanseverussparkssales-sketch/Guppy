@@ -133,7 +133,7 @@ ollama pull qwen2.5:32b   # Accurate (20GB)
 powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 
 # Run diagnostics
-.venv\Scripts\python.exe tools/verify_ollama_runtime.py
+.venv\Scripts\python.exe tools/verify_local_model_runtime.py
 .venv\Scripts\python.exe tools/dev_workflow.py dev-check
 
 # Manual Web UI + API start (serves on http://localhost:8081)
@@ -176,7 +176,7 @@ cd web && npm run dev
 
 ## 🆘 Getting Help
 
-1. **Run diagnostics:** `.venv\Scripts\python.exe tools/verify_ollama_runtime.py`
+1. **Run diagnostics:** `.venv\Scripts\python.exe tools/verify_local_model_runtime.py`
 2. **Read detailed guide:** `TOOLS.md` (LLM setup by provider)
 3. **Architecture reference:** `CLAUDE.md`
 4. **Check API logs:** Look at terminal window running API

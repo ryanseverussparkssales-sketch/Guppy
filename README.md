@@ -4,15 +4,14 @@ Windows-first, local-first personal assistant workspace. This README is the stab
 
 ## Model Roster
 
-| Agent | Base | VRAM | Role |
+| Role | Default model | Backend | Role |
 | --- | --- | --- | --- |
-| `guppy-fast` | qwen2.5:7b | ~5 GB | Fast butler, simple queries |
-| `vault-scraper` | qwen2.5:7b | shared blob | Digital Seed Vault extraction |
-| `guppy-code` | qwen2.5-coder:14b | ~9 GB | Code review / debug |
-| `guppy` | qwen2.5:32b | ~20 GB | Complex butler tasks |
-| `guppy-teach` | qwen2.5:32b | shared blob | Socratic teaching |
+| `conversation.default` | Hermes 3 8B Lorablated | `llamacpp-hermes3` on `127.0.0.1:8087` | Fast conversation and everyday assistant work |
+| `workspace.worker.primary` | Hermes 4 14B | `llamacpp-hermes4` on `127.0.0.1:8086` | Workspace tasks, planning, code-oriented work |
+| `tool.dispatch` | Qwen2.5 3B Instruct | `llamacpp-dispatch` on `127.0.0.1:8085` | Lightweight routing and tool dispatch |
+| `creative.local` | Rocinante X 12B | `llamacpp-rocinante` on `127.0.0.1:8088` | Creative writing and roleplay |
 
-1. Ensure Ollama is serving on `http://127.0.0.1:11434`.
+1. Ensure at least one llama.cpp OpenAI-compatible server is serving. The default local runtime is `auto`, preferring Hermes 3 at `http://127.0.0.1:8087`.
 
 ### Run
 
@@ -116,7 +115,6 @@ New launcher-facing behavior should prefer these seams over adding more direct U
 # Targeted/manual checks
 .venv\Scripts\python.exe tests/integration/test_ptt.py
 .venv\Scripts\python.exe tests/smoke/smoke_api.py
-.venv\Scripts\python.exe tools/verify_ollama_runtime.py
 .venv\Scripts\python.exe tools/verify_runtime_challengers.py
 .venv\Scripts\python.exe tools/verify_provider_runtime.py
 .venv\Scripts\python.exe tools/verify_logging_health.py --emit-probe
@@ -236,7 +234,7 @@ If voice behavior drifts, treat `src/guppy/voice/voice.py` plus `docs/PROJECT_BR
 - Cloudflare tunnel cert issues: run the Cloudflare login flow again via `bin/cloudflare_terminal.ps1 -Action login`
 - API auth failures: verify `GUPPY_JWT_SECRET` and `TURNSTILE_SECRET`, or use `GUPPY_DEV_MODE=1` only for local development
 - Voice transcription 400s: test with clear spoken audio and confirm the machine has working STT dependencies
-- Ollama failures: verify `ollama serve` is running and confirm models with `ollama list`
+- Local model failures: verify the selected llama.cpp server is running and confirm `/v1/models` responds on its configured port
 - UI slowness: inspect `runtime/agent_performance.jsonl` and run `python tools/review_agent_performance.py`
 
 Use `docs/TROUBLESHOOTING.md` when the quick summary is not enough.

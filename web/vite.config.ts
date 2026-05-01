@@ -55,6 +55,46 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: 'index.html',
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('@shikijs') || id.includes('node_modules/shiki/')) return undefined
+          if (
+            id.includes('react-dom') ||
+            id.includes('react-router-dom') ||
+            id.includes('react/') ||
+            id.includes('@remix-run') ||
+            id.includes('scheduler') ||
+            id.includes('use-sync-external-store')
+          ) {
+            return 'vendor-misc'
+          }
+          if (id.includes('lucide-react')) return 'vendor-icons'
+          if (id.includes('framer-motion')) return 'vendor-motion'
+          if (id.includes('recharts')) return 'vendor-charts'
+          if (
+            id.includes('react-markdown') ||
+            id.includes('remark-') ||
+            id.includes('micromark') ||
+            id.includes('mdast') ||
+            id.includes('hast') ||
+            id.includes('unified') ||
+            id.includes('dompurify')
+          ) {
+            return 'vendor-markdown'
+          }
+          if (
+            id.includes('@tanstack') ||
+            id.includes('axios') ||
+            id.includes('swr') ||
+            id.includes('zustand') ||
+            id.includes('zod')
+          ) {
+            return 'vendor-data'
+          }
+          return 'vendor-misc'
+        },
+      },
     },
     // Warn if any chunk exceeds 600 KB — catches accidental bundle bloat
     chunkSizeWarningLimit: 600,

@@ -76,7 +76,7 @@ Expected: builder round-trip, route explainability, voice bindings, and off-hour
 4. Run fault-injection triage canary (alerts + regression pipeline check).
   - Command: python tools/run_triage_fault_canary.py
 5. If gate returns NO_GO, run targeted verifiers to isolate fault.
-  - Command: python tools/verify_ollama_runtime.py --skip-ping
+  - Command: python tools/verify_local_model_runtime.py --skip-ping
   - Command: python tools/verify_logging_health.py --emit-probe --require-fresh-core
   - Command: python tools/verify_provider_runtime.py
 
@@ -136,7 +136,7 @@ Use this when the question is "how do I test automation?" on the current build.
 1. Re-run logging health check if behavior degrades.
   - Command: python tools/verify_logging_health.py --emit-probe --require-fresh-core
 2. Re-run ollama verifier if model responses degrade.
-  - Command: python tools/verify_ollama_runtime.py --prompt ok
+  - Command: python tools/verify_local_model_runtime.py --prompt ok
 
 Handled by current build:
 
@@ -165,7 +165,7 @@ Handled by current build:
   - Repair token is auto-generated at API startup and stored in OS keyring when available, with runtime/repair_token.txt as fallback.
   - Repair-token refresh is localhost-only and now also requires valid bearer auth; the launcher handles that re-sync automatically.
 3. If models fail, rebuild model/runtime state.
-  - Command: python tools/verify_ollama_runtime.py
+  - Command: python tools/verify_local_model_runtime.py
 4. If logs fail freshness checks, run logging probe and inspect snapshots.
   - Command: python tools/verify_logging_health.py --emit-probe --require-fresh-core
 5. If provider path fails, fall back to local mode and continue.
@@ -185,9 +185,9 @@ Use this schedule when you want useful progress with lower cost and lower intera
   - Command: python tools/pilot_exit_check.py --allow-limited-go
 2. Run lightweight recurring checks overnight (for example every 2-3 hours).
   - Command: python tools/verify_logging_health.py --emit-probe --require-fresh-core
-  - Command: python tools/verify_ollama_runtime.py --skip-ping
+  - Command: python tools/verify_local_model_runtime.py --skip-ping
 3. Run one full model ping once overnight or at morning handoff.
-  - Command: python tools/verify_ollama_runtime.py --prompt ok
+  - Command: python tools/verify_local_model_runtime.py --prompt ok
 4. Optional single-command overnight orchestration.
   - Command: python tools/run_overnight_low_compute.py
   - Example: python tools/run_overnight_low_compute.py --cycles 3 --interval-minutes 180

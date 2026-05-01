@@ -92,7 +92,7 @@ Suggested commands:
 
 1. `python tools/pilot_exit_check.py --allow-limited-go`
 2. `python tools/verify_logging_health.py --emit-probe --require-fresh-core`
-3. `python tools/verify_ollama_runtime.py --skip-ping`
+3. `python tools/verify_local_model_runtime.py --skip-ping`
 4. `python tools/run_overnight_low_compute.py`
 
 ## 8) Production Notes

@@ -61,7 +61,7 @@ export enum ErrorCode {
   // ========== OLLAMA (OLLAMA_*) ==========
   OLLAMA_NOT_RUNNING = 'OLLAMA_NOT_RUNNING',
   OLLAMA_CONNECTION_FAILED = 'OLLAMA_CONNECTION_FAILED',
-  OLLAMA_MODEL_NOT_FOUND = 'OLLAMA_MODEL_NOT_FOUND',
+  LOCAL_MODEL_NOT_FOUND = 'LOCAL_MODEL_NOT_FOUND',
   OLLAMA_INFERENCE_FAILED = 'OLLAMA_INFERENCE_FAILED',
   OLLAMA_PULL_FAILED = 'OLLAMA_PULL_FAILED',
 
@@ -357,7 +357,7 @@ export const ERROR_METADATA: Record<ErrorCode, ErrorMetadata> = {
     category: 'ollama',
     severity: 'warning',
   },
-  [ErrorCode.OLLAMA_MODEL_NOT_FOUND]: {
+  [ErrorCode.LOCAL_MODEL_NOT_FOUND]: {
     statusCode: 404,
     userMessage: 'AI model not found locally',
     category: 'ollama',

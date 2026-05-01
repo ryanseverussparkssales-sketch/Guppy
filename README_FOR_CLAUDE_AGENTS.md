@@ -143,7 +143,7 @@ Guppy/
 │   └── apps/launcher_app.py           ← Qt wrapper (spawns server)
 ├── tools/
 │   ├── dev_workflow.py                ← Use this for everything
-│   ├── verify_ollama_runtime.py       ← Check if Ollama is ready
+│   ├── verify_local_model_runtime.py  ← Check if the local model runtime is ready
 │   └── ...
 └── config/
     └── instances.json                 ← Runtime instances (guppy-primary, etc.)

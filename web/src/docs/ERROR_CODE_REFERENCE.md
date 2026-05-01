@@ -117,7 +117,7 @@ Example: `AUTH_JWT_EXPIRED` means an Authentication JWT that has Expired
 |------|--------|-------------|----------|
 | OLLAMA_NOT_RUNNING | 503 | "Ollama service not running" | Start Ollama service |
 | OLLAMA_CONNECTION_FAILED | 503 | "Cannot connect to Ollama" | Check network, restart |
-| OLLAMA_MODEL_NOT_FOUND | 404 | "Model not found" | Pull model: `ollama pull model-name` |
+| LOCAL_MODEL_NOT_FOUND | 404 | "Model not found" | Pull model: `ollama pull model-name` |
 | OLLAMA_INFERENCE_FAILED | 500 | "Model inference failed" | Retry, check VRAM |
 | OLLAMA_PULL_FAILED | 500 | "Failed to download model" | Retry, check disk space |
 
@@ -198,7 +198,7 @@ Is it a provider issue?
 Is it Ollama?
 ├─ Not running? → OLLAMA_NOT_RUNNING
 ├─ Connection failed? → OLLAMA_CONNECTION_FAILED
-├─ Model not found? → OLLAMA_MODEL_NOT_FOUND
+├─ Model not found? → LOCAL_MODEL_NOT_FOUND
 └─ Inference failed? → OLLAMA_INFERENCE_FAILED
 
 Is it a network issue?

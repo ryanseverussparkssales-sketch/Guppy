@@ -32,7 +32,7 @@ Define the current stack as the thing challengers must beat.
 Deliverables:
 
 1. Manifest committed and reviewed.
-2. `tools/verify_ollama_runtime.py` reads the manifest instead of an ad-hoc list.
+2. `tools/verify_local_model_runtime.py` reads the manifest instead of an ad-hoc list.
 3. Benchmark artifact paths reserved under `runtime/local_llm_benchmarks/`.
 
 ### Phase 1 - Harness
@@ -103,7 +103,7 @@ Current truth:
 
 Targets:
 
-1. `tools/verify_ollama_runtime.py`
+1. `tools/verify_local_model_runtime.py`
 2. New helper module under `src/guppy/` or `utils/`
 
 Acceptance:

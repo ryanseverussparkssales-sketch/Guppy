@@ -26,6 +26,16 @@ const api = axios.create({
   timeout: 30000,
 })
 
+export function isRequestCanceled(error: unknown): boolean {
+  const candidate = error as { code?: string; name?: string } | null
+  return Boolean(
+    axios.isCancel(error) ||
+      candidate?.code === 'ERR_CANCELED' ||
+      candidate?.name === 'CanceledError' ||
+      candidate?.name === 'AbortError'
+  )
+}
+
 // Get singletons
 const requestQueue = RequestQueue.getInstance()
 
@@ -40,11 +50,7 @@ const activeRequests = new Map<string, AbortController>()
  */
 function isRetryableError(error: any): boolean {
   // Client-side cancellations (navigation, component unmount, AbortController) are NOT retryable
-  if (
-    error.code === 'ERR_CANCELED' ||
-    error.name === 'CanceledError' ||
-    error.name === 'AbortError'
-  ) {
+  if (isRequestCanceled(error)) {
     return false
   }
   // Network errors are retryable
@@ -200,6 +206,10 @@ api.interceptors.response.use(
 
     activeRequests.delete(endpoint)
     requestStartTimes.delete(endpoint)
+
+    if (isRequestCanceled(error)) {
+      return Promise.reject(error)
+    }
 
     // Determine error code
     let errorCode = 'UNKNOWN_ERROR'

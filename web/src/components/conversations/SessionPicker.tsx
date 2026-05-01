@@ -10,7 +10,7 @@
 import { useState, useEffect } from 'react'
 import { Plus, Trash2, ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
-import api from '@/api/client'
+import api, { isRequestCanceled } from '@/api/client'
 import { cn } from '@/lib/utils'
 
 export interface ConversationSession {
@@ -101,6 +101,7 @@ export function SessionPicker({
       const r = await api.get('/api/conversations/sessions')
       setSessions(r.data || [])
     } catch (e) {
+      if (isRequestCanceled(e)) return
       console.error('Failed to load sessions:', e)
       toast.error('Could not load sessions')
     } finally {
@@ -208,12 +209,17 @@ export function PartnerSelector({
   const [savingRole, setSavingRole] = useState<string | null>(null)
 
   useEffect(() => {
+    let alive = true
+
     const loadPartners = async () => {
       try {
         // Get all model roles + current operator settings
         const [rolesRes, settingsRes] = await Promise.all([
           api.get('/api/model-roles'),
-          api.get('/api/control/operator-settings').catch(() => ({ data: null })),
+          api.get('/api/control/operator-settings').catch((err) => {
+            if (isRequestCanceled(err)) throw err
+            return { data: null }
+          }),
         ])
 
         const payload = (rolesRes.data || {}) as ModelRolesResponse
@@ -252,17 +258,22 @@ export function PartnerSelector({
             model: roles[role].model || '',
           }))
 
+        if (!alive) return
         setPartners(partnerList)
         onSelectPartner(activePartner)
       } catch (e) {
+        if (isRequestCanceled(e) || !alive) return
         console.error('Failed to load partners:', e)
         toast.error('Could not load partner options')
       } finally {
-        setLoading(false)
+        if (alive) setLoading(false)
       }
     }
 
-    loadPartners()
+    void loadPartners()
+    return () => {
+      alive = false
+    }
   }, [onSelectPartner])
 
   const selectPartner = async (role: string) => {
@@ -273,6 +284,7 @@ export function PartnerSelector({
       onSelectPartner(role)
       toast.success('Conversation partner updated')
     } catch (e) {
+      if (isRequestCanceled(e)) return
       console.error('Failed to update partner:', e)
       toast.error('Could not update conversation partner')
     } finally {
