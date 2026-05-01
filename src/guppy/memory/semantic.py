@@ -1,12 +1,14 @@
 """Semantic memory for Guppy with dual backends.
 
-Default backend: SQLite + llamacpp Hermes 3 embeddings (stable).
-Optional backend: ChromaDB + llamacpp Hermes 3 embeddings (opt-in, hardened settings).
+Default backend: SQLite + llamacpp embeddings (stable).
+Optional backend: ChromaDB + llamacpp embeddings (opt-in, hardened settings).
 
-Embedding endpoint: Hermes 3 at localhost:8087 via /v1/embeddings (OpenAI-compat).
+Embedding endpoint: OpenAI-compat /v1/embeddings server (default localhost:8087).
 Override with GUPPY_EMBED_BASE_URL env var.
 When the embed server is offline, semantic memory degrades gracefully
 (operations log a warning and return empty results rather than crashing).
+When embeddings are unavailable, recall falls back to lexical matching so memory
+remains usable (lower precision).
 
 Select backend with env var:
 - GUPPY_SEMANTIC_BACKEND=sqlite (default)
@@ -20,6 +22,7 @@ import logging
 import math
 import os
 import sqlite3
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -37,6 +40,17 @@ EMBED_MODEL = os.environ.get("GUPPY_EMBED_MODEL", "hermes-3-8b-lorablated").stri
 CHROMA_PATH = CHROMA_DIR
 # Override to point at any OpenAI-compat embedding server: GUPPY_EMBED_BASE_URL=http://127.0.0.1:8087
 _EMBED_BASE_URL = os.environ.get("GUPPY_EMBED_BASE_URL", "http://localhost:8087").strip().rstrip("/")
+_EMBED_DISABLED_UNTIL: float = 0.0
+
+
+def _embed_temporarily_disabled() -> bool:
+    return time.monotonic() < _EMBED_DISABLED_UNTIL
+
+
+def _disable_embed_for(seconds: float, reason: str) -> None:
+    global _EMBED_DISABLED_UNTIL
+    _EMBED_DISABLED_UNTIL = max(_EMBED_DISABLED_UNTIL, time.monotonic() + max(1.0, seconds))
+    logger.info("Semantic embeddings temporarily disabled for %.0fs: %s", seconds, reason)
 
 
 def _backend() -> str:
@@ -76,6 +90,8 @@ def _embed_text(text: str) -> list[float]:
     text = (text or "").strip()
     if not text:
         raise RuntimeError("Cannot embed empty text")
+    if _embed_temporarily_disabled():
+        return []
 
     try:
         r = requests.post(
@@ -90,6 +106,11 @@ def _embed_text(text: str) -> list[float]:
             return [float(x) for x in emb]
         raise RuntimeError("Embedding response missing embedding vector")
     except requests.RequestException as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status in {400, 404, 405, 501}:
+            _disable_embed_for(600.0, f"unsupported embeddings endpoint ({status})")
+        else:
+            _disable_embed_for(30.0, "embed server unreachable")
         logger.warning(
             "Embed server unreachable at %s — semantic memory degraded: %s",
             _EMBED_BASE_URL, exc,
@@ -102,6 +123,8 @@ def _embed_texts(texts: list[str]) -> list[list[float]]:
     cleaned = [t for t in cleaned if t]
     if not cleaned:
         raise RuntimeError("Cannot embed empty text list")
+    if _embed_temporarily_disabled():
+        return [[] for _ in cleaned]
 
     if _is_openai_compat_embed():
         try:
@@ -117,6 +140,11 @@ def _embed_texts(texts: list[str]) -> list[list[float]]:
             if embs and all(embs):
                 return [[float(x) for x in row] for row in embs]
         except requests.RequestException as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status in {400, 404, 405, 501}:
+                _disable_embed_for(600.0, f"unsupported embeddings endpoint ({status})")
+            else:
+                _disable_embed_for(30.0, "embed server unreachable")
             logger.warning(
                 "Embed server unreachable at %s — semantic memory degraded: %s",
                 _EMBED_BASE_URL, exc,
@@ -141,6 +169,36 @@ def _cosine(a: list[float], b: list[float]) -> float:
     if na == 0.0 or nb == 0.0:
         return 0.0
     return dot / (na * nb)
+
+
+def _simple_text_score(query: str, key: str, value: str) -> float:
+    q = query.lower().strip()
+    if not q:
+        return 0.0
+    text = f"{key} {value}".lower()
+    if q in text:
+        return 1.0 + (text.count(q) * 0.1)
+    tokens = [t for t in q.split() if len(t) > 2]
+    if not tokens:
+        return 0.0
+    hits = sum(1 for t in tokens if t in text)
+    return float(hits) / float(len(tokens)) if hits else 0.0
+
+
+def _lexical_recall(rows: list[tuple], query: str, limit: int) -> str:
+    scored = []
+    for key, row_cat, value, _emb_json in rows:
+        score = _simple_text_score(query, key, value)
+        if score <= 0:
+            continue
+        scored.append((score, key, row_cat, value))
+    if not scored:
+        return "Nothing found in semantic memory."
+    top = sorted(scored, key=lambda x: x[0], reverse=True)[:limit]
+    lines = ["Semantic recall results (lexical):"]
+    for score, key, row_cat, value in top:
+        lines.append(f"- {key} [{row_cat}] ({score:.3f}): {value}")
+    return "\n".join(lines)
 
 
 class _LlamacppEmbeddingFunction:
@@ -229,6 +287,9 @@ def _recall_sqlite(q: str, limit: int, cat: str) -> str:
     finally:
         conn.close()
 
+    if not q_emb:
+        return _lexical_recall(rows, q, limit)
+
     scored = []
     for key, row_cat, value, emb_json in rows:
         try:
@@ -299,7 +360,8 @@ def remember_semantic(key: str, value: str, category: str = "general") -> str:
     except Exception as e:
         return (
             f"Error: semantic remember failed ({_backend_id()}). {e}. "
-            f"Ensure Ollama is running and model '{EMBED_MODEL}' is installed."
+            f"Ensure the llama.cpp embedding server is running at {_EMBED_BASE_URL} "
+            f"with model '{EMBED_MODEL}'."
         )
 
 
@@ -321,7 +383,8 @@ def recall_semantic(query: str, n: int = 5, category: str = "") -> str:
     except Exception as e:
         return (
             f"Error: semantic recall failed ({_backend_id()}). {e}. "
-            f"Ensure Ollama is running and model '{EMBED_MODEL}' is installed."
+            f"Ensure the llama.cpp embedding server is running at {_EMBED_BASE_URL} "
+            f"with model '{EMBED_MODEL}'."
         )
 
 
@@ -337,7 +400,8 @@ def migrate_sqlite_to_chroma() -> str:
     """One-time migration: copy all SQLite semantic memories into Chroma.
 
     Safe to re-run — Chroma upsert by key is idempotent.
-    Requires Ollama running with nomic-embed-text and GUPPY_SEMANTIC_BACKEND=chroma.
+    Requires an OpenAI-compatible llama.cpp embedding endpoint and
+    GUPPY_SEMANTIC_BACKEND=chroma.
     """
     conn = _conn()
     try:

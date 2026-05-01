@@ -20,6 +20,11 @@
 - Updated model routing docs + CLAUDE registry to match the new always-on orchestrator.
 - **Impact:** Orchestrator role now matches the Phi-first architecture without breaking dispatch fallback.
 
+### Semantic Memory Lexical Fallback
+- SQLite semantic recall now falls back to lexical matching when embeddings are unavailable.
+- Updated semantic memory docs header to reflect OpenAI-compat embedding servers instead of Hermes-only.
+- **Impact:** Memory stays usable even when the embedding endpoint is offline or unsupported.
+
 ## P6 Platform Hardening — Shipped Features (2026-04-23 to 2026-04-28)
 
 ### Web UI Parity & Inference Controls (2026-04-26)
