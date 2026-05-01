@@ -182,7 +182,7 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - ✅ **Workspace 11-tab hub** — Calendar, Email, Media, Tasks added; all backed by live routes
 - ✅ **Companion voice fast-path** — `is_voice` flag on ChatRequest routes voice transcripts to Hermes3 on companion surface; always-on VRAM stack: dispatch(2GB) + Hermes3(9GB) + Hermes4(11GB) = 22GB; xLAM on-demand
 - ✅ **Companion tool execution** — `POST /api/companion/action` for web_fetch/create_reminder/download_media/memory_write/memory_recall; `<tool_call>` parser in `/chat/stream` two-pass; Hermes tool schema + memory protocol in all personality presets
-- ✅ **Ollama removed from routing** — `can_stream_ollama=False`; all local routes go to llamacpp; session summarizer switched from guppy-fast to dispatch at port 8085
+- ✅ **Ollama removed from routing** — `can_stream_ollama=False`; all local routes go to llamacpp; session summarizer switched from guppy-fast to phi-4-mini at port 8091
 - ✅ **Phi-4-mini infrastructure** — registered at port 8091 as true JSON tool_call orchestrator; model file needed to activate
 - ✅ **6-gap stability hardening** (2026-04-30):
   - **Surface-locked routing** — `_get_surface_local_model()` reads `surface_config` DB per-surface; companion→hermes3, workspace→hermes4 by default; wired into `/chat` + `/chat/stream`
@@ -227,7 +227,7 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - **`tools/check_new_module_line_cap.py`** — Enforce module size limits
 - **`tools/pilot_exit_check.py`** — Graceful shutdown verification
 - **`tools/verify_logging_health.py`** — Log system audit
-- **`tools/verify_ollama_runtime.py`** — Ollama availability check
+- **`tools/verify_local_model_runtime.py`** — Local model runtime availability check
 - **`tools/verify_voice_runtime.py`** — Voice engine availability check (edge_tts, kokoro, pyttsx3, ElevenLabs)
 - **`tools/run_overnight_low_compute.py`** — Off-hours testing
 
@@ -250,12 +250,12 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 
 → See `docs/MODEL_ROUTING.md` for full table.
 
-**Always-on stack (22 GB VRAM):**
+**Always-on stack (~22.5 GB VRAM):**
 | Surface role | Key | Port | Model |
 |---|---|---|---|
 | Companion fast chat | `llamacpp-hermes3` | 8087 | Hermes 3 8B Q8_0 |
 | Workspace/codespace reasoning | `llamacpp-hermes4` | 8086 | Hermes 4 14B Q5_K_M |
-| Orchestrator / summarizer | `llamacpp-dispatch` | 8085 | Qwen2.5-3B Q4_K_M |
+| Orchestrator / summarizer | `llamacpp-phi4-mini` | 8091 | Phi-4-mini-instruct Q4_K_M |
 
 **Ollama is removed from routing.** `can_stream_ollama=False`. All local routes go to llamacpp.
 
@@ -266,13 +266,13 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 | `llamacpp-pepe` | Assistant Pepe 8B Q8_0 | 8082 | ~8.5 GB | Fast chat, Mode A |
 | `llamacpp-qwen3` | Qwen3 35B-A3B MoE | 8083 | ~19 GB | Reasoning, Mode B (solo only) |
 | `llamacpp-minicpm` | MiniCPM-o 4.5 Omni | 8084 | ~9 GB | Vision+speech, needs mmproj |
-| `llamacpp-dispatch` | Qwen2.5-3B-Instruct Q4_K_M | 8085 | ~2 GB | Orchestrator, auto-starts |
+| `llamacpp-dispatch` | Qwen2.5-3B-Instruct Q4_K_M | 8085 | ~2 GB | Lightweight router fallback |
 | `llamacpp-hermes4` | Hermes 4 14B Q5_K_M | 8086 | ~11 GB | Tools + uncensored (primary recommended) |
 | `llamacpp-hermes3` | Hermes 3 8B Lorablated Q8_0 | 8087 | ~9 GB | Fast tools + uncensored |
 | `llamacpp-rocinante` | Rocinante X 12B Q5_K_M | 8088 | ~10 GB | Creative writing / roleplay |
 | `llamacpp-xlam` | xLAM-2-8B-fc-r Q4_K_M | 8089 | ~5 GB | Tool-call specialist (#1 BFCL ≤8B); on-demand |
 | `llamacpp-chat` | Llama 3.3 70B Instruct Q4_K_M | 8090 | 0 VRAM (~42 GB RAM) | CPU-only flagship chat; ~4-6 tok/s on Ryzen 9 9900X |
-| `llamacpp-phi4-mini` | Phi-4-mini-instruct Q4_K_M | 8091 | ~2.5 GB | True JSON tool_call orchestrator — upgrade path to replace dispatch; model file needed |
+| `llamacpp-phi4-mini` | Phi-4-mini-instruct Q4_K_M | 8091 | ~2.5 GB | True JSON tool_call orchestrator (always-on); model file needed |
 
 **Gemma 4 E4B PLE warning:** llama.cpp issue #22243 — PLE (Per-Layer Embeddings) architecture not fully implemented; output quality is silently degraded. Use Hermes or Rocinante for tool-capable or quality-sensitive tasks.
 
@@ -293,7 +293,7 @@ Located at `config/instances.json`. Defines available runtime instances:
 - Build/test failures → Run `python tools/dev_workflow.py dev-check`
 - Missing paths → Verify against canonical brief in `docs/PROJECT_BRIEF.md`
 - Security concerns → Review `src/guppy/api/auth.py` and repair token flow
-- Performance → Profile with `tools/verify_ollama_runtime.py`
+- Performance → Profile with `tools/verify_local_model_runtime.py`
 
 ---
 

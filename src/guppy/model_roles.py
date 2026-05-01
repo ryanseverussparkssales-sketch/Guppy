@@ -21,7 +21,7 @@ MODEL_ROLES: dict[str, str] = {
     "conversation.partner.writing":   "llamacpp-rocinante",
     "conversation.partner.study":     "llamacpp-pepe",
     "conversation.partner.vision":    "llamacpp-minicpm",
-    "workspace.controller":           "llamacpp-dispatch",
+    "workspace.controller":           "llamacpp-phi4-mini",
     "workspace.worker.primary":       "llamacpp-hermes4",
     "workspace.worker.escalation":    "llamacpp-chat",
     "workspace.tool_specialist":      "llamacpp-xlam",
@@ -69,10 +69,10 @@ ROLE_LABELS: dict[str, dict[str, str]] = {
         "port": "8084",
     },
     "workspace.controller": {
-        "label": "Dispatch",
-        "description": "Workspace task orchestrator",
-        "model": "Qwen2.5-3B-Instruct",
-        "port": "8085",
+        "label": "Phi-4-mini",
+        "description": "Workspace task orchestrator (native JSON tool_call)",
+        "model": "Phi-4-mini-instruct",
+        "port": "8091",
     },
     "workspace.worker.primary": {
         "label": "Hermes 4",

@@ -8,7 +8,7 @@
 
 | Role | Key | Port | Model | VRAM |
 |------|-----|------|-------|------|
-| Orchestrator / session summarizer | `llamacpp-dispatch` | 8085 | Qwen2.5-3B Q4_K_M | ~2 GB |
+| Orchestrator / session summarizer | `llamacpp-phi4-mini` | 8091 | Phi-4-mini-instruct Q4_K_M | ~2.5 GB |
 | Companion fast chat + tools | `llamacpp-hermes3` | 8087 | Hermes 3 8B Lorablated Q8_0 | ~9 GB |
 | Workspace / codespace reasoning + tools | `llamacpp-hermes4` | 8086 | Hermes 4 14B Q5_K_M | ~11 GB |
 
@@ -28,6 +28,7 @@
 | Creative/roleplay | `llamacpp-rocinante` | 8088 | Rocinante X 12B Q5_K_M | ~10 GB | |
 | CPU flagship | `llamacpp-chat` | 8090 | Llama 3.3 70B Q4_K_M | 0 VRAM (~42 GB RAM) | ~4-6 tok/s |
 | JSON tool_call orchestrator | `llamacpp-phi4-mini` | 8091 | Phi-4-mini-instruct Q4_K_M | ~2.5 GB | Model file needed |
+| Dispatcher fallback | `llamacpp-dispatch` | 8085 | Qwen2.5-3B Q4_K_M | ~2 GB | Lightweight router |
 
 ---
 

@@ -71,6 +71,14 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
     "llamacpp-dispatch": {
         "bat":     r"C:\llama-cpp\launch-dispatch.bat",
         "port":    8085,
+        "label":   "Qwen2.5-3B Dispatch",
+        "mode":    "A",
+        "note":    "Dispatch · ~2 GB VRAM · lightweight router",
+        "vram_gb": 2.0,
+    },
+    "llamacpp-phi4-mini": {
+        "bat":     r"C:\llama-cpp\launch-phi4-mini.bat",
+        "port":    8091,
         "label":   "Phi-4-mini Orchestrator",
         "mode":    "A",
         "note":    "Orchestrator · ~2.5 GB VRAM · native JSON tool_call routing — auto-starts",
@@ -146,8 +154,8 @@ _GPU_VRAM_GB: float = float(os.environ.get("GUPPY_GPU_VRAM_GB", "24"))
 
 _MODE_A = {
     "llamacpp-pepe", "llamacpp-gemma", "llamacpp-minicpm", "llamacpp-dispatch",
-    "llamacpp-hermes4", "llamacpp-hermes3", "llamacpp-rocinante", "llamacpp-xlam",
-    "llamacpp-chat",
+    "llamacpp-phi4-mini", "llamacpp-hermes4", "llamacpp-hermes3",
+    "llamacpp-rocinante", "llamacpp-xlam", "llamacpp-chat",
 }
 _MODE_B = {"llamacpp-qwen3"}
 
@@ -432,8 +440,12 @@ def _run_auto_starts() -> None:
 # faster because the system prompt doesn't need to be re-computed.
 
 _WARMUP_SYSTEM_PROMPTS: dict[str, str] = {
-    8085: (  # dispatch — orchestrator
-        "You are a task dispatcher. Route requests to the appropriate specialist. "
+    8085: (  # dispatch — router
+        "You are a lightweight dispatcher. Route requests to the appropriate specialist. "
+        "Be concise and accurate."
+    ),
+    8091: (  # Phi-4-mini — orchestrator
+        "You are a task orchestrator. Route requests to the appropriate specialist. "
         "Be concise and accurate."
     ),
     8087: (  # Hermes3 — companion surface
@@ -485,7 +497,7 @@ def _warm_kv_cache(port: int) -> None:
 # If any of these crash the watchdog restarts them automatically.
 
 _WATCHDOG_ALWAYS_ON = {
-    "llamacpp-dispatch": 8085,
+    "llamacpp-phi4-mini": 8091,
     "llamacpp-hermes3":  8087,
     "llamacpp-hermes4":  8086,
 }

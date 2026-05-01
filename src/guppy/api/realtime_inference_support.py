@@ -334,8 +334,8 @@ def _bg_store_tool_outcome(name: str, args: dict, result: str) -> None:
 def _bg_summarize_session(history: list[dict]) -> None:
     """Fire-and-forget: summarize recent conversation turns into semantic memory.
 
-    Called when history reaches every 10th turn. Uses llamacpp dispatch (Qwen2.5-3B-Instruct,
-    port 8085) so summarization is cheap, non-blocking, and Ollama-free.
+    Called when history reaches every 10th turn. Uses phi-4-mini (port 8091)
+    so summarization is cheap, non-blocking, and Ollama-free.
     """
     import threading
 
@@ -350,7 +350,7 @@ def _bg_summarize_session(history: list[dict]) -> None:
                 turns.append(f"{role}: {content}")
             history_text = "\n".join(turns)
             payload = {
-                "model": "qwen2.5-3b-instruct",
+                "model": "phi-4-mini-instruct",
                 "messages": [
                     {
                         "role": "system",
@@ -364,7 +364,7 @@ def _bg_summarize_session(history: list[dict]) -> None:
                 ],
                 "stream": False,
             }
-            r = requests.post("http://localhost:8085/v1/chat/completions", json=payload, timeout=30)
+            r = requests.post("http://localhost:8091/v1/chat/completions", json=payload, timeout=30)
             r.raise_for_status()
             summary = (r.json().get("choices", [{}])[0].get("message", {}).get("content", "") or "").strip()
             if summary and len(summary) > 30:

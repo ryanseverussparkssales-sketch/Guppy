@@ -24,6 +24,7 @@ _LOG_DIR = Path(r"C:\llama-cpp\logs")
 # Map model key → log file stem (matches what Start-Process redirects create)
 _LOG_FILES: dict[str, str] = {
     "llamacpp-dispatch":  "dispatch-phi4",
+    "llamacpp-phi4-mini": "phi4-mini",
     "llamacpp-hermes3":   "hermes3",
     "llamacpp-hermes4":   "hermes4",
     "llamacpp-pepe":      "pepe",

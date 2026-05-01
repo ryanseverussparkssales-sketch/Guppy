@@ -14,6 +14,12 @@
 - Local fallback routing attempts to auto-start the 70B CPU backend when selected.
 - **Impact:** Fewer “offline model” surprises; partner/model switches are usable without manual boot steps.
 
+### Phi Orchestrator Promotion
+- Added a dedicated `llamacpp-phi4-mini` backend entry (port 8091) and made it the workspace controller role.
+- Session summarization now targets phi-4-mini; dispatch remains a lightweight router fallback.
+- Updated model routing docs + CLAUDE registry to match the new always-on orchestrator.
+- **Impact:** Orchestrator role now matches the Phi-first architecture without breaking dispatch fallback.
+
 ## P6 Platform Hardening — Shipped Features (2026-04-23 to 2026-04-28)
 
 ### Web UI Parity & Inference Controls (2026-04-26)
