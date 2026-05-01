@@ -41,7 +41,16 @@ from src.guppy.launcher_application import is_valid_repair_token as _is_valid_re
 from src.guppy.api import auth as guppy_api_auth
 from utils import secret_store
 from utils.db_utils import open_db
-from ui.launcher import launcher_window
+
+# launcher_window was part of the Qt desktop UI (archived 2026-05-01 to
+# docs/archive/deprecated-modules/compat_launcher_ui/). Tests that depend on
+# it are skipped gracefully when the module is absent.
+try:
+    from ui.launcher import launcher_window as launcher_window
+    _LAUNCHER_WINDOW_AVAILABLE = True
+except ImportError:
+    launcher_window = None  # type: ignore[assignment]
+    _LAUNCHER_WINDOW_AVAILABLE = False
 
 
 _TEST_SECRET = "test-security-hardening-secret-key-32x"
@@ -296,6 +305,7 @@ class DBUtilsTests(unittest.TestCase):
 
 # ── Malformed runtime file tests ───────────────────────────────────────────────
 
+@unittest.skipIf(not _LAUNCHER_WINDOW_AVAILABLE, "launcher_window archived — skip")
 class MalformedRuntimeFileTests(unittest.TestCase):
     def test_corrupt_json_status_file_does_not_raise(self):
         """Corrupt JSON in a status file must be handled gracefully by the launcher."""
@@ -394,6 +404,7 @@ class SecretStoreTests(unittest.TestCase):
 
 # ── Auth handshake and repair lifecycle tests ─────────────────────────────────
 
+@unittest.skipIf(not _LAUNCHER_WINDOW_AVAILABLE, "launcher_window archived — skip")
 class AuthAndRepairLifecycleTests(unittest.TestCase):
     def setUp(self):
         self._orig_keyring_available_secret_store = secret_store._KEYRING_AVAILABLE
@@ -546,6 +557,7 @@ class RepairTokenValidationTests(unittest.TestCase):
         self.assertFalse(_is_valid_repair_token(token_with_null))
 
 
+@unittest.skipIf(not _LAUNCHER_WINDOW_AVAILABLE, "launcher_window archived — skip")
 class LauncherWriteJsonTests(unittest.TestCase):
     def test_write_json_raises_when_atomic_write_fails(self):
         with tempfile.TemporaryDirectory() as td:
@@ -625,6 +637,7 @@ class RepairTokenRefreshEndpointTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 403)
 
 
+@unittest.skipIf(not _LAUNCHER_WINDOW_AVAILABLE, "launcher_window archived — skip")
 class LauncherRepairTokenResyncTests(unittest.TestCase):
     """
     Tests for the launcher 403-triggered token re-sync flow.

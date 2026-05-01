@@ -6,6 +6,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.guppy.api._server_fragment_models import RepairRequest
+from src.guppy.api.auth import verify_token
 from src.guppy.api.server_context import ServerContext
 
 
@@ -113,7 +114,7 @@ def build_ops_router(ctx: ServerContext) -> APIRouter:
     @router.get("/repair-token/refresh")
     async def repair_token_refresh(
         _req: Request,
-        _user_id: str = Depends(ctx.require_rate_limit),
+        _user_id: str = Depends(verify_token),
     ):
         client_ip = _req.client.host if _req.client else ""
         if client_ip not in ("127.0.0.1", "::1", "localhost", ""):
