@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
+import type { Terminal as XTerminal } from '@xterm/xterm'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -35,41 +36,101 @@ function statusColor(status: string) {
   return 'text-on-surface-variant/50'
 }
 
-// ── TerminalOutput ────────────────────────────────────────────────────────────
+// ── XTermOutput ───────────────────────────────────────────────────────────────
 
-function TerminalOutput({
+function XTermOutput({
   sandboxId,
   onClose,
 }: {
   sandboxId: string
   onClose: () => void
 }) {
-  const [command, setCommand]   = useState('')
-  const [lines, setLines]       = useState<string[]>([])
-  const [running, setRunning]   = useState(false)
-  const bottomRef               = useRef<HTMLDivElement>(null)
-  const abortRef                = useRef<AbortController | null>(null)
+  const containerRef                 = useRef<HTMLDivElement>(null)
+  const termRef                      = useRef<XTerminal | null>(null)
+  const fitRef                       = useRef<{ fit: () => void } | null>(null)
+  const [command, setCommand]        = useState('')
+  const [running, setRunning]        = useState(false)
+  const abortRef                     = useRef<AbortController | null>(null)
+  const inputRef                     = useRef<HTMLInputElement>(null)
 
+  // Lazy-load xterm (keeps initial bundle small)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [lines])
+    let term: XTerminal
+    let resizeOb: ResizeObserver | undefined
+
+    const init = async () => {
+      const { Terminal } = await import('@xterm/xterm')
+      const { FitAddon }  = await import('@xterm/addon-fit')
+      const { WebLinksAddon } = await import('@xterm/addon-web-links')
+
+      // Import xterm CSS once
+      await import('@xterm/xterm/css/xterm.css')
+
+      term = new Terminal({
+        theme: {
+          background: 'transparent',
+          foreground: '#d4d4d8',
+          cursor: '#a1a1aa',
+          selectionBackground: '#3f3f46',
+          black:   '#18181b', brightBlack:   '#71717a',
+          red:     '#f87171', brightRed:     '#fca5a5',
+          green:   '#4ade80', brightGreen:   '#86efac',
+          yellow:  '#facc15', brightYellow:  '#fde047',
+          blue:    '#60a5fa', brightBlue:    '#93c5fd',
+          magenta: '#c084fc', brightMagenta: '#d8b4fe',
+          cyan:    '#22d3ee', brightCyan:    '#67e8f9',
+          white:   '#d4d4d8', brightWhite:   '#f4f4f5',
+        },
+        fontFamily: '"Cascadia Code", "Fira Code", "JetBrains Mono", monospace',
+        fontSize: 12,
+        cursorBlink: true,
+        convertEol: true,
+        scrollback: 2000,
+        allowProposedApi: false,
+      })
+      const fit   = new FitAddon()
+      const links = new WebLinksAddon()
+      term.loadAddon(fit)
+      term.loadAddon(links)
+
+      if (containerRef.current) {
+        term.open(containerRef.current)
+        fit.fit()
+      }
+      termRef.current = term
+      fitRef.current  = fit
+      term.writeln('\x1b[1;36m── Guppy Sandbox Terminal ──\x1b[0m')
+      term.writeln(`\x1b[2mContainer: ${sandboxId.slice(0, 12)}\x1b[0m`)
+      term.writeln('')
+
+      resizeOb = new ResizeObserver(() => { try { fit.fit() } catch { /* ignore */ } })
+      if (containerRef.current?.parentElement) {
+        resizeOb.observe(containerRef.current.parentElement)
+      }
+    }
+
+    init()
+    return () => {
+      resizeOb?.disconnect()
+      term?.dispose()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sandboxId])
 
   const exec = async () => {
-    if (!command.trim() || running) return
     const cmd = command.trim()
+    if (!cmd || running) return
     setCommand('')
-    setLines((l) => [...l, `$ ${cmd}`])
     setRunning(true)
+    const term = termRef.current
+    term?.writeln(`\x1b[1;32m$ ${cmd}\x1b[0m`)
     abortRef.current = new AbortController()
 
     try {
       const token = localStorage.getItem('accessToken') || ''
       const res = await fetch(`/api/codespace/sandbox/${sandboxId}/exec`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ command: cmd }),
         signal: abortRef.current.signal,
       })
@@ -88,17 +149,19 @@ function TerminalOutput({
           if (evt.startsWith('event: done')) {
             setRunning(false)
           } else if (evt.startsWith('data: ')) {
-            setLines((l) => [...l, evt.slice(6)])
+            term?.writeln(evt.slice(6))
           }
         }
       }
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
-        setLines((l) => [...l, `[error: ${e?.message ?? e}]`])
+        term?.writeln(`\x1b[1;31m[error: ${e?.message ?? e}]\x1b[0m`)
       }
     } finally {
       setRunning(false)
       abortRef.current = null
+      term?.writeln('')
+      inputRef.current?.focus()
     }
   }
 
@@ -106,7 +169,7 @@ function TerminalOutput({
     abortRef.current?.abort()
     abortRef.current = null
     setRunning(false)
-    setLines((l) => [...l, '^C'])
+    termRef.current?.writeln('^C')
   }
 
   return (
@@ -123,30 +186,23 @@ function TerminalOutput({
         </button>
       </div>
 
-      {/* Output area */}
-      <div className="flex-1 overflow-y-auto bg-surface-container-low p-3 font-mono text-xs text-on-surface/80 space-y-0.5">
-        {lines.length === 0 && (
-          <p className="text-on-surface-variant/40">Ready. Type a command below.</p>
-        )}
-        {lines.map((line, i) => (
-          <div key={i} className={cn(
-            "leading-relaxed whitespace-pre-wrap",
-            line.startsWith('$') && "text-primary font-semibold",
-            line.startsWith('[error') && "text-error",
-          )}>
-            {line}
-          </div>
-        ))}
-        <div ref={bottomRef} />
-      </div>
+      {/* xterm output */}
+      <div
+        ref={containerRef}
+        className="flex-1 min-h-0 bg-[#09090b] px-2 py-1 overflow-hidden"
+      />
 
       {/* Input row */}
       <div className="flex items-center gap-2 px-3 py-2 border-t border-outline-variant/20 bg-surface-container flex-shrink-0">
         <span className="text-primary font-mono text-xs font-semibold">$</span>
         <input
+          ref={inputRef}
           value={command}
           onChange={(e) => setCommand(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && exec()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') exec()
+            if (e.key === 'c' && e.ctrlKey) interrupt()
+          }}
           placeholder="command…"
           disabled={running}
           className="flex-1 bg-transparent text-xs font-mono text-on-surface outline-none placeholder-on-surface-variant/40"
@@ -278,7 +334,7 @@ export function SandboxPanel() {
     <div className="relative flex flex-col h-full p-4 gap-3">
       {/* Terminal overlay */}
       {activeTerminal && (
-        <TerminalOutput sandboxId={activeTerminal} onClose={() => setTerminal(null)} />
+        <XTermOutput sandboxId={activeTerminal} onClose={() => setTerminal(null)} />
       )}
 
       {/* Header */}

@@ -484,7 +484,7 @@ def _warm_kv_cache(port: int) -> None:
     }
     try:
         req = _req.Request(
-            f"http://localhost:{port}/v1/chat/completions",
+            f"http://127.0.0.1:{port}/v1/chat/completions",
             data=_json.dumps(payload).encode(),
             headers={"Content-Type": "application/json"},
             method="POST",

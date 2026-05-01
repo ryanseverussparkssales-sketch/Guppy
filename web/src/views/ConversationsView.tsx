@@ -36,6 +36,12 @@ interface Message {
   imageUrl?: string   // preview for vision queries
 }
 
+interface AttachedImage {
+  base64: string
+  url: string
+  name: string
+}
+
 interface PersonalityPreset {
   label: string
   model: string
@@ -72,6 +78,169 @@ function isAbortError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false
   const name = (err as { name?: unknown }).name
   return name === 'AbortError'
+}
+
+class ChatStreamError extends Error {
+  status?: number
+
+  constructor(message: string, status?: number) {
+    super(message)
+    this.name = 'ChatStreamError'
+    this.status = status
+  }
+}
+
+function compactErrorValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
+    }
+  }
+  return String(value)
+}
+
+async function readResponseDetail(response: Response): Promise<string> {
+  try {
+    const contentType = response.headers.get('content-type') ?? ''
+    if (contentType.includes('application/json')) {
+      const body = await response.clone().json() as Record<string, unknown>
+      return compactErrorValue(body.detail ?? body.error ?? body.message).slice(0, 240)
+    }
+    return (await response.clone().text()).trim().slice(0, 240)
+  } catch {
+    return ''
+  }
+}
+
+function chatErrorMessage(err: unknown): string {
+  if (isAbortError(err)) return ''
+  if (err instanceof ChatStreamError) {
+    if (err.status === 401) return 'Your session expired. Sign in again, then retry.'
+    if (err.status === 404) return 'That conversation session was not found. Start a new session and retry.'
+    if (err.status === 429) return 'The chat API is rate-limiting requests. Give it a moment and retry.'
+    if (err.status && err.status >= 500) return 'The chat API hit a server error. Check model health, then retry.'
+    return err.message
+  }
+  if (err instanceof TypeError) return 'The chat API is not reachable. Check API health in Control Panel.'
+  if (err instanceof Error && err.message) return err.message
+  return 'Something went wrong. Try again.'
+}
+
+interface ReadConversationStreamArgs {
+  message: string
+  sessionId: string | null
+  imageBase64?: string
+  isVoice: boolean
+  signal: AbortSignal
+  onToken: (token: string) => void
+  onSessionId: (sessionId: string) => void
+}
+
+async function readConversationStream({
+  message,
+  sessionId,
+  imageBase64,
+  isVoice,
+  signal,
+  onToken,
+  onSessionId,
+}: ReadConversationStreamArgs): Promise<string> {
+  const token = localStorage.getItem('accessToken')
+  const response = await fetch('/api/conversations/chat/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      message,
+      session_id: sessionId,
+      image_base64: imageBase64,
+      is_voice: isVoice,
+    }),
+    signal,
+  })
+
+  if (!response.ok) {
+    const detail = await readResponseDetail(response)
+    const messageText = detail || `Chat stream failed with HTTP ${response.status}`
+    throw new ChatStreamError(messageText, response.status)
+  }
+  if (!response.body) {
+    throw new ChatStreamError('The chat stream opened without a response body.')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let fullText = ''
+  let doneSeen = false
+
+  const consumeLine = (line: string) => {
+    const trimmed = line.trimEnd()
+    if (!trimmed || trimmed.startsWith(':') || !trimmed.startsWith('data:')) return
+
+    const payload = trimmed.slice(5).trim()
+    if (!payload) return
+    if (payload === '[DONE]') {
+      doneSeen = true
+      return
+    }
+
+    let parsed: Record<string, unknown>
+    try {
+      const value = JSON.parse(payload)
+      if (!value || typeof value !== 'object') throw new Error('not an object')
+      parsed = value as Record<string, unknown>
+    } catch {
+      throw new ChatStreamError('The chat stream sent malformed data.')
+    }
+
+    const streamError = compactErrorValue(parsed.error).trim()
+    if (streamError) {
+      throw new ChatStreamError(streamError)
+    }
+
+    if (typeof parsed.session_id === 'string' && parsed.session_id) {
+      onSessionId(parsed.session_id)
+    }
+    if (typeof parsed.token === 'string' && parsed.token) {
+      fullText += parsed.token
+      onToken(parsed.token)
+    }
+  }
+
+  try {
+    while (!doneSeen) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        consumeLine(line)
+        if (doneSeen) break
+      }
+    }
+
+    buffer += decoder.decode()
+    if (!doneSeen && buffer.trim()) {
+      for (const line of buffer.split(/\r?\n/)) {
+        consumeLine(line)
+        if (doneSeen) break
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  return fullText
 }
 
 async function loadVoiceMeta() {
@@ -205,9 +374,10 @@ export default function ConversationsView() {
   const [ambientMode, setAmbientMode]     = useState(false)
   const [workspaceAlert, setWsAlert]      = useState<string | null>(null)
   const [pendingTaskCount, setPendingTaskCount] = useState(0)
-  const [attachedImage, setAttachedImage] = useState<{ base64: string; url: string; name: string } | null>(null)
+  const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null)
 
   const abortRef              = useRef<AbortController | null>(null)
+  const isSendingRef          = useRef(false)
   const bottomRef             = useRef<HTMLDivElement>(null)
   const fileInputRef          = useRef<HTMLInputElement>(null)
   const textareaRef           = useAutoHeight(input)
@@ -215,6 +385,11 @@ export default function ConversationsView() {
   const workingTimerRef       = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Tracks workspace tasks delegated by companion: id → title
   const pendingDelegatesRef   = useRef<Map<string, string>>(new Map())
+
+  const clearAttachedImage = useCallback(() => {
+    setAttachedImage(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }, [])
 
   useEffect(() => {
     try {
@@ -333,37 +508,47 @@ export default function ConversationsView() {
   const handleStop = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = null
+    isSendingRef.current = false
+    if (workingTimerRef.current) {
+      clearTimeout(workingTimerRef.current)
+      workingTimerRef.current = null
+    }
     if (voice.isSpeaking) voice.stopSpeaking()
     setStreaming('')
     setIsSending(false)
   }, [voice])
 
   const handleSend = useCallback(async (override?: string, isVoice = false) => {
-    const text = override ?? input
-    if (!text.trim() || isSending) return
+    const currentImage = attachedImage
+    const draft = override ?? input
+    const text = draft.trim() || (currentImage ? 'Describe this image.' : '')
+    if (!text || isSendingRef.current) return
+    isSendingRef.current = true
 
     const userMsg: Message = {
       id: crypto.randomUUID(),
       role: 'user',
       content: text,
       ts: new Date().toISOString(),
-      imageUrl: attachedImage?.url,
+      imageUrl: currentImage?.url,
     }
     setMessages((m) => [...m, userMsg])
     if (!override) setInput('')
-    const currentImage = attachedImage
-    setAttachedImage(null)
+    clearAttachedImage()
     setIsSending(true)
     setStreaming('')
 
     const controller = new AbortController()
     abortRef.current = controller
     sentenceBufferRef.current = ''
+    let firstTokenArrived = false
 
     // If no token arrives within 8 s, speak a verbal acknowledgment so the
     // user knows the request is alive (cold-start / complex prompt situations).
     workingTimerRef.current = setTimeout(() => {
-      if (ttsEnabled && !streaming) voice.speakQueued('Working on it.')
+      if (ttsEnabled && !firstTokenArrived && !controller.signal.aborted) {
+        voice.speakQueued('Working on it.')
+      }
     }, 8000)
 
     // Streaming TTS helper — feeds tokens into a sentence accumulator and
@@ -390,6 +575,7 @@ export default function ConversationsView() {
 
     try {
       let fullText = ''
+      let streamed = false
 
       // Vision query path
       if (currentImage) {
@@ -409,57 +595,23 @@ export default function ConversationsView() {
 
       // Stream from conversations API
       if (!fullText) {
-        const token = localStorage.getItem('accessToken')
-        const response = await fetch('/api/conversations/chat/stream', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            message: text,
-            session_id: currentSessionId,
-            image_base64: currentImage?.base64,
-            is_voice: isVoice,
-          }),
+        streamed = true
+        fullText = await readConversationStream({
+          message: text,
+          sessionId: currentSessionId,
+          imageBase64: currentImage?.base64,
+          isVoice,
           signal: controller.signal,
+          onSessionId: setCurrentSessionId,
+          onToken: (token) => {
+            firstTokenArrived = true
+            setStreaming((p) => p + token)
+            tryFlushTTS(token)
+          },
         })
-
-        if (!response.ok) throw new Error(`Stream failed: ${response.status}`)
-
-        const reader = response.body!.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buffer += decoder.decode(value, { stream: true })
-
-          const lines = buffer.split('\n')
-          buffer = lines.pop() ?? ''
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
-            const payload = line.slice(6).trim()
-            if (payload === '[DONE]') break
-            try {
-              const parsed = JSON.parse(payload)
-              if (parsed.error) throw new Error(parsed.error)
-              if (parsed.session_id) setCurrentSessionId(parsed.session_id)
-              if (parsed.token) {
-                fullText += parsed.token
-                setStreaming((p) => p + parsed.token)
-                tryFlushTTS(parsed.token)
-              }
-            } catch (e) {
-              console.error('Parse error:', e)
-            }
-          }
-        }
       }
 
-      const finalText = fullText || streaming
+      const finalText = fullText
       if (finalText.trim()) {
         setMessages((m) => [...m, {
           id: crypto.randomUUID(), role: 'assistant', content: finalText, ts: new Date().toISOString(),
@@ -475,33 +627,39 @@ export default function ConversationsView() {
       // Flush any remaining partial sentence from the accumulator.
       // Sentence-by-sentence TTS already started during streaming — this
       // catches the final fragment that didn't end with punctuation.
-      tryFlushTTS('', true)
+      if (streamed) {
+        tryFlushTTS('', true)
+      } else {
+        tryFlushTTS(finalText, true)
+      }
     } catch (err: unknown) {
       if (!isAbortError(err)) {
         setMessages((m) => [...m, {
           id: crypto.randomUUID(), role: 'assistant',
-          content: '⚠ Something went wrong. Try again.', ts: new Date().toISOString(),
+          content: chatErrorMessage(err), ts: new Date().toISOString(),
         }])
       }
     } finally {
       if (workingTimerRef.current) { clearTimeout(workingTimerRef.current); workingTimerRef.current = null }
       setStreaming('')
       setIsSending(false)
+      isSendingRef.current = false
       abortRef.current = null
     }
-  }, [input, isSending, currentSessionId, ttsEnabled, voice, streaming, attachedImage])
+  }, [attachedImage, clearAttachedImage, currentSessionId, input, ttsEnabled, voice])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
 
   const handleImageFile = (file: File) => {
-    const url = URL.createObjectURL(file)
     const reader = new FileReader()
     reader.onload = (ev) => {
-      const b64 = (ev.target?.result as string).split(',')[1] ?? ''
-      setAttachedImage({ base64: b64, url, name: file.name })
+      const dataUrl = typeof ev.target?.result === 'string' ? ev.target.result : ''
+      const b64 = dataUrl.split(',')[1] ?? ''
+      setAttachedImage({ base64: b64, url: dataUrl, name: file.name })
     }
+    reader.onerror = () => toast.error('Could not read image')
     reader.readAsDataURL(file)
   }
 
@@ -780,7 +938,7 @@ export default function ConversationsView() {
             <div className="relative inline-block">
               <img src={attachedImage.url} alt="preview" className="h-16 rounded-xl object-cover border border-outline-variant/30" />
               <button
-                onClick={() => setAttachedImage(null)}
+                onClick={clearAttachedImage}
                 className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-error text-white flex items-center justify-center"
               >
                 <X className="w-3 h-3" />

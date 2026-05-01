@@ -79,6 +79,20 @@ def _strip_tool_call_markers(text: str) -> str:
     return _TOOL_CALL_TAG_RE.sub("", text).strip()
 
 
+def _port_from_url(url: str) -> int:
+    """Extract the port number from a URL string like 'http://127.0.0.1:8086'.
+
+    Returns 0 if the URL is empty or contains no colon-delimited port.
+    """
+    url = (url or "").strip()
+    if ":" not in url:
+        return 0
+    try:
+        return int(url.rsplit(":", 1)[-1].split("/")[0])
+    except (ValueError, IndexError):
+        return 0
+
+
 def _clean_local_response(text: str) -> str:
     """Strip tool call markup and return a user-friendly string.
 
@@ -375,7 +389,7 @@ def call_unified_inference(
         from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
         _backend_name = _LOCAL_LLAMACPP_ROUTES.get(active_local_model, "")
         _backend_url  = (_LOCAL_BACKENDS.get(_backend_name) or {}).get("default_url", "")
-        _backend_port = int(_backend_url.rsplit(":", 1)[-1]) if ":" in _backend_url else 0
+        _backend_port = _port_from_url(_backend_url)
         if _backend_port and _llc_port_alive(_backend_port):
             requested_mode = "local"
         # else: backend offline — fall through as "auto"; cloud escalation may occur
@@ -489,9 +503,9 @@ def _run_local_mode(
         from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
         _backend = _LOCAL_LLAMACPP_ROUTES.get(active_local_model, "")
         _backend_url = (_LOCAL_BACKENDS.get(_backend) or {}).get("default_url", "")
-        _backend_port = int(_backend_url.rsplit(":", 1)[-1]) if ":" in _backend_url else 0
+        _backend_port = _port_from_url(_backend_url)
         if _backend_port and _llc_port_alive(_backend_port):
-            messages = build_router_messages(augmented_system_prompt, user_text, sanitize_chat_history(None))
+            messages = build_router_messages(augmented_system_prompt, user_text, [])
             response = _call_llamacpp_sync(active_local_model=active_local_model, messages=messages)
             return response, "llamacpp", {"route_mode": "local", "model": active_local_model}
 
@@ -913,9 +927,7 @@ async def stream_unified_inference(
             # the selected llamacpp model isn't running.
             from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
             backend_cfg = _LOCAL_BACKENDS.get(llamacpp_backend, {})
-            backend_port = int(
-                (backend_cfg.get("default_url", "") or "").rsplit(":", 1)[-1]
-            ) if ":" in (backend_cfg.get("default_url", "") or "") else 0
+            backend_port = _port_from_url(backend_cfg.get("default_url", "") or "")
             backend_alive = _llc_port_alive(backend_port) if backend_port else False
 
             if backend_alive:
@@ -989,7 +1001,7 @@ async def stream_unified_inference(
         for _fb_backend in _MODE_A_FALLBACK_ORDER:
             _fb_cfg = _LOCAL_BACKENDS.get(_fb_backend, {})
             _fb_url = _fb_cfg.get("default_url", "")
-            _fb_port = int(_fb_url.rsplit(":", 1)[-1]) if ":" in _fb_url else 0
+            _fb_port = _port_from_url(_fb_url)
             if _fb_backend == "llamacpp-chat" and _fb_port and not _llc_port_alive(_fb_port):
                 try:
                     ensure_backend_started(_fb_backend)

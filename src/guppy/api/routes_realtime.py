@@ -181,22 +181,28 @@ async def _execute_workspace_tool(name: str, args: dict) -> dict:
         if not query:
             return {"ok": False, "error": "query required"}
         try:
+            from bs4 import BeautifulSoup
             async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
                 resp = await client.get(
                     "https://html.duckduckgo.com/html/",
                     params={"q": query},
-                    headers={"User-Agent": "Mozilla/5.0 Guppy/1.0"},
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Guppy/1.0"},
                 )
-            # Extract result snippets from DDG HTML response
-            anchors = re.findall(
-                r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a',
-                resp.text, re.DOTALL,
-            )
-            results = [
-                {"url": u, "title": re.sub(r"<[^>]+>", "", t).strip()}
-                for u, t in anchors[:num_results]
-            ]
-            return {"ok": True, "results": results, "query": query}
+            soup = BeautifulSoup(resp.text, "html.parser")
+            results = []
+            for div in soup.select(".result"):
+                a_tag = div.select_one(".result__a")
+                snippet_tag = div.select_one(".result__snippet")
+                if not a_tag:
+                    continue
+                url   = a_tag.get("href", "") or ""
+                title = a_tag.get_text(strip=True)
+                snippet = snippet_tag.get_text(strip=True) if snippet_tag else ""
+                if url and title:
+                    results.append({"url": url, "title": title, "snippet": snippet})
+                if len(results) >= num_results:
+                    break
+            return {"ok": True, "results": results, "query": query, "count": len(results)}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
@@ -299,6 +305,234 @@ async def _execute_workspace_tool(name: str, args: dict) -> dict:
         except Exception as e:
             return {"ok": False, "error": f"screenpipe_search failed: {e}"}
 
+    if name == "get_weather":
+        location = str(args.get("location", "auto")).strip() or "auto"
+        try:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                resp = await client.get(
+                    f"https://wttr.in/{location}",
+                    params={"format": "j1"},
+                    headers={"User-Agent": "Guppy/1.0"},
+                )
+                resp.raise_for_status()
+            data = resp.json()
+            current = data["current_condition"][0]
+            area = (data.get("nearest_area") or [{}])[0]
+            area_name = (area.get("areaName") or [{}])[0].get("value", location)
+            country = (area.get("country") or [{}])[0].get("value", "")
+            return {
+                "ok": True,
+                "location": f"{area_name}, {country}".strip(", "),
+                "temp_c": current.get("temp_C"),
+                "temp_f": current.get("temp_F"),
+                "feels_like_c": current.get("FeelsLikeC"),
+                "humidity": current.get("humidity"),
+                "description": (current.get("weatherDesc") or [{}])[0].get("value", ""),
+                "wind_kmph": current.get("windspeedKmph"),
+                "visibility_km": current.get("visibility"),
+            }
+        except Exception as e:
+            return {"ok": False, "error": f"weather lookup failed: {e}"}
+
+    if name == "get_news":
+        topic = str(args.get("topic", "")).strip()
+        max_results = min(int(args.get("max_results", 5) or 5), 20)
+        try:
+            import feedparser
+            if topic.lower() in ("tech", "technology", "programming", "hacking"):
+                feed_url = "https://hnrss.org/frontpage"
+            elif topic.lower() in ("world", "international", "global"):
+                feed_url = "https://feeds.bbci.co.uk/news/world/rss.xml"
+            elif topic.lower() in ("business", "finance", "markets"):
+                feed_url = "https://feeds.reuters.com/reuters/businessNews"
+            elif topic.lower() in ("science",):
+                feed_url = "https://feeds.reuters.com/reuters/scienceNews"
+            else:
+                # General: search HN, fall back to BBC
+                feed_url = f"https://hnrss.org/newest?q={topic}&count={max_results}"
+            feed = await asyncio.to_thread(feedparser.parse, feed_url)
+            items = [
+                {
+                    "title": entry.get("title", ""),
+                    "url": entry.get("link", ""),
+                    "published": entry.get("published", ""),
+                    "summary": (entry.get("summary", "") or "")[:240],
+                }
+                for entry in feed.entries[:max_results]
+            ]
+            return {"ok": True, "topic": topic, "count": len(items), "items": items}
+        except Exception as e:
+            return {"ok": False, "error": f"news lookup failed: {e}"}
+
+    if name == "clipboard_read":
+        try:
+            import pyperclip
+            text = await asyncio.to_thread(pyperclip.paste)
+            return {"ok": True, "text": text or ""}
+        except Exception as e:
+            return {"ok": False, "error": f"clipboard_read failed: {e}"}
+
+    if name == "clipboard_write":
+        text = str(args.get("text", ""))
+        append = bool(args.get("append", False))
+        try:
+            import pyperclip
+            if append:
+                existing = await asyncio.to_thread(pyperclip.paste)
+                text = (existing or "") + text
+            await asyncio.to_thread(pyperclip.copy, text)
+            return {"ok": True, "text": text}
+        except Exception as e:
+            return {"ok": False, "error": f"clipboard_write failed: {e}"}
+
+    if name == "open_application":
+        import webbrowser
+        import subprocess
+        target = str(args.get("target", "")).strip()
+        if not target:
+            return {"ok": False, "error": "target required"}
+        try:
+            if target.startswith(("http://", "https://", "ftp://")):
+                await asyncio.to_thread(webbrowser.open, target)
+                return {"ok": True, "opened": target, "method": "browser"}
+            elif os.name == "nt":
+                await asyncio.to_thread(os.startfile, target)  # type: ignore[attr-defined]
+                return {"ok": True, "opened": target, "method": "startfile"}
+            else:
+                proc = await asyncio.to_thread(
+                    subprocess.run,
+                    ["xdg-open", target],
+                    capture_output=True,
+                    timeout=5,
+                )
+                return {"ok": proc.returncode == 0, "opened": target, "method": "xdg-open"}
+        except Exception as e:
+            return {"ok": False, "error": f"open_application failed: {e}"}
+
+    if name == "api_request":
+        method  = str(args.get("method", "GET")).strip().upper()
+        url     = str(args.get("url", "")).strip()
+        headers = args.get("headers") or {}
+        body    = args.get("body")
+        timeout = float(args.get("timeout", 15.0))
+        if not url:
+            return {"ok": False, "error": "url required"}
+        if method not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"}:
+            return {"ok": False, "error": f"unsupported method: {method}"}
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                req_kwargs: dict = {"headers": headers}
+                if body is not None:
+                    if isinstance(body, (dict, list)):
+                        req_kwargs["json"] = body
+                    else:
+                        req_kwargs["content"] = str(body).encode()
+                resp = await client.request(method, url, **req_kwargs)
+            try:
+                resp_body = resp.json()
+            except Exception:
+                resp_body = resp.text[:8000]
+            return {
+                "ok": resp.is_success,
+                "status": resp.status_code,
+                "headers": dict(resp.headers),
+                "body": resp_body,
+            }
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "read_screen_text":
+        region = args.get("region")  # optional {"left": x, "top": y, "width": w, "height": h}
+        prompt = str(args.get("prompt", "Describe all visible text and UI elements")).strip()
+        try:
+            import base64
+            import io
+            try:
+                import pyautogui as _pag  # type: ignore
+            except ImportError:
+                return {"ok": False, "error": "pyautogui not installed"}
+            # Capture screenshot (sync → thread)
+            if region and isinstance(region, dict):
+                raw = await asyncio.to_thread(
+                    _pag.screenshot,
+                    region=(
+                        int(region.get("left", 0)),
+                        int(region.get("top", 0)),
+                        int(region.get("width", 800)),
+                        int(region.get("height", 600)),
+                    ),
+                )
+            else:
+                raw = await asyncio.to_thread(_pag.screenshot)
+            buf = io.BytesIO()
+            raw.save(buf, format="PNG")
+            b64 = base64.b64encode(buf.getvalue()).decode()
+            # Send to MiniCPM vision model if available
+            from src.guppy.api.routes_backends import _port_alive as _rpal
+            if _rpal(8084):
+                vision_payload = {
+                    "model": "minicpm-o",
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                            {"type": "text", "text": prompt},
+                        ],
+                    }],
+                    "max_tokens": 512,
+                    "stream": False,
+                }
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    vr = await client.post("http://127.0.0.1:8084/v1/chat/completions", json=vision_payload)
+                vdata = vr.json()
+                description = (
+                    vdata.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    or "Vision model returned no content."
+                )
+            else:
+                description = "(Vision model offline — screenshot captured but not described.)"
+            return {"ok": True, "description": description, "screenshot_b64": b64}
+        except Exception as e:
+            return {"ok": False, "error": f"read_screen_text failed: {e}"}
+
+    if name == "write_file":
+        import pathlib
+        fpath   = str(args.get("path", "")).strip()
+        content = str(args.get("content", ""))
+        mode    = str(args.get("mode", "overwrite")).strip().lower()
+        if not fpath:
+            return {"ok": False, "error": "path required"}
+        # Build allowlist from env (default: Downloads, Documents, Desktop)
+        _default_safe = [
+            str(pathlib.Path.home() / "Downloads"),
+            str(pathlib.Path.home() / "Documents"),
+            str(pathlib.Path.home() / "Desktop"),
+        ]
+        _env_dirs = os.environ.get("GUPPY_WRITE_DIRS", "")
+        _allowed  = [d.strip() for d in _env_dirs.split(";") if d.strip()] or _default_safe
+        # Dev mode bypasses allowlist
+        _dev = os.environ.get("GUPPY_DEV_MODE", "").lower() in ("1", "true", "yes")
+        resolved = str(pathlib.Path(fpath).expanduser().resolve())
+        if not _dev and not any(resolved.startswith(a) for a in _allowed):
+            return {
+                "ok": False,
+                "error": (
+                    f"Path not in write-allowed directories. "
+                    f"Allowed: {_allowed}. Set GUPPY_WRITE_DIRS to override."
+                ),
+            }
+        try:
+            p = pathlib.Path(resolved)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            if mode == "append":
+                with open(p, "a", encoding="utf-8") as f:
+                    f.write(content)
+            else:
+                p.write_text(content, encoding="utf-8")
+            return {"ok": True, "path": resolved, "bytes_written": len(content.encode())}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     return {"ok": False, "error": f"Unknown workspace tool: {name}"}
 
 
@@ -329,7 +563,7 @@ async def _generate_conversation_title(user_message: str, conv_id: str) -> None:
     }
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.post("http://localhost:8085/v1/chat/completions", json=payload)
+            resp = await client.post("http://127.0.0.1:8085/v1/chat/completions", json=payload)
             resp.raise_for_status()
             title = resp.json()["choices"][0]["message"]["content"].strip()
             title = title.strip('"\'').strip()

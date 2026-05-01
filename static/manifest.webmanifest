@@ -1,0 +1,39 @@
+{
+  "name": "Guppy - AI Assistant",
+  "short_name": "Guppy",
+  "description": "Personal three-surface AI assistant: Companion, Workspace, and Codespace",
+  "start_url": "/companion",
+  "display": "standalone",
+  "background_color": "#0f1117",
+  "theme_color": "#7c3aed",
+  "orientation": "any",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "type": "image/x-icon",
+      "sizes": "48x48"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Companion",
+      "short_name": "Chat",
+      "url": "/companion",
+      "description": "Voice and chat with your AI companion"
+    },
+    {
+      "name": "Workspace",
+      "short_name": "Work",
+      "url": "/workspace",
+      "description": "Agentic workspace with CRM, calendar, files, and more"
+    },
+    {
+      "name": "Codespace",
+      "short_name": "Code",
+      "url": "/codespace",
+      "description": "Code sandbox with Docker and AI triage"
+    }
+  ],
+  "categories": ["productivity", "utilities"]
+}

@@ -594,6 +594,14 @@ app.include_router(build_desktop_router(_server_context))           # /api/deskt
 from src.guppy.api.routes_control import build_control_router
 app.include_router(build_control_router(_server_context), prefix="/api/control")  # /api/control/*
 
+from src.guppy.api.routes_model_roles import build_model_roles_router
+_model_roles_router, _control_model_roles_router = build_model_roles_router(_server_context)
+app.include_router(_model_roles_router)                  # /api/model-roles/*
+app.include_router(_control_model_roles_router)          # /api/control/operator-settings
+
+from src.guppy.api.routes_conversations import build_conversations_router
+app.include_router(build_conversations_router(_server_context))  # /api/conversations/*
+
 from src.guppy.api.tranche_router_registry import register_tranche_routers
 register_tranche_routers(app, _server_context)
 

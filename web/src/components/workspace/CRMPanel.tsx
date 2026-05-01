@@ -17,10 +17,18 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Users, CheckSquare, Search, Plus, Trash2, Check,
-  RefreshCw, ChevronDown, ChevronUp, User,
+  RefreshCw, ChevronDown, ChevronUp, ChevronsUpDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  createColumnHelper,
+  flexRender,
+  type SortingState,
+} from '@tanstack/react-table'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -40,56 +48,6 @@ interface Task {
   due_date: string
   status: string
   created: string
-}
-
-// ── ContactRow ────────────────────────────────────────────────────────────────
-
-function ContactRow({ contact, onDelete }: { contact: Contact; onDelete: (name: string) => void }) {
-  const [expanded, setExpanded] = useState(false)
-  return (
-    <div className="border-b border-outline-variant/10 last:border-0">
-      <div
-        className="flex items-center gap-2 px-3 py-2 hover:bg-surface-variant/20 cursor-pointer transition-colors"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
-          <User className="w-3 h-3 text-primary/70" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-on-surface truncate">{contact.name}</p>
-          {contact.company && (
-            <p className="text-xs text-on-surface-variant/60 truncate">{contact.company}</p>
-          )}
-        </div>
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(contact.name) }}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-error/10 text-on-surface-variant/40 hover:text-error transition-colors"
-          title="Delete contact"
-        >
-          <Trash2 className="w-3 h-3" />
-        </button>
-        {expanded ? <ChevronUp className="w-3.5 h-3.5 text-on-surface-variant/40 flex-shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-on-surface-variant/40 flex-shrink-0" />}
-      </div>
-      {expanded && (
-        <div className="px-3 pb-2 pl-11 space-y-1 text-xs text-on-surface-variant/70">
-          {contact.email && <p>✉ {contact.email}</p>}
-          {contact.phone && <p>📞 {contact.phone}</p>}
-          {contact.notes && <p className="italic opacity-70">{contact.notes}</p>}
-          {contact.last_contact && (
-            <p className="text-on-surface-variant/40">
-              Last: {new Date(contact.last_contact).toLocaleDateString()}
-            </p>
-          )}
-          <button
-            onClick={() => onDelete(contact.name)}
-            className="text-error/70 hover:text-error transition-colors flex items-center gap-1 mt-1"
-          >
-            <Trash2 className="w-3 h-3" /> Delete contact
-          </button>
-        </div>
-      )}
-    </div>
-  )
 }
 
 // ── AddContactForm ────────────────────────────────────────────────────────────
@@ -160,10 +118,14 @@ function AddContactForm({ onAdded }: { onAdded: () => void }) {
 
 // ── ContactsTab ───────────────────────────────────────────────────────────────
 
+const _colHelper = createColumnHelper<Contact>()
+
 function ContactsTab() {
   const [contacts, setContacts] = useState<Contact[]>([])
   const [search, setSearch]     = useState('')
   const [loading, setLoading]   = useState(true)
+  const [sorting, setSorting]   = useState<SortingState>([])
+  const [expanded, setExpanded] = useState<string | null>(null)
 
   const load = useCallback(async (q = '') => {
     setLoading(true)
@@ -177,17 +139,71 @@ function ContactsTab() {
 
   useEffect(() => { load() }, [load])
 
-  const handleSearch = (v: string) => {
-    setSearch(v)
-    load(v)
-  }
+  const handleSearch = (v: string) => { setSearch(v); load(v) }
 
   const deleteContact = async (name: string) => {
     try {
       await api.delete(`/api/workspace/contacts/${encodeURIComponent(name)}`)
       setContacts((c) => c.filter((x) => x.name !== name))
+      if (expanded === name) setExpanded(null)
     } catch { /* ignore */ }
   }
+
+  const columns = [
+    _colHelper.accessor('name', {
+      header: 'Name',
+      cell: (info) => (
+        <span className="font-medium text-on-surface">{info.getValue()}</span>
+      ),
+    }),
+    _colHelper.accessor('company', {
+      header: 'Company',
+      cell: (info) => (
+        <span className="text-on-surface-variant/70">{info.getValue() || '—'}</span>
+      ),
+    }),
+    _colHelper.accessor('email', {
+      header: 'Email',
+      cell: (info) => (
+        <span className="text-on-surface-variant/70 truncate max-w-[160px] inline-block">
+          {info.getValue() || '—'}
+        </span>
+      ),
+    }),
+    _colHelper.accessor('last_contact', {
+      header: 'Last Contact',
+      cell: (info) => {
+        const v = info.getValue()
+        return (
+          <span className="text-on-surface-variant/50">
+            {v ? new Date(v).toLocaleDateString() : '—'}
+          </span>
+        )
+      },
+    }),
+    _colHelper.display({
+      id: 'actions',
+      header: '',
+      cell: (info) => (
+        <button
+          onClick={(e) => { e.stopPropagation(); deleteContact(info.row.original.name) }}
+          className="opacity-0 group-hover/row:opacity-100 p-1 rounded hover:bg-error/10 text-on-surface-variant/40 hover:text-error transition-colors"
+          title="Delete contact"
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      ),
+    }),
+  ]
+
+  const table = useReactTable({
+    data: contacts,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  })
 
   return (
     <div className="flex flex-col h-full gap-3">
@@ -202,8 +218,8 @@ function ContactsTab() {
         />
       </div>
 
-      {/* List */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar bg-surface-container rounded-xl min-h-0">
+      {/* Table */}
+      <div className="flex-1 overflow-auto custom-scrollbar bg-surface-container rounded-xl min-h-0">
         {loading ? (
           <div className="flex items-center justify-center py-8">
             <RefreshCw className="w-4 h-4 animate-spin text-on-surface-variant/40" />
@@ -211,11 +227,63 @@ function ContactsTab() {
         ) : contacts.length === 0 ? (
           <p className="text-center text-xs text-on-surface-variant/40 py-8">No contacts found</p>
         ) : (
-          <div className="group">
-            {contacts.map((c) => (
-              <ContactRow key={c.name} contact={c} onDelete={deleteContact} />
-            ))}
-          </div>
+          <table className="w-full text-xs">
+            <thead>
+              {table.getHeaderGroups().map((hg) => (
+                <tr key={hg.id} className="border-b border-outline-variant/15 sticky top-0 bg-surface-container">
+                  {hg.headers.map((header) => (
+                    <th
+                      key={header.id}
+                      onClick={header.column.getToggleSortingHandler()}
+                      className={cn(
+                        "px-3 py-2 text-left font-medium text-on-surface-variant/60 whitespace-nowrap",
+                        header.column.getCanSort() && "cursor-pointer select-none hover:text-on-surface transition-colors"
+                      )}
+                    >
+                      <div className="flex items-center gap-1">
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {header.column.getCanSort() && (
+                          header.column.getIsSorted() === 'asc'
+                            ? <ChevronUp className="w-3 h-3 text-primary" />
+                            : header.column.getIsSorted() === 'desc'
+                              ? <ChevronDown className="w-3 h-3 text-primary" />
+                              : <ChevronsUpDown className="w-3 h-3 opacity-30" />
+                        )}
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map((row) => (
+                <>
+                  <tr
+                    key={row.id}
+                    onClick={() => setExpanded(expanded === row.original.name ? null : row.original.name)}
+                    className="group/row border-b border-outline-variant/10 last:border-0 hover:bg-surface-variant/20 cursor-pointer transition-colors"
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="px-3 py-2 max-w-[200px] truncate">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                  {expanded === row.original.name && (
+                    <tr key={`${row.id}-detail`} className="bg-surface-variant/10">
+                      <td colSpan={columns.length} className="px-3 pb-2 pl-6">
+                        <div className="space-y-0.5 text-xs text-on-surface-variant/70 py-1">
+                          {row.original.phone && <p>📞 {row.original.phone}</p>}
+                          {row.original.email && <p>✉ {row.original.email}</p>}
+                          {row.original.notes && <p className="italic opacity-70">{row.original.notes}</p>}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 

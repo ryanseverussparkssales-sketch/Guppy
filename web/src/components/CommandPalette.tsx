@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useCallback } from 'react'
 import { Command } from 'cmdk'
 import { useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, MessageSquare, Layers, BookOpen,
-  Cpu, Wrench, Mic, Monitor, Plug, Settings,
-  Activity, ShieldCheck, Zap, ToggleLeft, ToggleRight,
+  MessageSquare, Layers, BookOpen,
+  Cpu, Wrench, Settings,
+  ShieldCheck, Zap, ToggleLeft, ToggleRight,
   ChevronRight,
 } from 'lucide-react'
 import { useProviders } from '@/api/queries'
@@ -17,18 +17,13 @@ interface CommandPaletteProps {
 }
 
 const NAV_ITEMS = [
-  { id: 'dashboard',  label: 'Dashboard',  icon: LayoutDashboard, route: '/' },
-  { id: 'assistant',  label: 'Assistant',  icon: MessageSquare,   route: '/assistant' },
-  { id: 'instances',  label: 'Instances',  icon: Layers,          route: '/instances' },
-  { id: 'library',   label: 'Library',    icon: BookOpen,        route: '/library' },
-  { id: 'models',    label: 'Models',     icon: Cpu,             route: '/models' },
-  { id: 'tools',     label: 'Tools',      icon: Wrench,          route: '/tools' },
-  { id: 'voices',    label: 'Voices',     icon: Mic,             route: '/voices' },
-  { id: 'desktop',   label: 'Desktop',    icon: Monitor,         route: '/desktop' },
-  { id: 'mcp',       label: 'MCP Servers', icon: Plug,           route: '/mcp' },
-  { id: 'settings',  label: 'Settings',   icon: Settings,        route: '/settings' },
-  { id: 'status',    label: 'Status',     icon: Activity,        route: '/status' },
-  { id: 'admin',     label: 'Admin',      icon: ShieldCheck,     route: '/admin' },
+  { id: 'companion',    label: 'Conversations', icon: MessageSquare, route: '/companion' },
+  { id: 'workspace',    label: 'Workspace',     icon: Layers,        route: '/workspace' },
+  { id: 'codespace',    label: 'Codespace',     icon: Wrench,        route: '/codespace' },
+  { id: 'control',      label: 'Control Panel', icon: Cpu,           route: '/control' },
+  { id: 'settings',     label: 'Settings',      icon: Settings,      route: '/settings' },
+  { id: 'instructions', label: 'Instructions',  icon: BookOpen,      route: '/instructions' },
+  { id: 'admin',        label: 'Admin',         icon: ShieldCheck,   route: '/admin' },
 ]
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -40,7 +35,6 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const navigate = useNavigate()
-  const [search, setSearch] = useState('')
 
   const providers     = useProviders({ enabled: open })
   const tools         = useTools({ enabled: open })
@@ -49,10 +43,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const setToolEnabled = useSetToolEnabled()
 
   const activeProvider = settings.data?.active_provider
-
-  useEffect(() => {
-    if (!open) setSearch('')
-  }, [open])
 
   const go = useCallback((route: string) => {
     navigate(route)
@@ -92,8 +82,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             <span className="text-on-surface-variant mr-2 flex-shrink-0">⌘</span>
             <Command.Input
               autoFocus
-              value={search}
-              onValueChange={setSearch}
               placeholder="Type a command or search…"
               className="w-full py-3 bg-transparent text-sm text-on-surface placeholder:text-on-surface-variant outline-none"
             />

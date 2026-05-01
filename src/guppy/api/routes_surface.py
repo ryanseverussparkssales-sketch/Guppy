@@ -118,7 +118,10 @@ def _db() -> sqlite3.Connection:
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA temp_store=MEMORY")
     return conn
 
 
@@ -214,7 +217,7 @@ def _capture_loop() -> None:
     global _sse_loop
     if _sse_loop is None:
         try:
-            _sse_loop = asyncio.get_event_loop()
+            _sse_loop = asyncio.get_running_loop()
         except RuntimeError:
             pass
 
@@ -367,8 +370,16 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
             "temperature": 0.3,
             "max_tokens": 2048,
         }
+        # Resolve Hermes4 URL from the backend registry — avoids hardcoded port
+        try:
+            from src.guppy.api.routes_backends import _WATCHDOG_ALWAYS_ON as _wao
+            _h4_port = _wao.get("llamacpp-hermes4", 8086)
+        except Exception:
+            _h4_port = 8086
+        _h4_url = f"http://127.0.0.1:{_h4_port}/v1/chat/completions"
+
         async with httpx.AsyncClient(timeout=90.0) as client:
-            resp = await client.post("http://localhost:8086/v1/chat/completions", json=payload)
+            resp = await client.post(_h4_url, json=payload)
             resp.raise_for_status()
 
         first_response = resp.json()["choices"][0]["message"]["content"]
@@ -422,7 +433,7 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
                 "max_tokens": 512,
             }
             async with httpx.AsyncClient(timeout=60.0) as client:
-                resp2 = await client.post("http://localhost:8086/v1/chat/completions", json=summary_payload)
+                resp2 = await client.post(_h4_url, json=summary_payload)
                 if resp2.status_code < 300:
                     final_result = resp2.json()["choices"][0]["message"]["content"]
 
