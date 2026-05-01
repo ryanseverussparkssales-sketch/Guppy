@@ -28,17 +28,17 @@ _HISTORY_TURNS_SHOWN = 8
 
 
 def augment_system_with_history(system_prompt: str, history: list[dict[str, str]]) -> str:
-    """Prepend a compact session-history block to the system prompt."""
-    if not history:
-        return system_prompt
-    lines = ["LIVE SESSION HISTORY (RECENT TURNS):"]
-    for item in history[-_HISTORY_TURNS_SHOWN:]:
-        speaker = "Ryan" if item.get("role") == "user" else "Guppy"
-        snippet = item.get("content", "").replace("\n", " ").strip()
-        if len(snippet) > _HISTORY_SNIPPET_MAX_CHARS:
-            snippet = snippet[:_HISTORY_SNIPPET_MAX_CHARS] + "..."
-        lines.append(f"- {speaker}: {snippet}")
-    return f"{system_prompt}\n\n" + "\n".join(lines)
+    """Deprecated no-op — history is now carried exclusively in the messages array.
+
+    ``build_router_messages`` already includes ``history`` in the correct
+    ``messages`` list position so models see prior turns in the right format.
+    Injecting the same turns into the system prompt as well caused every model
+    to see the conversation twice, wasting up to 1 K tokens per call.
+
+    Kept for backward-compatibility; callers that still invoke this function
+    simply receive ``system_prompt`` unchanged.
+    """
+    return system_prompt
 
 
 # ── Background memory workers ─────────────────────────────────────────────────
