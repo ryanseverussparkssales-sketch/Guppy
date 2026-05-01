@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-04-30 — Tranches G–I complete (Screenpipe, Library, DB consolidation)
+**Last updated:** 2026-05-01 — Phase 6 Hardening Round 1 (security fixes + deprecated module archival)
 
 ---
 
@@ -98,9 +98,9 @@ launcher_app.py (Qt Wrapper)
 ### Known Architecture Seams
 1. **Desktop launcher is now a wrapper (2026-04-28)** — `launcher_app.py` (Qt) spawns the FastAPI server locally and opens `http://localhost:<port>` in a browser. Not a full UI, just bootstrap. All UI logic lives in the web UI (React). This simplifies maintenance and eliminates dual codebases.
 
-2. **Legacy code quarantined** — `compat_shims/legacy_surfaces/` contains intentional quarantine marker. `src/guppy/merlin/` is deprecated: `__init__.py` emits a `DeprecationWarning` and `check_architecture_boundaries.py` blocks all external imports. No active code references it. `.quarantine/` contains a README only — confirmed intentional archival, not dead code.
+2. **Legacy code archived** — `compat_shims/legacy_surfaces/` contains intentional quarantine marker. `src/guppy/merlin/` was archived to `docs/archive/deprecated-modules/merlin/` on 2026-05-01 (was emitting `DeprecationWarning`; no active code referenced it). `compat_shims/launcher_ui/` (93 files) archived to `docs/archive/deprecated-modules/compat_launcher_ui/` on 2026-05-01.
 
-3. **`compat_shims/launcher_ui/` in progress** — Old Qt desktop UI code. Being phased out as features migrate to web UI. Will be archived after web UI feature parity complete (currently ✅ parity done, cleanup in progress).
+3. **`compat_shims/launcher_ui/` ARCHIVED** — Old Qt desktop UI code fully archived 2026-05-01. Only `compat_shims/legacy_surfaces/` and `compat_shims/__init__.py` remain active as shim roots.
 
 4. **Catalog routes are all production** — `launcher_application/` catalogs (connector, workflow, instance, voice) are active production code. No experimental catalog routes exist.
 
@@ -140,7 +140,7 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - **`tests/smoke/`** — Runtime smoke tests (launcher, API, security)
 - **`tests/unit/`** — Fast unit tests
 - **`tests/integration/`** — Slower integration tests
-- Note: Some tests resolve via `compat_shims/launcher_ui/tests/` (pytest compiles them correctly, but literal path `tests/unit/test_...` may be imprecise)
+- Note: `compat_shims/launcher_ui/tests/` was archived 2026-05-01. All active tests are under `tests/`.
 
 ---
 
@@ -185,6 +185,34 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - ✅ **Ollama removed from routing** — `can_stream_ollama=False`; all local routes go to llamacpp; session summarizer switched from guppy-fast to phi-4-mini at port 8091
 - ✅ **Phi-4-mini infrastructure** — registered at port 8091 as true JSON tool_call orchestrator; model file needed to activate
 - ✅ **6-gap stability hardening** (2026-04-30):
+  - **Surface-locked routing** — `_get_surface_local_model()` reads `surface_config` DB per-surface; companion→hermes3, workspace→hermes4 by default; wired into `/chat` + `/chat/stream`
+  - **Per-surface cloud fallback** — `_get_surface_cloud_model()` returns Haiku for companion, Sonnet for workspace/codespace; user override always wins
+  - **`workspace_task` companion tool** — companion can hand tasks to workspace via `<tool_call>workspace_task`; `_spawn_task_direct()` in routes_surface bypasses HTTP auth for trusted internal callers
+  - **Backend watchdog** — daemon thread in routes_backends monitors ports 8085/8087/8086 every 60 s, auto-restarts crashed always-on models
+  - **24/7 background task loop** — asyncio task delivers due reminders as SSE events every 30 s; marks queued tasks stale after 6 h; started via lifespan `background_coroutines`
+  - **Strict-local mode** — companion surface checks local model port liveness before streaming; returns honest "Local model offline" error instead of silent cloud escalation
+- ✅ **7-item 2026 best-practices pass** (2026-04-30):
+  - **Workspace tool execution** — two-pass `<tool_call>` for workspace surface; `_execute_workspace_tool()` handles web_search/file_read/file_list/shell_run/contacts_search; wired into `/chat/stream`
+  - **Workspace task executor** — `_run_workspace_task()` background worker in routes_surface dequeues queued tasks, calls Hermes4, executes tools, broadcasts SSE progress/completion events
+  - **Streaming TTS** — sentence-boundary chunking (`SENTENCE_END_RE`) in CompanionView; `speakQueued()` + `_drainQueue()` in useVoice.ts plays sentences as they arrive instead of waiting for full response
+  - **SSE exponential backoff** — `useSurfaceEvents.ts` shared hook; 2→4→8→16→32→60 s backoff, resets after 10 s healthy connection; used by both CompanionView and WorkspaceView
+  - **OOM error parsing** — `_parse_oom_error()` in realtime_inference_support detects CUDA/ROCm OOM in llamacpp HTTP error bodies; `_stream_llamacpp_tokens` raises actionable RuntimeError; `local_client.py` logs ERROR-level with restart instruction
+  - **Grammar-constrained tool calls** — `_TOOL_CALL_GBNF` constant + `grammar` param on `_stream_llamacpp_tokens`; `_repair_tool_json()` applies trailing-comma/unclosed-brace repairs in all three tool-call parse sites (companion, workspace, task executor)
+  - **KV cache auto-warming** — `_warm_kv_cache(port)` sends 1-token prefill to Hermes3 (8087) and Hermes4 (8086) on first confirmed liveness; integrated into watchdog, re-warms after crash+restart; reduces first-response latency ~30-50%
+- ✅ **MCP plugin manager** — add/remove/enable/test MCP servers; MCPView wired
+- ✅ **Desktop control API** — pyautogui screenshot/click/type (graceful fallback if pyautogui absent)
+- ✅ **Themes** — Dark, Liber Designatum (occult), Fear & Loathing (gonzo), Creem × Rolling Stone (rock mag)
+- ✅ **Inference metrics** — persisted to guppy_main.db, visible in AdminPanel `/admin`
+- ✅ **Gmail sync** — live via google-api-python-client (needs credentials)
+- ✅ **Google Calendar sync** — live, upserts 90-day window (needs credentials)
+- ✅ **HubSpot/Salesforce/GHL/Zoho contact + deal upsert** — live REST (needs API keys)
+- ✅ **Twilio outbound calling** — live REST call placement (needs credentials)
+- ✅ **Desktop launcher** — `Desktop\Guppy Launcher.lnk` updated via `tools/ensure_desktop_launcher.ps1`
+- ✅ **Phase 6 hardening round 1** (2026-05-01):
+  - **Stream timeout + disconnect cleanup** — `_generate_with_heartbeat()` enforces `GUPPY_STREAM_TIMEOUT_SECONDS` wall-clock cap (default 300 s); `request.is_disconnected()` polled each iteration; generator `aclose()`d on timeout or disconnect
+  - **`shell_run` injection fix** — `shlex.split()` + `shell=False`; prevents metacharacter injection through the safe-prefix allowlist
+  - **`ensure_column` DDL allowlist** — `_ALLOWED_MEMORY_TABLES` frozenset in `memory_db.py` + `memory_store.py` raises `ValueError` for unlisted table names
+  - **Deprecated module archival** — `src/guppy/merlin/` + `compat_shims/launcher_ui/` (97 files total) archived to `docs/archive/deprecated-modules/`
   - **Surface-locked routing** — `_get_surface_local_model()` reads `surface_config` DB per-surface; companion→hermes3, workspace→hermes4 by default; wired into `/chat` + `/chat/stream`
   - **Per-surface cloud fallback** — `_get_surface_cloud_model()` returns Haiku for companion, Sonnet for workspace/codespace; user override always wins
   - **`workspace_task` companion tool** — companion can hand tasks to workspace via `<tool_call>workspace_task`; `_spawn_task_direct()` in routes_surface bypasses HTTP auth for trusted internal callers

@@ -6,6 +6,34 @@
 
 ---
 
+## Phase 6 Hardening — Shipped (2026-05-01)
+
+### Security Hardening Round 1
+
+**Stream timeout + client disconnect cleanup (`routes_realtime.py`)**
+- `_generate_with_heartbeat()` now enforces a wall-clock cap via `GUPPY_STREAM_TIMEOUT_SECONDS` env var (default 300 s)
+- `request.is_disconnected()` polled each iteration — async generator cleaned up immediately on client disconnect
+- Prevents indefinitely hung HTTP connections when a model server stalls
+
+**`shell_run` injection fix (`routes_realtime.py`)**
+- Replaced `subprocess.run(command, shell=True)` with `shlex.split(command)` + `shell=False`
+- The `_SHELL_SAFE_PREFIXES` allowlist only checked `startswith()`, meaning `git status; rm -rf /` would have passed. With `shell=False` the semicolon is treated as a literal character in the first argv element — no shell interpretation.
+
+**`ensure_column` DDL allowlist (`memory_db.py`, `memory_store.py`)**
+- Added `_ALLOWED_MEMORY_TABLES = frozenset({"facts", "conversations"})` to both files
+- `ensure_column()` now raises `ValueError` for any table name not in the allowlist
+- Prevents accidental DDL on arbitrary table names from a bad/patched caller
+
+### Codebase Cleanup
+
+**Archived deprecated modules**
+- `src/guppy/merlin/` → `docs/archive/deprecated-modules/merlin/` (was emitting `DeprecationWarning`)
+- `compat_shims/launcher_ui/` → `docs/archive/deprecated-modules/compat_launcher_ui/` (93 files, old Qt desktop UI)
+- Removed `test_merlin_core_smoke_imports` from `tests/smoke/test_router_smoke.py`
+- Removed `src/guppy/merlin/*` from `pytest.ini` coverage omit (module no longer exists)
+
+---
+
 ## Usability Pass — Routing + Runtime (2026-05-01)
 
 ### Partner + On-Demand Backend Auto-Start
