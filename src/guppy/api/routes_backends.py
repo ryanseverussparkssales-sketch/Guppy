@@ -108,6 +108,18 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
     # Freed 5 GB VRAM slot to Hermes 3 for always-on companion voice.
     "llamacpp-xlam": {
         "bat":     r"C:\llama-cpp\launch-xlam.bat",
+        "cmd": [
+            r"C:\llama-cpp\llama-server.exe",
+            "--model", r"C:\llama-cpp\models\xlam-2-8b\Llama-xLAM-2-8B-fc-r-Q4_K_M.gguf",
+            "--host", "127.0.0.1",
+            "--port", "8089",
+            "--ctx-size", "16384",
+            "--parallel", "4",
+            "--n-gpu-layers", "99",
+            "--flash-attn",
+            "--cont-batching",
+            "--jinja",
+        ],
         "port":    8089,
         "label":   "xLAM-2-8B Function-Calling",
         "mode":    "A",
@@ -222,6 +234,15 @@ def _any_alive(names: set) -> bool:
     )
 
 
+def _launch_target_exists(cfg: Dict[str, Any]) -> bool:
+    cmd = cfg.get("cmd")
+    if isinstance(cmd, list) and cmd:
+        exe = str(cmd[0]).strip()
+        return bool(exe) and os.path.exists(exe)
+    bat = str(cfg.get("bat", "")).strip()
+    return bool(bat) and os.path.exists(bat)
+
+
 def _alive_names(names: set) -> List[str]:
     """Return the labels of backends in *names* that are currently alive."""
     return [
@@ -266,12 +287,13 @@ def _do_start(name: str) -> Dict[str, Any]:
     if _port_alive(cfg["port"]):
         return {"status": "already_running", "port": cfg["port"]}
 
-    # Launch script must exist
-    bat = cfg["bat"]
-    if not os.path.exists(bat):
+    # Launch target must exist (explicit cmd preferred, bat fallback).
+    if not _launch_target_exists(cfg):
         raise HTTPException(
             status_code=503,
-            detail=f"Launch script not found: {bat}",
+            detail=(
+                f"Launch target not found: cmd={cfg.get('cmd')} bat={cfg.get('bat')}"
+            ),
         )
 
     with _procs_lock:
@@ -280,19 +302,45 @@ def _do_start(name: str) -> Dict[str, Any]:
             # We already launched it and it hasn't exited yet — still starting
             return {"status": "starting", "pid": existing.pid, "port": cfg["port"]}
 
-        proc = subprocess.Popen(
-            ["cmd", "/c", bat],
-            creationflags=(
-                subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-                | subprocess.CREATE_NO_WINDOW        # type: ignore[attr-defined]
-            ),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        launch_cmd = cfg.get("cmd")
+        if isinstance(launch_cmd, list) and launch_cmd:
+            proc = subprocess.Popen(
+                launch_cmd,
+                creationflags=(
+                    subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+                    | subprocess.CREATE_NO_WINDOW        # type: ignore[attr-defined]
+                ),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            launch_desc = "cmd=" + " ".join(str(part) for part in launch_cmd)
+        else:
+            bat = cfg["bat"]
+            proc = subprocess.Popen(
+                ["cmd", "/c", bat],
+                creationflags=(
+                    subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+                    | subprocess.CREATE_NO_WINDOW        # type: ignore[attr-defined]
+                ),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            launch_desc = f"bat={bat}"
         _procs[name] = proc
-        logger.info(f"[backends] launched {name} (bat={bat}, pid={proc.pid})")
+        logger.info(f"[backends] launched {name} ({launch_desc}, pid={proc.pid})")
 
     return {"status": "starting", "pid": proc.pid, "port": cfg["port"]}
+
+
+def ensure_backend_started(name: str) -> Dict[str, Any]:
+    """Ensure a backend is running; start it if needed."""
+    cfg = _LLAMACPP_CONFIG.get(name)
+    if not cfg:
+        raise HTTPException(status_code=404, detail=f"Unknown backend: {name!r}")
+    if _port_alive(cfg["port"]):
+        return {"status": "already_running", "port": cfg["port"], "started": False}
+    result = _do_start(name)
+    return {"status": result.get("status", "starting"), "port": cfg["port"], "started": True}
 
 
 def _do_stop(name: str) -> Dict[str, Any]:
@@ -363,9 +411,13 @@ def _run_auto_starts() -> None:
         if _port_alive(cfg["port"]):
             logger.info("[backends] auto-start: %s already alive on port %d — skip", name, cfg["port"])
             continue
-        bat = cfg.get("bat", "")
-        if not os.path.exists(bat):
-            logger.warning("[backends] auto-start: %s — bat not found: %s", name, bat)
+        if not _launch_target_exists(cfg):
+            logger.warning(
+                "[backends] auto-start: %s — launch target missing (cmd=%s bat=%s)",
+                name,
+                cfg.get("cmd"),
+                cfg.get("bat"),
+            )
             continue
         try:
             result = _do_start(name)

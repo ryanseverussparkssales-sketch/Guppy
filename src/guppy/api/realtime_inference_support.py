@@ -122,7 +122,7 @@ def _strip_tool_call_markers(text: str) -> str:
 def _clean_local_response(text: str) -> str:
     """Strip tool call markup and return a user-friendly string.
 
-    Applied to non-streaming local model (llamacpp and Ollama) responses when
+    Applied to non-streaming local llama.cpp responses when
     the model tries to invoke tools via text delimiters instead of the
     structured tool_calls field.
     """
@@ -608,8 +608,8 @@ def call_unified_inference(
 
     # If the user explicitly selected a llama.cpp model AND it's reachable, force
     # local routing so the router doesn't escalate to cloud in "auto" mode.
-    # If the backend isn't running, keep "auto" so Ollama is tried instead —
-    # this prevents a hard 500 when the saved model selection is stale.
+    # If the backend is not running, keep "auto" so the llama.cpp fallback chain
+    # can try any reachable local backend instead of hard-failing stale selection.
     if active_local_model and active_local_model in _LOCAL_LLAMACPP_ROUTES and requested_mode in {"auto", ""}:
         from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
         _backend_name = _LOCAL_LLAMACPP_ROUTES.get(active_local_model, "")
@@ -845,7 +845,7 @@ def _run_routed_mode(
         source = "haiku" if "haiku" in (target_model or "").lower() else "sonnet"
         return response, source, {"route_decision": route_decision}
 
-    if executor in {"llamacpp"}:
+    if executor in {"llamacpp", "ollama", "ollama_paired"}:
         response = owner._call_selected_local_runtime(
             user_text,
             augmented_system_prompt,
@@ -1382,69 +1382,6 @@ async def _stream_llamacpp_tokens(
     _log.warning("llamacpp tool loop exhausted after %d rounds", max_tool_rounds)
 
 
-async def _stream_ollama_tokens(
-    *,
-    model: str,
-    messages: list[dict],
-    tools: list | None = None,
-    timeout: float = 180.0,
-) -> AsyncGenerator[str, None]:
-    """
-    Yield content token strings from Ollama's streaming chat API.
-
-    If the model produces tool calls, the final yielded value is a sentinel
-    string ``"\\x00TOOL_CALLS:<json>"`` so the caller can detect and handle
-    them without breaking the token stream.
-    """
-    import httpx
-
-    payload: dict = {
-        "model": model,
-        "messages": messages,
-        "stream": True,
-        "keep_alive": "10m",
-        "options": {"temperature": 0.8, "top_p": 0.95, "top_k": 40, "num_predict": 4096},
-    }
-    if tools:
-        payload["tools"] = tools
-
-    tool_calls_buffer: list = []
-
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream("POST", _OLLAMA_CHAT_URL, json=payload) as response:
-                response.raise_for_status()
-                async for raw_line in response.aiter_lines():
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-
-                    msg = chunk.get("message", {})
-                    content = msg.get("content") or ""
-                    if content:
-                        yield content
-
-                    calls = msg.get("tool_calls")
-                    if calls:
-                        tool_calls_buffer.extend(calls)
-
-                    if chunk.get("done"):
-                        break
-    except httpx.HTTPStatusError as exc:
-        raise RuntimeError(f"Ollama returned {exc.response.status_code}") from exc
-    except httpx.ConnectError as exc:
-        raise RuntimeError(
-            "Cannot reach Ollama on port 11434. Start Ollama and try again."
-        ) from exc
-
-    if tool_calls_buffer:
-        yield _TOOL_CALL_SENTINEL + json.dumps(tool_calls_buffer)
-
-
 async def stream_unified_inference(
     owner: Any,
     user_text: str,
@@ -1461,7 +1398,7 @@ async def stream_unified_inference(
     """
     Async generator yielding content tokens for the chat response.
 
-    For Ollama backends: true token-level streaming via httpx.
+    For llama.cpp backends: true token-level streaming via httpx.
     For Claude / fallbacks: yields the full response as a single chunk.
     """
     clean_history = sanitize_chat_history(history)
@@ -1486,7 +1423,7 @@ async def stream_unified_inference(
         ) + augmented_system
         requested_mode = "auto"
 
-    # Classify task type early so agentic routing can intercept before llamacpp/Ollama.
+    # Classify task type early so agentic routing can intercept before general llama.cpp fallback.
     # Only meaningful for auto mode — explicit mode selections bypass this.
     _early_task_type: str = ""
     if requested_mode in {"auto", ""} and owner.GUPPY_CORE_AVAILABLE and owner.INFERENCE_ROUTER_AVAILABLE:
@@ -1545,6 +1482,13 @@ async def stream_unified_inference(
         _xlam_cfg = _LOCAL_BACKENDS.get(_XLAM_BACKEND, {})
         _xlam_url = _xlam_cfg.get("default_url", "")
         _xlam_port = int(_xlam_url.rsplit(":", 1)[-1]) if ":" in _xlam_url else 0
+        if _xlam_port and not _llc_port_alive(_xlam_port):
+            try:
+                from src.guppy.api.routes_backends import ensure_backend_started
+                ensure_backend_started(_XLAM_BACKEND)
+            except Exception as exc:
+                _log.warning("xLAM auto-start failed: %s", exc)
+
         if _xlam_port and _llc_port_alive(_xlam_port):
             _xlam_model = _LOCAL_BACKEND_DEFAULT_MODELS.get(_XLAM_BACKEND, "")
             if _xlam_model:
@@ -1717,7 +1661,7 @@ async def stream_unified_inference(
 
     # ── Complex routing: Hermes 4 (always-on) → Claude Sonnet ────────────────────
     # For complex tasks in auto mode, try the always-on Hermes 4 workspace agent
-    # before touching the cloud or the general Ollama pool. Hermes 4 at 14B handles
+    # before touching the cloud or the general local pool. Hermes 4 at 14B handles
     # multi-step reasoning and tool chains well; Sonnet is the cloud safety net.
     if _early_task_type == "complex" and requested_mode in {"auto", ""} and owner.GUPPY_CORE_AVAILABLE:
         from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
@@ -1771,7 +1715,7 @@ async def stream_unified_inference(
                 return
             except Exception as _cplx_err:
                 _log.warning("Claude Sonnet complex fallback failed: %s — continuing to local", _cplx_err)
-        # else: fall through to general llamacpp/Ollama path
+        # else: fall through to general llama.cpp path
 
     # ── simple → Hermes 3 (fast 8B, uncensored) → Hermes 4 fallback ─────────────
     if _early_task_type == "simple" and requested_mode in {"auto", ""} and owner.GUPPY_CORE_AVAILABLE:
@@ -1907,6 +1851,7 @@ async def stream_unified_inference(
     )
     if _should_try_llamacpp_auto:
         from src.guppy.api.routes_backends import _port_alive as _llc_port_alive
+        from src.guppy.api.routes_backends import ensure_backend_started
         _MODE_A_FALLBACK_ORDER = [
             "llamacpp-hermes4", "llamacpp-hermes3",
             "llamacpp-chat",    # 70B CPU -- zero VRAM, high quality
@@ -1917,6 +1862,11 @@ async def stream_unified_inference(
             _fb_cfg = _LOCAL_BACKENDS.get(_fb_backend, {})
             _fb_url = _fb_cfg.get("default_url", "")
             _fb_port = int(_fb_url.rsplit(":", 1)[-1]) if ":" in _fb_url else 0
+            if _fb_backend == "llamacpp-chat" and _fb_port and not _llc_port_alive(_fb_port):
+                try:
+                    ensure_backend_started(_fb_backend)
+                except Exception as exc:
+                    _log.warning("70B auto-start failed: %s", exc)
             if not _fb_port or not _llc_port_alive(_fb_port):
                 continue
             _fb_model = _LOCAL_BACKEND_DEFAULT_MODELS.get(_fb_backend, "")
@@ -1943,94 +1893,8 @@ async def stream_unified_inference(
             except RuntimeError:
                 continue  # try next fallback
 
-    # Ollama streaming is disabled — all local inference routes through llama.cpp.
-    # The Mode-A fallback chain above (hermes4 → hermes3 → pepe → …) handles any
-    # backend that was offline or unrecognised.
-    can_stream_ollama = False
-
-    if can_stream_ollama:
-        try:
-            router = owner.get_router()
-            task_type = router._classify_task(user_text, augmented_system)
-            # Only use active_local_model if it's an Ollama model — not a llamacpp route key.
-            # If llamacpp_failed, active_local_model is the llamacpp key (e.g. "gemma-4-heretic-ara")
-            # which Ollama doesn't know about, causing a 404.
-            _ollama_active = (
-                active_local_model
-                if (active_local_model and active_local_model not in _LOCAL_LLAMACPP_ROUTES)
-                else None
-            )
-            model_name = _ollama_active or router.LOCAL_TIER_MAP.get(task_type, router.LOCAL_MODEL)
-            messages = build_router_messages(augmented_system, user_text, clean_history)
-            tools = owner.core.to_ollama_tools(owner.core.TOOLS) if owner.GUPPY_CORE_AVAILABLE else None
-
-            tool_calls_accumulated: list = []
-            all_messages = list(messages)
-            full_content_parts: list[str] = []
-
-            # Stream tokens eagerly — no buffering. We track full_content
-            # in parallel so we can detect text-embedded tool markers after
-            # the stream ends and issue a REPLACE correction if needed.
-            async for token in _stream_ollama_tokens(
-                model=model_name,
-                messages=all_messages,
-                tools=tools,
-            ):
-                if token.startswith(_TOOL_CALL_SENTINEL):
-                    tool_calls_accumulated = json.loads(token[len(_TOOL_CALL_SENTINEL):])
-                else:
-                    full_content_parts.append(token)
-                    yield token
-
-            assistant_content = "".join(full_content_parts)
-
-            # Post-stream: check for text-embedded tool call markers (edge case —
-            # some GGUF models emit <tool_call>…</tool_call> as plain text).
-            # Since tokens were already sent, signal the UI to replace the content.
-            if _TOOL_CALL_TAG_RE.search(assistant_content):
-                cleaned = _clean_local_response(assistant_content)
-                if cleaned != assistant_content:
-                    yield _REPLACE_SENTINEL + cleaned
-                yield _SOURCE_SENTINEL + f"ollama:{model_name}"
-                return
-
-            if tool_calls_accumulated:
-                clean_assistant: dict = {"role": "assistant", "content": assistant_content}
-                clean_assistant["tool_calls"] = tool_calls_accumulated
-                all_messages.append(clean_assistant)
-
-                for tool_call in tool_calls_accumulated:
-                    fn = tool_call.get("function", {})
-                    name = fn.get("name", "")
-                    args = fn.get("arguments", {})
-                    if isinstance(args, str):
-                        try:
-                            args = json.loads(args)
-                        except Exception:
-                            args = {}
-                    result = owner.core.run_tool(
-                        name,
-                        args if isinstance(args, dict) else {},
-                        instance_name=instance_name,
-                        instance_type=instance_type,
-                    )
-                    all_messages.append({"role": "tool", "content": str(result)})
-
-                async for token in _stream_ollama_tokens(
-                    model=model_name,
-                    messages=all_messages,
-                    tools=tools,
-                ):
-                    if not token.startswith(_TOOL_CALL_SENTINEL):
-                        yield token
-            yield _SOURCE_SENTINEL + f"ollama:{model_name}"
-            return
-
-        except RuntimeError as _oll_err:
-            _log.warning("Ollama streaming failed (%s) — falling back to non-streaming", _oll_err)
-
-    # ── Free-tier cloud: prefer Mistral → Cohere before paying for Claude ───────
-    # Reached only when local/llamacpp/Ollama all failed or aren't available.
+    # Free-tier cloud: prefer Mistral -> Cohere before paying for Claude.
+    # Reached only when all local llama.cpp/OpenAI-compatible paths failed or are unavailable.
     # In auto mode, try free-tier cloud providers before escalating to paid
     # Anthropic Claude.  Explicit local/code/claude modes bypass this entirely.
     if requested_mode in {"auto", ""}:

@@ -19,6 +19,7 @@ from src.guppy.api.server_context import ServerContext
 from src.guppy.model_roles import (
     CONVERSATION_PARTNER_ROLES,
     get_registry_info,
+    resolve_role,
 )
 from src.guppy.paths import MAIN_DB_PATH, ensure_user_data_dir
 
@@ -145,6 +146,16 @@ def build_model_roles_router(ctx: ServerContext) -> tuple[APIRouter, APIRouter]:
                     f"Valid roles: {CONVERSATION_PARTNER_ROLES}"
                 ),
             )
+        backend_key = resolve_role(req.role)
+        try:
+            from src.guppy.api.routes_backends import ensure_backend_started
+            ensure_backend_started(backend_key)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("Failed to start backend for %s: %s", backend_key, exc)
+            raise HTTPException(status_code=500, detail=str(exc))
+
         try:
             with _db() as conn:
                 conn.execute(

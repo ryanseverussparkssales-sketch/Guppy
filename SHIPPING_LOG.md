@@ -2,9 +2,17 @@
 
 **Purpose:** Detailed implementation notes for completed features and initiatives. Reference for understanding architectural decisions and implementation details.
 
-**Last updated:** 2026-04-28
+**Last updated:** 2026-05-01
 
 ---
+
+## Usability Pass — Routing + Runtime (2026-05-01)
+
+### Partner + On-Demand Backend Auto-Start
+- Conversation partner selection now auto-starts the chosen backend (and fails fast if the launch target is missing).
+- Tool-call routing attempts to auto-start xLAM when offline before falling back to Hermes 4.
+- Local fallback routing attempts to auto-start the 70B CPU backend when selected.
+- **Impact:** Fewer “offline model” surprises; partner/model switches are usable without manual boot steps.
 
 ## P6 Platform Hardening — Shipped Features (2026-04-23 to 2026-04-28)
 
