@@ -223,15 +223,20 @@ def _stop_observer() -> None:
                 pass
             _observer = None
 
+
+def start_drop_observer() -> None:
+    _start_observer()
+
+
+def stop_drop_observer() -> None:
+    _stop_observer()
+
 # ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
 
 def build_drop_router(ctx: ServerContext) -> APIRouter:
     router = APIRouter(prefix="/api/drop", tags=["drop"])
-
-    # Start watcher immediately
-    _start_observer()
 
     def _capture_loop():
         global _loop

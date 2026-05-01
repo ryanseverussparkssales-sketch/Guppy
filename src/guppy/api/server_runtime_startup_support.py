@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -69,22 +70,27 @@ def bind_startup_support(
     )
 
 
-def _check_ollama_reachable() -> None:
-    """Warn (don't fail) if Ollama is unreachable at startup.
+def _check_local_runtime_reachable() -> None:
+    """Warn (do not fail) if no registered local runtime is reachable at startup.
 
-    A missing Ollama is a recoverable state — the user may start it later.
+    A missing local backend is recoverable; the user may start it later.
     We surface a clear warning now so the logs tell the story upfront.
     """
-    import urllib.request
     try:
-        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=2):
-            _log.info("Ollama reachable on port 11434")
-    except Exception as exc:
+        from src.guppy.inference.local_client import active_backend, probe_backends
+
+        selected = active_backend()
+        liveness = probe_backends(timeout=1.0)
+        if liveness.get(selected, False):
+            _log.info("Local runtime reachable: %s", selected)
+            return
         _log.warning(
-            "Ollama not reachable on port 11434 (%s). "
-            "Chat requests will fail until Ollama is started.",
-            exc,
+            "Selected local runtime %s is not reachable. Start the desired llama.cpp server "
+            "or configure GUPPY_LOCAL_RUNTIME_BACKEND.",
+            selected,
         )
+    except Exception as exc:
+        _log.warning("Local runtime probe failed during startup: %s", exc)
 
 
 def build_lifespan(
@@ -94,6 +100,7 @@ def build_lifespan(
     ensure_instance_scaffold: Callable[[], Any],
     startup_host: Callable[[Any], Awaitable[Any]],
     shutdown_host: Callable[[Any], Awaitable[Any]],
+    startup_callbacks: list[Callable[[], Any]] | None = None,
     background_coroutines: list[Callable[[], Any]] | None = None,
 ):
     @asynccontextmanager
@@ -117,7 +124,7 @@ def build_lifespan(
             _failures.append(f"ensure_instance_scaffold: {_exc}")
             _log.exception("ensure_instance_scaffold() raised — instance state may be incomplete")
 
-        _check_ollama_reachable()
+        _check_local_runtime_reachable()
         owner = module_owner()
 
         try:
@@ -125,6 +132,17 @@ def build_lifespan(
         except Exception as _exc:
             _failures.append(f"startup_host: {_exc}")
             _log.exception("startup_host() raised — some subsystems may not be available")
+
+        for _callback in (startup_callbacks or []):
+            _callback_name = getattr(_callback, "__name__", repr(_callback))
+            try:
+                _result = _callback()
+                if inspect.isawaitable(_result):
+                    await _result
+                _log.info("Started startup service: %s", _callback_name)
+            except Exception as _exc:
+                _failures.append(f"{_callback_name}: {_exc}")
+                _log.exception("Startup service %s raised", _callback_name)
 
         # Start 24/7 background coroutines (e.g. reminder delivery, health checks)
         _bg_tasks: list[asyncio.Task] = []

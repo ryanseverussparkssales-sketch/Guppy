@@ -132,7 +132,7 @@ def main() -> int:
             [
                 "- Run targeted verifiers before full launch:",
                 "  - python tools/verify_logging_health.py --emit-probe --require-fresh-core",
-                "  - python tools/verify_ollama_runtime.py --prompt ok",
+                "  - python tools/verify_local_model_runtime.py --prompt ok",
                 "  - python tools/verify_provider_runtime.py",
             ]
         )

@@ -66,7 +66,11 @@ def check_auth_config() -> str:
 
 def model_for_agent(agent_id: str) -> str:
     if agent_id == "guppy":
-        return (os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()
+        return (
+            os.environ.get("GUPPY_LOCAL_COMPLEX_MODEL")
+            or os.environ.get("GUPPY_MAIN_MODEL")
+            or "hermes-3-8b-lorablated"
+        ).strip()
     return ""
 
 
@@ -222,24 +226,20 @@ def rolling_agent_stats(
 
 
 def warm_ollama_model(model: str, keep_alive: str = "20m") -> tuple[bool, str]:
-    payload = {
-        "model": model,
-        "prompt": "warmup",
-        "stream": False,
-        "keep_alive": keep_alive,
-        "options": {"num_predict": 1},
-    }
-    req = urllib.request.Request(
-        "http://localhost:11434/api/generate",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    """Compatibility wrapper for hub callers; warms the active local runtime."""
+    del keep_alive
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            body = json.loads(resp.read().decode("utf-8", errors="replace"))
-        if body.get("error"):
-            return False, str(body.get("error"))
+        from src.guppy.inference.local_client import local_chat
+
+        result = local_chat(
+            model,
+            [{"role": "user", "content": "ok"}],
+            timeout=20,
+            num_predict=1,
+            max_retries=0,
+        )
+        if result is None:
+            return False, "local runtime warmup returned no response"
         return True, "warm"
     except Exception as e:
         return False, str(e)

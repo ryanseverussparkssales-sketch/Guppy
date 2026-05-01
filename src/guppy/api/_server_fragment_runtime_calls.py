@@ -6,65 +6,19 @@ def _call_ollama_with_tools(
     instance_type: Optional[str] = None,
     model_override: Optional[str] = None,
 ) -> str:
-    model = str(model_override or os.environ.get("OLLAMA_MODEL", "guppy")).strip() or "guppy"
-    ok, err = core.check_ollama(model)
-    if not ok:
-        raise RuntimeError(err)
-
-    all_msgs = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_text}]
-    ollama_tools = core.to_ollama_tools(core.TOOLS)
-    final_text = ""
-
-    while True:
-        payload = json.dumps({
-            "model": model,
-            "messages": all_msgs,
-            "tools": ollama_tools,
-            "stream": False,
-            "keep_alive": "10m",
-            "options": {"temperature": 0.8, "top_p": 0.95, "top_k": 40, "num_predict": 512},
-        }).encode()
-        req = urllib.request.Request(
-            "http://localhost:11434/api/chat",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=180) as r:
-            data = json.loads(r.read().decode())
-
-        msg = data.get("message", {})
-        content = (msg.get("content") or "").strip()
-        if content:
-            final_text = content
-
-        tool_calls = msg.get("tool_calls") or []
-        clean_assistant = {"role": "assistant", "content": content}
-        if tool_calls:
-            clean_assistant["tool_calls"] = tool_calls
-        all_msgs.append(clean_assistant)
-
-        if not tool_calls:
-            break
-
-        for tc in tool_calls:
-            fn = tc.get("function", {})
-            name = fn.get("name", "")
-            args = fn.get("arguments", {})
-            if isinstance(args, str):
-                try:
-                    args = json.loads(args)
-                except Exception:
-                    args = {}
-            result = core.run_tool(
-                name,
-                args if isinstance(args, dict) else {},
-                instance_name=instance_name,
-                instance_type=instance_type,
-            )
-            all_msgs.append({"role": "tool", "content": str(result)})
-
-    return final_text or "No response produced."
+    model = str(
+        model_override
+        or os.environ.get("GUPPY_LOCAL_COMPLEX_MODEL")
+        or os.environ.get("GUPPY_MAIN_MODEL")
+        or "hermes-3-8b-lorablated"
+    ).strip()
+    return _call_selected_local_runtime(
+        user_text,
+        system_prompt,
+        instance_name=instance_name,
+        instance_type=instance_type,
+        model_override=model,
+    )
 
 
 async def _stream_chunks(text: str) -> AsyncGenerator[str, None]:

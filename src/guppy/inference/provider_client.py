@@ -10,7 +10,7 @@ Abstract Interface (ProviderClient):
     estimate_cost(prompt_tokens, completion_tokens) -> float
 
 Concrete Implementations:
-    LocalProviderClient - Ollama (via HTTP API)
+    LocalProviderClient - local OpenAI-compatible runtimes
     CloudProviderClient - Base for cloud providers (subclass for each provider)
 """
 
@@ -159,12 +159,11 @@ class LocalProviderClient(ProviderClient):
     """Unified local inference provider — delegates to local_client for all backends.
 
     Supports every backend registered in local_client._BACKENDS:
-      - "ollama"         — Ollama (default, native format)
-      - "lmstudio"       — LM Studio (OpenAI-compat)
-      - "lemonade"       — Lemonade (OpenAI-compat)
       - "llamacpp-gemma" — llama.cpp Gemma 4 E4B server (port 8080)
       - "llamacpp-qwen3" — llama.cpp Qwen3 35B server (port 8083)
       - "llamacpp-pepe"  — llama.cpp Pepe 8B server (port 8082)
+      - "llamacpp-hermes3" — llama.cpp Hermes 3 fast lane (port 8087)
+      - "llamacpp-hermes4" — llama.cpp Hermes 4 complex lane (port 8086)
       - "local_harness"  — Generic OpenAI-compat harness
 
     All HTTP logic, circuit breaking, retries, and payload formatting live in
@@ -173,9 +172,9 @@ class LocalProviderClient(ProviderClient):
 
     def __init__(
         self,
-        model: str = "guppy",
+        model: str = "hermes-3-8b-lorablated",
         timeout: float = 60.0,
-        backend: str = "ollama",
+        backend: str = "llamacpp-hermes3",
     ):
         """Initialise local backend client.
 

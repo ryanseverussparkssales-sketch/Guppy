@@ -16,7 +16,6 @@ get_proposal(proposal_id)          — single proposal detail
 """
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
 import subprocess
@@ -55,30 +54,25 @@ def _conn() -> sqlite3.Connection:
     return conn
 
 
-# ── Inference helper (Ollama direct, no auth needed) ─────────────────────────
+# ── Inference helper (local llama.cpp runtime) ───────────────────────────────
 
-def _ask_inference(prompt: str, model: str = "guppy-fast") -> str:
-    """Call Ollama directly for a non-streaming completion."""
+def _ask_inference(prompt: str, model: str = "hermes-3-8b-lorablated") -> str:
+    """Call the local llama.cpp/OpenAI-compatible runtime."""
     try:
-        import urllib.request, json as _json
-        payload = _json.dumps({
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"num_predict": 800, "temperature": 0.2},
-        }).encode()
-        req = urllib.request.Request(
-            "http://127.0.0.1:11434/api/generate",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
+        from src.guppy.inference.local_client import local_chat
+
+        result = local_chat(
+            model,
+            [{"role": "user", "content": prompt}],
+            timeout=120,
+            num_predict=800,
+            max_retries=1,
         )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = _json.loads(resp.read().decode())
-            return data.get("response", "").strip()
+        if isinstance(result, dict):
+            return str(result.get("response") or "").strip()
     except Exception as exc:
         logger.warning("[self_improve] inference call failed: %s", exc)
-        return ""
+    return ""
 
 
 # ── Proposal generation ───────────────────────────────────────────────────────

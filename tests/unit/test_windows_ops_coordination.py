@@ -26,7 +26,7 @@ def test_persist_windows_ops_state_writes_payload_and_feedback(tmp_path: Path) -
             summary="WINDOWS VERIFY completed 1/1 servicing step(s).",
             changes="Refreshes readiness evidence.",
             ok=True,
-            commands=["python tools/verify_ollama_runtime.py --prompt ok"],
+            commands=["python tools/verify_local_model_runtime.py --prompt ok"],
             event_id="recipe-verify-1",
             steps_completed=1,
             steps_total=1,

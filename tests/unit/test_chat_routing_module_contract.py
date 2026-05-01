@@ -5,11 +5,11 @@ from unittest.mock import patch
 import pytest
 
 from src.guppy.api import server as guppy_api
+from src.guppy.api import services_runtime, services_runtime_local
 from src.guppy.api.routes_core import build_core_router
 from src.guppy.api.routes_instances import build_instances_router
 from src.guppy.api.routes_ops import build_ops_router
 from src.guppy.api.routes_realtime import build_realtime_router
-from src.guppy.api import services_runtime
 
 
 class _FakeRouter:
@@ -78,7 +78,7 @@ def test_auto_mode_executes_ollama_route_when_ui_decision_is_local() -> None:
         "_local_runtime_warm_cached_or_unknown",
         return_value={"backend": "ollama", "model": "guppy-teach", "chat_ready": True, "chat_state": "READY", "chat_detail": "warm"},
     ), patch.object(
-        guppy_api, "_call_ollama_with_tools", return_value="Teaching answer"
+        guppy_api, "_call_selected_local_runtime", return_value="Teaching answer"
     ) as local_call, patch.object(guppy_api, "_call_claude_with_tools") as cloud_call:
         response = guppy_api._call_unified_inference("Explain recursion", "SYSTEM", mode="auto")
 
@@ -99,7 +99,7 @@ def test_local_mode_uses_tiered_model_with_tool_capable_wrapper() -> None:
         "_local_runtime_warm_cached_or_unknown",
         return_value={"backend": "ollama", "model": "guppy-fast", "chat_ready": True, "chat_state": "READY", "chat_detail": "warm"},
     ), patch.object(
-        guppy_api, "_call_ollama_with_tools", return_value="Fast local answer"
+        guppy_api, "_call_selected_local_runtime", return_value="Fast local answer"
     ) as local_call:
         response = guppy_api._call_unified_inference("Ping", "SYSTEM", mode="local")
 
@@ -108,14 +108,13 @@ def test_local_mode_uses_tiered_model_with_tool_capable_wrapper() -> None:
     assert kwargs["model_override"] == "guppy-fast"
 
 
-def test_local_mode_can_use_opt_in_lemonade_runtime() -> None:
+def test_local_mode_legacy_runtime_config_still_routes_through_selected_runtime() -> None:
     router = _FakeRouter()
 
     with patch.dict(
         guppy_api.os.environ,
         {
             "GUPPY_LOCAL_RUNTIME_BACKEND": "lemonade",
-            "GUPPY_LEMONADE_FAST_MODEL": "Llama-3.2-1B-Instruct-GGUF",
         },
         clear=False,
     ), patch.object(guppy_api, "GUPPY_CORE_AVAILABLE", True), patch.object(
@@ -123,7 +122,7 @@ def test_local_mode_can_use_opt_in_lemonade_runtime() -> None:
     ), patch.object(guppy_api, "get_router", return_value=router), patch.object(
         guppy_api,
         "_local_runtime_warm_cached_or_unknown",
-        return_value={"backend": "lemonade", "model": "Llama-3.2-1B-Instruct-GGUF", "chat_ready": True, "chat_state": "READY", "chat_detail": "warm"},
+        return_value={"backend": "llamacpp-hermes3", "model": "hermes-3-8b-lorablated", "chat_ready": True, "chat_state": "READY", "chat_detail": "warm"},
     ), patch.object(
         guppy_api, "_call_selected_local_runtime", return_value="Lemonade lane answer"
     ) as local_call, patch.object(guppy_api, "_call_ollama_with_tools") as ollama_call:
@@ -136,54 +135,56 @@ def test_local_mode_can_use_opt_in_lemonade_runtime() -> None:
     assert kwargs["model_override"] == "guppy-fast"
 
 
-def test_local_runtime_status_reports_partial_when_alias_mapped_lane_is_usable() -> None:
+def test_local_runtime_status_collapses_removed_backend_config_to_llamacpp_registry() -> None:
     with patch.dict(
         guppy_api.os.environ,
         {
             "GUPPY_LOCAL_RUNTIME_BACKEND": "lemonade",
-            "GUPPY_LEMONADE_FAST_MODEL": "Llama-3.2-1B-Instruct-GGUF",
         },
         clear=False,
     ), patch.object(
-        guppy_api,
-        "_fetch_lemonade_model_ids",
-        return_value={"Llama-3.2-1B-Instruct-GGUF"},
+        services_runtime_local,
+        "probe_backends",
+        return_value={"llamacpp-hermes3": True, "llamacpp-hermes4": False},
+    ), patch.object(
+        services_runtime_local,
+        "list_local_models",
+        return_value=["hermes-3-8b-lorablated"],
     ):
         payload = guppy_api._build_local_runtime_status()
 
-    assert payload["backend"] == "lemonade"
+    assert payload["backend"] == "llamacpp-hermes3"
     assert payload["state"] == "PARTIAL"
     assert "fast" in payload["available_roles"]
-    assert "complex" in payload["missing_roles"]
-    assert payload["policy"]["runtime_baseline"] == "ollama"
-    assert payload["policy"]["daily_model_promotion_candidate"] == "qwen3:8b"
+    assert "teach" in payload["missing_roles"]
+    assert payload["role_backends"]["fast"] == "llamacpp-hermes3"
     assert payload["chat_ready"] is False
     assert payload["chat_state"] == "UNKNOWN"
 
 
-def test_selected_local_runtime_fast_fails_while_ollama_chat_lane_warms() -> None:
+def test_selected_local_runtime_legacy_env_uses_llamacpp_local_client() -> None:
     with patch.dict(
         guppy_api.os.environ,
         {"GUPPY_LOCAL_RUNTIME_BACKEND": "ollama"},
         clear=False,
     ), patch.object(
         guppy_api,
-        "_local_runtime_warm_cached_or_unknown",
-        return_value={
-            "backend": "ollama",
-            "model": "guppy",
-            "chat_ready": False,
-            "chat_state": "WARMING",
-            "chat_detail": "guppy warmup in progress",
-        },
-    ), patch.object(guppy_api, "_trigger_local_runtime_warm_refresh") as warm_trigger, patch.object(
-        guppy_api, "_call_ollama_with_tools"
+        "_selected_local_runtime_backend",
+        return_value="llamacpp-hermes3",
+    ), patch.object(
+        guppy_api,
+        "_current_local_runtime_chat_model",
+        return_value="hermes-3-8b-lorablated",
+    ), patch.object(
+        services_runtime_local,
+        "local_chat",
+        return_value={"response": "Local answer"},
     ) as local_call:
         result = guppy_api._call_selected_local_runtime("Ping", "SYSTEM")
 
-    warm_trigger.assert_called_once()
     local_call.assert_called_once()
-    assert result is local_call.return_value
+    assert local_call.call_args.kwargs["backend"] == "llamacpp-hermes3"
+    assert result == "Local answer"
 
 
 def test_startup_readiness_marks_local_runtime_partial_until_chat_ready() -> None:
@@ -191,12 +192,12 @@ def test_startup_readiness_marks_local_runtime_partial_until_chat_ready() -> Non
         guppy_api,
         "_build_local_runtime_status",
         return_value={
-            "backend": "ollama",
+            "backend": "llamacpp-hermes3",
             "state": "READY",
-            "detail": "Ollama model registry reachable",
+            "detail": "llama.cpp role backends reachable",
             "chat_ready": False,
             "chat_state": "WARMING",
-            "chat_detail": "guppy warmup in progress",
+            "chat_detail": "local warmup in progress",
         },
     ), patch.object(guppy_api, "DEV_MODE", True), patch.object(
         guppy_api, "GUPPY_CORE_AVAILABLE", False

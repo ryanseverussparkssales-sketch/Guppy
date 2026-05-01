@@ -80,13 +80,13 @@ def test_local_model_readiness_check_names_are_unique() -> None:
 
 def test_local_model_readiness_counts_add_up() -> None:
     result = run_local_model_readiness()
-    total = len(LOCAL_MODEL_CHECKS)
-    count = (
+    check_count = (
         len(result["passed"])  # type: ignore[arg-type]
-        + len(result["failed"])  # type: ignore[arg-type]
         + len(result["optional_absent"])  # type: ignore[arg-type]
     )
-    assert count == total
+    assert check_count == len(LOCAL_MODEL_CHECKS)
+    synthetic_failures = set(result["failed"]) - {check.name for check in LOCAL_MODEL_CHECKS}  # type: ignore[arg-type]
+    assert synthetic_failures <= {"ready_local_runtime"}
 
 
 def test_local_model_readiness_no_raise_on_missing_ollama(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -4,7 +4,7 @@ Routes:
   POST /api/workspace/tasks              create task
   GET  /api/workspace/tasks              list tasks with optional state filter
   GET  /api/workspace/tasks/{id}         detail with steps and events
-  POST /api/workspace/tasks/{id}/run     run the baseline executor
+  POST /api/workspace/tasks/{id}/run     run the workspace orchestrator
   POST /api/workspace/tasks/{id}/confirm confirm a blocked step
   POST /api/workspace/tasks/{id}/cancel  cancel task
   GET  /api/workspace/tasks/{id}/stream  SSE updates
@@ -21,11 +21,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.guppy.api.server_context import ServerContext
+from src.guppy.api.workspace_tools import execute_workspace_tool, planned_steps
 from src.guppy.paths import MAIN_DB_PATH
 
 
@@ -329,23 +330,30 @@ def list_workspace_task_records(state: str | None = None) -> list[TaskListItemRe
     ]
 
 
+def _list_crm_task_records(status: str) -> list[dict[str, Any]]:
+    from src.guppy.api.routes_workspace_data import list_crm_task_records
+
+    return list_crm_task_records(status=status)
+
+
+def _create_crm_task_record(body: dict[str, Any]) -> dict[str, Any]:
+    from src.guppy.api.routes_workspace_data import TaskCreate, create_crm_task_record
+
+    task = str(body.get("task") or "").strip()
+    if not task:
+        raise HTTPException(status_code=422, detail="task_description or task is required")
+    return create_crm_task_record(
+        TaskCreate(
+            task=task,
+            due_date=str(body.get("due_date") or ""),
+        )
+    )
+
+
 def get_workspace_task_record(task_id: str) -> TaskDetailResponse:
     _ensure_schema()
     with _db() as conn:
         return _detail_from_row(conn, _task_row(conn, task_id))
-
-
-def _looks_destructive(description: str) -> bool:
-    text = f" {description.lower()} "
-    markers = (" delete ", " remove ", " rm ", " overwrite ", " drop ", " wipe ", " send ")
-    return any(marker in text for marker in markers)
-
-
-def _planned_steps(description: str) -> list[tuple[str, dict[str, Any]]]:
-    first = ("task_plan", {"task_description": description})
-    if _looks_destructive(description):
-        return [first, ("shell_run", {"command": description})]
-    return [first, ("workspace_summary", {"task_description": description})]
 
 
 def _insert_step(
@@ -370,82 +378,6 @@ def _insert_step(
         ),
     )
     return step_id
-
-
-async def _execute_workspace_tool(tool_name: str, tool_args: dict[str, Any]) -> dict[str, Any]:
-    """Execute one baseline workspace tool and return an observable result."""
-
-    if tool_name == "task_plan":
-        description = str(tool_args.get("task_description", "")).strip()
-        return {
-            "ok": True,
-            "plan": ["Review the request", "Record a baseline execution result"],
-            "task_description": description,
-        }
-
-    if tool_name == "workspace_summary":
-        description = str(tool_args.get("task_description", "")).strip()
-        return {
-            "ok": True,
-            "summary": f"Baseline workspace task run recorded for: {description[:160]}",
-        }
-
-    if tool_name == "web_search":
-        query = str(tool_args.get("query", "")).strip()
-        return {"ok": True, "query": query, "results": []}
-
-    if tool_name == "file_read":
-        path = str(tool_args.get("path", "")).strip()
-        return {"ok": True, "path": path, "content": "(file read stub)"}
-
-    if tool_name == "file_list":
-        path = str(tool_args.get("path", "")).strip()
-        return {"ok": True, "path": path, "files": []}
-
-    if tool_name == "shell_run":
-        command = str(tool_args.get("command", "")).strip()
-        if _looks_destructive(command):
-            return {
-                "ok": False,
-                "requires_confirmation": True,
-                "command": command,
-                "note": "Destructive command requires user confirmation.",
-            }
-        return {"ok": True, "command": command, "stdout": "(output stub)"}
-
-    if tool_name == "contacts_search":
-        query = str(tool_args.get("query", "")).strip()
-        return {"ok": True, "query": query, "contacts": []}
-
-    if tool_name == "calendar_read":
-        days = int(tool_args.get("days", 7))
-        return {"ok": True, "days": days, "events": []}
-
-    if tool_name == "email_read":
-        limit = int(tool_args.get("limit", 10))
-        return {"ok": True, "limit": limit, "messages": []}
-
-    if tool_name == "screenpipe_search":
-        query = str(tool_args.get("query", "")).strip()
-        return {"ok": True, "query": query, "results": []}
-
-    if tool_name == "pc_screenshot":
-        return {"ok": True, "image_url": "data:image/png;base64,(stub)"}
-
-    if tool_name == "pc_click":
-        x = int(tool_args.get("x", 0))
-        y = int(tool_args.get("y", 0))
-        return {"ok": True, "x": x, "y": y}
-
-    if tool_name == "pc_type":
-        text = str(tool_args.get("text", "")).strip()
-        return {"ok": True, "text": text}
-
-    if tool_name == "pc_scroll":
-        direction = str(tool_args.get("direction", "down")).strip()
-        return {"ok": True, "direction": direction}
-
-    return {"ok": False, "error": f"Unknown tool: {tool_name}"}
 
 
 async def run_workspace_task_record(task_id: str) -> dict[str, Any]:
@@ -474,7 +406,7 @@ async def run_workspace_task_record(task_id: str) -> dict[str, Any]:
         conn.commit()
 
         for step_number, (tool_name, tool_args) in enumerate(
-            _planned_steps(task["task_description"]),
+            planned_steps(task["task_description"]),
             start=1,
         ):
             step_id = _insert_step(conn, task_id, step_number, tool_name, tool_args)
@@ -486,7 +418,7 @@ async def run_workspace_task_record(task_id: str) -> dict[str, Any]:
             )
             conn.commit()
 
-            result = await _execute_workspace_tool(tool_name, tool_args)
+            result = await execute_workspace_tool(tool_name, tool_args)
             now = _now()
 
             if result.get("requires_confirmation"):
@@ -541,7 +473,7 @@ async def run_workspace_task_record(task_id: str) -> dict[str, Any]:
                     "error": error,
                 }
 
-        result_text = "Baseline workspace task run complete."
+        result_text = "Workspace task run complete."
         conn.execute(
             """UPDATE workspace_tasks
                SET state = ?, completed_at = ?, result = ?
@@ -568,7 +500,7 @@ def confirm_workspace_task_record(task_id: str, step_id: str) -> dict[str, Any]:
 
         result = _json_dict(step["result"]) or {}
         result["confirmed"] = True
-        result["note"] = "Confirmed by user; baseline executor marked the task complete."
+        result["note"] = "Confirmed by user; workspace task marked complete."
         now = _now()
         conn.execute(
             """UPDATE workspace_task_steps
@@ -583,7 +515,7 @@ def confirm_workspace_task_record(task_id: str, step_id: str) -> dict[str, Any]:
             (
                 TaskState.COMPLETE.value,
                 now,
-                "Confirmed action recorded; baseline workspace task run complete.",
+                "Confirmed action recorded; workspace task complete.",
                 task_id,
             ),
         )
@@ -617,18 +549,32 @@ def build_workspace_router(ctx: ServerContext) -> APIRouter:
     router = APIRouter(prefix="/api/workspace", tags=["workspace"])
     _ensure_schema()
 
-    @router.post("/tasks", response_model=TaskDetailResponse, status_code=201)
+    @router.post("/tasks")
     async def create_task(
-        req: CreateTaskRequest,
+        body: dict[str, Any],
+        response: Response,
         _uid: str = Depends(ctx.require_rate_limit),
-    ) -> TaskDetailResponse:
-        return create_workspace_task_record(req)
+    ) -> Any:
+        if "task_description" not in body:
+            return _create_crm_task_record(body)
 
-    @router.get("/tasks", response_model=list[TaskListItemResponse])
+        detail = create_workspace_task_record(
+            CreateTaskRequest(
+                task_description=str(body.get("task_description") or ""),
+                source=str(body.get("source") or "workspace"),
+            )
+        )
+        response.status_code = 201
+        return detail
+
+    @router.get("/tasks")
     async def list_tasks(
         state: str | None = None,
+        status: str | None = None,
         _uid: str = Depends(ctx.require_rate_limit),
-    ) -> list[TaskListItemResponse]:
+    ) -> Any:
+        if status is not None and state is None:
+            return _list_crm_task_records(status=status)
         return list_workspace_task_records(state=state)
 
     @router.get("/tasks/{task_id}", response_model=TaskDetailResponse)

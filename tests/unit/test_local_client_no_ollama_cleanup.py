@@ -1,8 +1,10 @@
+import asyncio
 import urllib.error
 
 import pytest
 
 from src.guppy.inference import local_client
+from src.guppy.inference.provider_registry import ProviderRegistry
 
 
 def _reset_local_client_state() -> None:
@@ -68,3 +70,19 @@ def test_explicit_removed_backend_chat_does_not_keyerror(
     )
 
     assert result is None
+
+
+def test_provider_registry_local_provider_uses_registered_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    _reset_local_client_state()
+    monkeypatch.setenv("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama")
+
+    registry = ProviderRegistry(settings_db=tmp_path / "providers.sqlite3")
+    client = asyncio.run(registry.get_client("local"))
+
+    assert client is not None
+    assert client.backend == local_client._DEFAULT_BACKEND
+    assert client.backend in local_client._BACKENDS
+    assert client.backend != "ollama"

@@ -18,7 +18,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS provider_configs (
 _DEFAULT_DB_PATH = Path(
     os.environ.get("GUPPY_PROVIDER_DB", "runtime/settings/provider_configs.sqlite3")
 )
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 @dataclass
@@ -116,13 +120,17 @@ class ProviderRegistry:
     DEFAULT_CONFIGS = {
         "local": ProviderConfig(
             id="local",
-            name="Local (Ollama)",
+            name="Local (llama.cpp)",
             is_enabled=True,
             priority_order=10,  # Highest priority
             timeout_seconds=60.0,
             retry_limit=0,  # Local doesn't fall back
             cost_per_1k_tokens=0.0,
-            model_id=os.environ.get("OLLAMA_MODEL", "guppy"),
+            model_id=(
+                os.environ.get("GUPPY_LOCAL_COMPLEX_MODEL")
+                or os.environ.get("GUPPY_MAIN_MODEL")
+                or "hermes-3-8b-lorablated"
+            ),
         ),
         # ── llama.cpp (ROCm/HIP) servers — one per model ──────────────────────
         # is_enabled=True; servers not running will fail health checks and be
@@ -255,7 +263,7 @@ class ProviderRegistry:
                 logger.warning(f"[REGISTRY] Failed to load configs from settings DB: {e}")
 
         # Initialize health tracking for all providers
-        now = datetime.utcnow()
+        now = _utc_now()
         for provider_id in self._configs:
             self._health[provider_id] = ProviderHealth(
                 provider_id=provider_id,
@@ -285,12 +293,17 @@ class ProviderRegistry:
             # Create new client based on provider type
             try:
                 if provider_id == "local":
+                    from .local_client import _BACKEND_DEFAULT_MODELS, _BACKENDS, active_backend
+
+                    selected_backend = active_backend()
+                    if selected_backend not in _BACKENDS:
+                        selected_backend = "llamacpp-hermes3"
                     client = LocalProviderClient(
-                        model=config.model_id or "guppy",
+                        model=config.model_id or _BACKEND_DEFAULT_MODELS.get(selected_backend, "hermes-3-8b-lorablated"),
                         timeout=config.timeout_seconds,
-                        backend="ollama",
+                        backend=selected_backend,
                     )
-                elif provider_id in {"llamacpp-gemma", "llamacpp-qwen3", "llamacpp-pepe"}:
+                elif provider_id.startswith("llamacpp-") or provider_id == "local_harness":
                     client = LocalProviderClient(
                         model=config.model_id or provider_id,
                         timeout=config.timeout_seconds,
@@ -402,7 +415,7 @@ class ProviderRegistry:
         async with self._lock:
             # Check cache first
             health = self._health.get(provider_id)
-            if health and (datetime.utcnow() - health.last_check) < timedelta(seconds=5):
+            if health and (_utc_now() - health.last_check) < timedelta(seconds=5):
                 return health.is_healthy
 
             # Get or create client
@@ -426,7 +439,7 @@ class ProviderRegistry:
                 self._health[provider_id] = ProviderHealth(
                     provider_id=provider_id,
                     is_healthy=healthy,
-                    last_check=datetime.utcnow(),
+                    last_check=_utc_now(),
                     error_message=error,
                 )
             else:
@@ -436,7 +449,7 @@ class ProviderRegistry:
                 else:
                     health.consecutive_failures += 1
                 health.is_healthy = healthy
-                health.last_check = datetime.utcnow()
+                health.last_check = _utc_now()
                 health.error_message = error
 
             if not healthy:

@@ -7,7 +7,7 @@ Capabilities:
   - Pattern logging: append events to runtime/hub_patterns.jsonl
   - Pattern analysis: periodic Haiku review (throttled 1/hour)
   - Agent repair: clear stale heartbeat/activity/cmd files
-  - Health checks: Ollama, API server, Cloudflare, Anthropic key
+  - Health checks: local runtime, API server, Cloudflare, Anthropic key
   - Smart recommendations: rule-based, no API call
 
 Integrates with:
@@ -263,13 +263,22 @@ class HubOperator:
 
     # ── Health Checks ───────────────────────────────────────────────────────────
 
-    def check_ollama(self, timeout: float = 3.0) -> dict:
-        """Check Ollama availability."""
+    def check_local_runtime(self, timeout: float = 3.0) -> dict:
+        """Check the selected local OpenAI-compatible runtime."""
         try:
-            urllib.request.urlopen("http://localhost:11434/", timeout=timeout)
-            return {"ok": True, "status": "running"}
+            from src.guppy.inference.local_client import active_backend, probe_backends
+
+            backend = active_backend()
+            live = probe_backends(timeout=min(timeout, 1.5))
+            if live.get(backend, False):
+                return {"ok": True, "status": f"{backend} running", "backend": backend}
+            return {"ok": False, "status": f"{backend} not reachable", "backend": backend}
         except Exception as e:
             return {"ok": False, "status": str(e)[:60]}
+
+    def check_ollama(self, timeout: float = 3.0) -> dict:
+        """Compatibility alias for older operator callers."""
+        return self.check_local_runtime(timeout=timeout)
 
     def check_api_server(self, timeout: float = 3.0) -> dict:
         """Check Guppy API server health endpoint."""
@@ -308,7 +317,7 @@ class HubOperator:
     def full_system_check(self) -> dict:
         """Run all health checks. Returns dict: service → {ok, status}."""
         return {
-            "ollama": self.check_ollama(),
+            "local_runtime": self.check_local_runtime(),
             "api": self.check_api_server(),
             "anthropic": self.check_anthropic(),
             "cloudflared": self.check_cloudflared(),
@@ -422,8 +431,8 @@ class HubOperator:
             return bool(self.check_api_server().get("ok"))
         if svc == "cloudflared":
             return bool(self.check_cloudflared().get("ok"))
-        if svc == "ollama":
-            return bool(self.check_ollama().get("ok"))
+        if svc in {"ollama", "local_runtime"}:
+            return bool(self.check_local_runtime().get("ok"))
         return False
 
     def _api_process_running(self) -> bool:

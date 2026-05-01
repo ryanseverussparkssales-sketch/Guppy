@@ -29,7 +29,15 @@ from src.guppy.launcher_application.voice_catalog_support import (
     build_engine_capabilities,
     engine_is_available,
 )
-from compat_shims.launcher_ui.ui.launcher.views.voices_view import ENGINES
+
+# Keep this verifier decoupled from UI module imports so it can run in headless
+# environments even when launcher view shims are unavailable.
+ENGINES: dict[str, object] = {
+    "EDGE TTS": object(),
+    "KOKORO": object(),
+    "WINDOWS SAPI": object(),
+    "ELEVENLABS": object(),
+}
 
 PASS = "READY"
 FAIL = "UNAVAILABLE"

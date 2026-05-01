@@ -1,6 +1,5 @@
 import json
 import os
-import socket
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -25,6 +24,23 @@ ROOT = Path(__file__).resolve().parent.parent
 RUNTIME_DIR = ROOT / "runtime"
 SETTINGS_PATH = RUNTIME_DIR / "app_settings.json"
 
+LOCAL_RUNTIME_BACKENDS = {
+    "auto",
+    "llamacpp-gemma",
+    "llamacpp-qwen3",
+    "llamacpp-pepe",
+    "llamacpp-minicpm",
+    "llamacpp-dispatch",
+    "llamacpp-hermes4",
+    "llamacpp-hermes3",
+    "llamacpp-rocinante",
+    "llamacpp-xlam",
+    "llamacpp-chat",
+    "llamacpp-phi4-mini",
+    "local_harness",
+}
+LEGACY_LOCAL_RUNTIME_BACKENDS = {"ollama", "lmstudio", "lemonade", "vllm"}
+
 
 DEFAULT_SETTINGS = {
     "runtime_profile": "standard",
@@ -32,7 +48,7 @@ DEFAULT_SETTINGS = {
     "enable_voice": True,
     "wake_word_default": False,
     "default_mode": "auto",
-    "local_runtime_backend": "ollama",
+    "local_runtime_backend": "auto",
     "lemonade_base_url": "http://localhost:13305/api/v1",
     "lmstudio_base_url": "http://127.0.0.1:1234/v1",
     "local_harness_base_url": "http://127.0.0.1:8001",
@@ -45,6 +61,15 @@ DEFAULT_SETTINGS = {
     "local_sub_model_a": "",
     "local_sub_model_b": "",
 }
+
+
+def _normalize_local_runtime_backend(value: str | None) -> str:
+    backend = (value or "auto").strip().lower()
+    if backend in LOCAL_RUNTIME_BACKENDS:
+        return backend
+    if backend in LEGACY_LOCAL_RUNTIME_BACKENDS:
+        return "auto"
+    return "auto"
 
 
 PROFILE_PRESETS = {
@@ -166,8 +191,10 @@ def load_app_settings() -> dict[str, Any]:
             settings[setting_key] = env_value
 
     local_runtime_backend = os.environ.get("GUPPY_LOCAL_RUNTIME_BACKEND", "").strip().lower()
-    if local_runtime_backend in {"ollama", "lemonade"}:
-        settings["local_runtime_backend"] = local_runtime_backend
+    if local_runtime_backend:
+        settings["local_runtime_backend"] = _normalize_local_runtime_backend(local_runtime_backend)
+    else:
+        settings["local_runtime_backend"] = _normalize_local_runtime_backend(settings.get("local_runtime_backend"))
 
     for setting_key, env_name in (
         ("lemonade_base_url", "GUPPY_LEMONADE_BASE_URL"),
@@ -191,6 +218,7 @@ def save_app_settings(settings: dict[str, Any]) -> Path:
     merged = load_app_settings()
     merged.update({k: v for k, v in settings.items() if k in DEFAULT_SETTINGS})
     merged["runtime_profile"] = _normalize_profile(merged.get("runtime_profile"))
+    merged["local_runtime_backend"] = _normalize_local_runtime_backend(merged.get("local_runtime_backend"))
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     if _ATOMIC_IO:
         if not write_json_atomic(SETTINGS_PATH, merged):
@@ -205,6 +233,7 @@ def apply_settings_to_env(settings: dict[str, Any]) -> dict[str, Any]:
     merged.update({k: v for k, v in settings.items() if k in DEFAULT_SETTINGS})
     profile = _normalize_profile(merged.get("runtime_profile"))
     merged["runtime_profile"] = profile
+    merged["local_runtime_backend"] = _normalize_local_runtime_backend(merged.get("local_runtime_backend"))
 
     env_defaults = PROFILE_PRESETS[profile].get("env_defaults", {})
     for key, value in env_defaults.items():
@@ -217,7 +246,11 @@ def apply_settings_to_env(settings: dict[str, Any]) -> dict[str, Any]:
     os.environ["GUPPY_ENABLE_DAEMON"] = "1" if merged.get("enable_daemon") else "0"
     os.environ["GUPPY_ENABLE_VOICE"] = "1" if merged.get("enable_voice") else "0"
     os.environ["GUPPY_WAKE_WORD_DEFAULT"] = "1" if merged.get("wake_word_default") else "0"
-    os.environ["GUPPY_LOCAL_RUNTIME_BACKEND"] = str(merged.get("local_runtime_backend", "ollama") or "ollama").strip().lower()
+    for legacy_key in ("OLLAMA_MODEL", "OLLAMA_FAST_MODEL", "OLLAMA_CODE_MODEL"):
+        os.environ.pop(legacy_key, None)
+    os.environ["GUPPY_LOCAL_RUNTIME_BACKEND"] = _normalize_local_runtime_backend(
+        str(merged.get("local_runtime_backend", "auto") or "auto")
+    )
     os.environ["GUPPY_LEMONADE_BASE_URL"] = str(
         merged.get("lemonade_base_url", "http://localhost:13305/api/v1") or "http://localhost:13305/api/v1"
     ).strip()
@@ -239,13 +272,10 @@ def apply_settings_to_env(settings: dict[str, Any]) -> dict[str, Any]:
     os.environ["GUPPY_SUB_MODEL_A"] = sub_model_a
     os.environ["GUPPY_SUB_MODEL_B"] = sub_model_b
     if main_model:
-        os.environ["OLLAMA_MODEL"] = main_model
         os.environ["GUPPY_LOCAL_COMPLEX_MODEL"] = main_model
     if sub_model_a:
-        os.environ["OLLAMA_FAST_MODEL"] = sub_model_a
         os.environ["GUPPY_LOCAL_FAST_MODEL"] = sub_model_a
     if sub_model_b:
-        os.environ["OLLAMA_CODE_MODEL"] = sub_model_b
         os.environ["GUPPY_LOCAL_CODE_MODEL"] = sub_model_b
     return merged
 
@@ -265,12 +295,15 @@ def recommend_runtime_profile() -> dict[str, Any]:
         except Exception:
             pass
 
-    ollama_ready = False
+    local_runtime_ready = False
+    local_runtime_backend = "auto"
     try:
-        with socket.create_connection(("127.0.0.1", 11434), timeout=0.4):
-            ollama_ready = True
-    except OSError:
-        ollama_ready = False
+        from src.guppy.inference.local_client import active_backend, probe_backends
+
+        local_runtime_backend = active_backend()
+        local_runtime_ready = bool(probe_backends(timeout=0.4).get(local_runtime_backend, False))
+    except Exception:
+        local_runtime_ready = False
 
     profile = "standard"
     if (total_ram_gb and total_ram_gb < 16.0) or (available_ram_gb and available_ram_gb < 4.0):
@@ -279,18 +312,18 @@ def recommend_runtime_profile() -> dict[str, Any]:
     elif cpu_percent >= 65.0:
         profile = "light"
         reasons.append("Current CPU load is already elevated, so lighter defaults are safer.")
-    elif total_ram_gb >= 32.0 and available_ram_gb >= 12.0 and cpu_percent < 45.0 and ollama_ready:
+    elif total_ram_gb >= 32.0 and available_ram_gb >= 12.0 and cpu_percent < 45.0 and local_runtime_ready:
         profile = "power"
         reasons.append("The machine has enough memory headroom for heavier local and multi-surface workflows.")
     else:
         reasons.append("Balanced defaults fit the current machine state better than minimal or power-user presets.")
 
-    if not ollama_ready:
-        reasons.append("Ollama is not currently reachable, so cloud-first defaults are safer.")
+    if not local_runtime_ready:
+        reasons.append("No local llama.cpp runtime is currently reachable, so balanced defaults are safer.")
         if profile == "power":
             profile = "standard"
     else:
-        reasons.append("Ollama is available for local fallback or teaching workflows.")
+        reasons.append(f"Local runtime {local_runtime_backend} is available for local workflows.")
 
     if not reasons:
         reasons.append("No strong hardware signal detected; standard is the safest baseline.")
@@ -300,7 +333,9 @@ def recommend_runtime_profile() -> dict[str, Any]:
         "cpu_percent": round(cpu_percent, 1),
         "total_ram_gb": total_ram_gb,
         "available_ram_gb": available_ram_gb,
-        "ollama_ready": ollama_ready,
+        "local_runtime_backend": local_runtime_backend,
+        "local_runtime_ready": local_runtime_ready,
+        "ollama_ready": local_runtime_ready,
         "reasons": reasons,
     }
 

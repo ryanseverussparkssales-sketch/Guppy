@@ -38,7 +38,7 @@ _FALLBACK_RUNTIME_SETTINGS: dict[str, Any] = {
     "enable_voice": True,
     "wake_word_default": False,
     "default_mode": "auto",
-    "local_runtime_backend": "ollama",
+    "local_runtime_backend": "auto",
     "lemonade_base_url": "http://localhost:13305/api/v1",
     "lmstudio_base_url": "http://127.0.0.1:1234/v1",
     "local_harness_base_url": "http://127.0.0.1:8001",
@@ -181,8 +181,8 @@ def recommend_runtime_profile() -> dict[str, Any]:
 def configured_local_runtime_backend(settings: dict[str, Any] | None = None) -> str:
     payload = settings if isinstance(settings, dict) else load_runtime_settings()
     backend = str(
-        payload.get("local_runtime_backend", os.environ.get("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama"))
-    ).strip().lower() or "ollama"
+        payload.get("local_runtime_backend", os.environ.get("GUPPY_LOCAL_RUNTIME_BACKEND", "auto"))
+    ).strip().lower() or "auto"
     return backend.upper()
 
 

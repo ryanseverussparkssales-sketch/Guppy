@@ -440,12 +440,36 @@ _require_repair_token = _auth_request_support.require_repair_token
 
 from src.guppy.api.routes_surface import _background_loop as _surface_background_loop
 
+
+def _start_codespace_triage_watchdog() -> None:
+    from src.guppy.codespace.codespace_triage import start_watchdog
+
+    start_watchdog()
+
+
+def _start_screen_monitor_service() -> None:
+    from src.guppy.api.routes_screen_monitor import start_monitor
+
+    start_monitor()
+
+
+def _start_drop_observer_service() -> None:
+    from src.guppy.api.routes_drop import start_drop_observer
+
+    start_drop_observer()
+
+
 lifespan = build_lifespan(
     module_owner=_module_owner,
     validate_environment=validate_environment,
     ensure_instance_scaffold=_ensure_m2_instance_scaffold,
     startup_host=services_host.startup_host,
     shutdown_host=services_host.shutdown_host,
+    startup_callbacks=[
+        _start_codespace_triage_watchdog,
+        _start_screen_monitor_service,
+        _start_drop_observer_service,
+    ],
     background_coroutines=[_surface_background_loop],
 )
 
@@ -525,9 +549,6 @@ app.include_router(build_tier3_router(_server_context))             # /api/tier3
 from src.guppy.api.routes_booklet import build_booklet_router
 app.include_router(build_booklet_router(_server_context))           # /api/booklet/*
 
-from src.guppy.api.routes_library import build_library_router
-app.include_router(build_library_router(_server_context))           # /api/library/*
-
 from src.guppy.api.routes_files import build_files_router
 app.include_router(build_files_router(_server_context))             # /api/files/*, /api/system/*, /api/clipboard
 
@@ -545,9 +566,6 @@ app.include_router(build_workspace_data_router(_server_context))    # /api/works
 
 from src.guppy.api.routes_codespace import build_codespace_router
 app.include_router(build_codespace_router(_server_context))         # /api/codespace/*
-
-from src.guppy.api.routes_screen_monitor import build_screen_monitor_router
-app.include_router(build_screen_monitor_router(_server_context))    # /api/screen/*
 
 from src.guppy.api.routes_voip import build_voip_router
 app.include_router(build_voip_router(_server_context))              # /api/voip/*
@@ -576,32 +594,8 @@ app.include_router(build_desktop_router(_server_context))           # /api/deskt
 from src.guppy.api.routes_control import build_control_router
 app.include_router(build_control_router(_server_context), prefix="/api/control")  # /api/control/*
 
-from src.guppy.api.routes_model_roles import build_model_roles_router
-_model_roles_router, _control_settings_router = build_model_roles_router(_server_context)
-app.include_router(_model_roles_router)           # /api/model-roles
-app.include_router(_control_settings_router)       # /api/control/operator-settings
-
-from src.guppy.api.services_model_manager import build_model_health_router
-app.include_router(build_model_health_router(_server_context))  # /api/model-health
-
-from src.guppy.api.routes_conversations import build_conversations_router
-app.include_router(build_conversations_router(_server_context))  # /api/conversations
-
-from src.guppy.api.routes_workspace import build_workspace_router
-app.include_router(build_workspace_router(_server_context))  # /api/workspace
-
-# Start background services
-try:
-    from src.guppy.codespace.codespace_triage import start_watchdog as _start_watchdog
-    _start_watchdog()
-except Exception as _triage_exc:
-    logger.warning("Triage watchdog failed to start: %s", _triage_exc)
-
-try:
-    from src.guppy.api.routes_screen_monitor import start_monitor as _start_screen_monitor
-    _start_screen_monitor()
-except Exception as _screen_exc:
-    logger.warning("Screen monitor failed to start: %s", _screen_exc)
+from src.guppy.api.tranche_router_registry import register_tranche_routers
+register_tranche_routers(app, _server_context)
 
 # Serve static web UI files
 try:

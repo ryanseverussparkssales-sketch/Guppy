@@ -82,7 +82,7 @@ _WORKFLOWS: tuple[WorkflowSpec, ...] = (
         category="workflow_loop",
         commands=(
             _command("python tools/verify_logging_health.py --emit-probe --require-fresh-core"),
-            _command("python tools/verify_ollama_runtime.py --prompt ok"),
+            _command("python tools/verify_provider_runtime.py"),
         ),
         next_step="If runtime health still drifts, follow with challenger verification and review recent operator logs.",
         docs_hint="docs/TROUBLESHOOTING.md",
@@ -119,7 +119,7 @@ _WORKFLOWS: tuple[WorkflowSpec, ...] = (
         summary="Refresh local runtime readiness, challenger availability, and logging-health evidence.",
         category="windows_ops",
         commands=(
-            _command(".venv\\Scripts\\python.exe tools/verify_ollama_runtime.py --prompt ok"),
+            _command(".venv\\Scripts\\python.exe tools/verify_provider_runtime.py"),
             _command(".venv\\Scripts\\python.exe tools/verify_runtime_challengers.py"),
             _command(".venv\\Scripts\\python.exe tools/verify_logging_health.py --emit-probe --require-fresh-core"),
         ),
@@ -137,7 +137,7 @@ _WORKFLOWS: tuple[WorkflowSpec, ...] = (
             _command(".venv\\Scripts\\python.exe -m pip install -r requirements.txt"),
             _command(".venv\\Scripts\\python.exe -m pip install -r requirements-optional.txt"),
             _command(".venv\\Scripts\\python.exe tools/validate_build_checks.py"),
-            _command(".venv\\Scripts\\python.exe tools/verify_ollama_runtime.py --prompt ok"),
+            _command(".venv\\Scripts\\python.exe tools/verify_provider_runtime.py"),
             _command(".venv\\Scripts\\python.exe tools/verify_runtime_challengers.py"),
         ),
         next_step="Rerun verify after major runtime changes, then package if the build lane is needed.",

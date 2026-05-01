@@ -294,14 +294,29 @@ def validate_mode_ready(owner: Any, mode: str) -> tuple[bool, str]:
     model = required_local_model_for_mode(mode)
     if not model:
         return True, ""
+    backend = "local runtime"
     try:
-        from guppy_core.network_utils import check_ollama
-        ok, err = check_ollama(model)
-        if ok:
+        import urllib.request
+
+        from src.guppy.inference.local_client import (
+            _BACKENDS,
+            _DEFAULT_BACKEND,
+            _LLAMACPP_MODEL_ROUTE,
+            _resolve_url,
+        )
+
+        resolved_backend = _LLAMACPP_MODEL_ROUTE.get(model.strip().lower(), "")
+        if resolved_backend not in _BACKENDS:
+            resolved_backend = _DEFAULT_BACKEND
+        backend = resolved_backend
+        cfg = _BACKENDS[resolved_backend]
+        url = f"{_resolve_url(resolved_backend)}{cfg['tags_path']}"
+        request = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+        with urllib.request.urlopen(request, timeout=1.5):
             return True, ""
-        return False, f"{mode.upper()} mode requires local model '{model}'. {err.splitlines()[0]}"
-    except Exception:
-        return False, f"{mode.upper()} mode requires local model '{model}', but readiness could not be verified."
+    except Exception as exc:
+        detail = str(exc).splitlines()[0]
+        return False, f"{mode.upper()} mode requires local model '{model}', but {backend} is not reachable. {detail}"
 
 
 def finish_request_ui(owner: Any) -> None:

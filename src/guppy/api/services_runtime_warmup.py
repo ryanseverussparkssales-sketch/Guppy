@@ -26,27 +26,28 @@ from typing import Any
 
 
 def warm_ollama_chat_lane(owner: Any, model: str, keep_alive: str = "20m") -> tuple[bool, str]:
+    """Compatibility wrapper for old binding name; warms the active local runtime."""
+    del keep_alive
     normalized_model = str(model or "").strip()
     if not normalized_model:
-        return False, "no Ollama model configured for warmup"
-    payload = {
-        "model": normalized_model,
-        "prompt": "warmup",
-        "stream": False,
-        "keep_alive": keep_alive,
-        "options": {"num_predict": 1},
-    }
-    req = urllib.request.Request(
-        "http://127.0.0.1:11434/api/generate",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=owner._LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS) as resp:
-        data = json.loads(resp.read())
-    if isinstance(data, dict) and data.get("error"):
-        return False, str(data.get("error"))
-    return True, f"{normalized_model} warm"
+        return False, "no local model configured for warmup"
+    try:
+        from src.guppy.inference.local_client import local_chat
+
+        backend = owner._selected_local_runtime_backend()
+        result = local_chat(
+            normalized_model,
+            [{"role": "user", "content": "ok"}],
+            timeout=int(owner._LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS),
+            num_predict=1,
+            max_retries=0,
+            backend=backend,
+        )
+    except Exception as exc:
+        return False, f"local runtime warmup error: {exc}"
+    if result is None:
+        return False, "local runtime warmup returned no response"
+    return True, f"{normalized_model} warm via {result.get('metadata', {}).get('backend', 'local')}"
 
 
 def warm_lmstudio_chat_lane(owner: Any, model: str) -> tuple[bool, str]:

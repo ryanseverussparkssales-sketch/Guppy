@@ -125,18 +125,6 @@ def _build_startup_readiness_payload() -> dict:
     else:
         auth_detail = "missing one or more strict auth secrets"
 
-    ollama_state = "MISSING"
-    ollama_detail = "Guppy core unavailable"
-    ollama_model = (os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()
-    if GUPPY_CORE_AVAILABLE:
-        try:
-            ok, err = core.check_ollama(ollama_model)
-            ollama_state = "READY" if ok else "MISSING"
-            ollama_detail = "model reachable" if ok else err
-        except Exception as e:
-            ollama_state = "MISSING"
-            ollama_detail = str(e)
-
     voice_state = "MISSING"
     voice_detail = "voice module unavailable"
     voice_status = {
@@ -165,14 +153,15 @@ def _build_startup_readiness_payload() -> dict:
             "state": local_runtime_state,
             "detail": f"{detail} | {chat_detail}",
         }
-    states = [auth_state, ollama_state, voice_state, daemon_state, memory_state, local_runtime_state]
+    local_model = str(local_runtime.get("chat_model") or local_runtime.get("model") or "").strip()
+    states = [auth_state, voice_state, daemon_state, memory_state, local_runtime_state]
     overall = "READY" if all(s == "READY" for s in states) else ("PARTIAL" if any(s in {"READY", "PARTIAL"} for s in states) else "MISSING")
 
     return {
         "overall": overall,
         "checks": {
             "auth": {"state": auth_state, "detail": auth_detail, "dev_mode": bool(DEV_MODE), "jwt_ready": jwt_ready, "turnstile_ready": turnstile_ready},
-            "ollama": {"state": ollama_state, "detail": ollama_detail, "model": ollama_model},
+            "ollama": {"state": local_runtime_state, "detail": "legacy alias; see local_runtime", "model": local_model},
             "local_runtime": local_runtime,
             "voice": {"state": voice_state, "detail": voice_detail, **voice_status},
             "daemon": {"state": daemon_state, "detail": daemon_detail},
@@ -205,7 +194,7 @@ def _startup_readiness_cached_or_unknown() -> dict:
         "overall": "UNKNOWN",
         "checks": {
             "auth": {"state": "UNKNOWN", "detail": "startup checks not run yet"},
-            "ollama": {"state": "UNKNOWN", "detail": "startup checks not run yet", "model": (os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()},
+            "ollama": {"state": "UNKNOWN", "detail": "legacy alias; see local_runtime", "model": ""},
             "local_runtime": {
                 "state": "UNKNOWN",
                 "detail": "startup checks not run yet",

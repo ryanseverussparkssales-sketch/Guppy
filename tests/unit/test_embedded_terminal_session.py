@@ -7,7 +7,7 @@ from src.guppy.launcher_application.terminal_recipes import build_tracked_termin
 def test_embedded_terminal_session_handles_recipe_markers_without_shell_process() -> None:
     session = EmbeddedTerminalSession(root=Path("C:/Users/Ryan/Guppy"))
     plan = build_tracked_terminal_recipe(
-        ["python tools/verify_ollama_runtime.py --prompt ok", "python tools/verify_runtime_challengers.py"],
+        ["python tools/verify_local_model_runtime.py --prompt ok", "python tools/verify_runtime_challengers.py"],
         label="WINDOWS VERIFY",
         recipe_context={"kind": "windows_ops", "action": "verify_runtime"},
         recipe_id="recipe-verify",

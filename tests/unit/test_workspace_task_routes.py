@@ -57,7 +57,7 @@ def test_ai_workspace_task_path_wins_without_crm_status(tmp_path: Path, monkeypa
     assert detail.status_code == 200
     detail_payload = detail.json()
     assert detail_payload["state"] == "complete"
-    assert detail_payload["result"] == "Baseline workspace task run complete."
+    assert detail_payload["result"] == "Workspace task run complete."
     assert [step["tool_name"] for step in detail_payload["steps"]] == [
         "task_plan",
         "workspace_summary",

@@ -80,7 +80,7 @@ def gate_runtime_smoke(py: str, timeout_s: int) -> dict:
 
 
 def gate_ollama(py: str, timeout_s: int, prompt: str) -> dict:
-    args = [py, "tools/verify_ollama_runtime.py", "--prompt", prompt]
+    args = [py, "tools/verify_local_model_runtime.py", "--prompt", prompt]
     try:
         res = run_cmd(args, timeout_s=timeout_s)
     except Exception as exc:
@@ -99,7 +99,7 @@ def gate_ollama(py: str, timeout_s: int, prompt: str) -> dict:
         "mandatory": True,
         "command": " ".join(args),
         "returncode": res.returncode,
-        "summary": "Ollama fleet verifier READY" if passed else "Ollama fleet verifier NOT READY",
+        "summary": "Local model fleet verifier READY" if passed else "Local model fleet verifier NOT READY",
         "stdout_tail": res.stdout[-2000:],
         "stderr_tail": res.stderr[-2000:],
         "snapshot": "runtime/model_runtime_snapshot.json",

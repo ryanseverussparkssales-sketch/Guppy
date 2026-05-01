@@ -73,7 +73,7 @@ def _build_validation_scope(*, smoke_enabled: bool) -> dict[str, object]:
         "real_device_coverage_included": False,
         "follow_up": [
             "Run real-device voice validation using docs/generated/VOICE_VALIDATION_MATRIX.md.",
-            "Run local-runtime validation using python tools/verify_ollama_runtime.py --prompt ok on the target machine.",
+            "Run local-runtime validation using python tools/verify_local_model_runtime.py --prompt ok on the target machine.",
             "Use --smoke only when provider API keys are intentionally configured for lightweight live validation.",
         ],
     }

@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 import pytest
 
-
 TRANCHE_IMPORT_MODULES = (
     "src.guppy.api.services_realtime",
     "src.guppy.api.routes_model_roles",
@@ -16,6 +15,7 @@ TRANCHE_IMPORT_MODULES = (
     "src.guppy.api.routes_library",
     "src.guppy.api.routes_screen_monitor",
     "src.guppy.api.services_model_manager",
+    "src.guppy.api.tranche_router_registry",
 )
 
 TRANCHE_ROUTE_SOURCES = (
@@ -145,29 +145,34 @@ def test_tranche_route_decorators_expose_expected_contracts() -> None:
 def test_tranche_routers_expose_expected_route_contracts(tmp_path, monkeypatch) -> None:
     pytest.importorskip("fastapi")
 
-    from src.guppy.api import routes_conversations
-    from src.guppy.api import routes_library
-    from src.guppy.api import routes_model_roles
-    from src.guppy.api import routes_screen_monitor
-    from src.guppy.api import routes_surface
-    from src.guppy.api import routes_workspace
-    from src.guppy.api import services_model_manager
+    from src.guppy.api import routes_conversations, routes_surface, routes_workspace
+    from src.guppy.api.tranche_router_registry import build_tranche_routers
 
     monkeypatch.setattr(routes_conversations, "_DB_PATH", str(tmp_path / "conversations.db"))
     monkeypatch.setattr(routes_workspace, "_DB_PATH", str(tmp_path / "workspace.db"))
     monkeypatch.setattr(routes_surface, "_DB_PATH", str(tmp_path / "model_roles.db"))
 
-    model_roles_router, operator_settings_router = routes_model_roles.build_model_roles_router(_ctx())
-    routers = [
-        model_roles_router,
-        operator_settings_router,
-        routes_conversations.build_conversations_router(_ctx()),
-        routes_workspace.build_workspace_router(_ctx()),
-        routes_library.build_library_router(_ctx()),
-        routes_screen_monitor.build_screen_monitor_router(_ctx()),
-        services_model_manager.build_model_health_router(_ctx()),
-    ]
+    routers = build_tranche_routers(_ctx())
     actual = set().union(*(_route_contract(router) for router in routers))
+
+    assert EXPECTED_TRANCHE_ROUTES <= actual
+
+
+def test_tranche_registry_mounts_expected_routes_on_app(tmp_path, monkeypatch) -> None:
+    pytest.importorskip("fastapi")
+
+    from fastapi import FastAPI
+
+    from src.guppy.api import routes_conversations, routes_surface, routes_workspace
+    from src.guppy.api.tranche_router_registry import register_tranche_routers
+
+    monkeypatch.setattr(routes_conversations, "_DB_PATH", str(tmp_path / "conversations.db"))
+    monkeypatch.setattr(routes_workspace, "_DB_PATH", str(tmp_path / "workspace.db"))
+    monkeypatch.setattr(routes_surface, "_DB_PATH", str(tmp_path / "model_roles.db"))
+
+    app = FastAPI()
+    register_tranche_routers(app, _ctx())
+    actual = _route_contract(app)
 
     assert EXPECTED_TRANCHE_ROUTES <= actual
 
@@ -181,7 +186,13 @@ def test_server_runtime_registers_tranche_router_builders() -> None:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
 
-    expected_builders = {
+    assert "register_tranche_routers" in call_names
+
+
+def test_tranche_registry_distributes_all_surface_builders() -> None:
+    source = Path("src/guppy/api/tranche_router_registry.py").read_text(encoding="utf-8")
+
+    expected_builder_names = {
         "build_model_roles_router",
         "build_model_health_router",
         "build_conversations_router",
@@ -190,4 +201,4 @@ def test_server_runtime_registers_tranche_router_builders() -> None:
         "build_screen_monitor_router",
     }
 
-    assert expected_builders <= call_names
+    assert expected_builder_names <= set(source.split())

@@ -1872,7 +1872,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         self.assertIn("Next step:", view._workflow_next_step_lbl.text())
         self.assertIn("Outcome: Loaded the first command", view._workflow_outcome_lbl.text())
         self.assertIn("Evidence:", view._workflow_evidence_lbl.text())
-        self.assertIn("python tools/verify_ollama_runtime.py --prompt ok", view._terminal_output.toPlainText())
+        self.assertIn("python tools/verify_local_model_runtime.py --prompt ok", view._terminal_output.toPlainText())
 
     def test_launcher_windows_ops_recipe_exposes_verify_and_update_commands(self):
         verify_label, verify_commands = launcher_window.LauncherWindow._windows_ops_recipe("verify_runtime")
@@ -1881,7 +1881,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         dry_run_label, dry_run_commands = launcher_window.LauncherWindow._windows_ops_recipe("release_dry_run")
 
         self.assertEqual(verify_label, "WINDOWS VERIFY")
-        self.assertTrue(any("verify_ollama_runtime.py --prompt ok" in cmd for cmd in verify_commands))
+        self.assertTrue(any("verify_local_model_runtime.py --prompt ok" in cmd for cmd in verify_commands))
         self.assertEqual(update_label, "WINDOWS UPDATE")
         self.assertTrue(any("pip install -r requirements.txt" in cmd for cmd in update_commands))
         self.assertTrue(any("validate_build_checks.py" in cmd for cmd in update_commands))
@@ -2050,7 +2050,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
         view.terminal_recipe_finished.connect(emitted.append)
 
         recipe_id, _wrapped = view._build_tracked_recipe_commands(
-            ["python tools/verify_ollama_runtime.py --prompt ok", "python tools/verify_runtime_challengers.py"],
+            ["python tools/verify_local_model_runtime.py --prompt ok", "python tools/verify_runtime_challengers.py"],
             label="WINDOWS VERIFY",
             recipe_context={"kind": "windows_ops", "action": "verify_runtime", "changes": "Refreshes readiness evidence."},
         )
@@ -2142,7 +2142,7 @@ class LauncherInteractionsSmokeTests(unittest.TestCase):
                     "label": "WINDOWS VERIFY",
                     "ok": True,
                     "id": "recipe-abc123",
-                    "commands": ["python tools/verify_ollama_runtime.py --prompt ok"],
+                    "commands": ["python tools/verify_local_model_runtime.py --prompt ok"],
                     "steps_completed": 1,
                     "steps_total": 1,
                     "failed_steps": [],

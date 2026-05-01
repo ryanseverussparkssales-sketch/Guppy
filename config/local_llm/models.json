@@ -3,19 +3,19 @@
   "last_updated": "2026-04-16",
   "owner": "M2 Local LLM Track",
   "runtime": {
-    "baseline_backend": "ollama",
+    "baseline_backend": "llamacpp-hermes3",
     "runtime_challengers": [
       {
         "id": "llama.cpp",
         "status": "planned",
         "priority": "high",
-        "notes": "Primary direct-GGUF challenger for AMD local control and benchmark fidelity. Keep as a challenger runtime only until product-fit evidence beats the Ollama baseline."
+        "notes": "Primary direct-GGUF runtime for AMD local control and benchmark fidelity."
       },
       {
         "id": "lemonade",
         "status": "planned",
         "priority": "high",
-        "notes": "Platform-scale local runtime candidate; evaluate as future substrate, not a drop-in swap. Keep in challenger/runtime testing only until stability and answer quality beat the Ollama baseline."
+        "notes": "Platform-scale local runtime candidate; evaluate as future substrate, not the default desktop path."
       },
       {
         "id": "vllm-rocm",

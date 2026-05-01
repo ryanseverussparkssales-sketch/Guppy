@@ -70,7 +70,7 @@ _DEFAULT_SECTIONS: list[dict] = [
             "Role: Technical founder and builder\n"
             "Environment: Windows 11, PowerShell, VS Code, Chrome\n"
             "Stack: Python (FastAPI), React + TypeScript, Tailwind CSS, Vite\n"
-            "Local AI: Ollama at localhost:11434\n\n"
+            "Local AI: llama.cpp OpenAI-compatible servers on the configured model ports\n\n"
             "Preferences:\n"
             "- Concise answers; skip preamble\n"
             "- Code over explanation when possible\n"
@@ -99,7 +99,7 @@ _DEFAULT_SECTIONS: list[dict] = [
         "content": (
             "## Guppy (Active)\n"
             "Local AI assistant platform with web UI and desktop companion.\n"
-            "Stack: React + TypeScript + Vite (port 3000), FastAPI (port 8081), Ollama (port 11434)\n"
+            "Stack: React + TypeScript + Vite (port 3000), FastAPI (port 8081), llama.cpp local model servers\n"
             "Key paths: web/src/ (frontend), src/guppy/api/ (backend)\n\n"
             "## Digital Seed Vault (Active)\n"
             "Personal media archiving and metadata extraction.\n"

@@ -22,15 +22,21 @@ _local_runtime_warm_refresh_inflight = False
 
 
 def _selected_local_runtime_backend() -> str:
-    backend = str(os.environ.get("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama") or "ollama").strip().lower()
-    return backend if backend in {"ollama", "lemonade"} else "ollama"
+    try:
+        from src.guppy.inference.local_client import active_backend
+
+        return active_backend()
+    except Exception:
+        return "llamacpp-hermes3"
 
 
 def _local_runtime_base_url(backend: str) -> str:
-    normalized = (backend or "ollama").strip().lower()
-    if normalized == "lemonade":
-        return str(os.environ.get("GUPPY_LEMONADE_BASE_URL", _DEFAULT_LEMONADE_BASE_URL) or _DEFAULT_LEMONADE_BASE_URL).strip()
-    return "http://127.0.0.1:11434"
+    try:
+        from src.guppy.inference.local_client import _resolve_url
+
+        return _resolve_url((backend or "llamacpp-hermes3").strip().lower())
+    except Exception:
+        return "http://127.0.0.1:8087"
 
 
 def _resolve_local_runtime_model(
@@ -76,27 +82,26 @@ def _local_runtime_role_models(backend: str) -> dict[str, str]:
 
 
 def _warm_ollama_chat_lane(model: str, keep_alive: str = "20m") -> tuple[bool, str]:
+    del keep_alive
     normalized_model = str(model or "").strip()
     if not normalized_model:
-        return False, "no Ollama model configured for warmup"
-    payload = {
-        "model": normalized_model,
-        "prompt": "warmup",
-        "stream": False,
-        "keep_alive": keep_alive,
-        "options": {"num_predict": 1},
-    }
-    req = urllib.request.Request(
-        "http://127.0.0.1:11434/api/generate",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=_LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS) as resp:
-        data = json.loads(resp.read())
-    if isinstance(data, dict) and data.get("error"):
-        return False, str(data.get("error"))
-    return True, f"{normalized_model} warm"
+        return False, "no local model configured for warmup"
+    try:
+        from src.guppy.inference.local_client import local_chat
+
+        result = local_chat(
+            normalized_model,
+            [{"role": "user", "content": "ok"}],
+            timeout=int(_LOCAL_RUNTIME_WARM_TIMEOUT_SECONDS),
+            num_predict=1,
+            max_retries=0,
+            backend=_selected_local_runtime_backend(),
+        )
+    except Exception as exc:
+        return False, f"local runtime warmup error: {exc}"
+    if result is None:
+        return False, "local runtime warmup returned no response"
+    return True, f"{normalized_model} warm via {result.get('metadata', {}).get('backend', 'local')}"
 
 
 def _current_local_runtime_chat_model(backend: str) -> str:

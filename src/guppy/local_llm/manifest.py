@@ -34,7 +34,7 @@ def get_challenger_model_entries(manifest: dict[str, Any]) -> list[dict[str, Any
 
 def get_runtime_backend_baseline(manifest: dict[str, Any]) -> str:
     runtime = manifest.get("runtime") or {}
-    return str(runtime.get("baseline_backend") or "ollama").strip() or "ollama"
+    return str(runtime.get("baseline_backend") or "llamacpp-hermes3").strip() or "llamacpp-hermes3"
 
 
 def get_memory_backend_baseline(manifest: dict[str, Any]) -> str:

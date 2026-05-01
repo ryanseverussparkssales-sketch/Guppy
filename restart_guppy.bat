@@ -6,7 +6,7 @@ setlocal
 cd /d "%~dp0"
 
 echo [restart] Killing old Guppy server processes...
-powershell -NoProfile -Command "Get-WmiObject Win32_Process | Where-Object {$_.CommandLine -like '*guppy_api*'} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { ($_.Name -like 'python*' -or $_.Name -eq 'uvicorn.exe') -and ($_.CommandLine -match 'guppy_api\.py' -or $_.CommandLine -match 'src\.guppy\.api\.server') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
 timeout /t 2 /nobreak >nul
 
 set PYTHON=.venv\Scripts\python.exe

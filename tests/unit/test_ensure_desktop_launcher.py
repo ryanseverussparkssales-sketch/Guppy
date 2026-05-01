@@ -59,4 +59,7 @@ def test_ensure_desktop_launcher_prefers_packaged_executable_when_present(tmp_pa
         packaged_exe.unlink(missing_ok=True)
         if created_packaged_dir:
             packaged_exe.parent.rmdir()
-            packaged_exe.parent.parent.rmdir()
+            try:
+                packaged_exe.parent.parent.rmdir()
+            except OSError:
+                pass

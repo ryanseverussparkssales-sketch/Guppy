@@ -15,7 +15,7 @@ import sqlite3
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.guppy.api.server_context import ServerContext
@@ -79,6 +79,28 @@ def _create_crm_task(body: TaskCreate) -> dict[str, Any]:
     return {"ok": True, "message": result}
 
 
+def list_crm_task_records(status: str = "pending") -> list[dict[str, Any]]:
+    return _tasks_json(status=status)
+
+
+def create_crm_task_record(body: TaskCreate) -> dict[str, Any]:
+    return _create_crm_task(body)
+
+
+def complete_crm_task_record(task_id: int) -> dict[str, Any]:
+    from src.guppy.memory import memory_store
+
+    result = memory_store.complete_task_record(MEMORY_DB_PATH, task_id)
+    return {"ok": True, "message": result}
+
+
+def delete_crm_task_record(task_id: int) -> dict[str, Any]:
+    with _mem_conn() as conn:
+        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        conn.commit()
+    return {"ok": True}
+
+
 # ── Router ─────────────────────────────────────────────────────────────────────
 
 def build_workspace_data_router(ctx: ServerContext) -> APIRouter:
@@ -127,62 +149,13 @@ def build_workspace_data_router(ctx: ServerContext) -> APIRouter:
 
     # ── Tasks ──────────────────────────────────────────────────────────────────
 
-    @router.get("/tasks")
-    def list_tasks(
-        status: str | None = None,
-        state: str | None = None,
-        _uid: str = Depends(ctx.require_rate_limit),
-    ):
-        try:
-            if status is not None and state is None:
-                return _tasks_json(status=status)
-
-            from src.guppy.api.routes_workspace import list_workspace_task_records
-
-            return [item.model_dump() for item in list_workspace_task_records(state=state)]
-        except Exception as e:
-            if isinstance(e, HTTPException):
-                raise
-            raise HTTPException(500, f"Could not read tasks: {e}")
-
-    @router.post("/tasks")
-    def add_task(
-        body: dict[str, Any],
-        response: Response,
-        _uid: str = Depends(ctx.require_rate_limit),
-    ):
-        try:
-            if "task_description" in body:
-                from src.guppy.api.routes_workspace import (
-                    CreateTaskRequest,
-                    create_workspace_task_record,
-                )
-
-                task = create_workspace_task_record(
-                    CreateTaskRequest(
-                        task_description=str(body.get("task_description") or ""),
-                        source=str(body.get("source") or "workspace"),
-                    )
-                )
-                response.status_code = 201
-                return task.model_dump()
-
-            if "task" not in body:
-                raise HTTPException(422, "task_description or task is required")
-
-            return _create_crm_task(TaskCreate(**body))
-        except Exception as e:
-            if isinstance(e, HTTPException):
-                raise
-            raise HTTPException(500, f"Could not add task: {e}")
-
     @router.get("/crm/tasks")
     def list_crm_tasks(
         status: str = "pending",
         _uid: str = Depends(ctx.require_rate_limit),
     ):
         try:
-            return _tasks_json(status=status)
+            return list_crm_task_records(status=status)
         except Exception as e:
             raise HTTPException(500, f"Could not read tasks: {e}")
 
@@ -192,26 +165,21 @@ def build_workspace_data_router(ctx: ServerContext) -> APIRouter:
         _uid: str = Depends(ctx.require_rate_limit),
     ):
         try:
-            return _create_crm_task(body)
+            return create_crm_task_record(body)
         except Exception as e:
             raise HTTPException(500, f"Could not add task: {e}")
 
     @router.put("/tasks/{task_id}/complete")
     def complete_task(task_id: int, _uid: str = Depends(ctx.require_rate_limit)):
         try:
-            from src.guppy.memory import memory_store
-            result = memory_store.complete_task_record(MEMORY_DB_PATH, task_id)
-            return {"ok": True, "message": result}
+            return complete_crm_task_record(task_id)
         except Exception as e:
             raise HTTPException(500, f"Could not complete task: {e}")
 
     @router.delete("/tasks/{task_id}")
     def delete_task(task_id: int, _uid: str = Depends(ctx.require_rate_limit)):
         try:
-            with _mem_conn() as conn:
-                conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-                conn.commit()
-            return {"ok": True}
+            return delete_crm_task_record(task_id)
         except Exception as e:
             raise HTTPException(500, f"Could not delete task: {e}")
 

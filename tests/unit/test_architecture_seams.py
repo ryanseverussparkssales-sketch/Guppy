@@ -44,7 +44,7 @@ class ArchitectureSeamTests(unittest.TestCase):
         )
         self.assertEqual(
             spec.command_strings()[-1],
-            "python tools/verify_ollama_runtime.py --prompt ok",
+            "python tools/verify_provider_runtime.py",
         )
 
     def test_windows_release_dry_run_preserves_review_order(self):

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import json
 import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
 
-from src.guppy.api.services_runtime_local import (
+from src.guppy.api.services_runtime_local import (  # noqa: F401
     build_local_runtime_status,
     call_lemonade_chat,
     call_selected_local_runtime,
@@ -81,21 +80,9 @@ def build_startup_readiness_payload(owner: Any) -> dict:
     else:
         auth_detail = "missing one or more strict auth secrets"
 
-    ollama_state = "SKIPPED" if selected_backend != "ollama" else "MISSING"
-    ollama_detail = (
-        f"Ollama check skipped because {selected_backend} is the selected local runtime"
-        if selected_backend != "ollama"
-        else "Guppy core unavailable"
-    )
-    ollama_model = (owner.os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()
-    if selected_backend == "ollama" and owner.GUPPY_CORE_AVAILABLE:
-        try:
-            ok, err = owner.core.check_ollama(ollama_model)
-            ollama_state = "READY" if ok else "MISSING"
-            ollama_detail = "model reachable" if ok else err
-        except Exception as exc:
-            ollama_state = "MISSING"
-            ollama_detail = str(exc)
+    legacy_local_state = "SKIPPED"
+    legacy_local_detail = "legacy Ollama check retired; local_runtime is the authoritative local runtime check"
+    legacy_local_model = str(local_runtime.get("chat_model", "") or selected_backend)
 
     voice_state = "OPTIONAL"
     voice_detail = "voice features are optional and no voice runtime is configured"
@@ -153,9 +140,9 @@ def build_startup_readiness_payload(owner: Any) -> dict:
                 "turnstile_ready": turnstile_ready,
             },
             "ollama": {
-                "state": ollama_state,
-                "detail": ollama_detail,
-                "model": ollama_model,
+                "state": legacy_local_state,
+                "detail": legacy_local_detail,
+                "model": legacy_local_model,
             },
             "local_runtime": local_runtime,
             "voice": {"state": voice_state, "detail": voice_detail, **voice_status},
@@ -241,7 +228,7 @@ def startup_readiness_cached_or_unknown(owner: Any) -> dict:
             "ollama": {
                 "state": "UNKNOWN",
                 "detail": "startup checks not run yet",
-                "model": (owner.os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip(),
+                "model": owner._current_local_runtime_chat_model(backend),
             },
             "local_runtime": {
                 "state": "UNKNOWN",

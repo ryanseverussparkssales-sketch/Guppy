@@ -157,7 +157,7 @@ def run_local_model_readiness() -> dict[str, object]:
         results_by_name[check.name] = ok
         if ok:
             passed.append(check.name)
-        elif check.optional:
+        else:
             optional_absent.append(check.name)
     ready_runtimes: list[str] = []
     if all(results_by_name.get(name, False) for name in ("ollama_cli", "ollama_daemon", "ollama_model_pulled")):

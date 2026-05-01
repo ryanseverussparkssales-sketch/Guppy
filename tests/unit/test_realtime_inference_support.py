@@ -81,7 +81,7 @@ def test_call_unified_inference_raises_without_router_and_no_key() -> None:
     owner = _build_owner()
     owner.INFERENCE_ROUTER_AVAILABLE = False
 
-    with pytest.raises(RuntimeError, match="Ollama.*LM Studio"):
+    with pytest.raises(RuntimeError, match="llamacpp backend"):
         realtime_inference_support.call_unified_inference(owner, "Hi", "SYSTEM")
 
 

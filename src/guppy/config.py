@@ -35,15 +35,18 @@ class GuppySettings(BaseSettings):
     guppy_dev_mode: bool = Field(default=False, description="Enable dev endpoints and verbose logging.")
     guppy_default_mode: Literal["local", "cloud"] = Field(
         default="local",
-        description="Default inference backend: local (Ollama) or cloud (Anthropic).",
+        description="Default inference backend: local llama.cpp/OpenAI-compatible runtime or cloud Anthropic.",
     )
     guppy_local_runtime_backend: Literal[
-        "ollama", "lmstudio", "lemonade", "vllm",
+        "auto",
         "llamacpp-gemma", "llamacpp-qwen3", "llamacpp-pepe",
-        "local_harness", "auto",
+        "llamacpp-minicpm", "llamacpp-dispatch", "llamacpp-hermes4",
+        "llamacpp-hermes3", "llamacpp-rocinante", "llamacpp-xlam",
+        "llamacpp-chat", "llamacpp-phi4-mini", "local_harness",
+        "ollama", "lmstudio", "lemonade", "vllm",
     ] = Field(
-        default="ollama",
-        description="Local inference backend.",
+        default="auto",
+        description="Local inference backend. Legacy values collapse to the active llama.cpp backend.",
     )
     guppy_runtime_profile: Literal["standard", "power"] = Field(default="standard")
 

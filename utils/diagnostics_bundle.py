@@ -38,7 +38,9 @@ def create_diagnostics_bundle(agent_name: str, runtime_dir: Path | None = None) 
 
     env_subset = {
         "ANTHROPIC_API_KEY": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip()),
-        "OLLAMA_MODEL": os.environ.get("OLLAMA_MODEL", ""),
+        "GUPPY_LOCAL_RUNTIME_BACKEND": os.environ.get("GUPPY_LOCAL_RUNTIME_BACKEND", ""),
+        "GUPPY_MAIN_MODEL": os.environ.get("GUPPY_MAIN_MODEL", ""),
+        "GUPPY_LOCAL_COMPLEX_MODEL": os.environ.get("GUPPY_LOCAL_COMPLEX_MODEL", ""),
         "MERLIN_LOCAL_MODEL": os.environ.get("MERLIN_LOCAL_MODEL", ""),
         "MERLIN_HAIKU_BOOST": os.environ.get("MERLIN_HAIKU_BOOST", ""),
         "GUPPY_SHOW_BACKEND_DETAILS": os.environ.get("GUPPY_SHOW_BACKEND_DETAILS", ""),

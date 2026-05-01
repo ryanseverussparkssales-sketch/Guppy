@@ -88,7 +88,11 @@ def assistant_model_id(mode: str, active_model: str = "") -> str:
     required_local = required_local_model_for_mode(normalized_mode)
     if required_local:
         return required_local
-    return (os.environ.get("OLLAMA_MODEL", "guppy") or "guppy").strip()
+    return (
+        os.environ.get("GUPPY_LOCAL_COMPLEX_MODEL")
+        or os.environ.get("GUPPY_MAIN_MODEL")
+        or "hermes-3-8b-lorablated"
+    ).strip()
 
 
 def derive_topbar_model_context(
@@ -128,14 +132,14 @@ def build_shell_model_loadout_summary(
     backend = (
         str(settings.get("local_runtime_backend", "") or "").strip()
         or str(runtime_backend or "").strip()
-        or str(env.get("GUPPY_LOCAL_RUNTIME_BACKEND", "ollama") or "ollama").strip()
-        or "ollama"
+        or str(env.get("GUPPY_LOCAL_RUNTIME_BACKEND", "auto") or "auto").strip()
+        or "auto"
     )
     main_model = (
         str(settings.get("local_main_model", "") or "").strip()
         or str(env.get("GUPPY_MAIN_MODEL", "") or "").strip()
+        or str(env.get("GUPPY_LOCAL_COMPLEX_MODEL", "") or "").strip()
         or str(active_model or "").strip()
-        or str(env.get("OLLAMA_MODEL", "") or "").strip()
         or "unset"
     )
     sub_a_model = (

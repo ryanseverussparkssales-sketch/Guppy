@@ -152,13 +152,13 @@ def build_windows_ops_snapshot(
         "update": (
             "Update steps: python -m pip install -r requirements.txt | "
             "optional extras: python -m pip install -r requirements-optional.txt | "
-            "postflight: python tools/validate_build_checks.py + python tools/verify_ollama_runtime.py --prompt ok | "
+            "postflight: python tools/validate_build_checks.py + python tools/verify_provider_runtime.py | "
             "daily launcher: python src/guppy/cli/launch.py launcher"
         ),
         "diagnostics": (
             f"Diagnostics: launcher log={launcher_events} | latest bundle={latest_bundle_text} | "
             f"security gate={security['summary']} | packaging audit={packaging['summary']} | "
-            "runtime check: python tools/verify_ollama_runtime.py --prompt ok"
+            "runtime check: python tools/verify_provider_runtime.py"
         ),
         "entry": (
             "Useful entry points: launcher=python src/guppy/cli/launch.py launcher | "
