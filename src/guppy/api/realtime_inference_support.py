@@ -484,6 +484,133 @@ def _build_tool_context(owner: Any) -> str:
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
+# ── Surface-specific tool primers with few-shot examples ──────────────────────
+#
+# Each surface exposes a different tool whitelist and has different use patterns.
+# These primers are injected just before message construction so models know:
+#   1. Exactly which tools exist on this surface
+#   2. Which user phrases should trigger each tool
+#   3. The precise call format with a concrete example
+
+_TOOL_CALL_FORMAT_REMINDER = """
+TOOL CALL FORMAT — use EXACTLY this structure, no extra text before or after:
+<tool_call>{"name": "tool_name", "arguments": {"param": "value"}}</tool_call>
+""".strip()
+
+
+_COMPANION_TOOL_PRIMER = """
+COMPANION SURFACE — AVAILABLE TOOLS:
+
+You have these tools on the Companion surface. Use them proactively when the
+user's request clearly calls for them — don't make them ask twice.
+
+• web_fetch(url, extract?)
+  WHEN: user asks to look something up, fetch a page, check a site, get content
+  from a URL, or research a topic that needs live data.
+  EXAMPLE: <tool_call>{"name": "web_fetch", "arguments": {"url": "https://example.com", "extract": "pricing"}}</tool_call>
+
+• create_reminder(message, delay_minutes?, due_iso?)
+  WHEN: user says "remind me", "don't let me forget", "set a reminder", or
+  gives a task with a time ("do X in 30 minutes", "tell me at 3pm").
+  EXAMPLE: <tool_call>{"name": "create_reminder", "arguments": {"message": "Call dentist", "delay_minutes": 60}}</tool_call>
+
+• memory_write(key, value)
+  WHEN: user says "remember that", "keep track of", "store this", or shares
+  information they'll want you to recall later (preferences, facts, names).
+  EXAMPLE: <tool_call>{"name": "memory_write", "arguments": {"key": "user_pref_coffee", "value": "oat milk no sugar"}}</tool_call>
+
+• memory_recall(key?, query?)
+  WHEN: user asks "do you remember", "what did I tell you about", "recall my",
+  or when their question seems to reference something they've shared before.
+  EXAMPLE: <tool_call>{"name": "memory_recall", "arguments": {"query": "coffee preference"}}</tool_call>
+
+• workspace_task(task, context?)
+  WHEN: the user asks for something that requires agentic work, file ops,
+  data lookup, or multi-step execution — hand it to the Workspace surface.
+  EXAMPLE: <tool_call>{"name": "workspace_task", "arguments": {"task": "Summarize my emails from today", "context": "check inbox"}}</tool_call>
+
+• get_time()
+  WHEN: user asks what time or date it is.
+  EXAMPLE: <tool_call>{"name": "get_time", "arguments": {}}</tool_call>
+
+IMPORTANT: For casual chat, opinions, advice, creative writing, and anything
+that doesn't require live data or persistent state — answer directly, NO tools.
+""".strip()
+
+
+_WORKSPACE_TOOL_PRIMER = """
+WORKSPACE SURFACE — AVAILABLE TOOLS:
+
+You are in agentic mode. Use tools freely and proactively to accomplish tasks.
+Chain multiple tools when needed. Report progress as you go.
+
+Key tools available (full catalog shown in the tool schema):
+
+• web_fetch(url, extract?) — fetch any public URL for research or data
+• file_read(path) — read file contents from the local filesystem
+• file_list(directory?) — list directory contents
+• shell_run(command) — run a shell command (be careful, confirm destructive ops)
+• contacts_search(query) — search CRM contacts
+• web_search(query) — search the web for current information
+• memory_write / memory_recall — persistent cross-session memory
+• workspace_task(task) — spawn a background task
+
+TOOL CHAINING PATTERN — for multi-step requests:
+  1. Use web_search or file_list to discover what's available
+  2. Use web_fetch or file_read to get content
+  3. Synthesize and respond with findings
+
+EXAMPLE (research task):
+<tool_call>{"name": "web_search", "arguments": {"query": "best practices React 2026"}}</tool_call>
+Then fetch a result:
+<tool_call>{"name": "web_fetch", "arguments": {"url": "https://...", "extract": "hooks"}}</tool_call>
+Then synthesize: "Based on what I found..."
+""".strip()
+
+
+_CODESPACE_TOOL_PRIMER = """
+CODESPACE SURFACE — AVAILABLE TOOLS:
+
+You are a code-focused assistant with access to execution tools. Use them to
+write, test, and fix code — not just describe what to do.
+
+• file_read(path) — read any source file before suggesting changes
+• file_list(directory?) — explore project structure
+• shell_run(command) — run tests, linters, build commands, git operations
+• web_fetch(url) — fetch docs, API references, package readmes
+• memory_write / memory_recall — store solutions and patterns for reuse
+
+CODE TASK PATTERN:
+  1. file_list / file_read to understand context first
+  2. Draft the change or command
+  3. shell_run to validate (run tests, check syntax)
+  4. Report result and any failures
+
+EXAMPLE (run tests):
+<tool_call>{"name": "shell_run", "arguments": {"command": "python -m pytest tests/ -x -q 2>&1 | tail -20"}}</tool_call>
+""".strip()
+
+
+_SURFACE_PRIMERS: dict[str, str] = {
+    "companion": _COMPANION_TOOL_PRIMER,
+    "workspace": _WORKSPACE_TOOL_PRIMER,
+    "codespace": _CODESPACE_TOOL_PRIMER,
+}
+
+
+def _inject_tool_primer(system_prompt: str, surface: str) -> str:
+    """Append a surface-specific tool primer with few-shot examples.
+
+    Called once per request just before message construction so the primer
+    is always the freshest section of the system prompt — models attend to
+    content near the end of the system turn most reliably.
+    """
+    primer = _SURFACE_PRIMERS.get(surface, "")
+    if not primer:
+        return system_prompt
+    return f"{system_prompt}\n\n{_TOOL_CALL_FORMAT_REMINDER}\n\n{primer}"
+
+
 # ── Workspace filesystem snapshot ─────────────────────────────────────────────
 
 import os as _os
@@ -1490,6 +1617,11 @@ async def stream_unified_inference(
     # circuits the generic classification routing below.
     # ─────────────────────────────────────────────────────────────────────────
     if surface in {"companion", "workspace", "codespace"} and requested_mode in {"auto", ""}:
+        # Inject surface-specific tool primer + few-shot examples so local models
+        # know exactly what tools exist here and when/how to invoke them.
+        if not skip_tools:
+            augmented_system = _inject_tool_primer(augmented_system, surface)
+
         from src.guppy.api.routes_backends import _port_alive as _sp_port_alive
 
         def _sp_backend_alive(key: str) -> str:
@@ -1508,8 +1640,11 @@ async def stream_unified_inference(
                 instance_name=instance_name, instance_type=instance_type))
 
         # Tools passed to companion are stripped to the basics (read/write memory,
-        # create_reminder, web_fetch) — heavy agentic tools stay with workspace.
-        _COMPANION_BASIC_TOOLS = ["memory_write", "memory_recall", "create_reminder", "web_fetch", "get_time"]
+        # create_reminder, web_fetch, workspace_task) — heavy agentic tools stay with workspace.
+        _COMPANION_BASIC_TOOLS = [
+            "memory_write", "memory_recall", "create_reminder",
+            "web_fetch", "get_time", "workspace_task", "download_media",
+        ]
 
         def _sp_companion_tools() -> list[dict] | None:
             if not owner.GUPPY_CORE_AVAILABLE:
@@ -1536,7 +1671,7 @@ async def stream_unified_inference(
         async def _sp_stream_free_cloud(msgs: list[dict], tools, tr, label: str):
             _prov, _key = _sp_free_cloud_key()
             if not _key:
-                return False
+                return
             try:
                 if _prov == "mistral":
                     async for tok in _stream_mistral_tokens(_key, "mistral-small-latest", msgs):
@@ -1545,10 +1680,8 @@ async def stream_unified_inference(
                     async for tok in _stream_cohere_tokens(_key, "command-r-plus", msgs):
                         yield tok
                 yield _SOURCE_SENTINEL + _prov
-                return True
             except Exception as _fc_err:
                 _log.warning("Surface %s free cloud (%s) failed: %s", surface, _prov, _fc_err)
-                return False
 
         if surface == "companion":
             # Pass-1: Hermes3 (fast 8B, basic tools only)

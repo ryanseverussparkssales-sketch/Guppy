@@ -106,21 +106,27 @@ async def _stream_conversation_inference(
     history: list[dict],
     image_base64: str | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Adapt the conversations route shape to the shared realtime stream helper."""
+    """Adapt the conversations route shape to the shared realtime stream helper.
+
+    Uses the active conversation-partner model (Rocinante by default) in local
+    mode with tools disabled — the Conversations surface is pure dialogue.
+    """
+    active_partner = get_active_conversation_partner() or backend or None
     async for token in stream_unified_inference(
         ctx.owner,
         message,
         _CONVERSATION_SYSTEM_PROMPT,
-        mode="auto",
+        mode="local" if active_partner else "auto",
         history=history,
         image_base64=image_base64 or None,
-        skip_tools=False,
+        active_local_model=active_partner,
+        skip_tools=True,
         surface="companion",
     ):
         if token.startswith(_SOURCE_SENTINEL):
             continue
         if token.startswith(_REPLACE_SENTINEL):
-            yield token[len(_REPLACE_SENTINEL) :]
+            yield token[len(_REPLACE_SENTINEL):]
             continue
         yield token
 
