@@ -22,7 +22,17 @@ def _normalize_workspace_name(workspace_name: str | None) -> str:
     return str(workspace_name or "").strip()
 
 
+_ALLOWED_MEMORY_TABLES: frozenset[str] = frozenset({"facts", "conversations"})
+
+
 def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    """Add *column* to *table* if it doesn't exist yet.
+
+    Only tables in *_ALLOWED_MEMORY_TABLES* are accepted — guards against
+    accidental DDL on arbitrary table names.
+    """
+    if table not in _ALLOWED_MEMORY_TABLES:
+        raise ValueError(f"ensure_column: disallowed table {table!r}")
     cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if column not in cols:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")

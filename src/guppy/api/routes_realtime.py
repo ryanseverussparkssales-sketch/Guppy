@@ -237,8 +237,9 @@ async def _execute_workspace_tool(name: str, args: dict) -> dict:
                 "error": f"Not in safe-command whitelist (read-only only): {command[:80]}",
             }
         try:
+            import shlex as _shlex
             result = subprocess.run(
-                command, shell=True, capture_output=True, text=True, timeout=15,
+                _shlex.split(command), shell=False, capture_output=True, text=True, timeout=15,
             )
             return {
                 "ok": True,
@@ -1039,14 +1040,36 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
 
         async def _generate_with_heartbeat():
             """Wrap _generate() with SSE comment keepalives every 15 s.
-            Prevents proxy / browser from killing idle slow-model connections."""
+            Prevents proxy / browser from killing idle slow-model connections.
+
+            Enforces a maximum wall-clock cap (GUPPY_STREAM_TIMEOUT_SECONDS, default 300 s)
+            and detects client disconnects so the async generator is cleaned up promptly.
+            """
             import asyncio as _aio
+            import os as _os
+            _max_secs = float(_os.environ.get("GUPPY_STREAM_TIMEOUT_SECONDS", "300"))
             gen = _generate()
-            last_yield = _aio.get_event_loop().time()
+            start_time = _aio.get_event_loop().time()
             while True:
+                # Disconnect detection — clean up and stop early if client has gone away.
+                try:
+                    if await request.is_disconnected():
+                        owner.logger.debug("Client disconnected — cleaning up stream generator")
+                        await gen.aclose()
+                        return
+                except Exception:
+                    pass
+
+                # Wall-clock timeout guard.
+                elapsed = _aio.get_event_loop().time() - start_time
+                if elapsed > _max_secs:
+                    owner.logger.warning("Stream timeout after %.0f s — terminating", elapsed)
+                    await gen.aclose()
+                    yield f"data: {json.dumps({'error': 'Stream timeout'})}\n\n"
+                    return
+
                 try:
                     chunk = await _aio.wait_for(gen.__anext__(), timeout=15.0)
-                    last_yield = _aio.get_event_loop().time()
                     yield chunk
                 except StopAsyncIteration:
                     break
