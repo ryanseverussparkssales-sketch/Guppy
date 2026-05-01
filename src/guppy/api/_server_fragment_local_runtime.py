@@ -45,7 +45,7 @@ def _resolve_local_runtime_model(
     *,
     fallback: str = "",
 ) -> str:
-    normalized_backend = (backend or "ollama").strip().lower()
+    normalized_backend = (backend or "llamacpp").strip().lower()
     normalized_role = (role or "").strip().lower()
     if normalized_backend == "lemonade":
         env_name = _LEMONADE_ROLE_ENV.get(normalized_role)

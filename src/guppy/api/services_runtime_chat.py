@@ -222,9 +222,9 @@ def call_selected_local_runtime(
         backends_to_try = [llamacpp_backend]
     else:
         backends_to_try = []
-        if backend != "ollama":
+        if backend:
             backends_to_try.append(backend)
-        backends_to_try.append("ollama")  # Always fallback to Ollama
+        # Ollama fallback removed — all local routes now use llama.cpp servers directly
     
     last_error = None
     
