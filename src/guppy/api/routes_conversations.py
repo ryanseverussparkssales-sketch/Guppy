@@ -121,7 +121,7 @@ async def _stream_conversation_inference(
         image_base64=image_base64 or None,
         active_local_model=active_partner,
         skip_tools=True,
-        surface="companion",
+        surface="conversations",
     ):
         if token.startswith(_SOURCE_SENTINEL):
             continue
@@ -242,24 +242,24 @@ async def _execute_conversation_tool(ctx: ServerContext, name: str, args: dict[s
             return {"ok": False, "error": str(e)}
 
     elif name == "workspace_task":
-        task_text = str(args.get("task", "")).strip()
+        task_text = str(
+            args.get("task") or args.get("title") or args.get("description") or ""
+        ).strip()
+        description_text = str(args.get("description", "")).strip()
         if not task_text:
-            return {"ok": False, "error": "task required"}
+            return {"ok": False, "error": "task/title required"}
         try:
-            from src.guppy.api.routes_workspace import (
-                CreateTaskRequest,
-                create_workspace_task_record,
-            )
-
-            detail = await asyncio.to_thread(
-                create_workspace_task_record,
-                CreateTaskRequest(task_description=task_text, source="conversations"),
+            from src.guppy.api.routes_surface import _spawn_task_direct
+            task = _spawn_task_direct(
+                title=task_text,
+                description=description_text or task_text,
+                source="conversations",
             )
             return {
                 "ok": True,
-                "task_id": detail.id,
-                "status": detail.state,
-                "task_description": detail.task_description,
+                "task_id": task["id"],
+                "status": task.get("status", "queued"),
+                "task_description": task_text,
             }
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -386,6 +386,37 @@ async def _execute_and_format_conversation_tools(
             logger.exception(f"Tool parse/exec error: {e}")
 
     return results_markdown, tool_results
+
+
+async def _with_keepalives(
+    source: AsyncGenerator[str, None],
+    *,
+    interval_seconds: float = 15.0,
+) -> AsyncGenerator[str, None]:
+    """Wrap an SSE source with comment keepalives during long model waits."""
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+    async def _produce() -> None:
+        try:
+            async for item in source:
+                await queue.put(item)
+        finally:
+            await queue.put(None)
+
+    task = asyncio.create_task(_produce())
+    try:
+        while True:
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=interval_seconds)
+            except asyncio.TimeoutError:
+                yield ": heartbeat\n\n"
+                continue
+
+            if item is None:
+                break
+            yield item
+    finally:
+        task.cancel()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -622,13 +653,14 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
             logger.exception("Inference failed")
             return {"ok": False, "error": str(e)}
 
-        # Execute tools and format
+        # Execute tools and format clean confirmation
+        stripped_response = _strip_tool_blocks(full_response)
         tool_markdown, tool_results = await _execute_and_format_conversation_tools(
             ctx,
             full_response,
             session_id=session_id,
         )
-        full_response = (_strip_tool_blocks(full_response) + tool_markdown).strip()
+        final_response = (stripped_response + tool_markdown).strip()
 
         # Save assistant message
         assistant_msg_id = str(uuid.uuid4())
@@ -637,7 +669,7 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                 """INSERT INTO conversation_session_messages
                    (id, conversation_id, role, content, created_at)
                    VALUES (?, ?, ?, ?, ?)""",
-                (assistant_msg_id, session_id, "assistant", full_response, _now()),
+                (assistant_msg_id, session_id, "assistant", final_response, _now()),
             )
             conn.execute(
                 "UPDATE conversation_sessions SET updated_at = ? WHERE id = ?",
@@ -648,7 +680,7 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
         return {
             "ok": True,
             "session_id": session_id,
-            "response": full_response,
+            "response": final_response,
             "tool_results": tool_results,
         }
 
@@ -706,42 +738,80 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
             history = [{"role": row["role"], "content": row["content"]} for row in history_rows]
 
         async def _stream():
-            """Stream tokens + handle tool calls + save final response."""
+            """Stream tokens + execute tool calls + synthesize results + save."""
             full_response = ""
             visible_buffer = ""
             tool_marker: str | None = None
             try:
-                async for token in _stream_conversation_inference(
-                    ctx,
-                    message=req.message,
-                    backend=backend,
-                    history=history,
-                    image_base64=req.image_base64,
-                ):
-                    full_response += token
-                    visible_buffer += token
-                    chunks, visible_buffer, tool_marker = _visible_stream_chunks(
-                        visible_buffer,
-                        tool_marker,
-                    )
-                    for chunk in chunks:
-                        if chunk:
-                            yield f"data: {json.dumps({'token': chunk, 'session_id': session_id})}\n\n"
+                yield f"data: {json.dumps({'session_id': session_id, 'status': 'started'})}\n\n"
 
+                # Phase 1: stream initial model response (tool blocks hidden in visible output)
+                try:
+                    async with asyncio.timeout(120.0):
+                        async for token in _stream_conversation_inference(
+                            ctx,
+                            message=req.message,
+                            backend=backend,
+                            history=history,
+                            image_base64=req.image_base64,
+                        ):
+                            full_response += token
+                            visible_buffer += token
+                            chunks, visible_buffer, tool_marker = _visible_stream_chunks(
+                                visible_buffer,
+                                tool_marker,
+                            )
+                            for chunk in chunks:
+                                if chunk:
+                                    yield f"data: {json.dumps({'token': chunk, 'session_id': session_id})}\n\n"
+                except asyncio.TimeoutError:
+                    logger.warning("[conversations] Phase-1 inference timed out (session %s)", session_id)
+
+                # Flush remaining visible buffer (text after last tool block)
                 if visible_buffer and tool_marker is None:
                     yield f"data: {json.dumps({'token': visible_buffer, 'session_id': session_id})}\n\n"
 
-                # Execute tools
-                tool_markdown, tool_results = await _execute_and_format_conversation_tools(
-                    ctx,
-                    full_response,
-                    session_id=session_id,
-                )
-                full_response = (_strip_tool_blocks(full_response) + tool_markdown).strip()
+                # Phase 2: execute tool calls
+                stripped_response = _strip_tool_blocks(full_response)
+                final_response = stripped_response
 
-                # Emit tool results
-                for tr in tool_results:
-                    yield f"data: {json.dumps({'tool': tr['name'], 'result': tr['result']})}\n\n"
+                if _TOOL_CALL_RE.search(full_response):
+                    tool_markdown, tool_results = await _execute_and_format_conversation_tools(
+                        ctx,
+                        full_response,
+                        session_id=session_id,
+                    )
+                    if tool_results:
+                        # Phase 3: synthesis — model sees tool results and generates answer
+                        synthesis_history = list(history)
+                        synthesis_history.append({"role": "user", "content": req.message})
+                        if stripped_response.strip():
+                            synthesis_history.append(
+                                {"role": "assistant", "content": stripped_response}
+                            )
+                        synthesis_prompt = (
+                            f"[Tool Results]\n{tool_markdown}\n\n"
+                            "Using the results above, answer the original question directly and concisely."
+                        )
+                        synthesis_text = ""
+                        try:
+                            async with asyncio.timeout(90.0):
+                                async for token in _stream_conversation_inference(
+                                    ctx,
+                                    message=synthesis_prompt,
+                                    backend=backend,
+                                    history=synthesis_history,
+                                ):
+                                    synthesis_text += token
+                                    if token:
+                                        yield f"data: {json.dumps({'token': token, 'session_id': session_id})}\n\n"
+                        except asyncio.TimeoutError:
+                            logger.warning("[conversations] Synthesis inference timed out (session %s)", session_id)
+
+                        final_response = (
+                            (stripped_response.strip() + "\n\n" if stripped_response.strip() else "")
+                            + synthesis_text
+                        ).strip()
 
                 # Save assistant message
                 assistant_msg_id = str(uuid.uuid4())
@@ -750,7 +820,7 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                         """INSERT INTO conversation_session_messages
                            (id, conversation_id, role, content, created_at)
                            VALUES (?, ?, ?, ?, ?)""",
-                        (assistant_msg_id, session_id, "assistant", full_response, _now()),
+                        (assistant_msg_id, session_id, "assistant", final_response, _now()),
                     )
                     conn.execute(
                         "UPDATE conversation_sessions SET updated_at = ? WHERE id = ?",
@@ -761,8 +831,8 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                 yield "data: [DONE]\n\n"
             except Exception as e:
                 logger.exception("Stream error")
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                yield f"data: {json.dumps({'error': str(e), 'session_id': session_id})}\n\n"
 
-        return StreamingResponse(_stream(), media_type="text/event-stream")
+        return StreamingResponse(_with_keepalives(_stream()), media_type="text/event-stream")
 
     return router

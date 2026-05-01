@@ -132,6 +132,59 @@ def test_conversation_chat_uses_backend_key_and_stream_adapter(tmp_path, monkeyp
     assert message_roles == ["user", "assistant"]
 
 
+def test_conversation_chat_stream_emits_start_done_and_saves_reply(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "guppy_main.db"
+    owner = SimpleNamespace(name="owner")
+    rate_calls: list[str] = []
+
+    monkeypatch.setattr(routes_conversations, "_DB_PATH", str(db_path))
+    monkeypatch.setattr(routes_conversations, "ensure_user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        routes_conversations,
+        "get_active_conversation_partner",
+        lambda: "llamacpp-hermes3",
+    )
+
+    async def fake_stream_unified_inference(*_args, **_kwargs):
+        yield "hello"
+        yield " there"
+
+    monkeypatch.setattr(
+        routes_conversations,
+        "stream_unified_inference",
+        fake_stream_unified_inference,
+    )
+
+    ctx = SimpleNamespace(
+        owner=owner,
+        require_rate_limit=lambda: rate_calls.append("hit") or "unit-user",
+    )
+    app = FastAPI()
+    app.include_router(routes_conversations.build_conversations_router(ctx))
+
+    client = TestClient(app)
+    response = client.post("/api/conversations/chat/stream", json={"message": "Hi"})
+
+    assert response.status_code == 200
+    body = response.text
+    assert '"status": "started"' in body
+    assert '"session_id":' in body
+    assert '"token": "hello"' in body
+    assert '"token": " there"' in body
+    assert "data: [DONE]" in body
+    assert rate_calls
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT role, content FROM conversation_session_messages ORDER BY created_at"
+        ).fetchall()
+
+    assert rows == [("user", "Hi"), ("assistant", "hello there")]
+
+
 def test_conversation_sessions_ignore_existing_chat_history_schema(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "guppy_main.db"
     owner = SimpleNamespace(name="owner")
@@ -195,13 +248,18 @@ def test_conversation_chat_executes_workspace_tool_without_exposing_tool_xml(
     monkeypatch,
 ) -> None:
     conversation_db = tmp_path / "guppy_main.db"
-    workspace_db = tmp_path / "workspace.db"
+    surface_db = tmp_path / "surface.db"
     owner = SimpleNamespace(name="owner")
     rate_calls: list[str] = []
 
+    # Initialise surface DB schema so _spawn_task_direct can write surface_tasks
+    with sqlite3.connect(str(surface_db)) as _sc:
+        _sc.executescript(routes_surface._SCHEMA)
+        _sc.commit()
+
     monkeypatch.setattr(routes_conversations, "_DB_PATH", str(conversation_db))
     monkeypatch.setattr(routes_conversations, "ensure_user_data_dir", lambda: tmp_path)
-    monkeypatch.setattr(routes_workspace, "_DB_PATH", str(workspace_db))
+    monkeypatch.setattr(routes_surface, "_DB_PATH", str(surface_db))
     monkeypatch.setattr(
         routes_conversations,
         "get_active_conversation_partner",
@@ -245,9 +303,9 @@ def test_conversation_chat_executes_workspace_tool_without_exposing_tool_xml(
     assert rate_calls
 
     task_id = payload["tool_results"][0]["result"]["task_id"]
-    with sqlite3.connect(workspace_db) as conn:
+    with sqlite3.connect(str(surface_db)) as conn:
         row = conn.execute(
-            "SELECT id, task_description, source, state FROM workspace_tasks WHERE id = ?",
+            "SELECT id, title, source, status FROM surface_tasks WHERE id = ?",
             (task_id,),
         ).fetchone()
 
