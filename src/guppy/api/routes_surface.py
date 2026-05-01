@@ -36,7 +36,7 @@ SURFACES = ("companion", "workspace", "codespace")
 SURFACE_DEFAULTS: dict[str, dict[str, str]] = {
     "companion": {
         "backend":       "llamacpp",
-        "model":         "llamacpp-minicpm",
+        "model":         "llamacpp-hermes3",
         "fallback_model": "llamacpp-rocinante",
         "mode":          "local",
         "system_prompt": (

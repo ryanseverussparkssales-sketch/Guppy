@@ -30,6 +30,10 @@
 - Logged tool calls from companion, workspace, conversations, and workspace-task executor flows.
 - **Impact:** Tool usage is auditable and debuggable in `guppy_main.db`.
 
+### Surface Defaults Alignment
+- Companion surface default model now seeds as Hermes 3 (matching runtime routing).
+- **Impact:** New surface configs align with the always-on stack without manual edits.
+
 ## P6 Platform Hardening — Shipped Features (2026-04-23 to 2026-04-28)
 
 ### Web UI Parity & Inference Controls (2026-04-26)
