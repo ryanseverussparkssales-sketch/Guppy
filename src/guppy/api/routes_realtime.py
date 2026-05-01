@@ -781,6 +781,14 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                             tool_args = tc.get("arguments", {})
                             yield f"data: {json.dumps({'tool_exec': tool_name})}\n\n"
                             result = await _execute_workspace_tool(tool_name, tool_args)
+                            from src.guppy.api.tool_call_log import log_tool_call
+                            log_tool_call(
+                                surface=request.surface or "workspace",
+                                tool_name=tool_name,
+                                tool_args=tool_args,
+                                result=result,
+                                session_id=request.session_id,
+                            )
                             tool_results.append({"tool": tool_name, "result": result})
                         except Exception as exc:
                             tool_results.append({"tool": "?", "error": str(exc)})
@@ -905,6 +913,14 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                             tool_args = tc.get("arguments", {})
                             yield f"data: {json.dumps({'tool_exec': tool_name})}\n\n"
                             result = await _execute_companion_tool(tool_name, tool_args)
+                            from src.guppy.api.tool_call_log import log_tool_call
+                            log_tool_call(
+                                surface=request.surface or "companion",
+                                tool_name=tool_name,
+                                tool_args=tool_args,
+                                result=result,
+                                session_id=request.session_id,
+                            )
                             tool_results.append({"tool": tool_name, "result": result})
                         except Exception as exc:
                             tool_results.append({"tool": "?", "error": str(exc)})

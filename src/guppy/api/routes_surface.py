@@ -387,6 +387,14 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
                 tool_args = tc.get("arguments", {})
                 _broadcast_event("task_progress", {"id": task_id, "status": "in_progress", "step": f"Tool: {tool_name}"})
                 result = await _execute_workspace_tool(tool_name, tool_args)
+                from src.guppy.api.tool_call_log import log_tool_call
+                log_tool_call(
+                    surface="workspace",
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    result=result,
+                    task_id=task_id,
+                )
                 tool_results.append({"tool": tool_name, "result": result})
             except Exception as exc:
                 tool_results.append({"tool": "?", "error": str(exc)})

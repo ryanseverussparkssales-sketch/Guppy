@@ -25,6 +25,11 @@
 - Updated semantic memory docs header to reflect OpenAI-compat embedding servers instead of Hermes-only.
 - **Impact:** Memory stays usable even when the embedding endpoint is offline or unsupported.
 
+### Tool-Call Event Logging
+- Added `tool_call_events` table with surface/session/task metadata.
+- Logged tool calls from companion, workspace, conversations, and workspace-task executor flows.
+- **Impact:** Tool usage is auditable and debuggable in `guppy_main.db`.
+
 ## P6 Platform Hardening — Shipped Features (2026-04-23 to 2026-04-28)
 
 ### Web UI Parity & Inference Controls (2026-04-26)
