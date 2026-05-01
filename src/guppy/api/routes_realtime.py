@@ -752,6 +752,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         active_cloud_model=_active_cloud_model,
                         image_base64=request.image_base64 or None,
                         skip_tools=True,
+                        surface=request.surface or "workspace",
                     ):
                         if token.startswith(_SOURCE_SENTINEL) or token.startswith(_REPLACE_SENTINEL):
                             continue
@@ -821,6 +822,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                             active_local_model=_active_local_model,
                             active_cloud_model=_active_cloud_model,
                             image_base64=None,
+                            surface=request.surface or "workspace",
                         ):
                             if token.startswith(_SOURCE_SENTINEL):
                                 last_source = token[len(_SOURCE_SENTINEL):]
@@ -880,6 +882,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         active_cloud_model=_active_cloud_model,
                         image_base64=request.image_base64 or None,
                         skip_tools=True,
+                        surface=request.surface or "companion",
                     ):
                         if token.startswith(_SOURCE_SENTINEL) or token.startswith(_REPLACE_SENTINEL):
                             continue
@@ -955,6 +958,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                             active_local_model=_active_local_model,
                             active_cloud_model=_active_cloud_model,
                             image_base64=None,
+                            surface=request.surface or "companion",
                         ):
                             if token.startswith(_SOURCE_SENTINEL):
                                 last_source = token[len(_SOURCE_SENTINEL):]
@@ -1006,6 +1010,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     active_local_model=_active_local_model,
                     active_cloud_model=_active_cloud_model,
                     image_base64=request.image_base64 or None,
+                    surface=request.surface or "",
                 ):
                     if token.startswith(_SOURCE_SENTINEL):
                         last_source = token[len(_SOURCE_SENTINEL):]

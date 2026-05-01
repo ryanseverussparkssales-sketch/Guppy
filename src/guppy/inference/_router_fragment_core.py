@@ -208,7 +208,14 @@ class InferenceRouter:
         return task
 
     def _classify_task_semantic(self, user_text: str, system_prompt: str = "") -> str:
-        """Use Haiku to classify intent with strict JSON output."""
+        """Use Haiku to classify intent with strict JSON output.
+
+        Hard-capped at 3 s so a slow or rate-limited Anthropic API never
+        blocks the streaming response.
+        """
+        import signal as _signal
+        import threading as _threading
+
         try:
             prompt = (
                 "Classify this request for routing into exactly one label: simple, complex, agentic, teaching, tool_call.\n"
@@ -223,12 +230,28 @@ class InferenceRouter:
                 f"System context: {system_prompt[:400]}\n"
                 f"User text: {user_text[:1200]}"
             )
-            resp = self.anthropic_client.messages.create(
-                model=self.HAIKU_MODEL,
-                max_tokens=100,
-                temperature=0,
-                messages=[{"role": "user", "content": prompt}],
-            )
+            _result: list[Any] = []
+            _exc:    list[BaseException] = []
+
+            def _call() -> None:
+                try:
+                    _result.append(
+                        self.anthropic_client.messages.create(
+                            model=self.HAIKU_MODEL,
+                            max_tokens=100,
+                            temperature=0,
+                            messages=[{"role": "user", "content": prompt}],
+                        )
+                    )
+                except BaseException as _e:
+                    _exc.append(_e)
+
+            _t = _threading.Thread(target=_call, daemon=True)
+            _t.start()
+            _t.join(timeout=3.0)
+            if not _result:
+                raise TimeoutError("semantic classifier timed out after 3 s")
+            resp = _result[0]
             raw = (resp.content[0].text if resp.content else "").strip()
             raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
             raw = re.sub(r"\s*```$", "", raw)
