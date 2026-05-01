@@ -154,13 +154,49 @@ class ElevenLabsTTSProvider(TTSProvider):
         with urllib.request.urlopen(req, timeout=30.0) as r:
             return r.read()
 
+    def _stream_chunks_blocking(self, text: str, voice_id: str):
+        """Blocking generator that yields 4-KB MP3 chunks from the streaming endpoint."""
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
+        payload = {
+            "text": text,
+            "model_id": self._model_id,
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "xi-api-key": self._api_key,
+                "Content-Type": "application/json",
+                "Accept": "audio/mpeg",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30.0) as r:
+            while True:
+                chunk = r.read(4096)
+                if not chunk:
+                    break
+                yield chunk
+
     async def stream_synthesize(
         self,
         text: str,
         voice: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[bytes, None]:
-        # Real streaming requires async http client; current impl yields once
-        result = await self.synthesize(text, voice, **kwargs)
-        if result.audio_data and not result.error:
-            yield result.audio_data
+        """True chunked streaming: yields 4-KB MP3 chunks as the ElevenLabs
+        streaming endpoint delivers them."""
+        if not self._api_key:
+            return
+        loop = asyncio.get_event_loop()
+        it = iter(self._stream_chunks_blocking(text, voice or self._default_voice))
+        while True:
+            try:
+                chunk = await loop.run_in_executor(None, next, it)
+                yield chunk
+            except StopIteration:
+                break
+            except Exception as e:
+                logger.error("ElevenLabs stream_synthesize failed: %s", e)
+                break

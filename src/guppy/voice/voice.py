@@ -412,10 +412,11 @@ async def speak(text: str, voice: Optional[str] = None) -> TTSResult:
 
 
 async def stream_speak(text: str, voice: Optional[str] = None):
-    """Stream-based text-to-speech. Yields audio chunks."""
-    result = await synthesize(text, voice=voice)
-    if result.audio_data and not result.error:
-        yield result.audio_data
+    """Stream-based text-to-speech. Yields audio chunks as they are synthesized."""
+    config = _ensure_config()
+    orchestrator = _ensure_tts_orchestrator()
+    async for chunk in orchestrator.stream_synthesize(text, voice=voice or config.tts_voice):
+        yield chunk
 
 
 def get_voice_config() -> VoiceConfig:

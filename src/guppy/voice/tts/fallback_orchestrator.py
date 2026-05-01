@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import List, Optional
+from typing import AsyncGenerator, List, Optional
 
 from guppy.voice.core import TTSProvider, TTSResult
 
@@ -80,6 +80,31 @@ class TTSFallbackOrchestrator:
             error=f"all_tts_providers_failed: {last_error}",
             metadata={"fallback_chain": chain},
         )
+
+    async def stream_synthesize(
+        self,
+        text: str,
+        voice: Optional[str] = None,
+        **kwargs,
+    ) -> AsyncGenerator[bytes, None]:
+        """Yield audio chunks from the first provider that produces any data."""
+        for provider in self._providers:
+            try:
+                available = await provider.health_check()
+            except Exception:
+                available = False
+            if not available:
+                continue
+            got_any = False
+            try:
+                async for chunk in provider.stream_synthesize(text, voice, **kwargs):
+                    got_any = True
+                    yield chunk
+            except Exception as e:
+                logger.warning("[TTS stream] %s raised: %s", provider.name, e)
+                continue
+            if got_any:
+                return
 
     async def health_check(self) -> dict:
         statuses = {}

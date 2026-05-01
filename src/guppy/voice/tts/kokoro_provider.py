@@ -210,7 +210,26 @@ class KokoroTTSProvider(TTSProvider):
         voice: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[bytes, None]:
-        """For now, synthesize whole then yield single chunk. True streaming TBD."""
-        result = await self.synthesize(text, voice, **kwargs)
-        if result.audio_data and not result.error:
-            yield result.audio_data
+        """True chunked streaming: yields one PCM chunk per KPipeline segment (local),
+        or falls back to synthesize-then-yield for the API mode."""
+        mode = await self._detect_mode()
+        if mode == "local" and self._pipeline is not None:
+            try:
+                import numpy as np  # type: ignore
+                speed = float(kwargs.get("speed", 1.0))
+                _voice = voice or "af_bella"
+                loop = asyncio.get_event_loop()
+                it = iter(self._pipeline(text, voice=_voice, speed=speed))
+                while True:
+                    try:
+                        _, _, audio = await loop.run_in_executor(None, next, it)
+                        arr = np.asarray(audio, dtype=np.float32)
+                        yield (arr * 32767).clip(-32768, 32767).astype(np.int16).tobytes()
+                    except StopIteration:
+                        break
+            except Exception as e:
+                logger.error("Kokoro local stream_synthesize failed: %s", e)
+        else:
+            result = await self.synthesize(text, voice, **kwargs)
+            if result.audio_data and not result.error:
+                yield result.audio_data
