@@ -21,6 +21,7 @@ from src.guppy.inference.local_client import (
     _BACKENDS as _LOCAL_BACKENDS,
     _resolve_url as _local_resolve_url,
 )
+from src.guppy.inference.context_injection import _bg_store_tool_outcome  # noqa: F401 re-exported
 
 _log = logging.getLogger(__name__)
 
@@ -92,26 +93,6 @@ def _repair_tool_json(s: str) -> dict | None:
         except json.JSONDecodeError:
             pass
     return None
-
-
-# ── Background tool-outcome persistence ───────────────────────────────────────
-
-def _bg_store_tool_outcome(name: str, args: dict, result: str) -> None:
-    """Fire-and-forget: persist successful tool call outcome to semantic memory."""
-    import threading
-    import hashlib
-
-    def _store() -> None:
-        try:
-            from src.guppy.memory.semantic import remember_semantic
-            args_str = str(sorted((args or {}).items()))[:200]
-            key = f"tool_outcome:{name}:{hashlib.md5(args_str.encode()).hexdigest()[:8]}"
-            value = f"{name}({args_str[:150]}) → {result[:500]}"
-            remember_semantic(key, value, category="tool_outcome")
-        except Exception:
-            pass
-
-    threading.Thread(target=_store, daemon=True, name="tool-outcome-mem").start()
 
 
 # ── OpenAI-compatible SSE streaming ───────────────────────────────────────────
