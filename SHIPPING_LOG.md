@@ -2,7 +2,32 @@
 
 **Purpose:** Detailed implementation notes for completed features and initiatives. Reference for understanding architectural decisions and implementation details.
 
-**Last updated:** 2026-05-01
+**Last updated:** 2026-05-02
+
+---
+
+## Phase 6 Hardening Round 2 — Shipped (2026-05-02)
+
+### Security: `/repair-token/refresh` JWT Auth Gap Fixed
+- The `/repair-token/refresh` endpoint previously only checked `client_ip not in ("127.0.0.1", ...)` — unauthenticated localhost requests were allowed through
+- Fix: `routes_ops.py` now `Depends(verify_token)` on the endpoint — requires JWT Bearer in non-dev mode
+- `GUPPY_DEV_MODE=True` keeps the dev bypass; production requires a valid JWT
+
+### New: Semantic Memory Offline Unit Tests (`tests/unit/test_semantic_fallback.py`)
+- 4 unit tests verifying `_recall_sqlite()` gracefully falls back to lexical matching when `_embed_text` returns `[]`
+- Tests: lexical content returned, no exception raised, empty DB handled, `_lexical_recall` scores by word overlap
+- Patching target: `_sem.DB_PATH` (the public module-level var bound from `src.guppy.paths.MEMORY_DB_PATH`)
+
+### New: Docker App Container (`Dockerfile` + `docker-compose.yml`)
+- `Dockerfile`: Python 3.12-slim, non-root `guppy` user, health check via `/health`, volumes for `runtime/` and `data/`
+- `docker-compose.yml`: App stack; `GUPPY_JWT_SECRET` required (compose fails if unset); all provider keys optional; logging limits + restart policy
+- Separate from `docker/docker-compose.vllm.yml` (inference-only stack)
+
+### Test Suite State After Round 2
+- `tests/test_security_hardening.py` — 29 pass, 10 skip (archived Qt launcher classes) ✅
+- `tests/unit/test_semantic_fallback.py` — 4/4 pass ✅
+- `tests/unit/test_tool_call_log.py` — 5/5 pass ✅
+- `tests/unit/test_merlin_core.py` — 1/1 pass ✅
 
 ---
 

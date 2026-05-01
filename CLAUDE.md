@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-05-01 — Phase 6 Hardening Round 1 (security fixes + deprecated module archival)
+**Last updated:** 2026-05-02 — Phase 6 hardening round 2 (JWT fix, Docker, semantic tests)
 
 ---
 
@@ -219,27 +219,11 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
   - **Backend watchdog** — daemon thread in routes_backends monitors ports 8085/8087/8086 every 60 s, auto-restarts crashed always-on models
   - **24/7 background task loop** — asyncio task delivers due reminders as SSE events every 30 s; marks queued tasks stale after 6 h; started via lifespan `background_coroutines`
   - **Strict-local mode** — companion surface checks local model port liveness before streaming; returns honest "Local model offline" error instead of silent cloud escalation
-- ✅ **7-item 2026 best-practices pass** (2026-04-30):
-  - **Workspace tool execution** — two-pass `<tool_call>` for workspace surface; `_execute_workspace_tool()` handles web_search/file_read/file_list/shell_run/contacts_search; wired into `/chat/stream`
-  - **Workspace task executor** — `_run_workspace_task()` background worker in routes_surface dequeues queued tasks, calls Hermes4, executes tools, broadcasts SSE progress/completion events
-  - **Streaming TTS** — sentence-boundary chunking (`SENTENCE_END_RE`) in CompanionView; `speakQueued()` + `_drainQueue()` in useVoice.ts plays sentences as they arrive instead of waiting for full response
-  - **SSE exponential backoff** — `useSurfaceEvents.ts` shared hook; 2→4→8→16→32→60 s backoff, resets after 10 s healthy connection; used by both CompanionView and WorkspaceView
-  - **OOM error parsing** — `_parse_oom_error()` in realtime_inference_support detects CUDA/ROCm OOM in llamacpp HTTP error bodies; `_stream_llamacpp_tokens` raises actionable RuntimeError; `local_client.py` logs ERROR-level with restart instruction
-  - **Grammar-constrained tool calls** — `_TOOL_CALL_GBNF` constant + `grammar` param on `_stream_llamacpp_tokens`; `_repair_tool_json()` applies trailing-comma/unclosed-brace repairs in all three tool-call parse sites (companion, workspace, task executor)
-  - **KV cache auto-warming** — `_warm_kv_cache(port)` sends 1-token prefill to Hermes3 (8087) and Hermes4 (8086) on first confirmed liveness; integrated into watchdog, re-warms after crash+restart; reduces first-response latency ~30-50%
-- ✅ **MCP plugin manager** — add/remove/enable/test MCP servers; MCPView wired
-- ✅ **Desktop control API** — pyautogui screenshot/click/type (graceful fallback if pyautogui absent)
-- ✅ **Themes** — Dark, Liber Designatum (occult), Fear & Loathing (gonzo), Creem × Rolling Stone (rock mag)
-- ✅ **Inference metrics** — persisted to guppy_main.db, visible in AdminPanel `/admin`
-- ✅ **Gmail sync** — live via google-api-python-client (needs credentials)
-- ✅ **Google Calendar sync** — live, upserts 90-day window (needs credentials)
-- ✅ **HubSpot/Salesforce/GHL/Zoho contact + deal upsert** — live REST (needs API keys)
-- ✅ **Twilio outbound calling** — live REST call placement (needs credentials)
-- ✅ **Desktop launcher** — `Desktop\Guppy Launcher.lnk` updated via `tools/ensure_desktop_launcher.ps1`
-- ✅ **Web UI rebuilt** — static assets in `static/` reflect all current views and themes
-- ✅ **Tranche G (2026-04-30) — Screenpipe Integration** — ScreenPanel timeline/search/recent; AI activity summaries; routes_screen_monitor.py; Screenpipe context in realtime_inference_support
-- ✅ **Tranche H (2026-04-30) — BookDrop / Library Surface** — LibraryView, routes_library.py, OPDS 1.2 feed, OpenLibrary enricher, library_metadata cache in guppy_main.db
-- ✅ **Tranche I (2026-04-30) — DB Consolidation** — src/guppy/db/ module, MAIN_DB_PATH constant, all 20+ route files converge on guppy_main.db; stale per-feature DBs eliminated; docs/DATABASES.md created
+- ✅ **Phase 6 hardening round 2** (2026-05-02):
+  - **`/repair-token/refresh` JWT auth** — endpoint now requires JWT Bearer via `Depends(verify_token)`; unauthenticated localhost requests no longer allowed
+  - **Semantic fallback unit tests** — `tests/unit/test_semantic_fallback.py` 4/4 pass; covers lexical fallback when embed server offline
+  - **Docker app container** — `Dockerfile` + `docker-compose.yml` for production FastAPI container; `GUPPY_JWT_SECRET` required
+  - **Test security imports fixed** — `tests/test_security_hardening.py` conditional `launcher_window` import + `skipIf` on 4 archived Qt test classes; 29 pass, 10 skip, 0 fail
 
 **For detailed implementation notes on completed initiatives, see `SHIPPING_LOG.md` in the Guppy repo.**
 
