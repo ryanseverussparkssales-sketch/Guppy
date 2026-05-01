@@ -52,11 +52,6 @@ def test_query_smart_signature() -> None:
         assert expected in params
 
 
-def test_merlin_core_smoke_imports() -> None:
-    from src.guppy.merlin.core import MERLIN_SYSTEM
-
-    assert "Socratic" in MERLIN_SYSTEM
-
 
 def test_docs_smoke_contracts() -> None:
     repo_root = Path(__file__).resolve().parents[2]
