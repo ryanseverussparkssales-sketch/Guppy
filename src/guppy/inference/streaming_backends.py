@@ -74,7 +74,7 @@ def _repair_tool_json(s: str) -> dict | None:
     Models occasionally emit: trailing commas, unclosed braces, or extra whitespace.
     Returns the parsed dict or None if all repair attempts fail.
     """
-    # Direct parse
+    # Direct parse — no repair needed
     try:
         return json.loads(s)
     except json.JSONDecodeError:
@@ -82,14 +82,19 @@ def _repair_tool_json(s: str) -> dict | None:
     # Strip trailing commas before } or ]
     repaired = re.sub(r",\s*([}\]])", r"\1", s)
     try:
-        return json.loads(repaired)
+        result = json.loads(repaired)
+        _log.warning("GBNF repair fired on tool call JSON: %r → %r", s[:200], repaired[:200])
+        return result
     except json.JSONDecodeError:
         pass
     # Add missing closing braces
     open_count = repaired.count("{") - repaired.count("}")
     if 0 < open_count <= 3:
+        fully_repaired = repaired + "}" * open_count
         try:
-            return json.loads(repaired + "}" * open_count)
+            result = json.loads(fully_repaired)
+            _log.warning("GBNF repair fired on tool call JSON: %r → %r", s[:200], fully_repaired[:200])
+            return result
         except json.JSONDecodeError:
             pass
     return None
@@ -410,7 +415,9 @@ async def _stream_llamacpp_tokens(
                     args = {}
 
                 try:
-                    result = tool_runner(name, args if isinstance(args, dict) else {})
+                    result = await asyncio.to_thread(
+                        tool_runner, name, args if isinstance(args, dict) else {}
+                    )
                     result_str = str(result)
                     _round_all_errors = False
                     # Persist outcome to semantic memory (background, non-blocking)

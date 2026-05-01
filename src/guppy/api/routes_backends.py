@@ -173,14 +173,18 @@ _port_alive_cache: Dict[int, tuple] = {}
 _PORT_ALIVE_TTL_OK  = 10.0   # cache "alive"  for 10 s
 _PORT_ALIVE_TTL_DEAD =  5.0   # cache "dead"   for  5 s (re-check sooner so startup is detected)
 
-def _port_alive(port: int, timeout: float = 0.5) -> bool:
-    """Return True if something is answering on the given port.
+def _port_alive(port: int, timeout: float = 1.0) -> bool:
+    """Check if a llama.cpp backend at localhost:port is alive via HTTP /health.
+
+    Uses the llama.cpp native /health endpoint which returns {"status": "ok"} when
+    the model is fully loaded and ready — more accurate than a raw TCP connect, which
+    succeeds as soon as the socket is open (before the model finishes loading).
 
     Results are cached for a short TTL so rapid consecutive calls (e.g. fallback
     chains) don't each incur a full connection timeout.
     """
     import time
-    import urllib.request
+    import httpx
 
     now = time.monotonic()
     cached = _port_alive_cache.get(port)
@@ -188,8 +192,8 @@ def _port_alive(port: int, timeout: float = 0.5) -> bool:
         return cached[0]
 
     try:
-        urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=timeout)
-        alive = True
+        r = httpx.get(f"http://127.0.0.1:{port}/health", timeout=timeout)
+        alive = r.status_code < 500
     except Exception:
         alive = False
 

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Optional
+
+_log = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
@@ -742,6 +745,9 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         if token.startswith(_SOURCE_SENTINEL) or token.startswith(_REPLACE_SENTINEL):
                             continue
                         first_response += token
+                except asyncio.CancelledError:
+                    _log.info("Client disconnected mid-stream — cancelling workspace pass-1 inference")
+                    return
                 except Exception as exc:
                     owner.logger.error("Workspace pass-1 buffering failed: %s", exc)
                     yield f"data: {json.dumps({'error': str(exc)})}\n\n"
@@ -819,6 +825,9 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                                 continue
                             full_response += token
                             yield f"data: {json.dumps({'token': token})}\n\n"
+                    except asyncio.CancelledError:
+                        _log.info("Client disconnected mid-stream — cancelling workspace pass-2 inference")
+                        return
                     except Exception as exc:
                         owner.logger.error("Workspace pass-2 streaming failed: %s", exc)
                         yield f"data: {json.dumps({'error': str(exc)})}\n\n"
@@ -872,6 +881,9 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         if token.startswith(_SOURCE_SENTINEL) or token.startswith(_REPLACE_SENTINEL):
                             continue
                         first_response += token
+                except asyncio.CancelledError:
+                    _log.info("Client disconnected mid-stream — cancelling companion pass-1 inference")
+                    return
                 except Exception as exc:
                     owner.logger.error("Companion pass-1 buffering failed: %s", exc)
                     yield f"data: {json.dumps({'error': str(exc)})}\n\n"
@@ -955,6 +967,9 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                                 continue
                             full_response += token
                             yield f"data: {json.dumps({'token': token})}\n\n"
+                    except asyncio.CancelledError:
+                        _log.info("Client disconnected mid-stream — cancelling companion pass-2 inference")
+                        return
                     except Exception as exc:
                         owner.logger.error("Companion pass-2 streaming failed: %s", exc)
                         yield f"data: {json.dumps({'error': str(exc)})}\n\n"
@@ -1013,6 +1028,9 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     done_payload["source"] = last_source
                 yield f"data: {json.dumps({**done_payload, 'done': True})}\n\n" if done_payload else "data: [DONE]\n\n"
 
+            except asyncio.CancelledError:
+                _log.info("Client disconnected mid-stream — cancelling standard inference")
+                return
             except Exception as exc:
                 owner.logger.error("Streaming chat error: %s", exc)
                 yield f"data: {json.dumps({'error': str(exc)})}\n\n"

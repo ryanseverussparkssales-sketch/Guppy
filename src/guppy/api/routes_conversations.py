@@ -766,6 +766,9 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                                     yield f"data: {json.dumps({'token': chunk, 'session_id': session_id})}\n\n"
                 except asyncio.TimeoutError:
                     logger.warning("[conversations] Phase-1 inference timed out (session %s)", session_id)
+                except asyncio.CancelledError:
+                    logger.info("Client disconnected mid-stream — cancelling conversations phase-1 inference")
+                    return
 
                 # Flush remaining visible buffer (text after last tool block)
                 if visible_buffer and tool_marker is None:
@@ -807,6 +810,9 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                                         yield f"data: {json.dumps({'token': token, 'session_id': session_id})}\n\n"
                         except asyncio.TimeoutError:
                             logger.warning("[conversations] Synthesis inference timed out (session %s)", session_id)
+                        except asyncio.CancelledError:
+                            logger.info("Client disconnected mid-stream — cancelling conversations synthesis inference")
+                            return
 
                         final_response = (
                             (stripped_response.strip() + "\n\n" if stripped_response.strip() else "")
@@ -829,6 +835,9 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                     conn.commit()
 
                 yield "data: [DONE]\n\n"
+            except asyncio.CancelledError:
+                logger.info("Client disconnected mid-stream — cancelling conversations stream")
+                return
             except Exception as e:
                 logger.exception("Stream error")
                 yield f"data: {json.dumps({'error': str(e), 'session_id': session_id})}\n\n"
