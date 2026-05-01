@@ -120,6 +120,9 @@
 - Review runtime performance logs:
   - `python tools/review_agent_performance.py`
 - Check `runtime/agent_performance.jsonl` for fallback and error spikes.
+- If `/api/status` is slow, reduce backend probe overhead:
+  - `GUPPY_BACKEND_PROBE_TTL_SECONDS=5` (default) or higher to cache backend liveness
+  - `GUPPY_MODEL_LIST_TTL_SECONDS=20` (default) or higher to cache model lists
 
 ## Agents show OFFLINE / DAEMON: STOPPED at launch
 

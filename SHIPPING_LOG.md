@@ -34,6 +34,11 @@
 - Companion surface default model now seeds as Hermes 3 (matching runtime routing).
 - **Impact:** New surface configs align with the always-on stack without manual edits.
 
+### Faster Status Probes
+- Added TTL caches for backend probes and model listings in local runtime status.
+- New env tuning: `GUPPY_BACKEND_PROBE_TTL_SECONDS`, `GUPPY_MODEL_LIST_TTL_SECONDS`.
+- **Impact:** `/api/status` and related callers avoid repeated slow backend probes.
+
 ## P6 Platform Hardening — Shipped Features (2026-04-23 to 2026-04-28)
 
 ### Web UI Parity & Inference Controls (2026-04-26)
