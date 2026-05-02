@@ -120,8 +120,29 @@ async def _execute_workspace_tool(name: str, args: dict) -> dict:
         if not path:
             return {"ok": False, "error": "path required"}
         try:
-            content = Path(path).read_text(encoding="utf-8", errors="replace")
-            return {"ok": True, "path": path, "content": content[:20000]}
+            resolved = Path(path).expanduser().resolve()
+            # Allowlist check — same dirs as write_file; dev mode bypasses
+            _default_safe = [
+                str(Path.home() / "Downloads"),
+                str(Path.home() / "Documents"),
+                str(Path.home() / "Desktop"),
+            ]
+            _env_dirs = os.environ.get("GUPPY_WRITE_DIRS", "")
+            _allowed  = [d.strip() for d in _env_dirs.split(";") if d.strip()] or _default_safe
+            _dev = os.environ.get("GUPPY_DEV_MODE", "").lower() in ("1", "true", "yes")
+            resolved_str = str(resolved)
+            if not _dev and not any(resolved_str.startswith(a) for a in _allowed):
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Path not in read-allowed directories. "
+                        f"Allowed: {_allowed}. Set GUPPY_WRITE_DIRS to override."
+                    ),
+                }
+            content = resolved.read_text(encoding="utf-8", errors="replace")
+            return {"ok": True, "path": resolved_str, "content": content[:20000]}
+        except PermissionError:
+            return {"ok": False, "error": "Permission denied"}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 

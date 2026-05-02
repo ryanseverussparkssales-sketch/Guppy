@@ -31,6 +31,7 @@ from src.guppy.api.realtime_inference_support import (
     _REPLACE_SENTINEL,
     _SOURCE_SENTINEL,
     _repair_tool_json,
+    sanitize_chat_history,
     stream_unified_inference,
 )
 from src.guppy.api.server_context import ServerContext
@@ -491,16 +492,23 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
     @router.get("/sessions/{session_id}/messages", response_model=list[MessageResponse])
     async def get_session_messages(
         session_id: str,
+        limit: int = 100,
+        offset: int = 0,
         _user_id: str = Depends(ctx.require_rate_limit),
     ) -> list[MessageResponse]:
-        """Get all messages in a session."""
+        """Get messages in a session with optional pagination."""
         with _db() as conn:
+            if not conn.execute(
+                "SELECT 1 FROM conversation_sessions WHERE id = ?", (session_id,)
+            ).fetchone():
+                raise HTTPException(status_code=404, detail="Session not found")
             rows = conn.execute(
                 """SELECT id, role, content, created_at
                    FROM conversation_session_messages
                    WHERE conversation_id = ?
-                   ORDER BY created_at ASC""",
-                (session_id,),
+                   ORDER BY created_at ASC
+                   LIMIT ? OFFSET ?""",
+                (session_id, max(1, min(limit, 500)), max(0, offset)),
             ).fetchall()
             return [
                 MessageResponse(
@@ -616,7 +624,8 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                 ).fetchone()
                 if not c:
                     raise HTTPException(status_code=404, detail="Session not found")
-                backend = c["model_backend"]
+                # Always use current active partner; fall back to stored backend
+                backend = get_active_conversation_partner() or c["model_backend"]
 
         # Save user message
         user_msg_id = str(uuid.uuid4())
@@ -629,14 +638,17 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
             )
             conn.commit()
 
-        # Get history
+        # Get history (trim to context budget before inference)
         with _db() as conn:
             history_rows = conn.execute(
                 """SELECT role, content FROM conversation_session_messages
                    WHERE conversation_id = ? ORDER BY created_at ASC""",
                 (session_id,),
             ).fetchall()
-            history = [{"role": row["role"], "content": row["content"]} for row in history_rows]
+            history = sanitize_chat_history(
+                [{"role": row["role"], "content": row["content"]} for row in history_rows],
+                backend=backend,
+            )
 
         # Run inference
         full_response = ""
@@ -655,26 +667,40 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
 
         # Execute tools and format clean confirmation
         stripped_response = _strip_tool_blocks(full_response)
-        tool_markdown, tool_results = await _execute_and_format_conversation_tools(
-            ctx,
-            full_response,
-            session_id=session_id,
-        )
+        try:
+            tool_markdown, tool_results = await _execute_and_format_conversation_tools(
+                ctx,
+                full_response,
+                session_id=session_id,
+            )
+        except Exception as e:
+            logger.exception("Tool execution failed")
+            tool_markdown, tool_results = "", []
         final_response = (stripped_response + tool_markdown).strip()
 
-        # Save assistant message
+        # Save assistant message; auto-title on first exchange
         assistant_msg_id = str(uuid.uuid4())
+        now = _now()
         with _db() as conn:
             conn.execute(
                 """INSERT INTO conversation_session_messages
                    (id, conversation_id, role, content, created_at)
                    VALUES (?, ?, ?, ?, ?)""",
-                (assistant_msg_id, session_id, "assistant", final_response, _now()),
+                (assistant_msg_id, session_id, "assistant", final_response, now),
             )
             conn.execute(
                 "UPDATE conversation_sessions SET updated_at = ? WHERE id = ?",
-                (_now(), session_id),
+                (now, session_id),
             )
+            title_row = conn.execute(
+                "SELECT session_title FROM conversation_sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            if title_row and title_row[0].startswith("Session "):
+                new_title = req.message[:60].rstrip() or title_row[0]
+                conn.execute(
+                    "UPDATE conversation_sessions SET session_title = ? WHERE id = ?",
+                    (new_title, session_id),
+                )
             conn.commit()
 
         return {
@@ -715,7 +741,8 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                 ).fetchone()
                 if not c:
                     raise HTTPException(status_code=404, detail="Session not found")
-                backend = c["model_backend"]
+                # Always use current active partner; fall back to stored backend
+                backend = get_active_conversation_partner() or c["model_backend"]
 
         # Save user message
         user_msg_id = str(uuid.uuid4())
@@ -728,14 +755,17 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
             )
             conn.commit()
 
-        # Get history
+        # Get history (trim to context budget before inference)
         with _db() as conn:
             history_rows = conn.execute(
                 """SELECT role, content FROM conversation_session_messages
                    WHERE conversation_id = ? ORDER BY created_at ASC""",
                 (session_id,),
             ).fetchall()
-            history = [{"role": row["role"], "content": row["content"]} for row in history_rows]
+            history = sanitize_chat_history(
+                [{"role": row["role"], "content": row["content"]} for row in history_rows],
+                backend=backend,
+            )
 
         async def _stream():
             """Stream tokens + execute tool calls + synthesize results + save."""
@@ -763,27 +793,34 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                             )
                             for chunk in chunks:
                                 if chunk:
-                                    yield f"data: {json.dumps({'token': chunk, 'session_id': session_id})}\n\n"
+                                    yield f"data: {json.dumps({'token': chunk})}\n\n"
                 except asyncio.TimeoutError:
                     logger.warning("[conversations] Phase-1 inference timed out (session %s)", session_id)
+                    yield f"data: {json.dumps({'error': 'Response timed out. Please try again.'})}\n\n"
                 except asyncio.CancelledError:
                     logger.info("Client disconnected mid-stream — cancelling conversations phase-1 inference")
                     return
 
                 # Flush remaining visible buffer (text after last tool block)
                 if visible_buffer and tool_marker is None:
-                    yield f"data: {json.dumps({'token': visible_buffer, 'session_id': session_id})}\n\n"
+                    yield f"data: {json.dumps({'token': visible_buffer})}\n\n"
 
                 # Phase 2: execute tool calls
                 stripped_response = _strip_tool_blocks(full_response)
                 final_response = stripped_response
 
                 if _TOOL_CALL_RE.search(full_response):
-                    tool_markdown, tool_results = await _execute_and_format_conversation_tools(
-                        ctx,
-                        full_response,
-                        session_id=session_id,
-                    )
+                    try:
+                        tool_markdown, tool_results = await _execute_and_format_conversation_tools(
+                            ctx,
+                            full_response,
+                            session_id=session_id,
+                        )
+                    except Exception as tool_exc:
+                        logger.exception("[conversations] Tool execution failed (session %s)", session_id)
+                        yield f"data: {json.dumps({'error': f'Tool error: {tool_exc}'})}\n\n"
+                        tool_markdown, tool_results = "", []
+
                     if tool_results:
                         # Phase 3: synthesis — model sees tool results and generates answer
                         synthesis_history = list(history)
@@ -807,9 +844,10 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                                 ):
                                     synthesis_text += token
                                     if token:
-                                        yield f"data: {json.dumps({'token': token, 'session_id': session_id})}\n\n"
+                                        yield f"data: {json.dumps({'token': token})}\n\n"
                         except asyncio.TimeoutError:
                             logger.warning("[conversations] Synthesis inference timed out (session %s)", session_id)
+                            yield f"data: {json.dumps({'error': 'Synthesis timed out.'})}\n\n"
                         except asyncio.CancelledError:
                             logger.info("Client disconnected mid-stream — cancelling conversations synthesis inference")
                             return
@@ -819,19 +857,29 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                             + synthesis_text
                         ).strip()
 
-                # Save assistant message
+                # Save assistant message; auto-title on first exchange
                 assistant_msg_id = str(uuid.uuid4())
+                save_now = _now()
                 with _db() as conn:
                     conn.execute(
                         """INSERT INTO conversation_session_messages
                            (id, conversation_id, role, content, created_at)
                            VALUES (?, ?, ?, ?, ?)""",
-                        (assistant_msg_id, session_id, "assistant", final_response, _now()),
+                        (assistant_msg_id, session_id, "assistant", final_response, save_now),
                     )
                     conn.execute(
                         "UPDATE conversation_sessions SET updated_at = ? WHERE id = ?",
-                        (_now(), session_id),
+                        (save_now, session_id),
                     )
+                    title_row = conn.execute(
+                        "SELECT session_title FROM conversation_sessions WHERE id = ?", (session_id,)
+                    ).fetchone()
+                    if title_row and title_row[0].startswith("Session "):
+                        new_title = req.message[:60].rstrip() or title_row[0]
+                        conn.execute(
+                            "UPDATE conversation_sessions SET session_title = ? WHERE id = ?",
+                            (new_title, session_id),
+                        )
                     conn.commit()
 
                 yield "data: [DONE]\n\n"
@@ -840,7 +888,7 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                 return
             except Exception as e:
                 logger.exception("Stream error")
-                yield f"data: {json.dumps({'error': str(e), 'session_id': session_id})}\n\n"
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
         return StreamingResponse(_with_keepalives(_stream()), media_type="text/event-stream")
 
