@@ -143,6 +143,16 @@ async def _execute_companion_tool(name: str, args: dict) -> dict:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    if name == "get_time":
+        from datetime import datetime
+        now = datetime.now()
+        return {
+            "ok": True,
+            "time": now.strftime("%H:%M"),
+            "date": now.strftime("%A, %B %d, %Y"),
+            "iso": now.isoformat(),
+        }
+
     result = {"ok": False, "error": f"Unknown tool: {name}"}
     _store_outcome(name, args, result)
     return result

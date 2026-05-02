@@ -69,14 +69,22 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "vram_gb": 9.0,
     },
     "llamacpp-dispatch": {
-        "bat":     r"C:\llama-cpp\launch-dispatch.bat",
-        "port":    8085,
-        "label":   "Qwen2.5-3B Dispatch",
-        "mode":    "A",
-        "note":    "Dispatch · ~2 GB VRAM · lightweight router",
-        "vram_gb": 2.0,
+        "bat":        r"C:\llama-cpp\launch-dispatch.bat",
+        "port":       8085,
+        "label":      "Qwen2.5-3B Dispatch",
+        "mode":       "A",
+        "note":       "Dispatch · ~2 GB VRAM · lightweight router — always-on",
+        "vram_gb":    2.0,
+        "auto_start": True,
     },
     "llamacpp-phi4-mini": {
+        "cmd":     [
+            r"C:\llama-cpp\llama-server.exe",
+            "--model", r"C:\llama-cpp\models\phi4-mini\Phi-4-mini-instruct-Q4_K_M.gguf",
+            "--port", "8091", "--host", "127.0.0.1",
+            "--ctx-size", "8192", "--n-gpu-layers", "99",
+            "--jinja", "--no-mmap", "-ngl", "99",
+        ],
         "bat":     r"C:\llama-cpp\launch-phi4-mini.bat",
         "port":    8091,
         "label":   "Phi-4-mini Orchestrator",
@@ -518,6 +526,7 @@ def _warm_kv_cache(port: int) -> None:
 _WATCHDOG_ALWAYS_ON = {
     "llamacpp-nomic-embed": 8092,
     "llamacpp-phi4-mini":   8091,
+    "llamacpp-dispatch":    8085,
     "llamacpp-hermes3":     8087,
     "llamacpp-hermes4":     8086,
 }

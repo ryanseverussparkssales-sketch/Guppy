@@ -41,6 +41,7 @@ async def route_by_surface(
     instance_name: str | None,
     instance_type: str | None,
     skip_tools: bool,
+    active_local_model: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Yield streaming tokens for companion/workspace/codespace surfaces.
 
@@ -115,35 +116,54 @@ async def route_by_surface(
             _log.warning("Surface %s free cloud (%s) failed: %s", surface, _prov, _fc_err)
 
     if surface == "companion":
-        # Pass-1: Hermes3 (fast 8B, basic tools only)
-        _h3m = _sp_backend_alive("llamacpp-hermes3")
-        if _h3m:
-            _msgs = _sp_make_messages("llamacpp-hermes3")
+        # Pass-1: user-selected model OR Rocinante (12B, 16K ctx, personality-first default)
+        # Falls back to Hermes3 if Rocinante is offline.
+        _p1_keys = []
+        if active_local_model and active_local_model not in ("llamacpp-rocinante", "llamacpp-hermes3"):
+            _p1_keys.append(active_local_model)
+        _p1_keys.append("llamacpp-rocinante")
+        _p1_keys.append("llamacpp-hermes3")
+
+        for _p1_key in _p1_keys:
+            _p1m = _sp_backend_alive(_p1_key)
+            if not _p1m:
+                continue
+            _msgs = _sp_make_messages(_p1_key)
             _tools = _sp_companion_tools() if not skip_tools else None
             try:
+                _yielded = False
                 async for tok in _stream_llamacpp_tokens(
-                    model=_h3m, backend="llamacpp-hermes3",
+                    model=_p1m, backend=_p1_key,
                     messages=_msgs, tools=_tools, tool_runner=_sp_tool_runner,
                     max_tool_rounds=2,
                 ):
                     yield tok
-                yield _SOURCE_SENTINEL + f"llamacpp-hermes3:{_h3m}"
+                    _yielded = True
+                if not _yielded:
+                    raise RuntimeError(f"{_p1_key} yielded 0 tokens — falling through")
+                yield _SOURCE_SENTINEL + f"{_p1_key}:{_p1m}"
                 return
             except RuntimeError as _e:
-                _log.warning("Companion Hermes3 failed: %s — trying orchestrator", _e)
+                _log.warning("Companion %s failed: %s — trying orchestrator", _p1_key, _e)
 
         # Pass-2: Phi-4-mini dispatch as orchestrator (complex escalation)
         for _orch_key in ("llamacpp-phi4-mini", "llamacpp-dispatch"):
+            if active_local_model and _orch_key == active_local_model:
+                continue  # already tried above
             _om = _sp_backend_alive(_orch_key)
             if _om:
                 _msgs = _sp_make_messages(_orch_key)
                 try:
+                    _yielded = False
                     async for tok in _stream_llamacpp_tokens(
                         model=_om, backend=_orch_key,
                         messages=_msgs, tools=_sp_full_tools(), tool_runner=_sp_tool_runner,
                         max_tool_rounds=6,
                     ):
                         yield tok
+                        _yielded = True
+                    if not _yielded:
+                        raise RuntimeError(f"{_orch_key} yielded 0 tokens — falling through")
                     yield _SOURCE_SENTINEL + f"{_orch_key}:{_om}"
                     return
                 except RuntimeError as _e:
@@ -183,39 +203,60 @@ async def route_by_surface(
         return
 
     elif surface == "workspace":
-        # Pass-1: Phi-4-mini or dispatch as orchestrator
-        for _orch_key in ("llamacpp-phi4-mini", "llamacpp-dispatch"):
-            _om = _sp_backend_alive(_orch_key)
-            if _om:
-                _msgs = _sp_make_messages(_orch_key)
-                try:
-                    async for tok in _stream_llamacpp_tokens(
-                        model=_om, backend=_orch_key,
-                        messages=_msgs, tools=_sp_full_tools(), tool_runner=_sp_tool_runner,
-                        max_tool_rounds=8,
-                    ):
-                        yield tok
-                    yield _SOURCE_SENTINEL + f"{_orch_key}:{_om}"
-                    return
-                except RuntimeError as _e:
-                    _log.warning("Workspace orchestrator %s failed: %s", _orch_key, _e)
+        # Pass-1: user-selected model OR Hermes4 (32K context, full tools, primary worker)
+        # Phi4-mini / dispatch are orchestrators but have tiny context windows — they fall
+        # through to hermes4 when the augmented workspace system prompt overflows them.
+        # Ordering: user override → hermes4 → phi4-mini → dispatch
+        _w1_keys = []
+        if active_local_model:
+            _w1_keys.append(active_local_model)
+        for _k in ("llamacpp-hermes4", "llamacpp-phi4-mini", "llamacpp-dispatch"):
+            if _k not in _w1_keys:
+                _w1_keys.append(_k)
 
-        # Pass-2: workers — Hermes4 then Hermes3
-        for _w_key in ("llamacpp-hermes4", "llamacpp-hermes3"):
+        for _w_key in _w1_keys:
             _wm = _sp_backend_alive(_w_key)
-            if _wm:
-                _msgs = _sp_make_messages(_w_key)
-                try:
-                    async for tok in _stream_llamacpp_tokens(
-                        model=_wm, backend=_w_key,
-                        messages=_msgs, tools=_sp_full_tools(), tool_runner=_sp_tool_runner,
-                        max_tool_rounds=6,
-                    ):
-                        yield tok
-                    yield _SOURCE_SENTINEL + f"{_w_key}:{_wm}"
-                    return
-                except RuntimeError as _e:
-                    _log.warning("Workspace worker %s failed: %s", _w_key, _e)
+            if not _wm:
+                continue
+            _msgs = _sp_make_messages(_w_key)
+            # Small-context orchestrators (phi4-mini, dispatch) get limited tools to avoid overflow
+            _is_small_ctx = _w_key in ("llamacpp-phi4-mini", "llamacpp-dispatch")
+            _tools = (_sp_companion_tools() if _is_small_ctx else _sp_full_tools()) if not skip_tools else None
+            try:
+                _yielded = False
+                async for tok in _stream_llamacpp_tokens(
+                    model=_wm, backend=_w_key,
+                    messages=_msgs, tools=_tools, tool_runner=_sp_tool_runner,
+                    max_tool_rounds=8 if not _is_small_ctx else 3,
+                ):
+                    yield tok
+                    _yielded = True
+                if not _yielded:
+                    raise RuntimeError(f"{_w_key} yielded 0 tokens — falling through")
+                yield _SOURCE_SENTINEL + f"{_w_key}:{_wm}"
+                return
+            except RuntimeError as _e:
+                _log.warning("Workspace %s failed: %s — trying next", _w_key, _e)
+
+        # Pass-2: Hermes3 fallback worker
+        _h3m = _sp_backend_alive("llamacpp-hermes3")
+        if _h3m and "llamacpp-hermes3" not in _w1_keys:
+            _msgs = _sp_make_messages("llamacpp-hermes3")
+            try:
+                _yielded = False
+                async for tok in _stream_llamacpp_tokens(
+                    model=_h3m, backend="llamacpp-hermes3",
+                    messages=_msgs, tools=_sp_companion_tools(), tool_runner=_sp_tool_runner,
+                    max_tool_rounds=2,
+                ):
+                    yield tok
+                    _yielded = True
+                if not _yielded:
+                    raise RuntimeError("hermes3 yielded 0 tokens")
+                yield _SOURCE_SENTINEL + f"llamacpp-hermes3:{_h3m}"
+                return
+            except RuntimeError as _e:
+                _log.warning("Workspace hermes3 fallback failed: %s", _e)
 
         # Pass-3: free cloud
         _prov, _fck = _sp_free_cloud_key()
@@ -251,22 +292,34 @@ async def route_by_surface(
         return
 
     elif surface == "codespace":
-        # No dedicated orchestrator — direct to workers
-        for _w_key in ("llamacpp-hermes4", "llamacpp-hermes3"):
+        # No dedicated orchestrator — direct to workers (hermes4 preferred, hermes3 fallback)
+        _cs_keys = []
+        if active_local_model:
+            _cs_keys.append(active_local_model)
+        for _k in ("llamacpp-hermes4", "llamacpp-hermes3"):
+            if _k not in _cs_keys:
+                _cs_keys.append(_k)
+
+        for _w_key in _cs_keys:
             _wm = _sp_backend_alive(_w_key)
-            if _wm:
-                _msgs = _sp_make_messages(_w_key)
-                try:
-                    async for tok in _stream_llamacpp_tokens(
-                        model=_wm, backend=_w_key,
-                        messages=_msgs, tools=_sp_full_tools(), tool_runner=_sp_tool_runner,
-                        max_tool_rounds=6,
-                    ):
-                        yield tok
-                    yield _SOURCE_SENTINEL + f"{_w_key}:{_wm}"
-                    return
-                except RuntimeError as _e:
-                    _log.warning("Codespace worker %s failed: %s", _w_key, _e)
+            if not _wm:
+                continue
+            _msgs = _sp_make_messages(_w_key)
+            try:
+                _yielded = False
+                async for tok in _stream_llamacpp_tokens(
+                    model=_wm, backend=_w_key,
+                    messages=_msgs, tools=_sp_full_tools(), tool_runner=_sp_tool_runner,
+                    max_tool_rounds=6,
+                ):
+                    yield tok
+                    _yielded = True
+                if not _yielded:
+                    raise RuntimeError(f"{_w_key} yielded 0 tokens")
+                yield _SOURCE_SENTINEL + f"{_w_key}:{_wm}"
+                return
+            except RuntimeError as _e:
+                _log.warning("Codespace worker %s failed: %s — trying next", _w_key, _e)
 
         # Free cloud fallback
         _prov, _fck = _sp_free_cloud_key()

@@ -102,15 +102,18 @@ CREATE TABLE IF NOT EXISTS surface_config (
 );
 
 CREATE TABLE IF NOT EXISTS surface_tasks (
-    id           TEXT PRIMARY KEY,
-    surface      TEXT NOT NULL,
-    source       TEXT NOT NULL DEFAULT 'user',
-    title        TEXT NOT NULL,
-    description  TEXT NOT NULL DEFAULT '',
-    status       TEXT NOT NULL DEFAULT 'queued',
-    result       TEXT,
-    created_at   TEXT NOT NULL,
-    updated_at   TEXT NOT NULL
+    id               TEXT PRIMARY KEY,
+    surface          TEXT NOT NULL,
+    source           TEXT NOT NULL DEFAULT 'user',
+    title            TEXT NOT NULL,
+    description      TEXT NOT NULL DEFAULT '',
+    status           TEXT NOT NULL DEFAULT 'queued',
+    result           TEXT,
+    parent_task_id   TEXT,
+    callback_surface TEXT,
+    result_summary   TEXT,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
 );
 """
 
@@ -125,6 +128,22 @@ def _db() -> sqlite3.Connection:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _ensure_new_columns() -> None:
+    """Migrate existing DBs: add columns introduced after initial schema creation."""
+    new_cols = [
+        ("surface_tasks", "parent_task_id",  "TEXT"),
+        ("surface_tasks", "callback_surface", "TEXT"),
+        ("surface_tasks", "result_summary",   "TEXT"),
+    ]
+    with _db() as conn:
+        for table, col, coltype in new_cols:
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
 
 def _init_db() -> None:
@@ -155,6 +174,7 @@ def _init_db() -> None:
                 ),
             )
         conn.commit()
+    _ensure_new_columns()
 
 
 # ── Internal task-spawn helper (called without HTTP context) ──────────────────
@@ -165,6 +185,8 @@ def _spawn_task_direct(
     description: str = "",
     source: str = "companion",
     surface: str = "workspace",
+    parent_task_id: str | None = None,
+    callback_surface: str | None = None,
 ) -> dict:
     """Spawn a task directly from internal code (e.g. companion tool executor).
 
@@ -178,9 +200,11 @@ def _spawn_task_direct(
     with _db() as conn:
         conn.execute(
             """INSERT INTO surface_tasks
-               (id, surface, source, title, description, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)""",
-            (task_id, surface, source, title, description, now, now),
+               (id, surface, source, title, description, status,
+                parent_task_id, callback_surface, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)""",
+            (task_id, surface, source, title, description,
+             parent_task_id, callback_surface, now, now),
         )
         conn.execute(
             """UPDATE surface_state
@@ -199,6 +223,8 @@ def _spawn_task_direct(
         "title": title,
         "description": description,
         "status": "queued",
+        "parent_task_id": parent_task_id,
+        "callback_surface": callback_surface,
         "created_at": now,
     }
     _broadcast_event("task_spawned", task)
@@ -251,7 +277,12 @@ def _capture_loop() -> None:
 
 
 def _broadcast_event(event_type: str, data: dict[str, Any]) -> None:
-    """Thread-safe broadcast to all connected SSE clients."""
+    """Thread-safe broadcast to all connected SSE clients.
+
+    Each client has a bounded asyncio.Queue(maxsize=200).  If a client's queue
+    is full (slow/stale connection) its event is silently dropped with a warning
+    rather than blocking or growing unbounded.
+    """
     payload = {"type": event_type, "data": data, "ts": _now()}
     msg = f"event: {event_type}\ndata: {json.dumps(payload)}\n\n"
     if not _sse_loop:
@@ -259,15 +290,20 @@ def _broadcast_event(event_type: str, data: dict[str, Any]) -> None:
     with _sse_clients_lock:
         snapshot = list(_sse_clients)
     for q in snapshot:
+        def _try_put(_q=q, _m=msg, _et=event_type) -> None:
+            try:
+                _q.put_nowait(_m)
+            except asyncio.QueueFull:
+                _log.warning("[surface.sse] slow client evicted (queue full): event=%s qid=%s", _et, id(_q))
         try:
-            _sse_loop.call_soon_threadsafe(q.put_nowait, msg)
+            _sse_loop.call_soon_threadsafe(_try_put)
         except Exception:
-            _log.debug("[surface.sse] broadcast drop for queue %s: event=%s", id(q), event_type)
+            _log.debug("[surface.sse] broadcast schedule failed: event=%s", event_type)
 
 
 async def _sse_generator() -> AsyncGenerator[str, None]:
     _capture_loop()
-    q: asyncio.Queue = asyncio.Queue()
+    q: asyncio.Queue = asyncio.Queue(maxsize=200)
     with _sse_clients_lock:
         _sse_clients.add(q)
     try:
@@ -307,10 +343,17 @@ class SurfaceConfigUpdate(BaseModel):
 
 
 class SpawnTaskRequest(BaseModel):
-    surface:     str
-    title:       str
-    description: str = ""
-    source:      str = "user"     # 'user' | 'companion' | 'workspace' | 'codespace'
+    surface:          str
+    title:            str
+    description:      str = ""
+    source:           str = "user"     # 'user' | 'companion' | 'workspace' | 'codespace'
+    parent_task_id:   str | None = None
+    callback_surface: str | None = None
+
+
+class TaskCallbackRequest(BaseModel):
+    result_summary:  str
+    source_task_id:  str | None = None
 
 
 # ── 24/7 background loop ───────────────────────────────────────────────────────
@@ -320,7 +363,13 @@ _bg_log = logging.getLogger(__name__ + ".bg")
 _task_executor_running = False   # simple flag — only one task runs at a time
 
 
-async def _run_workspace_task(task_id: str, title: str, description: str) -> None:
+async def _run_workspace_task(
+    task_id: str,
+    title: str,
+    description: str,
+    parent_task_id: str | None = None,
+    callback_surface: str | None = None,
+) -> None:
     """Run one queued workspace task through Hermes4 (port 8086).
 
     Marks the task in_progress → completed/failed, broadcasts SSE events
@@ -358,9 +407,26 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
     from src.guppy.api.routes_realtime import _WORKSPACE_TOOL_SCHEMA, _TOOL_CALL_RE, _execute_workspace_tool
     from src.guppy.api.realtime_inference_support import _repair_tool_json
 
+    # Inject relevant semantic context so the agent benefits from past task outcomes,
+    # user preferences, and prior workspace results before the first LLM call.
+    _semantic_suffix = ""
+    try:
+        from src.guppy.memory.semantic import recall_semantic
+        _mem = await asyncio.to_thread(
+            recall_semantic,
+            f"{title} {description}"[:400],
+            5,
+            "",  # all categories
+        )
+        if _mem and not _mem.startswith("Error:") and "nothing found" not in _mem.lower():
+            _semantic_suffix = f"\n\n[Relevant memory context]\n{_mem[:1200]}"
+    except Exception as _me:
+        _bg_log.debug("[task_exec] memory recall skipped: %s", _me)
+
     system_prompt = (
         "You are the Guppy Workspace agent — an autonomous operator running a background task.\n"
         "Complete the task fully. Use tools as needed. Report what you did concisely."
+        + _semantic_suffix
         + _WORKSPACE_TOOL_SCHEMA
     )
 
@@ -491,6 +557,27 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
         })
         _bg_log.info("[task_exec] task %s completed", task_id)
 
+        # Fire callback to parent task if this was spawned as a child task
+        if parent_task_id:
+            try:
+                _cb_surface = callback_surface or "workspace"
+                with _db() as conn:
+                    conn.execute(
+                        "UPDATE surface_tasks SET result_summary=?, updated_at=? WHERE id=?",
+                        (final_result[:4000], _now(), parent_task_id),
+                    )
+                    conn.commit()
+                _broadcast_event("task_callback", {
+                    "parent_task_id": parent_task_id,
+                    "child_task_id": task_id,
+                    "child_title": title,
+                    "surface": _cb_surface,
+                    "result_summary": final_result[:500],
+                })
+                _bg_log.info("[task_exec] callback fired for parent=%s from child=%s", parent_task_id, task_id)
+            except Exception as _cb_exc:
+                _bg_log.warning("[task_exec] callback failed for parent=%s: %s", parent_task_id, _cb_exc)
+
     except Exception as exc:
         _bg_log.error("[task_exec] task %s failed: %s", task_id, exc)
         _update("failed", str(exc)[:1000])
@@ -501,10 +588,12 @@ async def _background_loop() -> None:
     """24/7 async background task: reminder delivery + workspace task execution.
 
     Runs every 30 s. Delivers due reminders as SSE events, processes one queued
-    workspace task per cycle through Hermes4, and ages stale tasks after 6 h.
+    workspace task per cycle through Hermes4, ages stale tasks after 6 h, and
+    tombstone-deletes terminal tasks older than 30 days once per 24 h.
     """
     global _task_executor_running
     _bg_log.info("[surface.bg] background loop started")
+    _last_tombstone = 0.0  # epoch seconds — tracks last daily cleanup
 
     while True:
         try:
@@ -532,22 +621,30 @@ async def _background_loop() -> None:
             try:
                 with _db() as conn:
                     row = conn.execute(
-                        "SELECT id, title, description FROM surface_tasks "
+                        "SELECT id, title, description, parent_task_id, callback_surface "
+                        "FROM surface_tasks "
                         "WHERE surface='workspace' AND status='queued' "
                         "ORDER BY created_at ASC LIMIT 1"
                     ).fetchone()
                 if row:
                     _task_executor_running = True
-                    task_id, title, description = row["id"], row["title"], row["description"]
+                    task_id    = row["id"]
+                    title      = row["title"]
+                    description = row["description"]
+                    _ptid      = row["parent_task_id"]
+                    _cbsurf    = row["callback_surface"]
 
-                    async def _run_and_clear(tid: str, ttl: str, desc: str) -> None:
+                    async def _run_and_clear(
+                        tid: str, ttl: str, desc: str,
+                        ptid: str | None, cbsurf: str | None,
+                    ) -> None:
                         global _task_executor_running
                         try:
-                            await _run_workspace_task(tid, ttl, desc)
+                            await _run_workspace_task(tid, ttl, desc, ptid, cbsurf)
                         finally:
                             _task_executor_running = False
 
-                    asyncio.create_task(_run_and_clear(task_id, title, description))
+                    asyncio.create_task(_run_and_clear(task_id, title, description, _ptid, _cbsurf))
             except Exception as exc:
                 _task_executor_running = False
                 _bg_log.error("[surface.bg] task dispatch error: %s", exc)
@@ -587,6 +684,28 @@ async def _background_loop() -> None:
                         conn.commit()
         except Exception as exc:
             _bg_log.error("[surface.bg] stale task cleanup error: %s", exc)
+
+        # ── Tombstone deletion (once per 24 h) ───────────────────────────────
+        # Delete terminal tasks older than 30 days to prevent unbounded table growth.
+        try:
+            import time as _time
+            now_epoch = _time.monotonic()
+            if now_epoch - _last_tombstone > 86_400 and _DB_PATH:
+                from datetime import timedelta
+                cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+                with _db() as conn:
+                    deleted = conn.execute(
+                        """DELETE FROM surface_tasks
+                           WHERE status IN ('completed','failed','stale','cancelled')
+                             AND updated_at < ?""",
+                        (cutoff,),
+                    ).rowcount
+                    conn.commit()
+                if deleted:
+                    _bg_log.info("[surface.bg] tombstone: deleted %d old terminal tasks", deleted)
+                _last_tombstone = now_epoch
+        except Exception as exc:
+            _bg_log.error("[surface.bg] tombstone cleanup error: %s", exc)
 
 
 # ── Router ─────────────────────────────────────────────────────────────────────
@@ -746,9 +865,11 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
         with _db() as conn:
             conn.execute(
                 """INSERT INTO surface_tasks
-                   (id, surface, source, title, description, status, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)""",
-                (task_id, body.surface, body.source, body.title, body.description, now, now),
+                   (id, surface, source, title, description, status,
+                    parent_task_id, callback_surface, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)""",
+                (task_id, body.surface, body.source, body.title, body.description,
+                 body.parent_task_id, body.callback_surface, now, now),
             )
             # Increment agent_count on the target surface
             conn.execute(
@@ -768,6 +889,8 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
             "title": body.title,
             "description": body.description,
             "status": "queued",
+            "parent_task_id": body.parent_task_id,
+            "callback_surface": body.callback_surface,
             "created_at": now,
         }
         _broadcast_event("task_spawned", task)
@@ -868,6 +991,39 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
             )
             conn.commit()
         _broadcast_event("task_cancelled", {"id": task_id})
+
+    # ── Task callback (child → parent result notification) ─────────────────────
+
+    @router.post("/tasks/{task_id}/callback")
+    def task_callback(
+        task_id: str,
+        body: TaskCallbackRequest,
+        _uid: str = Depends(ctx.require_rate_limit),
+    ):
+        """Attach a result from a child task back to a parent task.
+
+        Called by Codespace triage (or any child process) when it finishes work
+        spawned on behalf of a Workspace task.  Updates `result_summary` on the
+        target task and broadcasts a `task_callback` SSE event so WorkspaceView
+        can show a "Fix ready" chip in the Agents tab.
+        """
+        with _db() as conn:
+            row = conn.execute("SELECT * FROM surface_tasks WHERE id=?", (task_id,)).fetchone()
+            if not row:
+                raise HTTPException(404, "Task not found")
+            conn.execute(
+                "UPDATE surface_tasks SET result_summary=?, updated_at=? WHERE id=?",
+                (body.result_summary[:4000], _now(), task_id),
+            )
+            conn.commit()
+        _broadcast_event("task_callback", {
+            "task_id": task_id,
+            "surface": row["surface"],
+            "title": row["title"],
+            "result_summary": body.result_summary[:500],
+            "source_task_id": body.source_task_id,
+        })
+        return {"ok": True, "task_id": task_id}
 
     # ── SSE events ─────────────────────────────────────────────────────────────
 

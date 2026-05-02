@@ -302,6 +302,10 @@ user's request clearly calls for them — don't make them ask twice.
   WHEN: user asks what tasks are running, pending, or completed; or "what's the status of my tasks".
   EXAMPLE: <tool_call>{"name": "list_workspace_tasks", "arguments": {"status": "queued"}}</tool_call>
 
+CONVERSATION HISTORY: If the user refers to something said earlier ("what did I ask",
+"remember when I said", "what was the last thing"), look at the prior messages above —
+the answer is already there. Do NOT say "you haven't sent anything yet."
+
 IMPORTANT: For casual chat, opinions, advice, creative writing, and anything
 that doesn't require live data or persistent state — answer directly, NO tools.
 """.strip()
@@ -505,7 +509,7 @@ async def _inject_workspace_context_async(system_prompt: str, owner: Any) -> str
 # ── Model identity injection ──────────────────────────────────────────────────
 
 _MODEL_IDENTITY: dict[str, tuple[str, str]] = {
-    "companion":  ("Hermes3 8B (fast conversational)",       "Personality-first assistant. For complex agentic tasks, use workspace_task tool."),
+    "companion":  ("Rocinante X 12B (personality-first)",     "Personality-first assistant. For complex agentic tasks, use workspace_task tool."),
     "workspace":  ("Hermes4 14B (reasoning + tools)",        "Agentic operations hub. Execute multi-step tasks with full tool access."),
     "codespace":  ("Hermes4 14B (code-focused)",             "Code generation, debugging, and sandbox execution."),
 }

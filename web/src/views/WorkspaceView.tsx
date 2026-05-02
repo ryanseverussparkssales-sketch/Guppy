@@ -6,13 +6,15 @@
  * Each tab mounts its panel in a consistent scrollable container.
  * Chat tab keeps the full AssistantView + collapsible AgentTaskPanel sidebar.
  */
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   MessageSquare, LayoutList, Users, Monitor, FolderOpen,
   Cpu, Phone, Zap, AlertCircle, Calendar, Mail, Library,
   CheckSquare, RefreshCw, FileText, Wrench, Brain,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { useSurfaceEvents } from '@/hooks/useSurfaceEvents'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
@@ -149,6 +151,22 @@ export default function WorkspaceView() {
     return (saved && TABS.some((t) => t.id === saved)) ? saved : 'chat'
   })
   const [refreshKey, setRefreshKey] = useState(0)
+  const [agentCallbacks, setAgentCallbacks] = useState(0)
+
+  const handleSurfaceEvent = useCallback((type: string, payload: any) => {
+    if (type === 'task_callback') {
+      const title = payload?.data?.title ?? 'Task'
+      const summary = payload?.data?.result_summary ?? ''
+      toast.success(`Fix ready: ${title}`, {
+        description: summary ? summary.slice(0, 120) : undefined,
+        action: { label: 'View', onClick: () => setActiveTab('agents') },
+        duration: 8000,
+      })
+      setAgentCallbacks((n) => n + 1)
+    }
+  }, [])
+
+  useSurfaceEvents(handleSurfaceEvent)
 
   const handleRefresh = () => setRefreshKey((k) => k + 1)
 
@@ -195,7 +213,11 @@ export default function WorkspaceView() {
           {TABS.map((t) => (
             <button
               key={t.id}
-              onClick={() => { setActiveTab(t.id); localStorage.setItem('ws_active_tab', t.id) }}
+              onClick={() => {
+                setActiveTab(t.id)
+                localStorage.setItem('ws_active_tab', t.id)
+                if (t.id === 'agents') setAgentCallbacks(0)
+              }}
               title={t.label}
               className={cn(
                 "relative w-9 h-9 flex items-center justify-center rounded-xl transition-all",
@@ -208,6 +230,10 @@ export default function WorkspaceView() {
               {/* Active dot */}
               {activeTab === t.id && (
                 <div className="absolute left-0.5 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-full" />
+              )}
+              {/* Callback badge — red dot on Agents tab when fix results arrive */}
+              {t.id === 'agents' && agentCallbacks > 0 && activeTab !== 'agents' && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-error" />
               )}
             </button>
           ))}

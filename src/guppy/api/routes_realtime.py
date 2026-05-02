@@ -22,8 +22,28 @@ from src.guppy.api.realtime_inference_support import (
 from src.guppy.voice import voice as _voice
 
 # ── Companion tool-call parser ─────────────────────────────────────────────────
-# Hermes 3/4 emit tool calls as: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
+# JSON format: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
 _TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+
+# XML format: <tool_call><name>...</name><arguments>JSON</arguments></tool_call>
+# Some Hermes4 generations use this format instead of JSON-in-tags.
+_TOOL_CALL_XML_RE = re.compile(
+    r"<tool_call>\s*<name>(.*?)</name>\s*<arguments>\s*(.*?)\s*</arguments>\s*</tool_call>",
+    re.DOTALL,
+)
+
+
+def _normalize_tool_calls(text: str) -> str:
+    """Convert XML-style tool calls to JSON-style so _TOOL_CALL_RE can parse them."""
+    def _to_json(m: re.Match) -> str:
+        name = m.group(1).strip()
+        args_raw = m.group(2).strip()
+        try:
+            args = json.loads(args_raw)
+        except Exception:
+            args = {}
+        return f'<tool_call>{{"name": "{name}", "arguments": {json.dumps(args)}}}</tool_call>'
+    return _TOOL_CALL_XML_RE.sub(_to_json, text)
 
 
 async def _execute_companion_tool(name: str, args: dict) -> dict:
@@ -137,6 +157,17 @@ _WORKSPACE_TOOL_SCHEMA = """
 You are an autonomous workspace agent. Use <tool_call> blocks to invoke tools.
 Chain multiple calls to complete tasks. Use tools when they would help — don't just describe.
 
+WHEN TO USE TOOLS (must satisfy at least one):
+- User asks to fetch, search, read, list, run, or download something external
+- User says "remember" or "store" something (memory_write)
+- User asks about a CRM contact or screenpipe event
+
+DO NOT use tools for:
+- Conversational questions ("what model are you", "what surface is this")
+- Simple math or factual questions answerable from training
+- Questions whose answer is visible in the conversation history above
+- Greetings, acknowledgements, or clarifying questions
+
 web_fetch(url, extract="")   — fetch any URL as plain text
   <tool_call>{"name": "web_fetch", "arguments": {"url": "https://www.gutenberg.org/files/1533/1533-0.txt", "extract": "witches"}}</tool_call>
 
@@ -243,7 +274,7 @@ async def _execute_workspace_tool(name: str, args: dict) -> dict:
             return {"ok": False, "error": str(e)}
 
     if name == "shell_run":
-        import subprocess
+        import subprocess, shlex
         command = str(args.get("command", "")).strip()
         if not command:
             return {"ok": False, "error": "command required"}
@@ -254,8 +285,9 @@ async def _execute_workspace_tool(name: str, args: dict) -> dict:
                 "error": f"Not in safe-command whitelist (read-only only): {command[:80]}",
             }
         try:
+            cmd_parts = shlex.split(command, posix=False)
             result = subprocess.run(
-                command, shell=True, capture_output=True, text=True, timeout=15,
+                cmd_parts, shell=False, capture_output=True, text=True, timeout=15,
             )
             return {
                 "ok": True,
@@ -387,7 +419,7 @@ def _get_active_cloud_model(provider: str = "") -> Optional[str]:
 # Sonnet for workspace/codespace (capable).
 
 _SURFACE_LOCAL_DEFAULTS: dict[str, str] = {
-    "companion": "llamacpp-hermes3",
+    "companion": "llamacpp-rocinante",
     "workspace": "llamacpp-hermes4",
     "codespace": "llamacpp-hermes4",
 }
@@ -698,7 +730,8 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
         _active_local_model = _get_surface_local_model(request.surface)
         _active_cloud_model = _get_surface_cloud_model(request.surface)
 
-        # Voice fast-path: companion voice always uses Hermes3 (fastest always-on)
+        # Voice fast-path: companion voice uses Hermes3 (8B, fastest for low latency TTS)
+        # Regular companion chat uses Rocinante (12B, better personality depth)
         if request.is_voice and request.surface == "companion":
             _active_local_model = "llamacpp-hermes3"
 
@@ -740,6 +773,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
             # ── Workspace surface: two-pass with full tool-call execution ─────
             if request.surface == "workspace":
                 first_response = ""
+                _p1_tool_signal = False   # True once "Calling tools…" replace is sent
                 try:
                     async for token in stream_unified_inference(
                         owner,
@@ -753,23 +787,41 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         active_cloud_model=_active_cloud_model,
                         image_base64=request.image_base64 or None,
                         skip_tools=True,
+                        surface=request.surface,
                     ):
-                        if token.startswith(_SOURCE_SENTINEL) or token.startswith(_REPLACE_SENTINEL):
+                        if token.startswith(_SOURCE_SENTINEL):
+                            continue
+                        if token.startswith(_REPLACE_SENTINEL):
+                            # Cache hit / atomic replace — relay to client and stop streaming
+                            first_response = token[len(_REPLACE_SENTINEL):]
+                            yield f"data: {json.dumps({'replace': first_response})}\n\n"
+                            _p1_tool_signal = True
                             continue
                         first_response += token
+                        if not _p1_tool_signal:
+                            if "<tool_call>" not in first_response:
+                                yield f"data: {json.dumps({'token': token})}\n\n"
+                            else:
+                                # Tool call starting — replace partial text with status
+                                yield f"data: {json.dumps({'replace': '⚙️ Calling tools…'})}\n\n"
+                                _p1_tool_signal = True
                 except Exception as exc:
-                    owner.logger.error("Workspace pass-1 buffering failed: %s", exc)
+                    owner.logger.error("Workspace pass-1 streaming failed: %s", exc)
                     yield f"data: {json.dumps({'error': str(exc)})}\n\n"
                     return
 
                 if not first_response.strip():
                     first_response = "Ready — what do you need?"
 
-                tool_blocks = _TOOL_CALL_RE.findall(first_response)
+                tool_blocks = _TOOL_CALL_RE.findall(_normalize_tool_calls(first_response))
 
                 if not tool_blocks:
                     full_response = first_response
-                    yield f"data: {json.dumps({'replace': first_response})}\n\n"
+                    if _p1_tool_signal:
+                        # A replace was sent (cache hit or false tool_call signal) —
+                        # ensure the client has the correct final text.
+                        yield f"data: {json.dumps({'replace': first_response})}\n\n"
+                    # Tokens already streamed for normal case — just signal done below.
                 else:
                     tool_results: list[dict] = []
                     for tc_json in tool_blocks:
@@ -834,11 +886,20 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         },
                     ]
 
+                    # Clear the "Calling tools…" status before streaming pass 2
+                    yield f"data: {json.dumps({'replace': ''})}\n\n"
+
+                    # Strip the heavy tool schema + file tree from pass-2 system prompt.
+                    # By this point the tool schema is in conversation history; re-injecting
+                    # it doubles context usage and pushes the 32K context over the limit.
+                    _p2_system = system_prompt.replace(_WORKSPACE_TOOL_SCHEMA, "").strip()
+                    _p2_system += "\n\nSynthesize the tool results above and give a clear, direct response to the user."
+
                     try:
                         async for token in stream_unified_inference(
                             owner,
                             "Respond based on the tool results.",
-                            system_prompt,
+                            _p2_system,
                             mode=request.mode,
                             history=follow_up_history,
                             instance_name=active_instance_name,
@@ -846,6 +907,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                             active_local_model=_active_local_model,
                             active_cloud_model=_active_cloud_model,
                             image_base64=None,
+                            surface=request.surface,
                         ):
                             if token.startswith(_SOURCE_SENTINEL):
                                 last_source = token[len(_SOURCE_SENTINEL):]
@@ -886,12 +948,13 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
 
             # ── Companion surface: two-pass with tool-call detection ───────────
             if request.surface == "companion":
-                # Pass 1: buffer streaming tokens to detect <tool_call> blocks.
-                # MUST use stream_unified_inference, not call_unified_inference:
-                # the non-streaming path runs through _parse_openai which strips
-                # <tool_call> blocks before they reach our regex. Streaming yields
-                # raw tokens so the markup is preserved for detection.
+                # Pass 1: stream tokens to client while detecting <tool_call> blocks.
+                # When a tool_call appears mid-stream, replace the partial display
+                # with a status message and proceed to tool execution.
+                # MUST use stream_unified_inference (not call_unified_inference) so
+                # <tool_call> markup is preserved in the raw token stream.
                 first_response = ""
+                _p1_tool_signal = False
                 try:
                     async for token in stream_unified_inference(
                         owner,
@@ -905,26 +968,40 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         active_cloud_model=_active_cloud_model,
                         image_base64=request.image_base64 or None,
                         skip_tools=True,
+                        surface=request.surface,
                     ):
-                        if token.startswith(_SOURCE_SENTINEL) or token.startswith(_REPLACE_SENTINEL):
+                        if token.startswith(_SOURCE_SENTINEL):
+                            continue
+                        if token.startswith(_REPLACE_SENTINEL):
+                            first_response = token[len(_REPLACE_SENTINEL):]
+                            yield f"data: {json.dumps({'replace': first_response})}\n\n"
+                            _p1_tool_signal = True
                             continue
                         first_response += token
+                        if not _p1_tool_signal:
+                            if "<tool_call>" not in first_response:
+                                yield f"data: {json.dumps({'token': token})}\n\n"
+                            else:
+                                yield f"data: {json.dumps({'replace': '⚙️ Calling tools…'})}\n\n"
+                                _p1_tool_signal = True
                 except Exception as exc:
-                    owner.logger.error("Companion pass-1 buffering failed: %s", exc)
+                    owner.logger.error("Companion pass-1 streaming failed: %s", exc)
                     yield f"data: {json.dumps({'error': str(exc)})}\n\n"
                     return
 
                 # If the model generated nothing, substitute a polite fallback so the
-                # frontend never receives an empty replace (which shows confusing UI).
+                # frontend never receives an empty display.
                 if not first_response.strip():
                     first_response = "I'm here — could you rephrase that?"
 
-                tool_blocks = _TOOL_CALL_RE.findall(first_response)
+                tool_blocks = _TOOL_CALL_RE.findall(_normalize_tool_calls(first_response))
 
                 if not tool_blocks:
-                    # No tool calls — deliver response via replace (instant display)
                     full_response = first_response
-                    yield f"data: {json.dumps({'replace': first_response})}\n\n"
+                    if _p1_tool_signal:
+                        # Replace sent earlier (cache hit or false tool signal)
+                        yield f"data: {json.dumps({'replace': first_response})}\n\n"
+                    # Normal case: tokens already streamed — done signal sent below
                 else:
                     # Execute each tool in sequence, emitting tool_exec status events
                     tool_results: list[dict] = []
@@ -991,6 +1068,9 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         },
                     ]
 
+                    # Clear the "Calling tools…" status before streaming pass 2
+                    yield f"data: {json.dumps({'replace': ''})}\n\n"
+
                     # Pass 2: stream the follow-up response
                     try:
                         async for token in stream_unified_inference(
@@ -1004,6 +1084,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                             active_local_model=_active_local_model,
                             active_cloud_model=_active_cloud_model,
                             image_base64=None,
+                            surface=request.surface,
                         ):
                             if token.startswith(_SOURCE_SENTINEL):
                                 last_source = token[len(_SOURCE_SENTINEL):]
@@ -1055,6 +1136,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     active_local_model=_active_local_model,
                     active_cloud_model=_active_cloud_model,
                     image_base64=request.image_base64 or None,
+                    surface=request.surface,
                 ):
                     if token.startswith(_SOURCE_SENTINEL):
                         last_source = token[len(_SOURCE_SENTINEL):]
@@ -1098,20 +1180,58 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     pass  # best-effort, never block the response
 
         async def _generate_with_heartbeat():
-            """Wrap _generate() with SSE comment keepalives every 15 s.
-            Prevents proxy / browser from killing idle slow-model connections."""
+            """Wrap _generate() with SSE keepalives and an inactivity timeout.
+
+            Uses a queue to decouple the generator from the heartbeat loop —
+            asyncio.shield on __anext__() is unsafe because calling __anext__()
+            while the previous shielded call is still running raises ValueError.
+            The queue approach runs the generator in a background task, feeding
+            chunks to the consumer; the consumer blocks on queue.get() with a
+            30 s timeout and emits a heartbeat comment when the queue is empty.
+            The heartbeat is a bare SSE comment (': heartbeat') which browsers
+            and proxies ignore but which keeps the TCP connection alive.
+            """
             import asyncio as _aio
-            gen = _generate()
-            last_yield = _aio.get_event_loop().time()
-            while True:
+            _stream_timeout = float(os.environ.get("GUPPY_STREAM_TIMEOUT_SECONDS", "300"))
+            _heartbeat_s = 30.0
+            _sentinel = object()
+
+            q: _aio.Queue = _aio.Queue()
+
+            async def _drain() -> None:
                 try:
-                    chunk = await _aio.wait_for(gen.__anext__(), timeout=15.0)
+                    async for chunk in _generate():
+                        await q.put(chunk)
+                except Exception as exc:
+                    await q.put(exc)
+                finally:
+                    await q.put(_sentinel)
+
+            drain_task = _aio.ensure_future(_drain())
+            last_yield = _aio.get_event_loop().time()
+
+            try:
+                while True:
+                    try:
+                        item = await _aio.wait_for(q.get(), timeout=_heartbeat_s)
+                    except _aio.TimeoutError:
+                        if _aio.get_event_loop().time() - last_yield > _stream_timeout:
+                            yield 'event: error\ndata: {"error": "Stream timeout — inference stalled"}\n\n'
+                            drain_task.cancel()
+                            break
+                        yield ": heartbeat\n\n"
+                        continue
+
+                    if item is _sentinel:
+                        break
+                    if isinstance(item, BaseException):
+                        yield f'event: error\ndata: {{"error": {json.dumps(str(item))}}}\n\n'
+                        break
                     last_yield = _aio.get_event_loop().time()
-                    yield chunk
-                except StopAsyncIteration:
-                    break
-                except _aio.TimeoutError:
-                    yield ": heartbeat\n\n"  # SSE comment — ignored by client, keeps TCP alive
+                    yield item
+            finally:
+                if not drain_task.done():
+                    drain_task.cancel()
 
         return StreamingResponse(
             _generate_with_heartbeat(),

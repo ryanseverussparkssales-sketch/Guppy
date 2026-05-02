@@ -206,6 +206,7 @@ COMPANION_ALLOWED_TOOLS = {
     "memory_read", "memory_write", "memory_recall", "promote_durable_chat_memory",
     "create_reminder", "download_media", "workspace_task",
     "cancel_workspace_task", "list_workspace_tasks",
+    "get_time",
 }
 
 # ── Voice session state ────────────────────────────────────────────────────────
@@ -533,6 +534,12 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
             except Exception as e:
                 raise HTTPException(500, f"memory_recall failed: {e}")
 
-        raise HTTPException(400, f"Unhandled action: {action}")
+        # Fallback: delegate to companion tool executor for all other allowed actions
+        # (get_time, workspace_task, cancel_workspace_task, list_workspace_tasks, etc.)
+        from src.guppy.api.tool_executor_companion import _execute_companion_tool
+        result = await _execute_companion_tool(action, p)
+        if not result.get("ok"):
+            raise HTTPException(400, result.get("error", f"Tool '{action}' failed"))
+        return result
 
     return router

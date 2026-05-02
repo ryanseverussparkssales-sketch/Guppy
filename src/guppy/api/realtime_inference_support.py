@@ -835,7 +835,7 @@ async def stream_unified_inference(
     """
     _history_limit = _SURFACE_HISTORY_LIMITS.get(surface, _CHAT_HISTORY_LIMIT)
     _surface_backend = {
-        "companion": "llamacpp-hermes3",
+        "companion": "llamacpp-rocinante",
         "workspace": "llamacpp-hermes4",
         "codespace": "llamacpp-hermes4",
     }.get(surface, "")
@@ -890,6 +890,7 @@ async def stream_unified_inference(
             instance_name=instance_name,
             instance_type=instance_type,
             skip_tools=skip_tools,
+            active_local_model=active_local_model or None,
         ):
             yield tok
         return

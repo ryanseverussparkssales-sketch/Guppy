@@ -124,6 +124,30 @@ def run_triage(trigger: str = "manual") -> dict[str, Any]:
         )
         conn.commit()
 
+    # Teach semantic memory: store each unique failure pattern so future agents
+    # can recall what errors have been seen and how they were categorised.
+    if failures:
+        try:
+            from src.guppy.memory.semantic import remember_semantic
+            # Deduplicate: strip line numbers / file paths to get the error type
+            _seen: set[str] = set()
+            for line in failures[:10]:
+                # Normalise: drop leading path components and collapse whitespace
+                _key_raw = re.sub(r"([\\/][\w.\-]+){2,}", "<path>", line)
+                _key_raw = re.sub(r"\s+", " ", _key_raw).strip()
+                _bucket  = _key_raw[:120]
+                if _bucket in _seen:
+                    continue
+                _seen.add(_bucket)
+                _mem_key = f"triage_error:{_bucket[:80]}"
+                _mem_val = (
+                    f"Triage failure ({status}) in run {run_id[:8]} "
+                    f"[trigger={trigger}]:\n{line.strip()}"
+                )
+                remember_semantic(_mem_key, _mem_val, "triage_pattern")
+        except Exception as _mex:
+            logger.debug("[triage] semantic pattern store skipped: %s", _mex)
+
     return {
         "id":           run_id,
         "triggered_at": started,
