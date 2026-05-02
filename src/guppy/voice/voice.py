@@ -190,28 +190,52 @@ async def transcribe(
     return result
 
 
+def _capture_audio_blocking(
+    duration_seconds: float = 5.0,
+    sample_rate: int = 16000,
+    channels: int = 1,
+) -> bytes:
+    """Capture audio from default microphone. Returns WAV bytes (blocking, for use with asyncio.to_thread)."""
+    import io
+    import wave
+
+    import numpy as np  # type: ignore
+    import sounddevice as sd  # type: ignore
+
+    recording = sd.rec(
+        int(duration_seconds * sample_rate),
+        samplerate=sample_rate,
+        channels=channels,
+        dtype=np.int16,
+    )
+    sd.wait()  # block until recording is complete
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(2)  # int16 = 2 bytes
+        wf.setframerate(sample_rate)
+        wf.writeframes(recording.tobytes())
+    return buf.getvalue()
+
+
 async def _capture_microphone_audio(
     duration_s: float = 5.0,
     sample_rate: int = 16000,
     channels: int = 1,
 ) -> bytes:
-    """Capture audio from the default microphone. Returns empty bytes if unavailable."""
+    """Capture audio from the default microphone. Returns WAV bytes, or empty bytes if unavailable."""
     try:
-        import sounddevice as sd  # type: ignore
-        import numpy as np  # type: ignore
+        import sounddevice  # noqa: F401 — availability check only
     except ImportError:
         logger.debug("sounddevice/numpy not installed — microphone capture unavailable")
         return b""
     try:
-        recording = await asyncio.to_thread(
-            sd.rec,
-            int(duration_s * sample_rate),
-            samplerate=sample_rate,
-            channels=channels,
-            dtype="int16",
-            blocking=True,
+        return await asyncio.to_thread(
+            _capture_audio_blocking,
+            duration_s,
+            sample_rate,
+            channels,
         )
-        return recording.tobytes()
     except Exception as exc:
         logger.warning("Microphone capture failed: %s", exc)
         return b""
@@ -222,25 +246,50 @@ async def _stream_microphone_audio_generator(
     chunk_s: float = 0.1,
     channels: int = 1,
 ) -> AsyncGenerator[bytes, None]:
-    """Yield raw PCM chunks from the default microphone until cancelled."""
+    """Yield raw PCM chunks from the default microphone until cancelled.
+
+    Uses a queue fed by a sounddevice callback so the InputStream never
+    blocks the event loop.
+    """
     try:
         import sounddevice as sd  # type: ignore
-        import numpy as np  # type: ignore
     except ImportError:
         logger.debug("sounddevice/numpy not installed — microphone streaming unavailable")
         return
+
+    import queue as _queue
+
     chunk_frames = int(sample_rate * chunk_s)
+    q: _queue.Queue = _queue.Queue()
+    _sentinel = object()
+
+    def _callback(indata, frames, time_info, status):  # noqa: ANN001
+        if status:
+            logger.debug("sounddevice stream status: %s", status)
+        q.put(bytes(indata))
+
     try:
-        with sd.RawInputStream(
+        stream = sd.RawInputStream(
             samplerate=sample_rate,
             channels=channels,
             dtype="int16",
             blocksize=chunk_frames,
-        ) as stream:
+            callback=_callback,
+        )
+        stream.start()
+        try:
             while True:
-                data, _ = await asyncio.to_thread(stream.read, chunk_frames)
+                # Drain the queue in a non-blocking way; yield to event loop between chunks
+                try:
+                    data = q.get_nowait()
+                except _queue.Empty:
+                    await asyncio.sleep(chunk_s / 2)
+                    continue
                 if data:
-                    yield bytes(data)
+                    yield data
+        finally:
+            stream.stop()
+            stream.close()
     except Exception as exc:
         logger.warning("Microphone stream failed: %s", exc)
 

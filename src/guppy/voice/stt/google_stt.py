@@ -124,7 +124,13 @@ class GoogleSTTProvider(STTProvider):
         **kwargs: Any,
     ) -> AsyncGenerator[STTResult, None]:
         """
-        Stream-based transcription using Google Cloud Speech-to-Text.
+        Stream-based transcription via Google Cloud Speech-to-Text.
+
+        The Google Cloud Speech async streaming API requires a synchronous
+        generator wrapper that is non-trivial to integrate cleanly. Until that
+        is implemented, this method buffers all incoming audio and delegates to
+        the batch ``transcribe()`` path so callers receive a valid result rather
+        than an exception.
 
         Args:
             audio_stream: Async generator yielding audio chunks
@@ -132,37 +138,63 @@ class GoogleSTTProvider(STTProvider):
             **kwargs: Additional options
 
         Yields:
-            STTResult for each completed phrase
+            A single final STTResult (batch fallback)
         """
         if not self.enabled or self.client is None:
-            raise RuntimeError("GoogleSTTProvider not initialized")
+            yield STTResult(
+                text="",
+                confidence=0.0,
+                provider=self.name,
+                duration_ms=0,
+                language=language or "en-US",
+                error="GoogleSTTProvider not initialized",
+            )
+            return
+
+        logger.debug(
+            "GoogleSTTProvider.stream_transcribe: buffering stream and falling back to batch transcription"
+        )
+        buf = bytearray()
+        try:
+            async for chunk in audio_stream:
+                buf.extend(chunk)
+        except Exception as exc:
+            logger.error("Google STT: error reading audio stream: %s", exc)
+            yield STTResult(
+                text="",
+                confidence=0.0,
+                provider=self.name,
+                duration_ms=0,
+                language=language or "en-US",
+                error=str(exc),
+            )
+            return
+
+        if not buf:
+            yield STTResult(
+                text="",
+                confidence=0.0,
+                provider=self.name,
+                duration_ms=0,
+                language=language or "en-US",
+                error="empty audio stream",
+            )
+            return
 
         try:
-            config = self.speech_config(
-                encoding=self.speech_config.AudioEncoding.LINEAR16,
-                sample_rate_hertz=16000,
-                language_code=language or "en-US",
-                enable_automatic_punctuation=True,
+            result = await self.transcribe(bytes(buf), language=language, **kwargs)
+            result.is_final = True
+            yield result
+        except Exception as exc:
+            logger.error("Google STT batch fallback error: %s", exc)
+            yield STTResult(
+                text="",
+                confidence=0.0,
+                provider=self.name,
+                duration_ms=0,
+                language=language or "en-US",
+                error=str(exc),
             )
-
-            streaming_config = self.streaming_config(
-                config=config,
-                interim_results=True,
-            )
-
-            # Collect audio chunks and stream to API
-            async def request_generator() -> AsyncGenerator[Any, None]:
-                yield self.streaming_config(config=config)
-                async for chunk in audio_stream:
-                    yield self.streaming_config(audio_content=chunk)
-
-            # Note: Full streaming implementation requires sync wrapper
-            logger.info("Google STT streaming initialized")
-            raise NotImplementedError("Streaming transcription pending")
-
-        except Exception as e:
-            logger.error(f"Google STT streaming error: {e}")
-            raise
 
     async def health_check(self) -> bool:
         """Check if Google STT is available."""
