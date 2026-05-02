@@ -846,15 +846,55 @@ async def stream_unified_inference(
     if len(clean_history) >= 10 and len(clean_history) % 10 == 0:
         _bg_summarize_session(clean_history)
 
+    # ── Keyword sets used for context-budget decisions ────────────────────────
+    _file_keywords = frozenset([
+        "file", "folder", "directory", "code", "script",
+        "read", "write", "path", "workspace", "find", "list", "open", "save",
+    ])
+    _surface_state_keywords = frozenset([
+        "task", "workspace", "agent", "status", "running", "progress", "complete",
+    ])
+    _user_text_lower = user_text.lower()
+    _query_is_file_related = any(kw in _user_text_lower for kw in _file_keywords)
+    _query_needs_surface_state = any(kw in _user_text_lower for kw in _surface_state_keywords)
+
     # Injection order: identity → history → workspace/surface context → semantic/prefs (last = most attended)
     augmented_system = _inject_model_identity(system_prompt, surface=surface)
     augmented_system = augment_system_with_history(augmented_system, clean_history)
-    augmented_system = await _inject_workspace_context_async(augmented_system, owner)
-    augmented_system = await _inject_surface_state_async(augmented_system)
+    # Fix 1+2: Skip file tree for companion; for workspace/codespace only inject when query is file-related.
+    if surface != "companion" and _query_is_file_related:
+        augmented_system = await _inject_workspace_context_async(augmented_system, owner)
+    # Fix 3: Skip cross-surface state for companion unless query references tasks/agents/status.
+    if surface != "companion" or _query_needs_surface_state:
+        augmented_system = await _inject_surface_state_async(augmented_system)
     if surface == "companion":
         augmented_system = await _inject_pending_tasks_async(augmented_system)
     augmented_system = await _inject_semantic_context_async(augmented_system, user_text, owner, history=clean_history)
     augmented_system = await _inject_user_preferences_async(augmented_system, owner)
+
+    # ── Fix 4: Context budget guard ───────────────────────────────────────────
+    # Estimate token usage and trim history further if we are over 85% of the
+    # backend's context window.  Uses _CHARS_PER_TOKEN from this module.
+    _ctx_limit = _BACKEND_CONTEXT_TOKENS.get(_surface_backend, _DEFAULT_CONTEXT_TOKENS)
+    _budget_chars = int(_ctx_limit * 0.85 * _CHARS_PER_TOKEN)
+    _current_chars = len(augmented_system) + sum(
+        len(str(m.get("content", ""))) for m in clean_history
+    )
+    if _current_chars > _budget_chars:
+        # Trim history to the most recent half (minimum 2 turns kept).
+        _trim_target = max(2, len(clean_history) // 2)
+        clean_history = clean_history[-_trim_target:]
+        # Rebuild system prompt from scratch with trimmed history; skip the
+        # expensive workspace/surface injections in this recovery path.
+        augmented_system = augment_system_with_history(
+            _inject_model_identity(system_prompt, surface=surface), clean_history
+        )
+        if surface == "companion":
+            augmented_system = await _inject_pending_tasks_async(augmented_system)
+        augmented_system = await _inject_semantic_context_async(
+            augmented_system, user_text, owner, history=clean_history
+        )
+        augmented_system = await _inject_user_preferences_async(augmented_system, owner)
     requested_mode = (mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto").strip().lower()
 
     # Steer mode: prepend a redirection directive then route normally so

@@ -85,10 +85,12 @@ def _bg_summarize_session(history: list[dict], session_id: str = "") -> None:
                 turns.append(f"{role}: {content}")
             history_text = "\n".join(turns)
             system_msg = (
-                "Summarize this entire conversation in 3-4 compact sentences. "
-                "Cover: (1) the main request or goal, (2) which tools were used and what they returned, "
-                "(3) key facts, file names, or decisions, (4) final outcome or next steps. "
-                "Be specific. No preamble."
+                "Extract key facts from this conversation as a bullet list. Focus on:\n"
+                "1. User preferences or decisions stated explicitly\n"
+                "2. Tasks completed or outcomes reached\n"
+                "3. Topics the user asked about that would be useful to remember\n"
+                "4. Any named entities (people, projects, tools) mentioned\n\n"
+                "Be concise. Only list facts worth remembering for future conversations."
             )
             # Cascade: phi-4-mini → hermes3 → hermes4
             _candidates = [
@@ -160,7 +162,7 @@ def _inject_semantic_context(
             query = f"{recent} {user_text}".strip()
         else:
             query = user_text
-        ctx = build_semantic_prompt_context(query, n=8)
+        ctx = build_semantic_prompt_context(query, n=4)
         if ctx:
             return f"{system_prompt}\n\n{ctx}"
     except Exception as exc:
@@ -187,15 +189,26 @@ async def _inject_semantic_context_async(
 def _inject_user_preferences(system_prompt: str, owner: Any) -> str:
     """Prepend a [User Preferences] block from stored preference memories.
 
-    Preferences are explicitly recalled by category so they're always surfaced,
-    not just when they happen to match the current query.
+    Preferences are fetched via a direct SQL category scan rather than a
+    vector similarity search (which degrades to random results on empty query
+    strings).  Only the SQLite backend is scanned here; other backends fall
+    back to the original recall path.
     """
     if not (owner.os.environ.get("GUPPY_SEMANTIC_RAG", "1").strip().lower() in {"1", "true", "yes", "on"}):
         return system_prompt
     try:
-        from src.guppy.memory.semantic import recall_semantic
-        prefs = recall_semantic("", n=10, category="user_preference").strip()
-        if prefs and not prefs.startswith("Nothing found"):
+        import sqlite3
+        from src.guppy.memory.semantic import DB_PATH
+        if not DB_PATH or not _Path(str(DB_PATH)).exists():
+            return system_prompt
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            rows = conn.execute(
+                "SELECT memory_key, value FROM semantic_memory"
+                " WHERE category='user_preference'"
+                " ORDER BY created DESC LIMIT 10"
+            ).fetchall()
+        if rows:
+            prefs = "\n".join(f"- {r[0]}: {r[1]}" for r in rows)
             return f"{system_prompt}\n\n[User Preferences]\n{prefs}"
     except Exception as exc:
         _log.debug("User preference injection failed: %s", exc)

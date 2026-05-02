@@ -279,10 +279,33 @@ _DEFAULT_MAX_AGE_DAYS = 365
 
 
 def _recall_sqlite(q: str, limit: int, cat: str) -> str:
-    q_emb = _embed_text(q)
     max_age = _CATEGORY_MAX_AGE_DAYS.get(cat, _DEFAULT_MAX_AGE_DAYS)
     conn = _conn()
     try:
+        # Exact-key lookup: check for case-insensitive exact match first — skip
+        # the embedding path entirely when the user names a key directly.
+        exact_rows = conn.execute(
+            "SELECT memory_key, category, value FROM semantic_memory WHERE LOWER(memory_key) = LOWER(?)",
+            (q,),
+        ).fetchall()
+        if exact_rows:
+            lines = ["Semantic recall results (exact key match):"]
+            for key, row_cat, value in exact_rows:
+                lines.append(f"- {key} [{row_cat}]: {value}")
+            return "\n".join(lines)
+
+        # Startswith / prefix match: key begins with the query string.
+        prefix_rows = conn.execute(
+            "SELECT memory_key, category, value FROM semantic_memory WHERE LOWER(memory_key) LIKE LOWER(?)",
+            (q + "%",),
+        ).fetchall()
+        if prefix_rows:
+            lines = ["Semantic recall results (key prefix match):"]
+            for key, row_cat, value in prefix_rows[:limit]:
+                lines.append(f"- {key} [{row_cat}]: {value}")
+            return "\n".join(lines)
+
+        # Fall through to vector / lexical search.
         latest_rows_sql = """
             SELECT s.memory_key, s.category, s.value, s.embedding_json
             FROM semantic_memory s
@@ -306,6 +329,7 @@ def _recall_sqlite(q: str, limit: int, cat: str) -> str:
     finally:
         conn.close()
 
+    q_emb = _embed_text(q)
     if not q_emb:
         return _lexical_recall(rows, q, limit)
 
@@ -348,6 +372,27 @@ def _remember_chroma(k: str, v: str, c: str) -> str:
 
 def _recall_chroma(q: str, limit: int, cat: str) -> str:
     col = _get_chroma_collection()
+
+    # Exact-key lookup by metadata before hitting the embedding path.
+    where_exact: dict = {"key": q} if q else {}
+    if cat:
+        where_exact["category"] = cat
+    if where_exact:
+        try:
+            exact_results = col.get(where=where_exact, limit=limit)
+            exact_docs = exact_results.get("documents") or []
+            exact_metas = exact_results.get("metadatas") or []
+            if exact_docs:
+                lines = ["Semantic recall results (exact key match):"]
+                for i, doc in enumerate(exact_docs):
+                    meta = exact_metas[i] if i < len(exact_metas) and isinstance(exact_metas[i], dict) else {}
+                    key = meta.get("key", "memory")
+                    row_cat = meta.get("category", "general")
+                    lines.append(f"- {key} [{row_cat}]: {str(doc).strip()}")
+                return "\n".join(lines)
+        except Exception:
+            pass  # Fall through to vector search if exact lookup fails
+
     where = {"category": cat} if cat else None
     results = col.query(query_texts=[q], n_results=limit, where=where)
     docs = (results.get("documents") or [[]])[0]
@@ -415,9 +460,20 @@ def recall_semantic(query: str, n: int = 5, category: str = "") -> str:
 
 
 def build_semantic_prompt_context(query: str, n: int = 4, category: str = "") -> str:
-    """Return a prompt-ready semantic memory block or an empty string."""
+    """Return a prompt-ready semantic memory block or an empty string.
+
+    Applies a garbage-filter: if the recalled block consists mostly of very
+    short lines (< 10 chars each, indicating spurious lexical-fallback noise),
+    return empty string rather than polluting the prompt.
+    """
     recalled = recall_semantic(query, n=n, category=category)
     if not recalled or recalled.startswith("Nothing found") or recalled.startswith("Error:"):
+        return ""
+    # Garbage-filter: drop results that look like lexical noise.
+    # Skip the header line (index 0) when evaluating content line length.
+    content_lines = [ln for ln in recalled.splitlines() if ln.startswith("-")]
+    if len(content_lines) >= 4 and all(len(ln) < 10 for ln in content_lines):
+        logger.debug("build_semantic_prompt_context: discarding apparent garbage recall (%d short lines)", len(content_lines))
         return ""
     return f"[Relevant Memory]\n{recalled}"
 
