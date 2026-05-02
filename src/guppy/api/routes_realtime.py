@@ -12,6 +12,8 @@ _log = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
+from jose import JWTError, jwt
+from src.guppy.api.auth import ALGORITHM, SECRET_KEY
 
 from src.guppy.api._server_fragment_models import ChatRequest
 from src.guppy.api.server_context import ServerContext
@@ -917,38 +919,49 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
             )
             raise HTTPException(status_code=500, detail=str(e))
 
+    def _ws_validate_token(token: str) -> bool:
+        """Return True if the JWT is valid. Uses the same key/algo as HTTP auth."""
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            return bool(payload.get("sub"))
+        except JWTError:
+            return False
+
     @router.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
-        await websocket.accept()
-
-        try:
-            auth_data = await websocket.receive_json()
-            token = auth_data.get("token")
-
-            if not token:
-                await websocket.send_json({"error": "Authentication required"})
-                await websocket.close()
+        # Phase 1 — Auth.
+        # If an Authorization header is present we can validate before accept()
+        # and reject with no race window.  Browser clients that can't set custom
+        # WS headers send the token in their first JSON message instead.
+        auth_header = websocket.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            if not _ws_validate_token(auth_header[7:]):
+                await websocket.close(code=4001)
                 return
-
+            await websocket.accept()
+        else:
+            await websocket.accept()
             try:
-                payload = owner.jwt.decode(
-                    token, owner.SECRET_KEY, algorithms=[owner.ALGORITHM]
-                )
-                _ = payload.get("sub")
-            except owner.JWTError:
-                await websocket.send_json({"error": "Invalid token"})
-                await websocket.close()
+                auth_data = await websocket.receive_json()
+            except WebSocketDisconnect:
+                return
+            token = auth_data.get("token") if isinstance(auth_data, dict) else None
+            if not token or not _ws_validate_token(token):
+                msg = "Authentication required" if not token else "Invalid token"
+                await websocket.send_json({"error": msg})
+                await websocket.close(code=4001)
                 return
 
-            await websocket.send_json({"status": "authenticated"})
+        await websocket.send_json({"status": "authenticated"})
 
+        # Phase 2 — Message loop (both auth paths converge here).
+        try:
             while True:
                 try:
                     data = await websocket.receive_json()
                     message = data.get("message")
                     session_id = data.get("session_id")
                     mode = data.get("mode")
-                    use_claude = data.get("use_claude", True)
 
                     if not message:
                         continue
@@ -996,13 +1009,11 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 except WebSocketDisconnect:
                     break
                 except Exception as e:
-                    owner.logger.error(f"WebSocket error: {e}")
-                    owner.log_session_event("api", "ws_error", level="error", error=str(e))
+                    owner.logger.error("WebSocket message error: %s", e)
+                    ctx.log_session_event("api", "ws_error", level="error", error=str(e))
                     await websocket.send_json({"error": str(e)})
         except Exception as e:
-            owner.logger.error(f"WebSocket connection failed: {e}")
-            owner.log_session_event(
-                "api", "ws_connection_failed", level="error", error=str(e)
-            )
+            owner.logger.error("WebSocket connection failed: %s", e)
+            ctx.log_session_event("api", "ws_connection_failed", level="error", error=str(e))
 
     return router

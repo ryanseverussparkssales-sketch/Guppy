@@ -59,12 +59,12 @@ WAIVED_PATHS: dict[str, Waiver] = {
         ),
     ),
     "src/guppy/api/routes_surface.py": Waiver(
-        max_lines=850,
+        max_lines=870,
         rationale=(
             "Surface state machine: SSE event bus, task spawning, workspace task executor, "
             "background coroutines, surface_config DB, operator settings helpers. "
             "Waiver raised Tranche B — pinned for extraction in Tranche E. "
-            "Cap raised Tranche H: Screenpipe context injection added to task planner."
+            "Cap raised Tranche J: column whitelist added to update_surface_state/config."
         ),
     ),
     "src/guppy/api/routes_realtime.py": Waiver(
