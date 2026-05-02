@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import { Tooltip } from "@/components/ui/tooltip"
 import {
-  MessageCircle,
+  Sparkles,
   LayoutDashboard,
   Code2,
   Settings,
@@ -24,11 +24,11 @@ interface NavItem {
 // Three primary surfaces — these are the top-level destinations
 const primaryNavItems: NavItem[] = [
   {
-    id: "conversations",
-    label: "Conversations",
-    icon: <MessageCircle className="w-5 h-5" />,
-    view: "conversations",
-    route: "/conversations",
+    id: "companion",
+    label: "Companion",
+    icon: <Sparkles className="w-5 h-5" />,
+    view: "companion",
+    route: "/companion",
   },
   {
     id: "workspace",
@@ -54,16 +54,16 @@ const secondaryNavItems: NavItem[] = [
 ]
 
 const ROUTE_TO_VIEW: Record<string, string> = {
-  '/':               'conversations',
-  '/conversations':  'conversations',
-  '/companion':      'conversations',  // redirect for compatibility
+  '/':               'companion',
+  '/companion':      'companion',
+  '/conversations':  'companion',   // conversations still accessible, highlights companion tab
   '/workspace':      'workspace',
   '/codespace':      'codespace',
   '/control':        'control',
   '/settings':       'settings',
   '/instructions':   'instructions',
   '/admin':          'settings',
-  '/assistant':      'conversations',  // redirect for compatibility
+  '/assistant':      'companion',
   '/launch-control': 'workspace',
   '/agents':         'workspace',
   '/instances':      'workspace',
@@ -142,7 +142,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
       : button
   }
 
-  const activeSurface = ['conversations', 'workspace', 'codespace'].includes(activeView)
+  const activeSurface = ['companion', 'workspace', 'codespace'].includes(activeView)
     ? activeView
     : 'companion'
 
@@ -196,7 +196,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
           )}
         >
           <Plus className="w-3.5 h-3.5" />
-          {!collapsed && `New ${activeSurface === 'conversations' ? 'Chat' : activeSurface === 'codespace' ? 'Session' : 'Task'}`}
+          {!collapsed && `New ${activeSurface === 'companion' ? 'Chat' : activeSurface === 'codespace' ? 'Session' : 'Task'}`}
         </button>
       </div>
 

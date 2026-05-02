@@ -150,20 +150,37 @@ export default function CompanionView() {
         const reader = res.body.getReader()
         const dec = new TextDecoder()
         let buf = ''
-        while (true) {
+        outer: while (true) {
           const { done, value } = await reader.read()
           if (done) break
           buf += dec.decode(value, { stream: true })
           const lines = buf.split('\n')
           buf = lines.pop() || ''
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const chunk = line.slice(6)
-              if (chunk === '[DONE]') break
-              fullText += chunk
-              setStreaming(fullText)
-              if (ttsEnabled) voice.speakQueued(chunk)
-            }
+            if (!line.startsWith('data: ')) continue
+            const raw = line.slice(6).trim()
+            if (raw === '[DONE]') break outer
+            try {
+              const evt = JSON.parse(raw)
+              if (evt.done) break outer
+              if (evt.error) {
+                fullText += ` ⚠ ${evt.error}`
+                setStreaming(fullText)
+                break outer
+              }
+              if (evt.replace != null) {
+                // Companion non-tool path: full response delivered as one replace event
+                fullText = evt.replace
+                setStreaming(fullText)
+                if (ttsEnabled) voice.speak(fullText)
+              } else if (evt.token != null) {
+                // Tool-call pass-2 streaming tokens
+                fullText += evt.token
+                setStreaming(fullText)
+                if (ttsEnabled) voice.speakQueued(evt.token)
+              }
+              // evt.tool_exec: ignore status events (could show a toast later)
+            } catch { /* non-JSON line, skip */ }
           }
         }
       }
