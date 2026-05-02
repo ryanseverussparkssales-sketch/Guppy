@@ -307,7 +307,14 @@ def _recall_sqlite(q: str, limit: int, cat: str) -> str:
     if not scored:
         return "Nothing found in semantic memory."
 
-    top = sorted(scored, key=lambda x: x[0], reverse=True)[:limit]
+    # Filter out results below the minimum relevance threshold so the model
+    # doesn't receive noise. Configurable via GUPPY_MEMORY_MIN_SCORE (0–1).
+    _min_score = float(os.environ.get("GUPPY_MEMORY_MIN_SCORE", "0.45"))
+    top = [x for x in sorted(scored, key=lambda x: x[0], reverse=True)[:limit]
+           if x[0] >= _min_score]
+    if not top:
+        return "Nothing found in semantic memory."
+
     lines = ["Semantic recall results:"]
     for score, key, row_cat, value in top:
         lines.append(f"- {key} [{row_cat}] ({score:.3f}): {value}")

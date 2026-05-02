@@ -153,7 +153,7 @@ def _to_openai_tools(anthropic_tools: Any) -> list[dict]:
 
 _log = logging.getLogger(__name__)
 
-_CHAT_CONTENT_MAX_CHARS = 2000
+_CHAT_CONTENT_MAX_CHARS = 4000  # enough for a full multi-paragraph reply
 
 
 def _get_db_tools_openai() -> list[dict]:
@@ -208,7 +208,7 @@ def _merged_openai_tools(owner: Any) -> list[dict] | None:
 
 
 # _HISTORY_SNIPPET_MAX_CHARS and _HISTORY_TURNS_SHOWN moved to context_injection.
-_CHAT_HISTORY_LIMIT = 12
+_CHAT_HISTORY_LIMIT = 30  # token-aware trimmer acts as backstop for small-context models
 
 # Context window in tokens for each backend.  Used by _trim_history_to_tokens()
 # to dynamically cap history rather than using the fixed 12-turn limit.

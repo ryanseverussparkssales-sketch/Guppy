@@ -115,7 +115,7 @@ def _inject_semantic_context(system_prompt: str, user_text: str, owner: Any) -> 
         return system_prompt
     try:
         from src.guppy.memory.semantic import build_semantic_prompt_context
-        ctx = build_semantic_prompt_context(user_text, n=4)
+        ctx = build_semantic_prompt_context(user_text, n=8)
         if ctx:
             return f"{system_prompt}\n\n{ctx}"
     except Exception as exc:

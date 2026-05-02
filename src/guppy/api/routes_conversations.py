@@ -87,16 +87,42 @@ def _ensure_schema() -> None:
         conn.commit()
 
 
-_CONVERSATION_SYSTEM_PROMPT = """
+_CONVERSATION_SYSTEM_PROMPT_BASE = """
 You are Guppy in the dedicated Conversations surface: warm, direct, and useful.
 Answer naturally and keep continuity with the provided session history.
 
 If a tool is truly needed, emit a raw tool block in this exact form:
 <tool_call>{"name":"tool_name","arguments":{}}</tool_call>
 
-Allowed tools are web_fetch, create_reminder, download_media, memory_write,
-memory_recall, and workspace_task. Do not request any other tool.
+AVAILABLE TOOLS — use them proactively when the request clearly calls for them:
+• web_fetch(url, extract?)        — fetch live content from any URL
+  USE WHEN: user asks to look something up, get live data, or check a site
+• create_reminder(message, delay_minutes?) — schedule a reminder for Ryan
+  USE WHEN: user says "remind me", "don't forget", or gives a time-based task
+• memory_write(key, value)        — save a fact to long-term memory
+  USE WHEN: user shares a preference, decision, or fact worth keeping
+• memory_recall(query)            — retrieve stored facts from long-term memory
+  USE WHEN: user references something that may have been discussed before
+• workspace_task(task, description?) — hand off a multi-step task to Workspace
+  USE WHEN: the request requires browsing, file work, or a multi-tool workflow
+Do not call any other tool.
 """.strip()
+
+
+def _build_conversation_system_prompt(history: list[dict]) -> str:
+    """Build the system prompt, injecting startup context on the first exchange."""
+    base = _CONVERSATION_SYSTEM_PROMPT_BASE
+    # Inject Ryan's persistent context (facts, tasks, session summaries) on
+    # the first two turns of a new session so the model starts warm, not cold.
+    if len(history) <= 2:
+        try:
+            from src.guppy.memory.memory import get_startup_context
+            ctx = get_startup_context()
+            if ctx and len(ctx.strip()) > 20:
+                base = f"{base}\n\n{ctx.strip()}"
+        except Exception:
+            pass
+    return base
 
 
 async def _stream_conversation_inference(
@@ -116,7 +142,7 @@ async def _stream_conversation_inference(
     async for token in stream_unified_inference(
         ctx.owner,
         message,
-        _CONVERSATION_SYSTEM_PROMPT,
+        _build_conversation_system_prompt(history),
         mode="local" if active_partner else "auto",
         history=history,
         image_base64=image_base64 or None,
