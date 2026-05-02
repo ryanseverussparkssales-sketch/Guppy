@@ -182,6 +182,11 @@ _port_alive_cache: Dict[int, tuple] = {}
 _PORT_ALIVE_TTL_OK  = 10.0   # cache "alive"  for 10 s
 _PORT_ALIVE_TTL_DEAD =  5.0   # cache "dead"   for  5 s (re-check sooner so startup is detected)
 
+def _invalidate_port_cache(port: int) -> None:
+    """Evict a port from the liveness cache so the next probe gets a fresh result."""
+    _port_alive_cache.pop(port, None)
+
+
 def _port_alive(port: int, timeout: float = 1.0) -> bool:
     """Check if a llama.cpp backend at localhost:port is alive via HTTP /health.
 
@@ -387,6 +392,7 @@ def _do_stop(name: str) -> Dict[str, Any]:
         killed_pids.append(pid)
         logger.info(f"[backends] killed external proc pid={pid} on port {cfg['port']} for {name}")
 
+    _invalidate_port_cache(cfg["port"])
     return {
         "status": "stopped" if killed_pids else "not_running",
         "killed_pids": killed_pids,

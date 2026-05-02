@@ -82,6 +82,35 @@ def _list_sandboxes() -> list[dict[str, Any]]:
     return sandboxes
 
 
+def _sandbox_ids() -> set[str]:
+    """Return the set of running Guppy-sandbox container IDs (short + full)."""
+    r = _docker(
+        "ps", "--filter", f"label={_SANDBOX_LABEL}=1",
+        "--format", "{{.ID}}",
+    )
+    if r.returncode != 0:
+        return set()
+    ids: set[str] = set()
+    for line in r.stdout.strip().splitlines():
+        cid = line.strip()
+        if cid:
+            ids.add(cid)
+            ids.add(cid[:12])  # short-ID alias docker also accepts
+    return ids
+
+
+def _validate_sandbox_container_id(container_id: str) -> None:
+    """Raise HTTPException 404 if container_id is not a running Guppy sandbox."""
+    cid = (container_id or "").strip()
+    if not cid or len(cid) > 64:
+        raise HTTPException(400, "Invalid container ID")
+    valid = _sandbox_ids()
+    if not valid:
+        raise HTTPException(503, "Docker unavailable or no sandboxes running")
+    if cid not in valid:
+        raise HTTPException(404, f"Container not found in Guppy sandboxes: {cid}")
+
+
 def _create_sandbox(name: str, image: str) -> dict[str, Any]:
     r = _docker(
         "run", "-d",
@@ -176,6 +205,7 @@ def build_codespace_router(ctx: ServerContext) -> APIRouter:
             raise HTTPException(503, "Docker is not available")
         if not body.command.strip():
             raise HTTPException(400, "command is required")
+        _validate_sandbox_container_id(container_id)
 
         return StreamingResponse(
             _exec_stream(container_id, body.command),
@@ -190,6 +220,7 @@ def build_codespace_router(ctx: ServerContext) -> APIRouter:
     def delete_sandbox(container_id: str, _uid: str = Depends(ctx.require_rate_limit)):
         if not _docker_available():
             raise HTTPException(503, "Docker is not available")
+        _validate_sandbox_container_id(container_id)
         r = _docker("rm", "-f", container_id)
         if r.returncode != 0 and "No such container" not in r.stderr:
             raise HTTPException(400, r.stderr.strip() or "docker rm failed")

@@ -282,7 +282,13 @@ function ServiceCard({
         <span
           className={cn(
             'px-2 py-0.5 rounded-full font-medium',
-            healthTone ? 'bg-green-500/10 text-green-400' : 'bg-outline-variant/10 text-on-surface-variant/45',
+            healthTone
+              ? 'bg-green-500/10 text-green-400'
+              : healthText === 'error' || healthText === 'timed_out'
+                ? 'bg-red-500/10 text-red-400'
+                : healthText === 'starting' || healthText === 'restart_scheduled' || healthText === 'shutdown_scheduled'
+                  ? 'bg-amber-500/10 text-amber-400'
+                  : 'bg-outline-variant/10 text-on-surface-variant/45',
           )}
         >
           {healthText}
@@ -394,11 +400,13 @@ function ModelRow({
       <span
         className={cn(
           'text-[10px] px-2 py-0.5 rounded-full flex-shrink-0',
-          checkText === 'online' || checkText === 'up'
+          checkText === 'online' || checkText === 'up' || checkText === 'already_running'
             ? 'bg-green-500/10 text-green-400'
-            : checkText === 'error'
+            : checkText === 'error' || checkText === 'timed_out'
               ? 'bg-red-500/10 text-red-400'
-              : 'bg-outline-variant/10 text-on-surface-variant/35',
+              : checkText === 'starting' || checkText === 'restart_scheduled'
+                ? 'bg-amber-500/10 text-amber-400'
+                : 'bg-outline-variant/10 text-on-surface-variant/35',
         )}
       >
         {checkText}
@@ -529,11 +537,13 @@ export default function ControlView() {
   const serviceAction = useCallback(async (key: string, action: ControlAction) => {
     const busyKey = `${key}:${action}`
     setServiceBusy(busyKey)
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 30_000)
     try {
       const res =
         action === 'health'
-          ? await api.get(`/api/control/services/${key}/health`)
-          : await api.post(`/api/control/services/${key}/${action}`)
+          ? await api.get(`/api/control/services/${key}/health`, { signal: controller.signal })
+          : await api.post(`/api/control/services/${key}/${action}`, undefined, { signal: controller.signal })
       const data = res.data ?? {}
       const status =
         data.health?.health ||
@@ -543,9 +553,11 @@ export default function ControlView() {
         'ok'
       setServiceChecks(prev => ({ ...prev, [key]: String(status) }))
       await fetchAll()
-    } catch {
-      setServiceChecks(prev => ({ ...prev, [key]: 'error' }))
+    } catch (err: unknown) {
+      const label = (err as { name?: string })?.name === 'AbortError' ? 'timed_out' : 'error'
+      setServiceChecks(prev => ({ ...prev, [key]: label }))
     } finally {
+      window.clearTimeout(timer)
       setServiceBusy(null)
     }
   }, [fetchAll])
@@ -553,11 +565,13 @@ export default function ControlView() {
   const modelAction = useCallback(async (key: string, action: ControlAction) => {
     const busyKey = `${key}:${action}`
     setModelBusy(busyKey)
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 30_000)
     try {
       const res =
         action === 'health'
-          ? await api.get(`/api/control/models/${key}/health`)
-          : await api.post(`/api/control/models/${key}/${action}`)
+          ? await api.get(`/api/control/models/${key}/health`, { signal: controller.signal })
+          : await api.post(`/api/control/models/${key}/${action}`, undefined, { signal: controller.signal })
       const data = res.data ?? {}
       const status =
         data.health?.status ||
@@ -566,9 +580,11 @@ export default function ControlView() {
         'ok'
       setModelChecks(prev => ({ ...prev, [key]: String(status) }))
       await fetchAll()
-    } catch {
-      setModelChecks(prev => ({ ...prev, [key]: 'error' }))
+    } catch (err: unknown) {
+      const label = (err as { name?: string })?.name === 'AbortError' ? 'timed_out' : 'error'
+      setModelChecks(prev => ({ ...prev, [key]: label }))
     } finally {
+      window.clearTimeout(timer)
       setModelBusy(null)
     }
   }, [fetchAll])

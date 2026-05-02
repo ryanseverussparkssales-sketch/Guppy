@@ -154,7 +154,9 @@ def _model_health_payload(key: str) -> dict[str, Any]:
 
 
 def _restart_model_backend(key: str) -> dict[str, Any]:
-    from src.guppy.api.routes_backends import _LLAMACPP_CONFIG, _procs, _procs_lock
+    from src.guppy.api.routes_backends import (
+        _LLAMACPP_CONFIG, _invalidate_port_cache, _port_alive, _procs, _procs_lock,
+    )
 
     cfg = _LLAMACPP_CONFIG.get(key)
     if not cfg:
@@ -162,7 +164,7 @@ def _restart_model_backend(key: str) -> dict[str, Any]:
 
     port = cfg["port"]
 
-    # Kill existing process on port.
+    # Kill existing process on port, then bust the liveness cache.
     if os.name == "nt":
         try:
             out = subprocess.check_output(
@@ -181,6 +183,8 @@ def _restart_model_backend(key: str) -> dict[str, Any]:
                         )
         except Exception as e:
             logger.warning("[control] kill port %d: %s", port, e)
+
+    _invalidate_port_cache(port)
 
     # Clean up proc registry.
     with _procs_lock:
@@ -205,7 +209,20 @@ def _restart_model_backend(key: str) -> dict[str, Any]:
     with _procs_lock:
         _procs[key] = proc
 
-    return {"ok": True, "key": key, "pid": proc.pid, "port": port}
+    # Brief liveness probe: small models (dispatch, phi4-mini) come up in <2s.
+    # Larger models (hermes3/4) take 30-120s — those stay "starting" until the
+    # frontend's 10s poll cycle detects them.
+    startup_detected = False
+    for _ in range(3):
+        time.sleep(0.7)
+        _invalidate_port_cache(port)
+        if _port_alive(port, timeout=0.8):
+            startup_detected = True
+            break
+
+    status = "online" if startup_detected else "starting"
+    logger.info("[control] model %s restart dispatched — pid=%d status=%s", key, proc.pid, status)
+    return {"ok": True, "key": key, "pid": proc.pid, "port": port, "status": status}
 
 
 def build_control_router(ctx: ServerContext) -> APIRouter:
