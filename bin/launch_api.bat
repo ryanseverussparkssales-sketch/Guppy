@@ -5,11 +5,12 @@ REM vLLM Docker is optional — set GUPPY_LOCAL_RUNTIME_BACKEND=vllm if running 
 TITLE Guppy API
 cd /d "%~dp0\.."
 
-REM Guard: fail fast if port 8081 is already occupied
-netstat -ano | findstr ":8081 " >nul 2>&1
+REM Guard: fail fast if the API port is already occupied (respects GUPPY_API_PORT, defaults to 8081)
+if "%GUPPY_API_PORT%"=="" set GUPPY_API_PORT=8081
+netstat -ano | findstr ":%GUPPY_API_PORT% " >nul 2>&1
 if not errorlevel 1 (
-    echo ERROR: Port 8081 already in use. Stop the existing process first.
-    echo Use:  netstat -ano ^| findstr ":8081"  to find the PID.
+    echo ERROR: Port %GUPPY_API_PORT% already in use. Stop the existing process first.
+    echo Use:  netstat -ano ^| findstr ":%GUPPY_API_PORT%"  to find the PID.
     pause
     exit /b 1
 )

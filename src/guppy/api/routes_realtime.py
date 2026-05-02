@@ -62,8 +62,13 @@ async def _generate_conversation_title(user_message: str, conv_id: str) -> None:
         "max_tokens": 16,
     }
     try:
+        try:
+            from src.guppy.api.routes_backends import _LLAMACPP_CONFIG as _lcfg
+            _port = _lcfg.get("llamacpp-dispatch", {}).get("port", 8085)
+        except Exception:
+            _port = 8085
         async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.post("http://127.0.0.1:8085/v1/chat/completions", json=payload)
+            resp = await client.post(f"http://127.0.0.1:{_port}/v1/chat/completions", json=payload)
             resp.raise_for_status()
             title = resp.json()["choices"][0]["message"]["content"].strip()
             title = title.strip('"\'').strip()
@@ -383,9 +388,14 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 ctx.complete_chat_idempotency_key(
                     idempotency_key, error=str(e), status_code=500
                 )
-            user_msg = str(e)
-            if "llamacpp" in user_msg.lower() or "8087" in user_msg or "connect" in user_msg.lower():
-                user_msg = f"Cannot reach local inference backend. Start llamacpp (hermes3 on port 8087) and try again. ({e})"
+            _raw = str(e)
+            if "llamacpp" in _raw.lower() or "connect" in _raw.lower() or any(
+                p in _raw for p in ("8085", "8086", "8087", "8088", "8089", "8090", "8091")
+            ):
+                user_msg = "Cannot reach local inference backend. Ensure llamacpp model servers are running."
+            else:
+                user_msg = "Inference request failed. Please try again."
+            logger.error("[chat] inference error: %s", e)
             raise HTTPException(status_code=500, detail=user_msg)
 
     @router.post("/chat/stream")

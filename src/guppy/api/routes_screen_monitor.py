@@ -145,8 +145,13 @@ def _generate_ai_summary(apps: list[str], highlights: list[str]) -> str:
             "max_tokens": 60,
             "stream": False,
         }).encode()
+        try:
+            from src.guppy.api.routes_backends import _LLAMACPP_CONFIG as _lcfg
+            _port = _lcfg.get("llamacpp-hermes3", {}).get("port", 8087)
+        except Exception:
+            _port = 8087
         request = _req.Request(
-            "http://127.0.0.1:8087/v1/chat/completions",
+            f"http://127.0.0.1:{_port}/v1/chat/completions",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",

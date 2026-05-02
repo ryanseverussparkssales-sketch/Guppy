@@ -3,7 +3,7 @@ param(
     [string]$Action = "status",
     [string]$TunnelName = "guppy",
     [string]$Hostname = "guppy.yourdomain.com",
-    [string]$LocalUrl = "http://localhost:8080"
+    [string]$LocalUrl = "http://localhost:8081"
 )
 
 $ErrorActionPreference = "Stop"
