@@ -2,18 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import re
 from pathlib import Path
 from typing import Optional
 
-_log = logging.getLogger(__name__)
-
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
-from jose import JWTError, jwt
-from src.guppy.api.auth import ALGORITHM, SECRET_KEY
 
 from src.guppy.api._server_fragment_models import ChatRequest
 from src.guppy.api.server_context import ServerContext
@@ -22,18 +17,302 @@ from src.guppy.api.realtime_inference_support import (
     _REPLACE_SENTINEL,
     _SOURCE_SENTINEL,
     _repair_tool_json,
-)
-from src.guppy.api.tool_executor_companion import _execute_companion_tool
-from src.guppy.api.tool_executor_workspace import (
-    _execute_workspace_tool,
-    _WORKSPACE_TOOL_SCHEMA,
-    _SHELL_SAFE_PREFIXES,
+    _bg_store_tool_outcome,
 )
 from src.guppy.voice import voice as _voice
 
 # ── Companion tool-call parser ─────────────────────────────────────────────────
 # Hermes 3/4 emit tool calls as: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
 _TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+
+
+async def _execute_companion_tool(name: str, args: dict) -> dict:
+    """Execute one companion tool call. Returns a result dict."""
+    import httpx
+
+    if name == "web_fetch":
+        url     = str(args.get("url", "")).strip()
+        extract = str(args.get("extract", "")).strip().lower()
+        if not url:
+            return {"ok": False, "error": "url required"}
+        try:
+            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+                resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 Guppy/1.0"})
+                text = resp.text
+            if "<html" in text.lower()[:500]:
+                text = re.sub(r"<[^>]+>", " ", text)
+                text = re.sub(r"[ \t]{3,}", " ", text)
+                text = re.sub(r"\n{4,}", "\n\n", text)
+            text = text[:20000]
+            if extract:
+                idx = text.lower().find(extract)
+                if idx >= 0:
+                    text = text[max(0, idx - 100): idx + 6000]
+            return {"ok": True, "text": text[:8000], "url": url}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "create_reminder":
+        from src.guppy.api.routes_reminders import create_reminder
+        message       = str(args.get("message", "")).strip()
+        delay_minutes = args.get("delay_minutes")
+        due_iso       = args.get("due_iso")
+        if not message:
+            return {"ok": False, "error": "message required"}
+        if delay_minutes is None and due_iso is None:
+            delay_minutes = 30
+        try:
+            return {"ok": True, **create_reminder(message, due_iso=due_iso, delay_minutes=delay_minutes)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "download_media":
+        url      = str(args.get("url", "")).strip()
+        category = str(args.get("category", "general")).strip()
+        if not url:
+            return {"ok": False, "error": "url required"}
+
+        policy = os.environ.get("LIBRARY_ACQUISITION_POLICY", "user_approved").strip().lower()
+        if policy == "open_content_only":
+            return {
+                "ok": False,
+                "error": "download_media disabled by LIBRARY_ACQUISITION_POLICY=open_content_only",
+            }
+
+        try:
+            # Call qBittorrent Web API directly (bypasses Guppy auth)
+            qb_base = os.environ.get("QBITTORRENT_URL", "http://localhost:8080").rstrip("/")
+            payload: dict = {"urls": url}
+            if category:
+                payload["category"] = category
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(f"{qb_base}/api/v2/torrents/add", data=payload)
+            return {"ok": resp.status_code < 300, "status": resp.status_code, "url": url}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "memory_write":
+        from src.guppy.memory.semantic import remember_semantic
+        key      = str(args.get("key", "note")).strip()
+        value    = str(args.get("value", "")).strip()
+        category = str(args.get("category", "general")).strip()
+        if not value:
+            return {"ok": False, "error": "value required"}
+        try:
+            return {"ok": True, "stored": remember_semantic(key, value, category)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "memory_recall":
+        from src.guppy.memory.semantic import recall_semantic
+        query = str(args.get("query", "")).strip()
+        if not query:
+            return {"ok": False, "error": "query required"}
+        try:
+            return {"ok": True, "recalled": recall_semantic(query)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "workspace_task":
+        title       = str(args.get("title", "Task")).strip()
+        description = str(args.get("description", "")).strip()
+        if not title:
+            return {"ok": False, "error": "title required"}
+        try:
+            from src.guppy.api.routes_surface import _spawn_task_direct
+            task = _spawn_task_direct(title=title, description=description, source="companion")
+            return {"ok": True, "task_id": task["id"], "surface": "workspace"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    return {"ok": False, "error": f"Unknown tool: {name}"}
+
+
+# ── Workspace tool executor ────────────────────────────────────────────────────
+# Workspace has the full tool policy: web, filesystem, shell (read-only),
+# CRM, memory, reminders, media, and task spawning.
+
+_WORKSPACE_TOOL_SCHEMA = """
+## Tools — Workspace Agent (Hermes 4)
+You are an autonomous workspace agent. Use <tool_call> blocks to invoke tools.
+Chain multiple calls to complete tasks. Use tools when they would help — don't just describe.
+
+web_fetch(url, extract="")   — fetch any URL as plain text
+  <tool_call>{"name": "web_fetch", "arguments": {"url": "https://www.gutenberg.org/files/1533/1533-0.txt", "extract": "witches"}}</tool_call>
+
+web_search(query, num_results=5)   — search the web via DuckDuckGo
+  <tool_call>{"name": "web_search", "arguments": {"query": "Project Gutenberg Macbeth plain text", "num_results": 5}}</tool_call>
+
+file_read(path)   — read a local file
+  <tool_call>{"name": "file_read", "arguments": {"path": "C:/Users/Ryan/Documents/notes.txt"}}</tool_call>
+
+file_list(path=".")   — list files in a directory
+  <tool_call>{"name": "file_list", "arguments": {"path": "C:/Users/Ryan/Downloads"}}</tool_call>
+
+shell_run(command)   — read-only shell commands: dir, ls, git status/log/diff, python, type, cat
+  <tool_call>{"name": "shell_run", "arguments": {"command": "dir C:/Users/Ryan/Downloads"}}</tool_call>
+
+contacts_search(query)   — search CRM contacts by name/company/email
+  <tool_call>{"name": "contacts_search", "arguments": {"query": "Smith"}}</tool_call>
+
+screenpipe_search(query, limit=5)   — search recent screen/audio context via Screenpipe
+    <tool_call>{"name": "screenpipe_search", "arguments": {"query": "invoice draft", "limit": 5}}</tool_call>
+
+memory_write(key, value, category="general")   — store a fact permanently
+  <tool_call>{"name": "memory_write", "arguments": {"key": "macbeth_location", "value": "Saved to C:/Users/Ryan/Downloads/macbeth.txt", "category": "completed"}}</tool_call>
+
+memory_recall(query)   — recall facts from persistent memory
+  <tool_call>{"name": "memory_recall", "arguments": {"query": "where is Macbeth saved"}}</tool_call>
+
+create_reminder(message, delay_minutes=30)   — schedule a reminder for Ryan
+  <tool_call>{"name": "create_reminder", "arguments": {"message": "Read the Macbeth witches scene", "delay_minutes": 60}}</tool_call>
+
+download_media(url, category="general")   — queue a download in qBittorrent
+  <tool_call>{"name": "download_media", "arguments": {"url": "magnet:?xt=urn:btih:...", "category": "books"}}</tool_call>
+"""
+
+_SHELL_SAFE_PREFIXES = (
+    "dir", "ls", "echo", "git status", "git log", "git diff", "git branch",
+    "python --version", "python -c", "python -m", "type ", "cat ", "head ",
+    "tail ", "where ", "which ", "pip list", "pip show",
+)
+
+
+async def _execute_workspace_tool(name: str, args: dict) -> dict:
+    """Execute one workspace tool call. Delegates shared tools to companion executor."""
+    import httpx
+
+    # Shared tools — delegate to companion executor
+    if name in (
+        "web_fetch", "create_reminder", "download_media",
+        "memory_write", "memory_recall", "workspace_task",
+    ):
+        return await _execute_companion_tool(name, args)
+
+    if name == "web_search":
+        query = str(args.get("query", "")).strip()
+        num_results = min(int(args.get("num_results", 5)), 10)
+        if not query:
+            return {"ok": False, "error": "query required"}
+        try:
+            async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+                resp = await client.get(
+                    "https://html.duckduckgo.com/html/",
+                    params={"q": query},
+                    headers={"User-Agent": "Mozilla/5.0 Guppy/1.0"},
+                )
+            # Extract result snippets from DDG HTML response
+            anchors = re.findall(
+                r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a',
+                resp.text, re.DOTALL,
+            )
+            results = [
+                {"url": u, "title": re.sub(r"<[^>]+>", "", t).strip()}
+                for u, t in anchors[:num_results]
+            ]
+            return {"ok": True, "results": results, "query": query}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "file_read":
+        from pathlib import Path
+        path = str(args.get("path", "")).strip()
+        if not path:
+            return {"ok": False, "error": "path required"}
+        try:
+            content = Path(path).read_text(encoding="utf-8", errors="replace")
+            return {"ok": True, "path": path, "content": content[:20000]}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "file_list":
+        from pathlib import Path
+        path = str(args.get("path", ".")).strip() or "."
+        try:
+            p = Path(path)
+            entries = [
+                {
+                    "name": x.name,
+                    "type": "dir" if x.is_dir() else "file",
+                    "size": x.stat().st_size if x.is_file() else 0,
+                }
+                for x in sorted(p.iterdir())
+            ]
+            return {"ok": True, "path": str(p.resolve()), "entries": entries[:200]}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "shell_run":
+        import subprocess
+        command = str(args.get("command", "")).strip()
+        if not command:
+            return {"ok": False, "error": "command required"}
+        cmd_lower = command.lower()
+        if not any(cmd_lower.startswith(p.lower()) for p in _SHELL_SAFE_PREFIXES):
+            return {
+                "ok": False,
+                "error": f"Not in safe-command whitelist (read-only only): {command[:80]}",
+            }
+        try:
+            result = subprocess.run(
+                command, shell=True, capture_output=True, text=True, timeout=15,
+            )
+            return {
+                "ok": True,
+                "stdout": result.stdout[:8000],
+                "stderr": result.stderr[:2000],
+                "returncode": result.returncode,
+            }
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "command timed out (15 s)"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "contacts_search":
+        query = str(args.get("query", "")).strip()
+        try:
+            from src.guppy.api.routes_workspace_data import _contacts_json
+            contacts = _contacts_json(search=query)
+            return {"ok": True, "contacts": contacts[:20]}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "screenpipe_search":
+        query = str(args.get("query", "")).strip()
+        limit = min(max(int(args.get("limit", 5)), 1), 20)
+        if not query:
+            return {"ok": False, "error": "query required"}
+        try:
+            from src.guppy.api.routes_screenpipe import _search
+
+            results = await asyncio.to_thread(
+                _search,
+                query,
+                limit,
+                "all",
+                None,
+                None,
+                None,
+            )
+            formatted = [
+                {
+                    "timestamp": r.get("timestamp", ""),
+                    "app": r.get("app_name", "Unknown"),
+                    "content": (r.get("content", "") or "")[:240],
+                    "type": r.get("type", "unknown"),
+                }
+                for r in results[:limit]
+            ]
+            return {
+                "ok": True,
+                "query": query,
+                "count": len(formatted),
+                "results": formatted,
+            }
+        except Exception as e:
+            return {"ok": False, "error": f"screenpipe_search failed: {e}"}
+
+    return {"ok": False, "error": f"Unknown workspace tool: {name}"}
 
 
 async def _generate_conversation_title(user_message: str, conv_id: str) -> None:
@@ -62,13 +341,8 @@ async def _generate_conversation_title(user_message: str, conv_id: str) -> None:
         "max_tokens": 16,
     }
     try:
-        try:
-            from src.guppy.api.routes_backends import _LLAMACPP_CONFIG as _lcfg
-            _port = _lcfg.get("llamacpp-dispatch", {}).get("port", 8085)
-        except Exception:
-            _port = 8085
         async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.post(f"http://127.0.0.1:{_port}/v1/chat/completions", json=payload)
+            resp = await client.post("http://localhost:8085/v1/chat/completions", json=payload)
             resp.raise_for_status()
             title = resp.json()["choices"][0]["message"]["content"].strip()
             title = title.strip('"\'').strip()
@@ -388,14 +662,9 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 ctx.complete_chat_idempotency_key(
                     idempotency_key, error=str(e), status_code=500
                 )
-            _raw = str(e)
-            if "llamacpp" in _raw.lower() or "connect" in _raw.lower() or any(
-                p in _raw for p in ("8085", "8086", "8087", "8088", "8089", "8090", "8091")
-            ):
-                user_msg = "Cannot reach local inference backend. Ensure llamacpp model servers are running."
-            else:
-                user_msg = "Inference request failed. Please try again."
-            logger.error("[chat] inference error: %s", e)
+            user_msg = str(e)
+            if "llamacpp" in user_msg.lower() or "8087" in user_msg or "connect" in user_msg.lower():
+                user_msg = f"Cannot reach local inference backend. Start llamacpp (hermes3 on port 8087) and try again. ({e})"
             raise HTTPException(status_code=500, detail=user_msg)
 
     @router.post("/chat/stream")
@@ -484,14 +753,10 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         active_cloud_model=_active_cloud_model,
                         image_base64=request.image_base64 or None,
                         skip_tools=True,
-                        surface=request.surface or "workspace",
                     ):
                         if token.startswith(_SOURCE_SENTINEL) or token.startswith(_REPLACE_SENTINEL):
                             continue
                         first_response += token
-                except asyncio.CancelledError:
-                    _log.info("Client disconnected mid-stream — cancelling workspace pass-1 inference")
-                    return
                 except Exception as exc:
                     owner.logger.error("Workspace pass-1 buffering failed: %s", exc)
                     yield f"data: {json.dumps({'error': str(exc)})}\n\n"
@@ -511,20 +776,44 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         try:
                             tc = _repair_tool_json(tc_json)
                             if tc is None:
-                                tool_results.append({"tool": "?", "error": "malformed tool JSON"})
-                                continue
+                                # One-shot correction: ask the model to fix its malformed JSON
+                                try:
+                                    import httpx as _httpx
+                                    _correction_payload = {
+                                        "model": "hermes-4-14b",
+                                        "messages": [
+                                            {"role": "user", "content": (
+                                                f"You emitted an invalid tool call. Raw output:\n\n{tc_json}\n\n"
+                                                "Rewrite it as valid JSON inside <tool_call>...</tool_call> tags. "
+                                                "Output ONLY the corrected tool call, nothing else."
+                                            )}
+                                        ],
+                                        "stream": False,
+                                        "max_tokens": 256,
+                                        "temperature": 0.0,
+                                    }
+                                    async with _httpx.AsyncClient(timeout=10.0) as _c:
+                                        _cr = await _c.post("http://localhost:8086/v1/chat/completions", json=_correction_payload)
+                                        _cr.raise_for_status()
+                                    _corrected_text = _cr.json()["choices"][0]["message"]["content"]
+                                    _corrected_blocks = _TOOL_CALL_RE.findall(_corrected_text)
+                                    tc = _repair_tool_json(_corrected_blocks[0]) if _corrected_blocks else None
+                                except Exception as _retry_exc:
+                                    owner.logger.warning("Workspace tool-call correction failed: %s", _retry_exc)
+                                    tc = None
+                                if tc is None:
+                                    tool_results.append({"tool": "?", "error": "malformed tool JSON"})
+                                    continue
                             tool_name = tc.get("name", "")
+                            if not tool_name:
+                                owner.logger.warning("Workspace tool call missing name, skipping: %s", tc)
+                                continue
                             tool_args = tc.get("arguments", {})
+                            if not isinstance(tool_args, dict):
+                                owner.logger.warning("Workspace tool_args not a dict, coercing to {}: %s", tool_args)
+                                tool_args = {}
                             yield f"data: {json.dumps({'tool_exec': tool_name})}\n\n"
                             result = await _execute_workspace_tool(tool_name, tool_args)
-                            from src.guppy.api.tool_call_log import log_tool_call
-                            log_tool_call(
-                                surface=request.surface or "workspace",
-                                tool_name=tool_name,
-                                tool_args=tool_args,
-                                result=result,
-                                session_id=request.session_id,
-                            )
                             tool_results.append({"tool": tool_name, "result": result})
                         except Exception as exc:
                             tool_results.append({"tool": "?", "error": str(exc)})
@@ -557,7 +846,6 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                             active_local_model=_active_local_model,
                             active_cloud_model=_active_cloud_model,
                             image_base64=None,
-                            surface=request.surface or "workspace",
                         ):
                             if token.startswith(_SOURCE_SENTINEL):
                                 last_source = token[len(_SOURCE_SENTINEL):]
@@ -569,9 +857,6 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                                 continue
                             full_response += token
                             yield f"data: {json.dumps({'token': token})}\n\n"
-                    except asyncio.CancelledError:
-                        _log.info("Client disconnected mid-stream — cancelling workspace pass-2 inference")
-                        return
                     except Exception as exc:
                         owner.logger.error("Workspace pass-2 streaming failed: %s", exc)
                         yield f"data: {json.dumps({'error': str(exc)})}\n\n"
@@ -594,7 +879,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         from src.guppy.api.routes_chat_history import _chat_history_db
                         conv = _chat_history_db.get_conversation(request.session_id)
                         if conv and conv.get("message_count", 0) <= 2 and str(conv.get("title", "")).startswith("Conversation "):
-                            asyncio.create_task(_generate_conversation_title(request.message, request.session_id))
+                            asyncio.ensure_future(_generate_conversation_title(request.message, request.session_id))
                     except Exception:
                         pass
                 return
@@ -620,14 +905,10 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         active_cloud_model=_active_cloud_model,
                         image_base64=request.image_base64 or None,
                         skip_tools=True,
-                        surface=request.surface or "companion",
                     ):
                         if token.startswith(_SOURCE_SENTINEL) or token.startswith(_REPLACE_SENTINEL):
                             continue
                         first_response += token
-                except asyncio.CancelledError:
-                    _log.info("Client disconnected mid-stream — cancelling companion pass-1 inference")
-                    return
                 except Exception as exc:
                     owner.logger.error("Companion pass-1 buffering failed: %s", exc)
                     yield f"data: {json.dumps({'error': str(exc)})}\n\n"
@@ -651,20 +932,44 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         try:
                             tc = _repair_tool_json(tc_json)
                             if tc is None:
-                                tool_results.append({"tool": "?", "error": "malformed tool JSON"})
-                                continue
+                                # One-shot correction: ask the model to fix its malformed JSON
+                                try:
+                                    import httpx as _httpx
+                                    _correction_payload = {
+                                        "model": "hermes-3-8b",
+                                        "messages": [
+                                            {"role": "user", "content": (
+                                                f"You emitted an invalid tool call. Raw output:\n\n{tc_json}\n\n"
+                                                "Rewrite it as valid JSON inside <tool_call>...</tool_call> tags. "
+                                                "Output ONLY the corrected tool call, nothing else."
+                                            )}
+                                        ],
+                                        "stream": False,
+                                        "max_tokens": 256,
+                                        "temperature": 0.0,
+                                    }
+                                    async with _httpx.AsyncClient(timeout=10.0) as _c:
+                                        _cr = await _c.post("http://localhost:8087/v1/chat/completions", json=_correction_payload)
+                                        _cr.raise_for_status()
+                                    _corrected_text = _cr.json()["choices"][0]["message"]["content"]
+                                    _corrected_blocks = _TOOL_CALL_RE.findall(_corrected_text)
+                                    tc = _repair_tool_json(_corrected_blocks[0]) if _corrected_blocks else None
+                                except Exception as _retry_exc:
+                                    owner.logger.warning("Companion tool-call correction failed: %s", _retry_exc)
+                                    tc = None
+                                if tc is None:
+                                    tool_results.append({"tool": "?", "error": "malformed tool JSON"})
+                                    continue
                             tool_name = tc.get("name", "")
+                            if not tool_name:
+                                owner.logger.warning("Companion tool call missing name, skipping: %s", tc)
+                                continue
                             tool_args = tc.get("arguments", {})
+                            if not isinstance(tool_args, dict):
+                                owner.logger.warning("Companion tool_args not a dict, coercing to {}: %s", tool_args)
+                                tool_args = {}
                             yield f"data: {json.dumps({'tool_exec': tool_name})}\n\n"
                             result = await _execute_companion_tool(tool_name, tool_args)
-                            from src.guppy.api.tool_call_log import log_tool_call
-                            log_tool_call(
-                                surface=request.surface or "companion",
-                                tool_name=tool_name,
-                                tool_args=tool_args,
-                                result=result,
-                                session_id=request.session_id,
-                            )
                             tool_results.append({"tool": tool_name, "result": result})
                         except Exception as exc:
                             tool_results.append({"tool": "?", "error": str(exc)})
@@ -699,7 +1004,6 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                             active_local_model=_active_local_model,
                             active_cloud_model=_active_cloud_model,
                             image_base64=None,
-                            surface=request.surface or "companion",
                         ):
                             if token.startswith(_SOURCE_SENTINEL):
                                 last_source = token[len(_SOURCE_SENTINEL):]
@@ -711,9 +1015,6 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                                 continue
                             full_response += token
                             yield f"data: {json.dumps({'token': token})}\n\n"
-                    except asyncio.CancelledError:
-                        _log.info("Client disconnected mid-stream — cancelling companion pass-2 inference")
-                        return
                     except Exception as exc:
                         owner.logger.error("Companion pass-2 streaming failed: %s", exc)
                         yield f"data: {json.dumps({'error': str(exc)})}\n\n"
@@ -736,7 +1037,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         from src.guppy.api.routes_chat_history import _chat_history_db
                         conv = _chat_history_db.get_conversation(request.session_id)
                         if conv and conv.get("message_count", 0) <= 2 and str(conv.get("title", "")).startswith("Conversation "):
-                            asyncio.create_task(_generate_conversation_title(request.message, request.session_id))
+                            asyncio.ensure_future(_generate_conversation_title(request.message, request.session_id))
                     except Exception:
                         pass
                 return
@@ -754,7 +1055,6 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     active_local_model=_active_local_model,
                     active_cloud_model=_active_cloud_model,
                     image_base64=request.image_base64 or None,
-                    surface=request.surface or "",
                 ):
                     if token.startswith(_SOURCE_SENTINEL):
                         last_source = token[len(_SOURCE_SENTINEL):]
@@ -772,9 +1072,6 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     done_payload["source"] = last_source
                 yield f"data: {json.dumps({**done_payload, 'done': True})}\n\n" if done_payload else "data: [DONE]\n\n"
 
-            except asyncio.CancelledError:
-                _log.info("Client disconnected mid-stream — cancelling standard inference")
-                return
             except Exception as exc:
                 owner.logger.error("Streaming chat error: %s", exc)
                 yield f"data: {json.dumps({'error': str(exc)})}\n\n"
@@ -794,7 +1091,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     from src.guppy.api.routes_chat_history import _chat_history_db
                     conv = _chat_history_db.get_conversation(request.session_id)
                     if conv and conv.get("message_count", 0) <= 2 and str(conv.get("title", "")).startswith("Conversation "):
-                        asyncio.create_task(
+                        asyncio.ensure_future(
                             _generate_conversation_title(request.message, request.session_id)
                         )
                 except Exception:
@@ -802,36 +1099,14 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
 
         async def _generate_with_heartbeat():
             """Wrap _generate() with SSE comment keepalives every 15 s.
-            Prevents proxy / browser from killing idle slow-model connections.
-
-            Enforces a maximum wall-clock cap (GUPPY_STREAM_TIMEOUT_SECONDS, default 300 s)
-            and detects client disconnects so the async generator is cleaned up promptly.
-            """
+            Prevents proxy / browser from killing idle slow-model connections."""
             import asyncio as _aio
-            import os as _os
-            _max_secs = float(_os.environ.get("GUPPY_STREAM_TIMEOUT_SECONDS", "300"))
             gen = _generate()
-            start_time = _aio.get_event_loop().time()
+            last_yield = _aio.get_event_loop().time()
             while True:
-                # Disconnect detection — clean up and stop early if client has gone away.
-                try:
-                    if await request.is_disconnected():
-                        owner.logger.debug("Client disconnected — cleaning up stream generator")
-                        await gen.aclose()
-                        return
-                except Exception:
-                    pass
-
-                # Wall-clock timeout guard.
-                elapsed = _aio.get_event_loop().time() - start_time
-                if elapsed > _max_secs:
-                    owner.logger.warning("Stream timeout after %.0f s — terminating", elapsed)
-                    await gen.aclose()
-                    yield f"data: {json.dumps({'error': 'Stream timeout'})}\n\n"
-                    return
-
                 try:
                     chunk = await _aio.wait_for(gen.__anext__(), timeout=15.0)
+                    last_yield = _aio.get_event_loop().time()
                     yield chunk
                 except StopAsyncIteration:
                     break
@@ -929,49 +1204,38 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
             )
             raise HTTPException(status_code=500, detail=str(e))
 
-    def _ws_validate_token(token: str) -> bool:
-        """Return True if the JWT is valid. Uses the same key/algo as HTTP auth."""
-        try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            return bool(payload.get("sub"))
-        except JWTError:
-            return False
-
     @router.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
-        # Phase 1 — Auth.
-        # If an Authorization header is present we can validate before accept()
-        # and reject with no race window.  Browser clients that can't set custom
-        # WS headers send the token in their first JSON message instead.
-        auth_header = websocket.headers.get("authorization", "")
-        if auth_header.startswith("Bearer "):
-            if not _ws_validate_token(auth_header[7:]):
-                await websocket.close(code=4001)
-                return
-            await websocket.accept()
-        else:
-            await websocket.accept()
-            try:
-                auth_data = await websocket.receive_json()
-            except WebSocketDisconnect:
-                return
-            token = auth_data.get("token") if isinstance(auth_data, dict) else None
-            if not token or not _ws_validate_token(token):
-                msg = "Authentication required" if not token else "Invalid token"
-                await websocket.send_json({"error": msg})
-                await websocket.close(code=4001)
-                return
+        await websocket.accept()
 
-        await websocket.send_json({"status": "authenticated"})
-
-        # Phase 2 — Message loop (both auth paths converge here).
         try:
+            auth_data = await websocket.receive_json()
+            token = auth_data.get("token")
+
+            if not token:
+                await websocket.send_json({"error": "Authentication required"})
+                await websocket.close()
+                return
+
+            try:
+                payload = owner.jwt.decode(
+                    token, owner.SECRET_KEY, algorithms=[owner.ALGORITHM]
+                )
+                _ = payload.get("sub")
+            except owner.JWTError:
+                await websocket.send_json({"error": "Invalid token"})
+                await websocket.close()
+                return
+
+            await websocket.send_json({"status": "authenticated"})
+
             while True:
                 try:
                     data = await websocket.receive_json()
                     message = data.get("message")
                     session_id = data.get("session_id")
                     mode = data.get("mode")
+                    use_claude = data.get("use_claude", True)
 
                     if not message:
                         continue
@@ -1019,11 +1283,13 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 except WebSocketDisconnect:
                     break
                 except Exception as e:
-                    owner.logger.error("WebSocket message error: %s", e)
-                    ctx.log_session_event("api", "ws_error", level="error", error=str(e))
+                    owner.logger.error(f"WebSocket error: {e}")
+                    owner.log_session_event("api", "ws_error", level="error", error=str(e))
                     await websocket.send_json({"error": str(e)})
         except Exception as e:
-            owner.logger.error("WebSocket connection failed: %s", e)
-            ctx.log_session_event("api", "ws_connection_failed", level="error", error=str(e))
+            owner.logger.error(f"WebSocket connection failed: {e}")
+            owner.log_session_event(
+                "api", "ws_connection_failed", level="error", error=str(e)
+            )
 
     return router

@@ -36,7 +36,7 @@ SURFACES = ("companion", "workspace", "codespace")
 SURFACE_DEFAULTS: dict[str, dict[str, str]] = {
     "companion": {
         "backend":       "llamacpp",
-        "model":         "llamacpp-hermes3",
+        "model":         "llamacpp-minicpm",
         "fallback_model": "llamacpp-rocinante",
         "mode":          "local",
         "system_prompt": (
@@ -118,10 +118,7 @@ def _db() -> sqlite3.Connection:
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA temp_store=MEMORY")
     return conn
 
 
@@ -207,6 +204,35 @@ def _spawn_task_direct(
     return task
 
 
+def _cancel_task_direct(task_id: str) -> dict:
+    """Cancel a queued task from internal code (e.g. companion cancel_workspace_task tool).
+
+    Only queued tasks can be cancelled — in-progress tasks are not interrupted.
+    """
+    if not _DB_PATH:
+        raise RuntimeError("surface DB not initialised yet — router not built")
+    task_id = (task_id or "").strip()
+    if not task_id:
+        return {"ok": False, "error": "task_id required"}
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT title, status FROM surface_tasks WHERE id=?", (task_id,)
+        ).fetchone()
+        if not row:
+            return {"ok": False, "error": f"task {task_id!r} not found"}
+        title, status = row
+        if status != "queued":
+            return {"ok": False, "error": f"task is {status!r}, can only cancel queued tasks"}
+        now = _now()
+        conn.execute(
+            "UPDATE surface_tasks SET status='cancelled', updated_at=? WHERE id=?",
+            (now, task_id),
+        )
+        conn.commit()
+    _broadcast_event("task_cancelled", {"id": task_id, "title": title})
+    return {"ok": True, "cancelled_id": task_id, "title": title}
+
+
 # ── SSE event bus ──────────────────────────────────────────────────────────────
 
 _sse_clients: set[asyncio.Queue] = set()
@@ -217,7 +243,7 @@ def _capture_loop() -> None:
     global _sse_loop
     if _sse_loop is None:
         try:
-            _sse_loop = asyncio.get_running_loop()
+            _sse_loop = asyncio.get_event_loop()
         except RuntimeError:
             pass
 
@@ -226,14 +252,12 @@ def _broadcast_event(event_type: str, data: dict[str, Any]) -> None:
     """Thread-safe broadcast to all connected SSE clients."""
     payload = {"type": event_type, "data": data, "ts": _now()}
     msg = f"event: {event_type}\ndata: {json.dumps(payload)}\n\n"
-    if not _sse_loop:
-        logger.debug("SSE event dropped (no event loop captured yet): %s", event_type)
-        return
-    for q in list(_sse_clients):
-        try:
-            _sse_loop.call_soon_threadsafe(q.put_nowait, msg)
-        except Exception:
-            pass
+    if _sse_loop:
+        for q in list(_sse_clients):
+            try:
+                _sse_loop.call_soon_threadsafe(q.put_nowait, msg)
+            except Exception:
+                pass
 
 
 async def _sse_generator() -> AsyncGenerator[str, None]:
@@ -302,11 +326,9 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
     _bg_log.info("[task_exec] starting task %s: %s", task_id, title)
 
     def _update(status: str, result: str | None = None) -> None:
-        """Update task status and — for terminal states — decrement surface agent_count."""
         if not _DB_PATH:
             return
         try:
-            terminal = status in ("completed", "failed", "cancelled")
             with _db() as conn:
                 if result is not None:
                     conn.execute(
@@ -317,26 +339,6 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
                     conn.execute(
                         "UPDATE surface_tasks SET status=?, updated_at=? WHERE id=?",
                         (status, _now(), task_id),
-                    )
-                # Decrement agent_count and clear surface status when this task ends.
-                # Without this the surface stays in 'agent_running' state forever
-                # because _run_workspace_task never goes through the update_task HTTP
-                # route (which does its own decrement).
-                if terminal:
-                    conn.execute(
-                        """UPDATE surface_state
-                           SET agent_count = MAX(0, agent_count - 1),
-                               updated_at = ?
-                           WHERE surface = 'workspace'""",
-                        (_now(),),
-                    )
-                    conn.execute(
-                        """UPDATE surface_state
-                           SET status = CASE WHEN agent_count <= 0 THEN 'idle' ELSE status END,
-                               current_task = CASE WHEN agent_count <= 0 THEN NULL ELSE current_task END,
-                               updated_at = ?
-                           WHERE surface = 'workspace'""",
-                        (_now(),),
                     )
                 conn.commit()
         except Exception as _e:
@@ -394,16 +396,8 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
             "temperature": 0.3,
             "max_tokens": 2048,
         }
-        # Resolve Hermes4 URL from the backend registry — avoids hardcoded port
-        try:
-            from src.guppy.api.routes_backends import _WATCHDOG_ALWAYS_ON as _wao
-            _h4_port = _wao.get("llamacpp-hermes4", 8086)
-        except Exception:
-            _h4_port = 8086
-        _h4_url = f"http://127.0.0.1:{_h4_port}/v1/chat/completions"
-
         async with httpx.AsyncClient(timeout=90.0) as client:
-            resp = await client.post(_h4_url, json=payload)
+            resp = await client.post("http://localhost:8086/v1/chat/completions", json=payload)
             resp.raise_for_status()
 
         first_response = resp.json()["choices"][0]["message"]["content"]
@@ -416,20 +410,43 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
             try:
                 tc = _repair_tool_json(tc_json)
                 if tc is None:
-                    tool_results.append({"tool": "?", "error": "malformed tool JSON"})
-                    continue
+                    # One-shot correction: ask the model to fix its malformed JSON
+                    try:
+                        _correction_payload = {
+                            "model": "hermes-4-14b",
+                            "messages": [
+                                {"role": "user", "content": (
+                                    f"You emitted an invalid tool call. Raw output:\n\n{tc_json}\n\n"
+                                    "Rewrite it as valid JSON inside <tool_call>...</tool_call> tags. "
+                                    "Output ONLY the corrected tool call, nothing else."
+                                )}
+                            ],
+                            "stream": False,
+                            "max_tokens": 256,
+                            "temperature": 0.0,
+                        }
+                        async with httpx.AsyncClient(timeout=10.0) as _c:
+                            _cr = await _c.post("http://localhost:8086/v1/chat/completions", json=_correction_payload)
+                            _cr.raise_for_status()
+                        _corrected_text = _cr.json()["choices"][0]["message"]["content"]
+                        _corrected_blocks = _TOOL_CALL_RE.findall(_corrected_text)
+                        tc = _repair_tool_json(_corrected_blocks[0]) if _corrected_blocks else None
+                    except Exception as _retry_exc:
+                        _bg_log.warning("[task_exec] Tool-call correction failed: %s", _retry_exc)
+                        tc = None
+                    if tc is None:
+                        tool_results.append({"tool": "?", "error": "malformed tool JSON"})
+                        continue
                 tool_name = tc.get("name", "")
+                if not tool_name:
+                    _bg_log.warning("[task_exec] Tool call missing name, skipping: %s", tc)
+                    continue
                 tool_args = tc.get("arguments", {})
+                if not isinstance(tool_args, dict):
+                    _bg_log.warning("[task_exec] tool_args not a dict, coercing to {}: %s", tool_args)
+                    tool_args = {}
                 _broadcast_event("task_progress", {"id": task_id, "status": "in_progress", "step": f"Tool: {tool_name}"})
                 result = await _execute_workspace_tool(tool_name, tool_args)
-                from src.guppy.api.tool_call_log import log_tool_call
-                log_tool_call(
-                    surface="workspace",
-                    tool_name=tool_name,
-                    tool_args=tool_args,
-                    result=result,
-                    task_id=task_id,
-                )
                 tool_results.append({"tool": tool_name, "result": result})
             except Exception as exc:
                 tool_results.append({"tool": "?", "error": str(exc)})
@@ -457,13 +474,9 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
                 "max_tokens": 512,
             }
             async with httpx.AsyncClient(timeout=60.0) as client:
-                resp2 = await client.post(_h4_url, json=summary_payload)
+                resp2 = await client.post("http://localhost:8086/v1/chat/completions", json=summary_payload)
                 if resp2.status_code < 300:
-                    try:
-                        _rj = resp2.json()
-                        final_result = _rj["choices"][0]["message"]["content"] or final_result
-                    except Exception:
-                        pass  # malformed Hermes4 response; keep tool_result_text summary
+                    final_result = resp2.json()["choices"][0]["message"]["content"]
 
         _update("completed", final_result[:4000])
         _broadcast_event("task_completed", {
@@ -484,11 +497,6 @@ async def _background_loop() -> None:
     workspace task per cycle through Hermes4, and ages stale tasks after 6 h.
     """
     global _task_executor_running
-    # Capture the running event-loop as early as possible so that _broadcast_event
-    # works correctly even before any SSE client has connected.  Without this the
-    # loop reference stays None and every broadcast silently drops until the first
-    # client opens /api/surface/events.
-    _capture_loop()
     _bg_log.info("[surface.bg] background loop started")
 
     while True:
@@ -584,9 +592,6 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
             ).fetchone()
         return dict(row) if row else {}
 
-    _STATE_COLUMNS  = frozenset({"status", "current_task", "agent_count", "last_context", "updated_at"})
-    _CONFIG_COLUMNS = frozenset({"backend", "model", "fallback_model", "mode", "system_prompt", "tool_policy", "updated_at"})
-
     @router.put("/state/{surface}")
     def update_surface_state(
         surface: str,
@@ -595,10 +600,7 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
     ):
         if surface not in SURFACES:
             raise HTTPException(400, f"Unknown surface: {surface}")
-        updates: dict[str, Any] = {
-            k: v for k, v in body.model_dump().items()
-            if v is not None and k in _STATE_COLUMNS
-        }
+        updates: dict[str, Any] = {k: v for k, v in body.model_dump().items() if v is not None}
         updates["updated_at"] = _now()
         if not updates:
             return {"ok": True}
@@ -642,10 +644,7 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
     ):
         if surface not in SURFACES:
             raise HTTPException(400, f"Unknown surface: {surface}")
-        updates: dict[str, Any] = {
-            k: v for k, v in body.model_dump().items()
-            if v is not None and k in _CONFIG_COLUMNS
-        }
+        updates: dict[str, Any] = {k: v for k, v in body.model_dump().items() if v is not None}
 
         # When companion model is switched without an explicit system_prompt, auto-apply
         # the matching personality preset so Pepe doesn't respond like Hermes3, etc.
