@@ -201,12 +201,15 @@ def _inject_user_preferences(system_prompt: str, owner: Any) -> str:
         from src.guppy.memory.semantic import DB_PATH
         if not DB_PATH or not _Path(str(DB_PATH)).exists():
             return system_prompt
-        with sqlite3.connect(str(DB_PATH)) as conn:
+        conn = sqlite3.connect(str(DB_PATH))
+        try:
             rows = conn.execute(
                 "SELECT memory_key, value FROM semantic_memory"
                 " WHERE category='user_preference'"
                 " ORDER BY created DESC LIMIT 10"
             ).fetchall()
+        finally:
+            conn.close()
         if rows:
             prefs = "\n".join(f"- {r[0]}: {r[1]}" for r in rows)
             return f"{system_prompt}\n\n[User Preferences]\n{prefs}"

@@ -907,6 +907,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                             active_local_model=_active_local_model,
                             active_cloud_model=_active_cloud_model,
                             image_base64=None,
+                            skip_tools=True,
                             surface=request.surface,
                         ):
                             if token.startswith(_SOURCE_SENTINEL):
@@ -1071,12 +1072,15 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     # Clear the "Calling tools…" status before streaming pass 2
                     yield f"data: {json.dumps({'replace': ''})}\n\n"
 
-                    # Pass 2: stream the follow-up response
+                    # Pass 2: synthesize tool results into a natural reply.
+                    # skip_tools=True prevents the tool primer from re-entering the prompt
+                    # and stops the model from emitting another tool-call loop.
+                    _p2_system = system_prompt + "\n\nYou have just executed tools. Synthesize the results into a natural, conversational reply. Do NOT emit any <tool_call> blocks."
                     try:
                         async for token in stream_unified_inference(
                             owner,
                             "Respond naturally based on the tool results.",
-                            system_prompt,
+                            _p2_system,
                             mode=request.mode,
                             history=follow_up_history,
                             instance_name=active_instance_name,
@@ -1084,6 +1088,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                             active_local_model=_active_local_model,
                             active_cloud_model=_active_cloud_model,
                             image_base64=None,
+                            skip_tools=True,
                             surface=request.surface,
                         ):
                             if token.startswith(_SOURCE_SENTINEL):

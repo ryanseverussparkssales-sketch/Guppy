@@ -217,11 +217,11 @@ def _merged_openai_tools(owner: Any) -> list[dict] | None:
 # _HISTORY_SNIPPET_MAX_CHARS and _HISTORY_TURNS_SHOWN moved to context_injection.
 _CHAT_HISTORY_LIMIT = 30  # token-aware trimmer acts as backstop for small-context models
 
-# Per-surface hard turn caps.  Companion uses Hermes3 (8K context) so we keep
-# it tight; workspace/codespace use Hermes4 (32K) but code-heavy prompts warrant
-# a slightly shorter cap than pure chat.
+# Per-surface hard turn caps.  Companion uses Rocinante 12B (16K context) as primary
+# with Hermes3 (8K) as fallback — cap at 20 so both models stay comfortable.
+# Workspace/codespace use Hermes4 (32K) but code-heavy prompts warrant a shorter cap.
 _SURFACE_HISTORY_LIMITS: dict[str, int] = {
-    "companion":  15,   # Hermes3 8K context — keep it tight
+    "companion":  20,   # Rocinante 16K / Hermes3 8K fallback
     "workspace":  30,   # Hermes4 32K — full depth
     "codespace":  25,   # Hermes4 32K but code is verbose
 }
@@ -858,19 +858,24 @@ async def stream_unified_inference(
     _query_is_file_related = any(kw in _user_text_lower for kw in _file_keywords)
     _query_needs_surface_state = any(kw in _user_text_lower for kw in _surface_state_keywords)
 
-    # Injection order: identity → history → workspace/surface context → semantic/prefs (last = most attended)
+    # Injection order: identity → history → workspace/surface context → semantic/prefs → tool primer
+    # Tool primer is injected here unconditionally so it's always present regardless of skip_tools.
+    # (skip_tools only prevents OpenAI-format tool schemas; the primer is a system instruction.)
     augmented_system = _inject_model_identity(system_prompt, surface=surface)
     augmented_system = augment_system_with_history(augmented_system, clean_history)
-    # Fix 1+2: Skip file tree for companion; for workspace/codespace only inject when query is file-related.
+    # Skip file tree for companion; for workspace/codespace only inject when query is file-related.
     if surface != "companion" and _query_is_file_related:
         augmented_system = await _inject_workspace_context_async(augmented_system, owner)
-    # Fix 3: Skip cross-surface state for companion unless query references tasks/agents/status.
+    # Skip cross-surface state for companion unless query references tasks/agents/status.
     if surface != "companion" or _query_needs_surface_state:
         augmented_system = await _inject_surface_state_async(augmented_system)
     if surface == "companion":
         augmented_system = await _inject_pending_tasks_async(augmented_system)
     augmented_system = await _inject_semantic_context_async(augmented_system, user_text, owner, history=clean_history)
     augmented_system = await _inject_user_preferences_async(augmented_system, owner)
+    # Tool primer last — most-attended position; injected here so it's present even when
+    # router_surface is called with skip_tools=True (which only suppresses OpenAI tool schemas).
+    augmented_system = _inject_tool_primer(augmented_system, surface)
 
     # ── Fix 4: Context budget guard ───────────────────────────────────────────
     # Estimate token usage and trim history further if we are over 85% of the
