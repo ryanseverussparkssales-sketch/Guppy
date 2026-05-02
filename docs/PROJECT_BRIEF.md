@@ -1,6 +1,6 @@
 # Guppy Project Brief
 
-Last updated: 2026-04-30
+Last updated: 2026-05-03
 
 ## What Guppy Is
 
@@ -18,7 +18,7 @@ The desktop launcher (`launcher_app.py`) spawns a FastAPI server and opens a bro
 
 | Surface | Route | Model | Purpose |
 |---|---|---|---|
-| **Conversations** | `/conversations` | Hermes 3 (port 8087) | Voice/chat/vision, personality, avatar |
+| **Companion** | `/companion` | Rocinante X 12B (port 8088) / Hermes 3 fallback | Voice/chat/vision, personality, avatar |
 | **Workspace** | `/workspace` | Hermes 4 (port 8086) | 11-tab operations hub |
 | **Codespace** | `/codespace` | Hermes 4 (port 8086) | Docker sandbox, self-triage, AI fix proposals |
 
@@ -46,9 +46,11 @@ FastAPI (`src/guppy/api/server_runtime.py`) with 40+ route modules. All routes m
 
 | Role | Model | Port | VRAM |
 |---|---|---|---|
-| Companion chat (fast) | Hermes 3 8B Q8_0 | 8087 | ~9 GB |
+| Companion primary | Rocinante X 12B Q5_K_M | 8088 | ~10 GB (on-demand) |
+| Companion fallback (watchdog) | Hermes 3 8B Q8_0 | 8087 | ~9 GB |
 | Workspace/Codespace reasoning | Hermes 4 14B Q5_K_M | 8086 | ~11 GB |
-| Orchestrator/summarizer | Qwen2.5-3B Q4_K_M | 8085 | ~2 GB |
+| Orchestrator/summarizer | Phi-4-mini Q4_K_M | 8091 | ~2.5 GB |
+| Embedding server | nomic-embed-text-v1.5 | 8092 | ~1 GB |
 
 Full model roster: `docs/MODEL_ROUTING.md`
 
@@ -58,7 +60,7 @@ Single SQLite at `guppy_main.db` (path via `src/guppy/paths.MAIN_DB_PATH`). All 
 
 ---
 
-## Active Status (2026-04-30)
+## Active Status (2026-05-03)
 
 ### Shipped (Phases 1–6 complete)
 - ✅ Three-surface architecture — Conversations / Workspace / Codespace

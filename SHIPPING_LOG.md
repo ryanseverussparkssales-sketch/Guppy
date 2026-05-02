@@ -2,7 +2,58 @@
 
 **Purpose:** Detailed implementation notes for completed features and initiatives. Reference for understanding architectural decisions and implementation details.
 
-**Last updated:** 2026-05-02
+**Last updated:** 2026-05-03
+
+---
+
+## Routing Stability + Memory Quality — Shipped (2026-05-03)
+
+### Stream Stability: asyncio Heartbeat Queue (commit 911c40f)
+
+**Root cause:** `_generate_with_heartbeat()` used `asyncio.wait_for(asyncio.shield(gen.__anext__()), timeout=30)`. On timeout, it called `__anext__()` again while the shielded call was still running → `ValueError: async generator already running` → stream died after exactly one heartbeat with no error visible to the client.
+
+**Fix:** Queue-drain pattern. Producer task drains the async generator into an `asyncio.Queue`; consumer pulls with `asyncio.wait_for(queue.get(), timeout=30)` and emits `": heartbeat\n\n"` SSE comments when empty. Producer and consumer never share the generator reference concurrently.
+
+### Rocinante as Companion Default (commit 911c40f)
+
+- `_SURFACE_LOCAL_DEFAULTS["companion"]` changed from `llamacpp-hermes3` to `llamacpp-rocinante`
+- Cascade: Rocinante (8088) → Hermes3 (8087) → Haiku cloud
+- Hermes3 remains watchdog-maintained always-on fallback; Rocinante is on-demand
+- Model identity updated in `context_injection.py`: `_MODEL_IDENTITY["companion"]` now reflects Rocinante X 12B
+
+### XML Tool Call Normalization (commit 911c40f)
+
+Some models emit `<tool_call><name>foo</name><arguments>{...}</arguments></tool_call>` instead of `<tool_call>{"name": "foo", "arguments": {...}}</tool_call>`. The existing `_TOOL_CALL_RE` only matched JSON-in-tags. Added `_normalize_tool_calls()` pre-parser that converts XML format to JSON format before regex extraction.
+
+### Pass-2 Context Overflow Fix (commit 911c40f)
+
+Workspace tool synthesis (pass-2) reused the full system prompt including `_WORKSPACE_TOOL_SCHEMA` (~3K tokens). Combined with tool results and history this exceeded the 32K context window on all cascade models, returning 0 tokens → "No backend available". Fix: strip `_WORKSPACE_TOOL_SCHEMA` from pass-2 prompt and append a short synthesis instruction.
+
+### Companion `/action` Catch-All (commit 911c40f)
+
+The companion `/action` endpoint had explicit `if name == "..."` handlers for only 5 of 9 allowed tools. Tools like `get_time`, `list_workspace_tasks`, `cancel_workspace_task` fell through to `raise HTTPException(400, "Unhandled action")`. Fixed with `_execute_companion_tool()` fallback covering all tools.
+
+---
+
+### Memory Noise Reduction (commit d1fb886)
+
+**Exact-key recall short-circuit:** `_recall_sqlite` now checks `LOWER(memory_key) = LOWER(query)` and `LOWER(memory_key) LIKE LOWER(query%)` before any embedding I/O. When the user or a tool queries a key by exact name, results come back immediately without vector search noise.
+
+**Recall depth n=8 → n=4:** Halves the number of recalled memories injected per prompt. Reduces token spend and cross-topic contamination.
+
+**User preferences direct scan:** `_inject_user_preferences()` was calling `recall_semantic("", n=10, category="user_preference")` — the embedding of an empty string is undefined, producing random/near-random similarity results. Replaced with `SELECT memory_key, value FROM semantic_memory WHERE category='user_preference' ORDER BY created DESC LIMIT 10`.
+
+**Garbage filter:** `build_semantic_prompt_context()` drops result blocks where all content lines (`-` prefixed) are shorter than 10 characters — this pattern indicates spurious lexical-fallback matches.
+
+**Structured session summarizer:** Replaced the vague "3-4 sentence" prompt with a bullet-list fact-extraction prompt targeting: explicit preferences/decisions, completed tasks/outcomes, topics worth remembering, named entities (people, projects, tools).
+
+### Surface-Aware Injection (commit d1fb886)
+
+**File tree opt-in:** `_inject_workspace_context_async` skipped for companion surface entirely. For workspace/codespace, only injected when the query contains file-related keywords (`file`, `folder`, `code`, `script`, `path`, etc.).
+
+**Surface state gate:** `_inject_surface_state_async` (cross-surface status block) skipped for companion unless query references `task`, `workspace`, `agent`, `status`, `running`, `progress`, or `complete`.
+
+**Context budget guard:** After all injections, if `len(system_prompt) + sum(len(turn) for turn in history) > 85% of model context window` (from `_BACKEND_CONTEXT_TOKENS`), trims history to most-recent half and rebuilds without expensive workspace/surface injections.
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-05-02 — Phase 6 hardening round 2 (JWT fix, Docker, semantic tests)
+**Last updated:** 2026-05-03 — Routing stability, memory noise reduction, surface-aware injection
 
 ---
 
@@ -131,7 +131,7 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 
 ### Environment
 - **Python:** ≥ 3.12 (see `pyproject.toml`)
-- **Ollama:** Must be running on `http://127.0.0.1:11434`
+- **Ollama:** Not used for inference routing (`can_stream_ollama=False`). Only vault-scraper agent uses Ollama directly.
 - **Key env vars:**
   - `GUPPY_DEV_MODE` — Enables dev endpoints, logging (see `src/guppy/api/auth.py:36`)
   - `GUPPY_JWT_SECRET` — JWT signing key (fallback if keyring unavailable)
@@ -180,15 +180,15 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - ✅ `GUPPY_DEV_MODE` env var and logging
 - ✅ **Three-surface architecture Phases 1–5 complete** — Companion/Workspace/Codespace fully shipped
 - ✅ **Workspace 11-tab hub** — Calendar, Email, Media, Tasks added; all backed by live routes
-- ✅ **Companion voice fast-path** — `is_voice` flag on ChatRequest routes voice transcripts to Hermes3 on companion surface; always-on VRAM stack: dispatch(2GB) + Hermes3(9GB) + Hermes4(11GB) = 22GB; xLAM on-demand
+- ✅ **Companion voice fast-path** — `is_voice` flag on ChatRequest routes voice transcripts to Rocinante (companion primary) or Hermes3 (fallback); always-on VRAM: embed(1GB) + dispatch(2GB) + phi4-mini(2.5GB) + Hermes3(9GB) + Hermes4(11GB) ≈ 25.5GB; Rocinante on-demand; xLAM on-demand
 - ✅ **Companion tool execution** — `POST /api/companion/action` for web_fetch/create_reminder/download_media/memory_write/memory_recall; `<tool_call>` parser in `/chat/stream` two-pass; Hermes tool schema + memory protocol in all personality presets
 - ✅ **Ollama removed from routing** — `can_stream_ollama=False`; all local routes go to llamacpp; session summarizer switched from guppy-fast to phi-4-mini at port 8091
 - ✅ **Phi-4-mini infrastructure** — registered at port 8091 as true JSON tool_call orchestrator; model file needed to activate
 - ✅ **6-gap stability hardening** (2026-04-30):
-  - **Surface-locked routing** — `_get_surface_local_model()` reads `surface_config` DB per-surface; companion→hermes3, workspace→hermes4 by default; wired into `/chat` + `/chat/stream`
+  - **Surface-locked routing** — `_get_surface_local_model()` reads `surface_config` DB per-surface; companion→rocinante (hermes3 fallback), workspace→hermes4; wired into `/chat` + `/chat/stream`
   - **Per-surface cloud fallback** — `_get_surface_cloud_model()` returns Haiku for companion, Sonnet for workspace/codespace; user override always wins
   - **`workspace_task` companion tool** — companion can hand tasks to workspace via `<tool_call>workspace_task`; `_spawn_task_direct()` in routes_surface bypasses HTTP auth for trusted internal callers
-  - **Backend watchdog** — daemon thread in routes_backends monitors ports 8085/8087/8086 every 60 s, auto-restarts crashed always-on models
+  - **Backend watchdog** — daemon thread in routes_backends monitors ports 8085/8086/8087/8091/8092 every 60 s, auto-restarts crashed always-on models
   - **24/7 background task loop** — asyncio task delivers due reminders as SSE events every 30 s; marks queued tasks stale after 6 h; started via lifespan `background_coroutines`
   - **Strict-local mode** — companion surface checks local model port liveness before streaming; returns honest "Local model offline" error instead of silent cloud escalation
 - ✅ **7-item 2026 best-practices pass** (2026-04-30):
@@ -198,7 +198,7 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
   - **SSE exponential backoff** — `useSurfaceEvents.ts` shared hook; 2→4→8→16→32→60 s backoff, resets after 10 s healthy connection; used by both CompanionView and WorkspaceView
   - **OOM error parsing** — `_parse_oom_error()` in realtime_inference_support detects CUDA/ROCm OOM in llamacpp HTTP error bodies; `_stream_llamacpp_tokens` raises actionable RuntimeError; `local_client.py` logs ERROR-level with restart instruction
   - **Grammar-constrained tool calls** — `_TOOL_CALL_GBNF` constant + `grammar` param on `_stream_llamacpp_tokens`; `_repair_tool_json()` applies trailing-comma/unclosed-brace repairs in all three tool-call parse sites (companion, workspace, task executor)
-  - **KV cache auto-warming** — `_warm_kv_cache(port)` sends 1-token prefill to Hermes3 (8087) and Hermes4 (8086) on first confirmed liveness; integrated into watchdog, re-warms after crash+restart; reduces first-response latency ~30-50%
+  - **KV cache auto-warming** — `_warm_kv_cache(port)` sends 1-token prefill to Rocinante (8088), Hermes3 (8087), and Hermes4 (8086) on first confirmed liveness; integrated into watchdog, re-warms after crash+restart; reduces first-response latency ~30-50%
 - ✅ **MCP plugin manager** — add/remove/enable/test MCP servers; MCPView wired
 - ✅ **Desktop control API** — pyautogui screenshot/click/type (graceful fallback if pyautogui absent)
 - ✅ **Themes** — Dark, Liber Designatum (occult), Fear & Loathing (gonzo), Creem × Rolling Stone (rock mag)
@@ -224,6 +224,22 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
   - **Semantic fallback unit tests** — `tests/unit/test_semantic_fallback.py` 4/4 pass; covers lexical fallback when embed server offline
   - **Docker app container** — `Dockerfile` + `docker-compose.yml` for production FastAPI container; `GUPPY_JWT_SECRET` required
   - **Test security imports fixed** — `tests/test_security_hardening.py` conditional `launcher_window` import + `skipIf` on 4 archived Qt test classes; 29 pass, 10 skip, 0 fail
+- ✅ **Routing stability + tool hardening** (2026-05-03, commit 911c40f):
+  - **asyncio heartbeat queue** — replaced `asyncio.shield` pattern (caused `ValueError: async generator already running` after one heartbeat) with queue-drain producer/consumer; streams now stay alive for full response
+  - **Rocinante as companion default** — `_SURFACE_LOCAL_DEFAULTS["companion"]` = `llamacpp-rocinante`; cascade tries Rocinante first, falls through to Hermes3; identity updated in context_injection
+  - **XML tool call normalization** — `_normalize_tool_calls()` pre-parser converts `<name>/<arguments>` XML format (emitted by some models) to JSON-in-tags before `_TOOL_CALL_RE` matching
+  - **Pass-2 stripped prompt** — workspace tool synthesis (pass-2) strips `_WORKSPACE_TOOL_SCHEMA` to prevent context overflow; was hitting 32K limit → "No backend available"
+  - **Companion `/action` fallback** — added `_execute_companion_tool` catch-all; previously 4 of 9 tools (get_time, list_workspace_tasks, etc.) returned HTTP 400
+  - **0-token fallthrough detection** — `router_surface.py` tracks `_yielded` tokens; raises `RuntimeError` on 0-token response to cascade to next model
+- ✅ **Memory noise reduction + surface-aware injection** (2026-05-03, commit d1fb886):
+  - **Exact-key recall** — `_recall_sqlite` short-circuits on exact/prefix key match before embedding I/O; no fuzzy noise when querying named keys directly
+  - **Recall depth n=8 → n=4** — halves semantic context injected per turn
+  - **User preferences direct SQL scan** — replaced `recall_semantic("", category=user_preference)` (empty-string embedding = random results) with `SELECT ... WHERE category='user_preference'`
+  - **Garbage filter** — `build_semantic_prompt_context` drops results where all content lines < 10 chars (spurious lexical fallback noise)
+  - **Structured session summarizer** — fact-extraction bullet prompt replaces vague paragraph summary; extracts preferences, outcomes, entities, topics
+  - **Surface-aware file tree** — `_inject_workspace_context_async` skipped for companion; opt-in for workspace/codespace when query contains file-related keywords
+  - **Companion surface state gate** — `_inject_surface_state_async` skipped for companion unless query references tasks/agents/status
+  - **Context budget guard** — post-injection check: if `system + history > 85% of context window`, trims history to most-recent half and rebuilds without expensive injections
 
 **For detailed implementation notes on completed initiatives, see `SHIPPING_LOG.md` in the Guppy repo.**
 
@@ -262,12 +278,14 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 
 → See `docs/MODEL_ROUTING.md` for full table.
 
-**Always-on stack (~22.5 GB VRAM):**
+**Always-on stack (~25.5 GB VRAM):**
 | Surface role | Key | Port | Model |
 |---|---|---|---|
-| Companion fast chat | `llamacpp-hermes3` | 8087 | Hermes 3 8B Q8_0 |
+| Companion watchdog fallback | `llamacpp-hermes3` | 8087 | Hermes 3 8B Q8_0 |
+| Companion primary (on-demand) | `llamacpp-rocinante` | 8088 | Rocinante X 12B Q5_K_M |
 | Workspace/codespace reasoning | `llamacpp-hermes4` | 8086 | Hermes 4 14B Q5_K_M |
 | Orchestrator / summarizer | `llamacpp-phi4-mini` | 8091 | Phi-4-mini-instruct Q4_K_M |
+| Semantic embedding | `llamacpp-nomic-embed` | 8092 | nomic-embed-text-v1.5 |
 
 **Ollama is removed from routing.** `can_stream_ollama=False`. All local routes go to llamacpp.
 
@@ -323,5 +341,5 @@ Located at `config/instances.json`. Defines available runtime instances:
 
 **When debugging:**
 1. Enable `GUPPY_DEV_MODE` env var
-2. Check Ollama is running on `http://127.0.0.1:11434`
+2. Check llamacpp backends are running: `curl http://localhost:8087/health` (Hermes3), `curl http://localhost:8086/health` (Hermes4)
 3. Review logs from `src/guppy/api/auth.py` (dev mode logging)

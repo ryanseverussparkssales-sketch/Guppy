@@ -1,18 +1,22 @@
 # Guppy — Model Routing
 
-**Last updated:** 2026-04-30 (Tranches 0–I complete)
+**Last updated:** 2026-05-03
 
 ---
 
 ## Always-On Stack (llama.cpp ROCm/HIP)
 
+Managed by the watchdog in `routes_backends.py` — auto-restarted on crash.
+
 | Role | Key | Port | Model | VRAM |
 |------|-----|------|-------|------|
+| Embedding server | `llamacpp-nomic-embed` | 8092 | nomic-embed-text-v1.5 | ~1 GB |
 | Orchestrator / session summarizer | `llamacpp-phi4-mini` | 8091 | Phi-4-mini-instruct Q4_K_M | ~2.5 GB |
-| Companion fast chat + tools | `llamacpp-hermes3` | 8087 | Hermes 3 8B Lorablated Q8_0 | ~9 GB |
+| Companion watchdog fallback | `llamacpp-hermes3` | 8087 | Hermes 3 8B Lorablated Q8_0 | ~9 GB |
 | Workspace / codespace reasoning + tools | `llamacpp-hermes4` | 8086 | Hermes 4 14B Q5_K_M | ~11 GB |
+| Lightweight router | `llamacpp-dispatch` | 8085 | Qwen2.5-3B Q4_K_M | ~2 GB |
 
-**Total always-on VRAM:** ~22 GB
+**Total always-on VRAM:** ~25.5 GB
 
 ---
 
@@ -34,15 +38,15 @@
 
 ## Surface-Locked Routing
 
-`_get_surface_local_model()` in `routes_realtime.py` reads `surface_config` from `guppy_main.db`:
+`_get_surface_local_model()` in `routes_realtime.py` reads `surface_config` from `guppy_main.db`. The cascade in `router_surface.py` tries models in order, falling through on 0-token responses.
 
-| Surface | Default local model |
-|---------|-------------------|
-| `companion` | `llamacpp-hermes3` (port 8087) |
-| `workspace` | `llamacpp-hermes4` (port 8086) |
-| `codespace` | `llamacpp-hermes4` (port 8086) |
+| Surface | Primary model | Fallback |
+|---------|--------------|---------|
+| `companion` | `llamacpp-rocinante` (port 8088) | hermes3 (8087) → Haiku |
+| `workspace` | `llamacpp-hermes4` (port 8086) | phi4-mini/dispatch (small-ctx) → Sonnet |
+| `codespace` | `llamacpp-hermes4` (port 8086) | hermes3 (8087) → Sonnet |
 
-User override always wins over surface default.
+User override always wins. Rocinante is the companion **primary** but not watchdog-managed — Hermes3 is the always-on fallback for companion.
 
 ---
 
@@ -62,7 +66,7 @@ User override always wins over surface default.
 
 ## Warm Policy
 
-- **KV cache auto-warming:** `_warm_kv_cache(port)` sends 1-token prefill to Hermes3 (8087) and Hermes4 (8086) on first confirmed liveness
+- **KV cache auto-warming:** `_warm_kv_cache(port)` sends 1-token prefill to Rocinante (8088), Hermes3 (8087), and Hermes4 (8086) on first confirmed liveness
 - Re-warms after watchdog crash+restart
 - Reduces first-response latency ~30–50%
 
@@ -78,5 +82,5 @@ User override always wins over surface default.
 
 ## Voice Fast-Path
 
-- `is_voice=True` on `ChatRequest` routes voice transcripts to Hermes3 on companion surface
+- `is_voice=True` on `ChatRequest` routes voice transcripts to the companion surface model (Rocinante, or Hermes3 fallback)
 - Bypasses heavier model selection for low-latency voice responses

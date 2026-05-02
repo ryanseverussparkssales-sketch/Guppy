@@ -1,6 +1,6 @@
 # Live Architecture Map
 
-Last updated: 2026-04-29 — Three-surface architecture complete (Phases 1–5 shipped)
+Last updated: 2026-05-03
 
 > **Authority:** CLAUDE.md owns module/routing facts. This doc owns the dependency and domain model.
 
@@ -18,15 +18,15 @@ The Web UI (React/Vite, `web/`) is the **authoritative user surface**, served at
 
 ### Companion (`/companion`)
 Voice-first, personality-led. Animated avatar, push-to-talk, wake word, camera vision, escalate-to-Workspace.
-Model affinity: minicpm → rocinante → hermes3 → dispatch.
+Model cascade: rocinante (8088) → hermes3 (8087) → Haiku cloud.
 
 ### Workspace (`/workspace`)
 11-tab hub: Chat | Agents | CRM | Screen | Files | PC | Tasks | Calls | Calendar | Email | Media.
-Model affinity: xlam (tool calls) → hermes4 (agentic) → qwen3 (reasoning) → guppy (Ollama).
+Model cascade: hermes4 (8086) → phi4-mini/dispatch (small-ctx) → Sonnet cloud.
 
 ### Codespace (`/codespace`)
 3-tab: Chat | Sandbox | Triage.
-Model affinity: guppy-code → qwen3 → hermes4 → hermes3.
+Model cascade: hermes4 (8086) → hermes3 (8087) → Sonnet cloud.
 
 ---
 
@@ -79,8 +79,8 @@ Model affinity: guppy-code → qwen3 → hermes4 → hermes3.
 - **Task types:** simple, complex, teaching, agentic, tool_call
 - **Modes:** auto, claude, ollama, local, code, teaching, vault, local_paired
 - **Classifier:** Haiku semantic + heuristic fallback
-- **llamacpp backends** (fixed ports): pepe (8082), qwen3 (8083), minicpm (8084), dispatch (8085), hermes4 (8086), hermes3 (8087), rocinante (8088), xlam (8089)
-- **Ollama models:** guppy-fast (7B), guppy (32B), guppy-teach (32B), guppy-code (14B), vault-scraper (7B)
+- **llamacpp backends** (fixed ports): pepe (8082), qwen3 (8083), minicpm (8084), dispatch (8085), hermes4 (8086), hermes3 (8087), rocinante (8088), xlam (8089), chat-70b (8090), phi4-mini (8091), nomic-embed (8092)
+- **Ollama removed from routing** — `can_stream_ollama=False`; all local routes go to llamacpp
 - **Auto-routing:** `task_type=tool_call` → xlam; `task_type=agentic` → hermes4/qwen3
 - **Metrics:** all registry-routed inferences persisted to `guppy_main.db` → `inference_metrics` table
 
@@ -98,7 +98,7 @@ Model affinity: guppy-code → qwen3 → hermes4 → hermes3.
 ## Background Services (started at boot)
 
 - **Triage watchdog** — polls `src/guppy/` + `tools/` every 5s (60s debounce), auto-triggers dev-check on changes
-- **Screen monitor** — 30-min snapshot cycle, AI summaries via guppy-fast
+- **Screen monitor** — 30-min snapshot cycle, AI summaries via dispatch/hermes3
 - **llamacpp dispatch** — auto-starts at boot (5s delay), port 8085
 
 ---
@@ -106,7 +106,7 @@ Model affinity: guppy-code → qwen3 → hermes4 → hermes3.
 ## Memory System
 
 - **SQLite:** facts, contacts, tasks, pipeline/CRM, session summaries, conversation history (`guppy_main.db`)
-- **Semantic:** ChromaDB or SQLite + `nomic-embed-text` via Ollama
+- **Semantic:** ChromaDB or SQLite + `nomic-embed-text` via dedicated llamacpp embed server (port 8092); graceful lexical fallback when offline
 - **`promote_durable_chat_memory()`** — extracts preferences, identity, decisions, scope
 - **`get_startup_context()`** — briefing injected at conversation start
 
