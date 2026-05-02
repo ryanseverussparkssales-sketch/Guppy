@@ -588,18 +588,6 @@ for _mod_path, _factory_name, _prefix, _label in _ROUTER_REGISTRY:
         )
         # Continue — one bad module must not crash the whole server
 
-# ── model_roles: factory returns (primary_router, control_router) ──────────────
-try:
-    import importlib as _il
-    _mrmod = _il.import_module("src.guppy.api.routes_model_roles")
-    _model_roles_router, _control_model_roles_router = _mrmod.build_model_roles_router(_server_context)
-    app.include_router(_model_roles_router)           # /api/model-roles/*
-    app.include_router(_control_model_roles_router)   # /api/control/operator-settings
-    logger.debug("Router registered: model_roles /api/model-roles + /api/control/operator-settings")
-except Exception as _reg_exc:
-    _router_fail_count += 1
-    logger.error("FAILED to register router model_roles: %s", _reg_exc)
-
 if _router_fail_count:
     logger.warning(
         "%d router(s) failed to register — those API paths will return 404. "
