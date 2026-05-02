@@ -6,6 +6,44 @@
 
 ---
 
+## Two-Model Core Stability Checkpoint — Shipped (2026-05-03, commit 8315900)
+
+### Critical Fix: Tool Primer Always Injected
+
+**Root cause:** `skip_tools=True` was passed to `stream_unified_inference` for pass-1 companion and workspace calls to suppress OpenAI-format tool schemas. `router_surface.py` line 54 gated `_inject_tool_primer()` on `not skip_tools` — so on every pass-1 call, the tool primer was silently stripped from the system prompt. Rocinante and Hermes4 generated pass-1 responses with no knowledge of available tools or their XML format.
+
+**Fix:** `_inject_tool_primer(augmented_system, surface)` call moved to the `realtime_inference_support.py` injection chain, after all other injections, unconditional on `skip_tools`. The `skip_tools` flag now controls only the OpenAI API schema objects passed in the `tools=` parameter — not the system-prompt tool description block. `router_surface.py` still has the `if not skip_tools:` guard as an intentional no-op remnant (safe to leave; the real injection already happened upstream).
+
+### Pass-2 Tool-Loop Guard
+
+**Root cause:** Companion and workspace pass-2 synthesis calls did not pass `skip_tools=True`, so the tool primer was injected again on the synthesis turn. Models occasionally emitted another `<tool_call>` block during synthesis (loop condition).
+
+**Fix:** Both companion pass-2 and workspace pass-2 in `routes_realtime.py` now call `stream_unified_inference(..., skip_tools=True)` and use a dedicated synthesis system prompt that ends with "Do NOT emit any `<tool_call>` blocks."
+
+### Companion History Limit 15→20
+
+`_SURFACE_HISTORY_LIMITS["companion"]` was set to 15 with a comment referencing "Hermes3 8K context". Rocinante has 16K context (`_BACKEND_CONTEXT_TOKENS["llamacpp-rocinante"] = 16384`). Raised to 20 to use Rocinante's available context budget.
+
+### Windows File Lock Fix
+
+`_inject_user_preferences()` used `with sqlite3.connect(str(DB_PATH)) as conn:`. Python's sqlite3 context manager handles transaction commit/rollback but does NOT close the connection on `__exit__`. On Windows, this held the file lock for the lifetime of the Python object. Replaced with explicit `conn.close()` in a `finally` block.
+
+### New: 22-Test Integration Suite (`tests/integration/test_two_model_core.py`)
+
+Tests the Rocinante+Hermes4 core without a live model server — validates prompt assembly and routing logic only:
+
+| Class | Tests | What it covers |
+| --- | --- | --- |
+| `TestToolPrimerInjection` | 5 | Companion/workspace/codespace primers present; CONVERSATION HISTORY instruction; TOOL CALL FORMAT reminder |
+| `TestToolCallNormalization` | 5 | JSON passthrough; XML→JSON conversion; bad args graceful degradation; multiple calls; no calls |
+| `TestContextBudgetGuard` | 4 | Normal conversation under budget; pathological session triggers guard; Rocinante > Hermes3 context; companion limit ≥ 20 |
+| `TestMultiTurnHistoryInjection` | 3 | `augment_system_with_history` is a no-op (by design — history goes via messages array); `sanitize_chat_history` preserves content; trimming to surface limit |
+| `TestSemanticMemoryPipeline` | 5 | Empty/garbage/good recall results; exact-key SQL bypass skips `_embed_text`; user preferences SQL scan |
+
+All 22 pass. Guards: `dev-check --guard-scope delta` all green.
+
+---
+
 ## Routing Stability + Memory Quality — Shipped (2026-05-03)
 
 ### Stream Stability: asyncio Heartbeat Queue (commit 911c40f)

@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-05-03 — Routing stability, memory noise reduction, surface-aware injection
+**Last updated:** 2026-05-03 — Two-model core stability checkpoint (Rocinante + Hermes4)
 
 ---
 
@@ -240,6 +240,12 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
   - **Surface-aware file tree** — `_inject_workspace_context_async` skipped for companion; opt-in for workspace/codespace when query contains file-related keywords
   - **Companion surface state gate** — `_inject_surface_state_async` skipped for companion unless query references tasks/agents/status
   - **Context budget guard** — post-injection check: if `system + history > 85% of context window`, trims history to most-recent half and rebuilds without expensive injections
+- ✅ **Two-model core stability checkpoint** (2026-05-03, commit 8315900):
+  - **Tool primer always-injected** — `_inject_tool_primer()` moved to `realtime_inference_support.py` injection chain, fires unconditionally; decoupled from `skip_tools` flag which now only suppresses OpenAI-format schema objects — Rocinante on pass-1 (`skip_tools=True`) now always sees tool descriptions
+  - **Pass-2 tool-loop guard** — companion and workspace pass-2 synthesis calls now pass `skip_tools=True` plus explicit "Do NOT emit `<tool_call>`" instruction; prevents synthesis-turn tool loops
+  - **Companion history limit 15→20** — `_SURFACE_HISTORY_LIMITS["companion"]` raised; Rocinante has 16K context (not Hermes3's 8K where 15 was set)
+  - **Windows file lock fix** — `_inject_user_preferences` SQLite conn explicitly closed in `finally`; context manager is commit-only on Windows
+  - **22-test integration suite** — `tests/integration/test_two_model_core.py`; all green; covers tool primer injection, XML→JSON normalization, context budget math, messages-array history path, semantic memory pipeline
 
 **For detailed implementation notes on completed initiatives, see `SHIPPING_LOG.md` in the Guppy repo.**
 
