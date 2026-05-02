@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
+import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -258,7 +259,9 @@ export function EmailPanel() {
   useEffect(() => { load() }, [load])
 
   const syncEmail = async () => {
-    await api.post('/api/email/sync').catch(() => {})
+    await api.post('/api/email/sync')
+      .then(() => toast.success('Sync started'))
+      .catch(() => toast.error('Sync failed — check Gmail credentials'))
     load()
   }
 

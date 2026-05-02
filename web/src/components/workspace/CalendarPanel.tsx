@@ -351,6 +351,7 @@ export function CalendarPanel() {
   const nextMonth = () => { if (month === 11) { setYear(y => y + 1); setMonth(0) } else setMonth(m => m + 1) }
 
   const deleteEvent = async (id: string) => {
+    if (!window.confirm('Delete this event?')) return
     await api.delete(`/api/calendar/events/${id}`)
       .then(() => toast.success('Event deleted'))
       .catch(() => toast.error('Failed to delete event'))

@@ -16,6 +16,7 @@
  *   POST /api/codespace/proposals/{id}/reject         — reject proposal
  */
 import { useState, useEffect, useCallback } from 'react'
+import { toast } from 'sonner'
 import {
   ShieldCheck, ShieldAlert, Zap, RefreshCw, ChevronDown, ChevronRight,
   Clock, X, CheckCircle2, AlertCircle, Eye, Sparkles, GitBranch,
@@ -167,7 +168,10 @@ function ProposalModal({ runId, onClose }: { runId: string; onClose: () => void 
     try {
       await api.post(`/api/codespace/proposals/${proposal.id}/reject`)
       setProposal((p) => p ? { ...p, status: 'rejected' } : p)
-    } catch { /* ignore */ } finally {
+      toast.success('Proposal rejected')
+    } catch {
+      toast.error('Failed to reject proposal')
+    } finally {
       setRejecting(false)
     }
   }
@@ -510,8 +514,11 @@ export function TriagePanel() {
     setTriggering(true)
     try {
       await api.post('/api/codespace/triage/trigger')
+      toast.success('Triage triggered')
       setTimeout(load, 500)
-    } catch { /* ignore */ } finally {
+    } catch {
+      toast.error('Failed to trigger triage')
+    } finally {
       setTriggering(false)
     }
   }

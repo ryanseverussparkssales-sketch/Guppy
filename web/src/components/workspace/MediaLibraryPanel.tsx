@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
+import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -131,13 +132,17 @@ function TorrentsTab() {
     try {
       await api.post('/api/media/torrents', { url: addUrl.trim() })
       setAddUrl('')
+      toast.success('Torrent added')
       setTimeout(load, 1500)
-    } catch { /* ignore */ } finally { setAdding(false) }
+    } catch { toast.error('Failed to add torrent') } finally { setAdding(false) }
   }
 
-  const pause  = (hash: string) => api.post(`/api/media/torrents/${hash}/pause`).then(load)
-  const resume = (hash: string) => api.post(`/api/media/torrents/${hash}/resume`).then(load)
-  const remove = (hash: string) => api.delete(`/api/media/torrents/${hash}`).then(load)
+  const pause  = (hash: string) => api.post(`/api/media/torrents/${hash}/pause`).then(load).catch(() => toast.error('Pause failed'))
+  const resume = (hash: string) => api.post(`/api/media/torrents/${hash}/resume`).then(load).catch(() => toast.error('Resume failed'))
+  const remove = (hash: string) => {
+    if (!window.confirm('Remove this torrent?')) return
+    api.delete(`/api/media/torrents/${hash}`).then(load).catch(() => toast.error('Remove failed'))
+  }
 
   return (
     <div className="flex flex-col gap-3 h-full">
@@ -244,8 +249,10 @@ function LibraryTab() {
 
   const addItem = async () => {
     if (!newTitle.trim()) return
-    await api.post('/api/media/items', { title: newTitle, type: newType }).catch(() => {})
-    setNewTitle(''); setAddOpen(false); load()
+    try {
+      await api.post('/api/media/items', { title: newTitle, type: newType })
+      setNewTitle(''); setAddOpen(false); load()
+    } catch { toast.error('Failed to add item') }
   }
 
   const TYPES = [
@@ -454,12 +461,13 @@ function RecordTab() {
       await api.post('/api/media/recordings/upload', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
+      toast.success('Recording uploaded')
       load()
-    } catch { /* ignore */ } finally { setUploading(false) }
+    } catch { toast.error('Upload failed') } finally { setUploading(false) }
   }
 
   const transcribe = async (id: string) => {
-    await api.post(`/api/media/recordings/${id}/transcribe`).catch(() => {})
+    await api.post(`/api/media/recordings/${id}/transcribe`).catch(() => toast.error('Transcription request failed'))
     setTimeout(load, 1000)
   }
 
