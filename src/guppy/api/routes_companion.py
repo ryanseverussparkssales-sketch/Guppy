@@ -416,7 +416,7 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
             return {"ok": True, "status": "not_active"}
         try:
             from src.guppy.voice import voice as _voice
-            _voice.stop_listening()
+            _voice.stop()
         except Exception:
             pass
         _stop_voice_session()

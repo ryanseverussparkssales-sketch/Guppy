@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { AppShell } from './components/layout/index'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ErrorToastContainer } from './components/ErrorToast'
+import CompanionView from './views/CompanionView'
 import ConversationsView from './views/ConversationsView'
 import WorkspaceView from './views/WorkspaceView'
 import CodespaceView from './views/CodespaceView'
@@ -150,7 +151,7 @@ function AppContent() {
 
           {/* ── Three primary surfaces ──────────────────────────── */}
           <Route path="/conversations" element={<ConversationsView />} />
-          <Route path="/companion" element={<ConversationsView />} /> {/* redirect for compatibility */}
+          <Route path="/companion" element={<CompanionView />} />
           <Route path="/workspace" element={<WorkspaceView />} />
           <Route path="/codespace" element={<CodespaceView />} />
           <Route path="/control"   element={<ControlView />} />

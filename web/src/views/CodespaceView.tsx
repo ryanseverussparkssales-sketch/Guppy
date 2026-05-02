@@ -9,7 +9,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Code2, Terminal, ShieldCheck, ArrowUp, StopCircle,
-  FolderCog, Braces, Upload,
+  FolderCog, Braces, Upload, Mic, MicOff, Volume2, VolumeX,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
@@ -20,6 +20,7 @@ import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
 import { SandboxPanel } from '@/components/codespace/SandboxPanel'
 import { TriagePanel } from '@/components/codespace/TriagePanel'
 import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
+import { useVoice } from '@/hooks/useVoice'
 
 // ── Tab config ─────────────────────────────────────────────────────────────────
 
@@ -78,9 +79,16 @@ function ChatTab() {
   const [isSending, setIsSending]       = useState(false)
   const [activeConvId, setActiveConvId] = useState<string | null>(null)
 
+  const [ttsEnabled, setTtsEnabled] = useState(false)
+
   const abortRef    = useRef<AbortController | null>(null)
   const bottomRef   = useRef<HTMLDivElement>(null)
   const textareaRef = useAutoHeight(input)
+
+  const voice = useVoice({
+    onTranscript: (text) => setInput((prev) => prev + text),
+    onError: () => {},
+  })
 
   useEffect(() => {
     if (pendingDraftText) {
@@ -203,6 +211,7 @@ function ChatTab() {
           <div className="grid grid-cols-2 gap-2 max-w-lg mx-auto">
             {QUICK_PROMPTS.map((qp) => (
               <button
+                type="button"
                 key={qp.label}
                 onClick={() => setInput(qp.prompt)}
                 className="flex items-center gap-2 px-3 py-2.5 text-sm text-left rounded-xl border border-outline-variant/30 hover:border-primary/30 hover:bg-primary/5 text-on-surface-variant transition-colors"
@@ -263,10 +272,9 @@ function ChatTab() {
               </div>
               <div className="rounded-2xl rounded-bl-sm px-4 py-3 bg-surface-container">
                 <div className="flex gap-1">
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} className="w-1.5 h-1.5 bg-tertiary/40 rounded-full animate-bounce"
-                      style={{ animationDelay: `${i * 0.15}s` }} />
-                  ))}
+                  <div className="w-1.5 h-1.5 bg-tertiary/40 rounded-full animate-bounce [animation-delay:0s]" />
+                  <div className="w-1.5 h-1.5 bg-tertiary/40 rounded-full animate-bounce [animation-delay:0.15s]" />
+                  <div className="w-1.5 h-1.5 bg-tertiary/40 rounded-full animate-bounce [animation-delay:0.3s]" />
                 </div>
               </div>
             </motion.div>
@@ -283,21 +291,60 @@ function ChatTab() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Write code, ask technical questions, paste snippets… (Ctrl+Enter to send)"
+            placeholder={voice.isListening ? 'Listening…' : 'Write code, ask technical questions, paste snippets… (Ctrl+Enter to send)'}
             rows={3}
-            className="flex-1 bg-transparent text-sm text-on-surface placeholder:text-on-surface-variant/40 resize-none outline-none py-1.5 leading-relaxed font-mono"
+            className={cn(
+              "flex-1 bg-transparent text-sm text-on-surface resize-none outline-none py-1.5 leading-relaxed font-mono",
+              voice.isListening ? "placeholder:text-error" : "placeholder:text-on-surface-variant/40"
+            )}
           />
+
+          {/* TTS toggle */}
+          <button
+            type="button"
+            onClick={() => { if (ttsEnabled && voice.isSpeaking) voice.stopSpeaking(); setTtsEnabled((v) => !v) }}
+            title={ttsEnabled ? 'Disable voice reply' : 'Speak replies aloud'}
+            className={cn(
+              'p-1.5 mb-1 rounded-lg transition-colors flex-shrink-0',
+              ttsEnabled ? 'text-tertiary bg-tertiary/10' : 'text-on-surface-variant/50 hover:bg-surface-container-high'
+            )}
+          >
+            {ttsEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </button>
+
+          {/* Mic */}
+          {voice.isSupported && (
+            <button
+              type="button"
+              onClick={() => voice.isListening ? voice.stopListening() : voice.startListening()}
+              title={voice.isListening ? 'Stop listening' : 'Voice input'}
+              className={cn(
+                'p-1.5 mb-1 rounded-lg transition-colors flex-shrink-0',
+                voice.isListening
+                  ? 'text-error bg-error/10 animate-pulse'
+                  : 'text-on-surface-variant/60 hover:text-on-surface hover:bg-surface-container-high'
+              )}
+            >
+              {voice.isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            </button>
+          )}
+
+          {/* Stop / Send */}
           {isSending ? (
             <button
+              type="button"
               onClick={handleStop}
+              title="Stop generating"
               className="p-2 mb-1 rounded-xl bg-error/10 text-error hover:bg-error/20 transition-colors flex-shrink-0"
             >
               <StopCircle className="w-4 h-4" />
             </button>
           ) : (
             <button
+              type="button"
               onClick={() => handleSend()}
               disabled={!input.trim()}
+              title="Send (Ctrl+Enter)"
               className="p-2 mb-1 rounded-xl bg-tertiary text-on-tertiary disabled:opacity-30 hover:bg-tertiary/90 transition-colors flex-shrink-0"
             >
               <ArrowUp className="w-4 h-4" />
@@ -306,6 +353,7 @@ function ChatTab() {
         </div>
         <div className="flex items-center gap-3 mt-2 px-1">
           <button
+            type="button"
             onClick={() => {
               if (window.confirm('Clear all messages in this session?')) setMessages([])
             }}
@@ -352,6 +400,7 @@ export default function CodespaceView() {
         <div className="flex flex-col items-center py-3 px-1.5 gap-1 border-r border-outline-variant/15 bg-surface-container-low/30 flex-shrink-0 w-14">
           {TABS.map((t) => (
             <button
+              type="button"
               key={t.id}
               onClick={() => setActiveTab(t.id)}
               title={t.label}
