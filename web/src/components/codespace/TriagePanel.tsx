@@ -16,11 +16,10 @@
  *   POST /api/codespace/proposals/{id}/reject         — reject proposal
  */
 import { useState, useEffect, useCallback } from 'react'
-import { toast } from 'sonner'
 import {
   ShieldCheck, ShieldAlert, Zap, RefreshCw, ChevronDown, ChevronRight,
   Clock, X, CheckCircle2, AlertCircle, Eye, Sparkles, GitBranch,
-  CheckCheck, XCircle, FlaskConical,
+  CheckCheck, XCircle, FlaskConical, Send,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
@@ -119,6 +118,8 @@ function ProposalModal({ runId, onClose }: { runId: string; onClose: () => void 
   const [generating, setGenerating] = useState(true)
   const [applying, setApplying]     = useState(false)
   const [rejecting, setRejecting]   = useState(false)
+  const [forwarding, setForwarding] = useState(false)
+  const [forwarded, setForwarded]   = useState(false)
   const [error, setError]           = useState('')
 
   // On mount: POST to generate proposal, then load it
@@ -168,11 +169,23 @@ function ProposalModal({ runId, onClose }: { runId: string; onClose: () => void 
     try {
       await api.post(`/api/codespace/proposals/${proposal.id}/reject`)
       setProposal((p) => p ? { ...p, status: 'rejected' } : p)
-      toast.success('Proposal rejected')
-    } catch {
-      toast.error('Failed to reject proposal')
-    } finally {
+    } catch { /* ignore */ } finally {
       setRejecting(false)
+    }
+  }
+
+  const forwardToWorkspace = async () => {
+    if (!proposal) return
+    setForwarding(true)
+    try {
+      await api.post('/api/codespace/forward-to-workspace', {
+        title: `Apply fix: ${proposal.summary.slice(0, 80)}`,
+        content: proposal.diff || proposal.summary,
+        source_type: 'triage',
+      })
+      setForwarded(true)
+    } catch { /* ignore */ } finally {
+      setForwarding(false)
     }
   }
 
@@ -282,6 +295,7 @@ function ProposalModal({ runId, onClose }: { runId: string; onClose: () => void 
       {proposal && !generating && proposal.status === 'proposed' && (
         <div className="flex items-center gap-2 px-3 py-2.5 border-t border-outline-variant/15 bg-surface-container-low/30 flex-shrink-0">
           <button
+            type="button"
             onClick={apply}
             disabled={applying || rejecting}
             className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs rounded-xl bg-success/10 text-success hover:bg-success/15 disabled:opacity-40 transition-colors font-medium"
@@ -299,6 +313,7 @@ function ProposalModal({ runId, onClose }: { runId: string; onClose: () => void 
             )}
           </button>
           <button
+            type="button"
             onClick={reject}
             disabled={applying || rejecting}
             className="flex items-center gap-1.5 py-2 px-3 text-xs rounded-xl bg-error/8 text-error/70 hover:bg-error/12 disabled:opacity-40 transition-colors font-medium"
@@ -310,16 +325,42 @@ function ProposalModal({ runId, onClose }: { runId: string; onClose: () => void 
             )}
             Reject
           </button>
+          <button
+            type="button"
+            onClick={forwardToWorkspace}
+            disabled={forwarding || forwarded}
+            className="flex items-center gap-1.5 py-2 px-3 text-xs rounded-xl bg-secondary/10 text-secondary hover:bg-secondary/15 disabled:opacity-40 transition-colors font-medium"
+            title="Send fix proposal to Workspace as a task"
+          >
+            {forwarding ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : forwarded ? (
+              <CheckCircle2 className="w-3.5 h-3.5" />
+            ) : (
+              <Send className="w-3.5 h-3.5" />
+            )}
+            {forwarded ? 'Sent' : 'Workspace'}
+          </button>
         </div>
       )}
 
-      {/* Applied — show branch info */}
+      {/* Applied — show branch info + forward button */}
       {proposal && !generating && proposal.status === 'applied' && (
-        <div className="px-3 py-2.5 border-t border-outline-variant/15 bg-success/5 flex-shrink-0">
-          <p className="text-xs text-success font-medium text-center">
+        <div className="px-3 py-2.5 border-t border-outline-variant/15 bg-success/5 flex-shrink-0 flex items-center gap-2">
+          <p className="text-xs text-success font-medium flex-1 text-center">
             ✓ Patch applied to branch <span className="font-mono">{proposal.branch_name}</span>
             {proposal.test_status === 'passed' ? ' — tests pass' : proposal.test_status === 'failed' ? ' — tests failed' : ''}
           </p>
+          <button
+            type="button"
+            onClick={forwardToWorkspace}
+            disabled={forwarding || forwarded}
+            className="flex items-center gap-1 py-1.5 px-2.5 text-xs rounded-xl bg-secondary/10 text-secondary hover:bg-secondary/15 disabled:opacity-40 transition-colors font-medium flex-shrink-0"
+            title="Send fix proposal to Workspace as a task"
+          >
+            {forwarding ? <RefreshCw className="w-3 h-3 animate-spin" /> : forwarded ? <CheckCircle2 className="w-3 h-3" /> : <Send className="w-3 h-3" />}
+            {forwarded ? 'Sent' : 'Workspace'}
+          </button>
         </div>
       )}
     </div>
@@ -378,9 +419,26 @@ function RunCard({
   onViewDetail: (id: string) => void
   onProposeFix: (id: string) => void
 }) {
-  const [expanded, setExpanded]   = useState(false)
-  const { setPendingDraftText }   = useAppStore()
+  const [expanded, setExpanded]       = useState(false)
+  const [forwarding, setForwarding]   = useState(false)
+  const [forwarded, setForwarded]     = useState(false)
+  const { setPendingDraftText }       = useAppStore()
   const hasFailures = run.failures.length > 0
+
+  const forwardFinding = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setForwarding(true)
+    try {
+      await api.post('/api/codespace/forward-to-workspace', {
+        title: `Triage finding: ${run.failures[0]?.slice(0, 80) ?? run.id}`,
+        content: run.failures.join('\n'),
+        source_type: 'triage',
+      })
+      setForwarded(true)
+    } catch { /* ignore */ } finally {
+      setForwarding(false)
+    }
+  }
 
   const analyzeWithAI = async () => {
     try {
@@ -433,6 +491,7 @@ function RunCard({
           <>
             {/* AI chat analysis */}
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); analyzeWithAI() }}
               className="p-1 rounded hover:bg-secondary/10 text-on-surface-variant/40 hover:text-secondary transition-colors"
               title="Analyze failure with AI (opens Codespace chat)"
@@ -441,11 +500,28 @@ function RunCard({
             </button>
             {/* Propose fix — self-improvement */}
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); onProposeFix(run.id) }}
               className="p-1 rounded hover:bg-tertiary/10 text-on-surface-variant/40 hover:text-tertiary transition-colors"
               title="Propose AI fix (diff + branch)"
             >
               <GitBranch className="w-3.5 h-3.5" />
+            </button>
+            {/* Send finding to Workspace */}
+            <button
+              type="button"
+              onClick={forwardFinding}
+              disabled={forwarding || forwarded}
+              className="p-1 rounded hover:bg-secondary/10 disabled:opacity-40 transition-colors"
+              title="Send triage finding to Workspace as a task"
+            >
+              {forwarding ? (
+                <RefreshCw className="w-3.5 h-3.5 text-secondary animate-spin" />
+              ) : forwarded ? (
+                <CheckCircle2 className="w-3.5 h-3.5 text-success" />
+              ) : (
+                <Send className="w-3.5 h-3.5 text-on-surface-variant/40 hover:text-secondary" />
+              )}
             </button>
           </>
         )}
@@ -514,11 +590,8 @@ export function TriagePanel() {
     setTriggering(true)
     try {
       await api.post('/api/codespace/triage/trigger')
-      toast.success('Triage triggered')
       setTimeout(load, 500)
-    } catch {
-      toast.error('Failed to trigger triage')
-    } finally {
+    } catch { /* ignore */ } finally {
       setTriggering(false)
     }
   }

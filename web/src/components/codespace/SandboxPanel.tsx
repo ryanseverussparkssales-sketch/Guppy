@@ -12,11 +12,10 @@
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
-  Box, Plus, Trash2, Terminal, RefreshCw, Play, X, AlertCircle,
+  Box, Plus, Trash2, Terminal, RefreshCw, Play, X, AlertCircle, Send,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
-import type { Terminal as XTerminal } from '@xterm/xterm'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,101 +35,124 @@ function statusColor(status: string) {
   return 'text-on-surface-variant/50'
 }
 
-// ── XTermOutput ───────────────────────────────────────────────────────────────
+// ── ForwardForm ───────────────────────────────────────────────────────────────
 
-function XTermOutput({
+function ForwardForm({
+  lines,
+  onClose,
+}: {
+  lines: string[]
+  onClose: () => void
+}) {
+  const fullContent = lines.join('\n')
+  const [title, setTitle]     = useState('Review sandbox output')
+  const [sending, setSending] = useState(false)
+  const [sent, setSent]       = useState(false)
+  const [error, setError]     = useState<string | null>(null)
+
+  const send = async () => {
+    setSending(true)
+    setError(null)
+    try {
+      await api.post('/api/codespace/forward-to-workspace', {
+        title: title.trim() || 'Review sandbox output',
+        content: fullContent,
+        source_type: 'sandbox',
+      })
+      setSent(true)
+      setTimeout(onClose, 1500)
+    } catch (e: any) {
+      setError(e?.response?.data?.detail ?? 'Failed to send')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  if (sent) {
+    return (
+      <div className="bg-success/10 border border-success/20 rounded-xl px-3 py-2 flex items-center gap-2">
+        <Send className="w-3.5 h-3.5 text-success flex-shrink-0" />
+        <span className="text-xs text-success font-medium">Sent to Workspace (task queued)</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-surface-container rounded-xl p-3 space-y-2.5 border border-secondary/20">
+      <div className="flex items-center gap-2">
+        <Send className="w-3.5 h-3.5 text-secondary flex-shrink-0" />
+        <span className="text-xs font-semibold text-on-surface">Send to Workspace</span>
+        <button onClick={onClose} className="ml-auto text-on-surface-variant/40 hover:text-on-surface transition-colors">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Task title"
+        className="w-full text-xs bg-surface border border-outline-variant/20 rounded-lg px-2.5 py-1.5 outline-none focus:border-secondary/50 text-on-surface placeholder-on-surface-variant/40"
+      />
+      <textarea
+        readOnly
+        title="Terminal output preview (last 500 characters)"
+        value={fullContent.slice(-500)}
+        rows={3}
+        className="w-full text-xs font-mono bg-surface-container-low border border-outline-variant/10 rounded-lg px-2.5 py-1.5 text-on-surface/60 resize-none"
+      />
+      {error && <p className="text-xs text-error/80">{error}</p>}
+      <div className="flex gap-2">
+        <button
+          onClick={send}
+          disabled={sending}
+          className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-secondary text-on-secondary rounded-lg py-1.5 hover:bg-secondary/90 disabled:opacity-40 transition-colors"
+        >
+          {sending ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+          {sending ? 'Sending…' : 'Send'}
+        </button>
+        <button onClick={onClose} className="px-3 text-xs text-on-surface-variant/60 hover:text-on-surface">
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── TerminalOutput ────────────────────────────────────────────────────────────
+
+function TerminalOutput({
   sandboxId,
   onClose,
 }: {
   sandboxId: string
   onClose: () => void
 }) {
-  const containerRef                 = useRef<HTMLDivElement>(null)
-  const termRef                      = useRef<XTerminal | null>(null)
-  const fitRef                       = useRef<{ fit: () => void } | null>(null)
-  const [command, setCommand]        = useState('')
-  const [running, setRunning]        = useState(false)
-  const abortRef                     = useRef<AbortController | null>(null)
-  const inputRef                     = useRef<HTMLInputElement>(null)
+  const [command, setCommand]     = useState('')
+  const [lines, setLines]         = useState<string[]>([])
+  const [running, setRunning]     = useState(false)
+  const [showForward, setShowForward] = useState(false)
+  const bottomRef                 = useRef<HTMLDivElement>(null)
+  const abortRef                  = useRef<AbortController | null>(null)
 
-  // Lazy-load xterm (keeps initial bundle small)
   useEffect(() => {
-    let term: XTerminal
-    let resizeOb: ResizeObserver | undefined
-
-    const init = async () => {
-      const { Terminal } = await import('@xterm/xterm')
-      const { FitAddon }  = await import('@xterm/addon-fit')
-      const { WebLinksAddon } = await import('@xterm/addon-web-links')
-
-      // Import xterm CSS once
-      await import('@xterm/xterm/css/xterm.css')
-
-      term = new Terminal({
-        theme: {
-          background: 'transparent',
-          foreground: '#d4d4d8',
-          cursor: '#a1a1aa',
-          selectionBackground: '#3f3f46',
-          black:   '#18181b', brightBlack:   '#71717a',
-          red:     '#f87171', brightRed:     '#fca5a5',
-          green:   '#4ade80', brightGreen:   '#86efac',
-          yellow:  '#facc15', brightYellow:  '#fde047',
-          blue:    '#60a5fa', brightBlue:    '#93c5fd',
-          magenta: '#c084fc', brightMagenta: '#d8b4fe',
-          cyan:    '#22d3ee', brightCyan:    '#67e8f9',
-          white:   '#d4d4d8', brightWhite:   '#f4f4f5',
-        },
-        fontFamily: '"Cascadia Code", "Fira Code", "JetBrains Mono", monospace',
-        fontSize: 12,
-        cursorBlink: true,
-        convertEol: true,
-        scrollback: 2000,
-        allowProposedApi: false,
-      })
-      const fit   = new FitAddon()
-      const links = new WebLinksAddon()
-      term.loadAddon(fit)
-      term.loadAddon(links)
-
-      if (containerRef.current) {
-        term.open(containerRef.current)
-        fit.fit()
-      }
-      termRef.current = term
-      fitRef.current  = fit
-      term.writeln('\x1b[1;36m── Guppy Sandbox Terminal ──\x1b[0m')
-      term.writeln(`\x1b[2mContainer: ${sandboxId.slice(0, 12)}\x1b[0m`)
-      term.writeln('')
-
-      resizeOb = new ResizeObserver(() => { try { fit.fit() } catch { /* ignore */ } })
-      if (containerRef.current?.parentElement) {
-        resizeOb.observe(containerRef.current.parentElement)
-      }
-    }
-
-    init()
-    return () => {
-      resizeOb?.disconnect()
-      term?.dispose()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sandboxId])
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [lines])
 
   const exec = async () => {
+    if (!command.trim() || running) return
     const cmd = command.trim()
-    if (!cmd || running) return
     setCommand('')
+    setLines((l) => [...l, `$ ${cmd}`])
     setRunning(true)
-    const term = termRef.current
-    term?.writeln(`\x1b[1;32m$ ${cmd}\x1b[0m`)
     abortRef.current = new AbortController()
 
     try {
       const token = localStorage.getItem('accessToken') || ''
       const res = await fetch(`/api/codespace/sandbox/${sandboxId}/exec`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ command: cmd }),
         signal: abortRef.current.signal,
       })
@@ -149,19 +171,17 @@ function XTermOutput({
           if (evt.startsWith('event: done')) {
             setRunning(false)
           } else if (evt.startsWith('data: ')) {
-            term?.writeln(evt.slice(6))
+            setLines((l) => [...l, evt.slice(6)])
           }
         }
       }
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
-        term?.writeln(`\x1b[1;31m[error: ${e?.message ?? e}]\x1b[0m`)
+        setLines((l) => [...l, `[error: ${e?.message ?? e}]`])
       }
     } finally {
       setRunning(false)
       abortRef.current = null
-      term?.writeln('')
-      inputRef.current?.focus()
     }
   }
 
@@ -169,7 +189,7 @@ function XTermOutput({
     abortRef.current?.abort()
     abortRef.current = null
     setRunning(false)
-    termRef.current?.writeln('^C')
+    setLines((l) => [...l, '^C'])
   }
 
   return (
@@ -178,6 +198,17 @@ function XTermOutput({
       <div className="flex items-center gap-2 px-3 py-2 bg-surface-container border-b border-outline-variant/20 flex-shrink-0">
         <Terminal className="w-4 h-4 text-on-surface-variant" />
         <span className="text-xs font-mono text-on-surface flex-1 truncate">{sandboxId.slice(0, 12)}</span>
+        {lines.length > 0 && !showForward && (
+          <button
+            type="button"
+            onClick={() => setShowForward(true)}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-secondary/10 text-secondary hover:bg-secondary/20 text-xs transition-colors"
+            title="Send output to Workspace as a task"
+          >
+            <Send className="w-3 h-3" />
+            Send to Workspace
+          </button>
+        )}
         <button
           onClick={onClose}
           className="p-1 rounded hover:bg-surface-variant text-on-surface-variant/50 hover:text-on-surface transition-colors"
@@ -186,23 +217,37 @@ function XTermOutput({
         </button>
       </div>
 
-      {/* xterm output */}
-      <div
-        ref={containerRef}
-        className="flex-1 min-h-0 bg-[#09090b] px-2 py-1 overflow-hidden"
-      />
+      {/* Forward form (shown above output when open) */}
+      {showForward && (
+        <div className="flex-shrink-0 p-3 border-b border-outline-variant/20 bg-surface-container-low">
+          <ForwardForm lines={lines} onClose={() => setShowForward(false)} />
+        </div>
+      )}
+
+      {/* Output area */}
+      <div className="flex-1 overflow-y-auto bg-surface-container-low p-3 font-mono text-xs text-on-surface/80 space-y-0.5">
+        {lines.length === 0 && (
+          <p className="text-on-surface-variant/40">Ready. Type a command below.</p>
+        )}
+        {lines.map((line, i) => (
+          <div key={i} className={cn(
+            "leading-relaxed whitespace-pre-wrap",
+            line.startsWith('$') && "text-primary font-semibold",
+            line.startsWith('[error') && "text-error",
+          )}>
+            {line}
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
 
       {/* Input row */}
       <div className="flex items-center gap-2 px-3 py-2 border-t border-outline-variant/20 bg-surface-container flex-shrink-0">
         <span className="text-primary font-mono text-xs font-semibold">$</span>
         <input
-          ref={inputRef}
           value={command}
           onChange={(e) => setCommand(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') exec()
-            if (e.key === 'c' && e.ctrlKey) interrupt()
-          }}
+          onKeyDown={(e) => e.key === 'Enter' && exec()}
           placeholder="command…"
           disabled={running}
           className="flex-1 bg-transparent text-xs font-mono text-on-surface outline-none placeholder-on-surface-variant/40"
@@ -308,7 +353,6 @@ export function SandboxPanel() {
   const [dockerAvail, setDockerAvail] = useState<boolean | null>(null)
   const [loading, setLoading]         = useState(true)
   const [activeTerminal, setTerminal] = useState<string | null>(null)
-  const [removingId, setRemovingId]   = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -324,24 +368,18 @@ export function SandboxPanel() {
   useEffect(() => { load() }, [load])
 
   const remove = async (id: string) => {
-    if (!window.confirm('Remove this sandbox container?')) return
-    setRemovingId(id)
     try {
       await api.delete(`/api/codespace/sandbox/${id}`)
       setSandboxes((s) => s.filter((x) => x.id !== id))
       if (activeTerminal === id) setTerminal(null)
-    } catch {
-      alert('Failed to remove sandbox. Please try again.')
-    } finally {
-      setRemovingId(null)
-    }
+    } catch { /* ignore */ }
   }
 
   return (
     <div className="relative flex flex-col h-full p-4 gap-3">
       {/* Terminal overlay */}
       {activeTerminal && (
-        <XTermOutput sandboxId={activeTerminal} onClose={() => setTerminal(null)} />
+        <TerminalOutput sandboxId={activeTerminal} onClose={() => setTerminal(null)} />
       )}
 
       {/* Header */}
@@ -410,10 +448,8 @@ export function SandboxPanel() {
                   <Terminal className="w-3.5 h-3.5" />
                 </button>
                 <button
-                  type="button"
                   onClick={() => remove(s.id)}
-                  disabled={removingId === s.id}
-                  className="p-1.5 rounded-lg hover:bg-error/10 text-on-surface-variant/40 hover:text-error transition-colors disabled:opacity-30"
+                  className="p-1.5 rounded-lg hover:bg-error/10 text-on-surface-variant/40 hover:text-error transition-colors"
                   title="Remove sandbox"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
