@@ -63,7 +63,7 @@ def _conn() -> sqlite3.Connection:
 # ── Screenpipe helpers ────────────────────────────────────────────────────────
 
 def _call_screenpipe_recent(minutes: int = 30, limit: int = 100) -> list[dict[str, Any]]:
-    """Call the Screenpipe daemon directly (not via FastAPI)."""
+    """Call the Screenpipe daemon; fall back to native window tracker if unavailable."""
     try:
         import os, json as _json, urllib.request
         from urllib.parse import urlencode
@@ -79,9 +79,32 @@ def _call_screenpipe_recent(minutes: int = 30, limit: int = 100) -> list[dict[st
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = _json.loads(resp.read().decode())
-            return data.get("data") or []
+            items = data.get("data") or []
+            if items:
+                return items
+            # Screenpipe online but returned no data — fall through to native
     except Exception as exc:
         logger.debug("[screen_monitor] screenpipe unavailable: %s", exc)
+
+    # Native fallback: ctypes window title tracker
+    try:
+        from src.guppy.workspace.native_activity import get_recent_activity, start_tracker
+        start_tracker()
+        native_items = get_recent_activity(minutes=minutes)
+        if native_items:
+            logger.debug("[screen_monitor] native fallback returned %d entries", len(native_items))
+        # Unwrap to flat dicts expected by _extract_app_names / _extract_highlights
+        flat: list[dict[str, Any]] = []
+        for item in native_items:
+            content = item.get("content") or {}
+            flat.append({
+                "app_name": content.get("app_name", ""),
+                "window_name": content.get("window_name", ""),
+                "text": content.get("text", ""),
+            })
+        return flat
+    except Exception as exc:
+        logger.debug("[screen_monitor] native fallback error: %s", exc)
         return []
 
 

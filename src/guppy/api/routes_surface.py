@@ -459,7 +459,11 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp2 = await client.post(_h4_url, json=summary_payload)
                 if resp2.status_code < 300:
-                    final_result = resp2.json()["choices"][0]["message"]["content"]
+                    try:
+                        _rj = resp2.json()
+                        final_result = _rj["choices"][0]["message"]["content"] or final_result
+                    except Exception:
+                        pass  # malformed Hermes4 response; keep tool_result_text summary
 
         _update("completed", final_result[:4000])
         _broadcast_event("task_completed", {

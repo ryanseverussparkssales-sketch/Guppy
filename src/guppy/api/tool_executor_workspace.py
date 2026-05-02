@@ -6,9 +6,12 @@ delegated to the companion executor; workspace-only tools are implemented here.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 
 from src.guppy.api.tool_executor_companion import _execute_companion_tool
+
+logger = logging.getLogger(__name__)
 
 # ── Per-tool HTTP timeout constants ───────────────────────────────────────────
 _SEARCH_TIMEOUT  = 12.0
@@ -301,6 +304,7 @@ async def _execute_workspace_tool(name: str, args: dict) -> dict:
             return {"ok": False, "error": f"news lookup failed: {e}"}
 
     if name == "clipboard_read":
+        logger.info("[tool] clipboard_read invoked by workspace agent")
         try:
             import pyperclip
             text = await asyncio.to_thread(pyperclip.paste)
@@ -358,6 +362,15 @@ async def _execute_workspace_tool(name: str, args: dict) -> dict:
             return {"ok": False, "error": "url required"}
         if method not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"}:
             return {"ok": False, "error": f"unsupported method: {method}"}
+        # Block localhost/internal calls unless GUPPY_DEV_MODE is set
+        try:
+            from urllib.parse import urlparse as _urlparse
+            _parsed = _urlparse(url)
+            _host = (_parsed.hostname or "").lower()
+            if _host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") and not os.environ.get("GUPPY_DEV_MODE"):
+                return {"ok": False, "error": "api_request: localhost URLs are blocked; set GUPPY_DEV_MODE to allow internal calls"}
+        except Exception:
+            pass
         try:
             import httpx
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
@@ -431,7 +444,12 @@ async def _execute_workspace_tool(name: str, args: dict) -> dict:
                     or "Vision model returned no content."
                 )
             else:
-                description = "(Vision model offline — screenshot captured but not described.)"
+                logger.warning("[tool] read_screen_text: vision model offline (port 8084 not alive)")
+                return {
+                    "ok": False,
+                    "error": "Vision model offline — screenshot captured but vision inference unavailable",
+                    "screenshot_b64": b64,
+                }
             return {"ok": True, "description": description, "screenshot_b64": b64}
         except Exception as e:
             return {"ok": False, "error": f"read_screen_text failed: {e}"}

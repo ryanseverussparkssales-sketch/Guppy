@@ -47,6 +47,16 @@ def _require_pya() -> None:
         raise HTTPException(status_code=503, detail="pyautogui not installed (pip install pyautogui)")
 
 
+def _require_desktop_control() -> None:
+    """Gate all mutation (click/type/drag/scroll/shortcut) endpoints behind GUPPY_DESKTOP_CONTROL."""
+    if not os.environ.get("GUPPY_DESKTOP_CONTROL"):
+        raise HTTPException(
+            status_code=403,
+            detail="Desktop control is disabled. Set GUPPY_DESKTOP_CONTROL=1 to enable.",
+        )
+    _require_pya()
+
+
 # ── Screenshot helpers ────────────────────────────────────────────────────────
 
 def _capture_region(region: str | None) -> "pyautogui.PIL.Image.Image":
@@ -195,39 +205,39 @@ def _sync_info() -> dict[str, Any]:
 
 
 def _sync_click(x: int, y: int, button: str, clicks: int, interval: float) -> str:
-    _require_pya()
+    _require_desktop_control()
     pyautogui.click(x, y, button=button, clicks=clicks, interval=interval)
     return f"Clicked ({x}, {y}) with {button} button x{clicks}"
 
 
 def _sync_move(x: int, y: int, duration: float) -> str:
-    _require_pya()
+    _require_desktop_control()
     pyautogui.moveTo(x, y, duration=duration)
     return f"Moved to ({x}, {y})"
 
 
 def _sync_type(text: str, interval: float) -> str:
-    _require_pya()
+    _require_desktop_control()
     pyautogui.write(text, interval=interval)
     return f"Typed {len(text)} characters"
 
 
 def _sync_shortcut(keys: str) -> str:
-    _require_pya()
+    _require_desktop_control()
     parts = [k.strip() for k in keys.lower().split("+")]
     pyautogui.hotkey(*parts)
     return f"Pressed: {keys}"
 
 
 def _sync_scroll(x: int, y: int, clicks: int) -> str:
-    _require_pya()
+    _require_desktop_control()
     pyautogui.scroll(clicks, x=x, y=y)
     direction = "up" if clicks > 0 else "down"
     return f"Scrolled {direction} {abs(clicks)} clicks at ({x}, {y})"
 
 
 def _sync_drag(x1: int, y1: int, x2: int, y2: int, duration: float, button: str) -> str:
-    _require_pya()
+    _require_desktop_control()
     pyautogui.moveTo(x1, y1, duration=0.1)
     pyautogui.dragTo(x2, y2, duration=duration, button=button)
     return f"Dragged ({x1},{y1}) → ({x2},{y2})"
@@ -435,7 +445,7 @@ def build_desktop_router(ctx: ServerContext) -> APIRouter:
         Captures screen, parses elements, finds best match, grounds click.
         """
         def _do_click():
-            _require_pya()
+            _require_desktop_control()
             description = str(payload.get("description", "")).strip()
             if not description:
                 raise ValueError("description required")
@@ -471,7 +481,7 @@ def build_desktop_router(ctx: ServerContext) -> APIRouter:
         Grounds focus to element, then types text.
         """
         def _do_type_in():
-            _require_pya()
+            _require_desktop_control()
             description = str(payload.get("description", "")).strip()
             text = str(payload.get("text", ""))
 
