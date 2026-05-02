@@ -40,6 +40,7 @@ function useAutoHeight(value: string) {
 
 export default function CompanionView() {
   const [messages, setMessages]             = useState<Message[]>([])
+  const [sessionId, setSessionId]           = useState<string | null>(() => sessionStorage.getItem('companion_session_id'))
   const [input, setInput]                   = useState('')
   const [streaming, setStreaming]           = useState('')
   const [isSending, setIsSending]           = useState(false)
@@ -73,7 +74,7 @@ export default function CompanionView() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streaming])
 
-  // Load personality presets on mount
+  // Load personality presets on mount; rehydrate session if one exists
   useEffect(() => {
     api.get('/api/companion/personality').then((r) => {
       const data = r.data
@@ -88,6 +89,24 @@ export default function CompanionView() {
     api.get('/api/companion/voice/session').then((r) => {
       setWakeActive(r.data?.active || false)
     }).catch(() => {})
+
+    const savedSession = sessionStorage.getItem('companion_session_id')
+    if (savedSession) {
+      api.get(`/api/conversations/sessions/${savedSession}/messages?limit=50`)
+        .then((r) => {
+          const msgs: Message[] = (r.data || []).map((m: any) => ({
+            id: m.id,
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+          }))
+          if (msgs.length > 0) setMessages(msgs)
+        })
+        .catch(() => {
+          // Session may have expired — clear it so a fresh one is created on next send
+          sessionStorage.removeItem('companion_session_id')
+          setSessionId(null)
+        })
+    }
   }, [])
 
   const switchPreset = useCallback(async (key: string) => {
@@ -126,6 +145,14 @@ export default function CompanionView() {
     const text = (override ?? input).trim()
     if (!text || isSending) return
 
+    // Ensure a session ID exists before sending; persist it for rehydration
+    let currentSessionId = sessionId
+    if (!currentSessionId) {
+      currentSessionId = crypto.randomUUID()
+      setSessionId(currentSessionId)
+      sessionStorage.setItem('companion_session_id', currentSessionId)
+    }
+
     setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'user', content: text }])
     if (!override) setInput('')
     setIsSending(true)
@@ -142,7 +169,7 @@ export default function CompanionView() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('accessToken') || ''}`,
         },
-        body: JSON.stringify({ message: text, surface: 'companion', mode: 'auto' }),
+        body: JSON.stringify({ message: text, surface: 'companion', mode: 'auto', session_id: currentSessionId }),
         signal: controller.signal,
       })
 
@@ -196,7 +223,7 @@ export default function CompanionView() {
       setIsSending(false)
       abortRef.current = null
     }
-  }, [input, isSending, streaming, ttsEnabled, voice])
+  }, [input, isSending, sessionId, streaming, ttsEnabled, voice])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -376,7 +403,13 @@ export default function CompanionView() {
         <div className="flex items-center justify-between mt-1.5 px-1">
           <button
             type="button"
-            onClick={() => { if (messages.length > 0 && window.confirm('Clear this conversation?')) setMessages([]) }}
+            onClick={() => {
+              if (messages.length > 0 && window.confirm('Clear this conversation?')) {
+                setMessages([])
+                sessionStorage.removeItem('companion_session_id')
+                setSessionId(null)
+              }
+            }}
             className="text-xs text-on-surface-variant/35 hover:text-on-surface-variant transition-colors"
           >
             <RefreshCw className="w-3 h-3 inline mr-1" />Clear

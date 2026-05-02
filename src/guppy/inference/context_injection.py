@@ -61,11 +61,11 @@ def _bg_store_tool_outcome(name: str, args: dict, result: str) -> None:
     threading.Thread(target=_store, daemon=True, name="tool-outcome-mem").start()
 
 
-def _bg_summarize_session(history: list[dict]) -> None:
+def _bg_summarize_session(history: list[dict], session_id: str = "") -> None:
     """Fire-and-forget: summarize recent conversation turns into semantic memory.
 
-    Called when history reaches every 10th turn. Uses phi-4-mini (port 8091)
-    so summarization is cheap, non-blocking, and Ollama-free.
+    Tries phi-4-mini (port 8091) first; falls back to hermes3 (8087) then
+    hermes4 (8086) if phi-4-mini is offline.
     """
     import threading
 
@@ -79,27 +79,40 @@ def _bg_summarize_session(history: list[dict]) -> None:
                 content = str(msg.get("content", ""))[:300]
                 turns.append(f"{role}: {content}")
             history_text = "\n".join(turns)
-            payload = {
-                "model": "phi-4-mini-instruct",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "Summarize this conversation in 2-3 compact sentences. "
-                            "Focus on: what the user asked, which tools were used, and what outcomes occurred. "
-                            "Be specific about facts, file names, and results. No preamble."
-                        ),
-                    },
-                    {"role": "user", "content": f"Summarize:\n{history_text}"},
-                ],
-                "stream": False,
-            }
-            r = requests.post("http://localhost:8091/v1/chat/completions", json=payload, timeout=30)
-            r.raise_for_status()
-            summary = (r.json().get("choices", [{}])[0].get("message", {}).get("content", "") or "").strip()
-            if summary and len(summary) > 30:
+            system_msg = (
+                "Summarize this conversation in 2-3 compact sentences. "
+                "Focus on: what the user asked, which tools were used, and what outcomes occurred. "
+                "Be specific about facts, file names, and results. No preamble."
+            )
+            # Cascade: phi-4-mini → hermes3 → hermes4
+            _candidates = [
+                ("http://localhost:8091/v1/chat/completions", "phi-4-mini-instruct"),
+                ("http://localhost:8087/v1/chat/completions", "hermes-3-8b-lorablated"),
+                ("http://localhost:8086/v1/chat/completions", "hermes-4-14b"),
+            ]
+            summary = ""
+            for url, model in _candidates:
+                try:
+                    payload = {
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": system_msg},
+                            {"role": "user", "content": f"Summarize:\n{history_text}"},
+                        ],
+                        "stream": False,
+                        "max_tokens": 256,
+                    }
+                    r = requests.post(url, json=payload, timeout=15)
+                    r.raise_for_status()
+                    summary = (r.json().get("choices", [{}])[0].get("message", {}).get("content", "") or "").strip()
+                    if summary and len(summary) > 20:
+                        break
+                except Exception:
+                    continue
+            if summary and len(summary) > 20:
                 from src.guppy.memory.semantic import remember_semantic
-                key = f"session_summary:{int(time.time())}"
+                sid_tag = f":{session_id}" if session_id else ""
+                key = f"session_summary{sid_tag}:{int(time.time())}"
                 remember_semantic(key, summary, category="session_summary")
         except Exception as exc:
             _log.debug("Session summarization failed: %s", exc)
@@ -214,6 +227,14 @@ user's request clearly calls for them — don't make them ask twice.
 • get_time()
   WHEN: user asks what time or date it is.
   EXAMPLE: <tool_call>{"name": "get_time", "arguments": {}}</tool_call>
+
+• cancel_workspace_task(task_id)
+  WHEN: user asks to cancel, stop, or abort a workspace task they previously queued.
+  EXAMPLE: <tool_call>{"name": "cancel_workspace_task", "arguments": {"task_id": "abc123"}}</tool_call>
+
+• list_workspace_tasks(status?)
+  WHEN: user asks what tasks are running, pending, or completed; or "what's the status of my tasks".
+  EXAMPLE: <tool_call>{"name": "list_workspace_tasks", "arguments": {"status": "queued"}}</tool_call>
 
 IMPORTANT: For casual chat, opinions, advice, creative writing, and anything
 that doesn't require live data or persistent state — answer directly, NO tools.
@@ -408,4 +429,192 @@ async def _inject_workspace_context_async(system_prompt: str, owner: Any) -> str
             timeout=3.0,
         )
     except asyncio.TimeoutError:
+        return system_prompt
+
+
+# ── Model identity injection ──────────────────────────────────────────────────
+
+_MODEL_IDENTITY: dict[str, tuple[str, str]] = {
+    "companion":  ("Hermes3 8B (fast conversational)",       "Personality-first assistant. For complex agentic tasks, use workspace_task tool."),
+    "workspace":  ("Hermes4 14B (reasoning + tools)",        "Agentic operations hub. Execute multi-step tasks with full tool access."),
+    "codespace":  ("Hermes4 14B (code-focused)",             "Code generation, debugging, and sandbox execution."),
+}
+
+
+def _inject_model_identity(system_prompt: str, surface: str, backend: str = "") -> str:
+    """Prepend a one-line model identity header to the system prompt.
+
+    Tells the model what it is, which surface it is running on, and its role.
+    Placed at the very top so every other instruction builds on this context.
+    """
+    label, role_hint = _MODEL_IDENTITY.get(surface, (backend or "Local LLM", "General-purpose assistant."))
+    header = f"[Running on: {label} | Surface: {surface or 'unknown'} | Role: {role_hint}]"
+    return f"{header}\n{system_prompt}"
+
+
+# ── Surface state awareness injection ─────────────────────────────────────────
+# Injects a compact "[System State]" block so models know what other surfaces
+# are doing without the user having to tell them.
+
+_SURFACE_STATE_TTL = 15.0
+_surface_state_cache: dict[str, tuple[float, str]] = {}
+
+
+def _build_surface_state_block() -> str:
+    """Read surface_state + recent tasks from the surface DB; returns a compact summary."""
+    now = _time.monotonic()
+    cached = _surface_state_cache.get("_")
+    if cached and (now - cached[0]) < _SURFACE_STATE_TTL:
+        return cached[1]
+
+    text = ""
+    try:
+        import sqlite3
+        from src.guppy.api.routes_surface import _DB_PATH
+        if not _DB_PATH:
+            return ""
+        with sqlite3.connect(_DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT surface, status, current_task, agent_count FROM surface_state"
+            ).fetchall()
+            state_lines = []
+            for row in rows:
+                surf, status = row["surface"], row["status"] or "idle"
+                task, agents = row["current_task"] or "", row["agent_count"] or 0
+                if agents > 0 and task:
+                    state_lines.append(f"  {surf}: {status} — {task} ({agents} agent{'s' if agents>1 else ''})")
+                else:
+                    state_lines.append(f"  {surf}: {status}")
+
+            recent = conn.execute(
+                """SELECT title, result, updated_at FROM surface_tasks
+                   WHERE status='completed' AND updated_at > datetime('now','-1 hour')
+                   ORDER BY updated_at DESC LIMIT 3"""
+            ).fetchall()
+
+            pending = conn.execute(
+                """SELECT surface, title, status FROM surface_tasks
+                   WHERE status IN ('queued','in_progress')
+                   ORDER BY created_at ASC LIMIT 5"""
+            ).fetchall()
+
+        if not (state_lines or recent or pending):
+            return ""
+
+        parts = ["[System State]"]
+        if state_lines:
+            parts.append("Surfaces:\n" + "\n".join(state_lines))
+        if pending:
+            parts.append("Pending tasks:\n" + "\n".join(
+                f"  [{r['surface']}] {r['title']} ({r['status']})" for r in pending
+            ))
+        if recent:
+            parts.append("Recently completed:\n" + "\n".join(
+                f"  {r['title']}: {(r['result'] or '')[:120].replace(chr(10),' ').strip() or 'done'}"
+                for r in recent
+            ))
+        text = "\n".join(parts)
+    except Exception as exc:
+        _log.debug("Surface state injection failed: %s", exc)
+        text = ""
+
+    _surface_state_cache["_"] = (now, text)
+    return text
+
+
+def _inject_surface_state(system_prompt: str) -> str:
+    """Append live surface state to system prompt so models see cross-surface context."""
+    block = _build_surface_state_block()
+    return f"{system_prompt}\n\n{block}" if block else system_prompt
+
+
+async def _inject_surface_state_async(system_prompt: str) -> str:
+    """Async wrapper for surface state injection (1s hard timeout)."""
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_inject_surface_state, system_prompt),
+            timeout=1.0,
+        )
+    except (asyncio.TimeoutError, Exception):
+        return system_prompt
+
+
+# ── Pending workspace-task result injection ────────────────────────────────────
+# Proactively injects recently-completed and in-flight workspace task results
+# into the Companion system prompt so the model sees them without the user
+# having to ask.  Uses the same _SURFACE_STATE_TTL cache to avoid extra DB hits.
+
+_pending_tasks_cache: dict[str, tuple[float, str]] = {}
+
+
+def _inject_pending_tasks(system_prompt: str, session_window_seconds: int = 3600) -> str:
+    """Prepend a [Workspace Task Updates] block to system_prompt.
+
+    Queries surface_tasks for:
+    - tasks completed in the last *session_window_seconds* seconds (limit 5)
+    - currently queued/in_progress tasks (limit 3)
+
+    Returns the modified prompt, or the original if there is nothing to show.
+    Uses a 15-second cache keyed on *session_window_seconds* to avoid hammering
+    the DB on every token of a streaming response.
+    """
+    now = _time.monotonic()
+    cache_key = str(session_window_seconds)
+    cached = _pending_tasks_cache.get(cache_key)
+    if cached and (now - cached[0]) < _SURFACE_STATE_TTL:
+        block = cached[1]
+        return f"{system_prompt}\n\n{block}" if block else system_prompt
+
+    block = ""
+    try:
+        import sqlite3
+        from src.guppy.api.routes_surface import _DB_PATH
+        if not _DB_PATH:
+            _pending_tasks_cache[cache_key] = (now, "")
+            return system_prompt
+
+        with sqlite3.connect(_DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            completed = conn.execute(
+                f"""SELECT title, result, updated_at FROM surface_tasks
+                    WHERE status='completed'
+                      AND updated_at > datetime('now', '-{int(session_window_seconds)} seconds')
+                    ORDER BY updated_at DESC LIMIT 5"""
+            ).fetchall()
+
+            pending = conn.execute(
+                """SELECT id, title, status FROM surface_tasks
+                   WHERE status IN ('queued', 'in_progress')
+                   ORDER BY created_at ASC LIMIT 3"""
+            ).fetchall()
+
+        if not (completed or pending):
+            _pending_tasks_cache[cache_key] = (now, "")
+            return system_prompt
+
+        lines = ["[Workspace Task Updates]"]
+        for row in completed:
+            result_snippet = (row["result"] or "done")[:200].replace("\n", " ").strip()
+            lines.append(f'Completed recently: "{row["title"]}" — {result_snippet}')
+        for row in pending:
+            lines.append(f'In progress: "{row["title"]}" ({row["status"]})')
+
+        block = "\n".join(lines)
+    except Exception as exc:
+        _log.debug("Pending task injection failed: %s", exc)
+        block = ""
+
+    _pending_tasks_cache[cache_key] = (now, block)
+    return f"{system_prompt}\n\n{block}" if block else system_prompt
+
+
+async def _inject_pending_tasks_async(system_prompt: str, session_window_seconds: int = 3600) -> str:
+    """Async wrapper for pending task injection (1.5s hard timeout)."""
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_inject_pending_tasks, system_prompt, session_window_seconds),
+            timeout=1.5,
+        )
+    except (asyncio.TimeoutError, Exception):
         return system_prompt

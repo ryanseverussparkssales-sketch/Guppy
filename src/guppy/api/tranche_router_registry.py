@@ -27,6 +27,35 @@ _TRANCHE_REGISTRY = [
 ]
 
 
+def build_tranche_routers(ctx: ServerContext) -> list[APIRouter]:
+    """Build and return all tranche routers without mounting them on an app.
+
+    Useful for testing route contracts without a running app instance.
+    """
+    from src.guppy.api.routes_conversations import build_conversations_router
+    from src.guppy.api.routes_library import build_library_router
+    from src.guppy.api.routes_model_roles import build_model_roles_router
+    from src.guppy.api.routes_screen_monitor import build_screen_monitor_router
+    from src.guppy.api.routes_workspace import build_workspace_router
+    from src.guppy.api.services_model_manager import build_model_health_router
+
+    routers: list[APIRouter] = []
+    for factory in [
+        build_library_router,
+        build_screen_monitor_router,
+        build_model_roles_router,
+        build_model_health_router,
+        build_conversations_router,
+        build_workspace_router,
+    ]:
+        result = factory(ctx)
+        if isinstance(result, (list, tuple)):
+            routers.extend(result)
+        else:
+            routers.append(result)
+    return routers
+
+
 def register_tranche_routers(app: Any, ctx: ServerContext) -> list[APIRouter]:
     """Register all tranche surface routers with per-router error isolation.
 

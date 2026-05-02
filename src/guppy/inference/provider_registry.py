@@ -238,10 +238,29 @@ class ProviderRegistry:
         # Load initial configurations
         self._load_configs()
 
+    # Maps provider id → environment variable for API key
+    _API_KEY_ENV_VARS: Dict[str, str] = {
+        "anthropic": "ANTHROPIC_API_KEY",
+        "openai":    "OPENAI_API_KEY",
+        "google":    "GOOGLE_API_KEY",
+        "cohere":    "COHERE_API_KEY",
+        "mistral":   "MISTRAL_API_KEY",
+    }
+
     def _load_configs(self) -> None:
         """Load provider configurations from defaults + settings DB."""
-        # Start with defaults
-        self._configs = {k: v for k, v in self.DEFAULT_CONFIGS.items()}
+        import copy
+        # Deep-copy defaults so each instance gets its own mutable configs.
+        # Re-read API keys from env at instantiation time (DEFAULT_CONFIGS is a
+        # class-level dict evaluated once at import; env vars may change in tests).
+        self._configs = {k: copy.copy(v) for k, v in self.DEFAULT_CONFIGS.items()}
+        for pid, env_var in self._API_KEY_ENV_VARS.items():
+            cfg = self._configs.get(pid)
+            if cfg is None:
+                continue
+            key = os.environ.get(env_var, "").strip()
+            cfg.api_key = key or cfg.api_key
+            cfg.is_enabled = bool(cfg.api_key)
 
         # Merge persisted overrides (is_enabled, model_id, priority_order) from settings DB.
         if self.settings_db:

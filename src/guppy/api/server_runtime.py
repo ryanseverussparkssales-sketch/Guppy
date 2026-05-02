@@ -564,6 +564,7 @@ _ROUTER_REGISTRY: list[tuple[str, str, str | None, str]] = [
     ("src.guppy.api.routes_tasks",          "build_tasks_router",          None,              "tasks /api/tasks/*"),
     ("src.guppy.api.routes_mcp",            "build_mcp_router",            None,              "mcp /api/mcp/*"),
     ("src.guppy.api.routes_desktop",        "build_desktop_router",        None,              "desktop /api/desktop/*"),
+    ("src.guppy.api.routes_memory",         "build_memory_router",         None,              "memory /api/memory/*"),
     # routes_control is mounted under /api/control explicitly
     ("src.guppy.api.routes_control",        "build_control_router",        "/api/control",    "control /api/control/*"),
     # routes_model_roles returns TWO routers — handled separately below

@@ -175,9 +175,10 @@ class TestFallbackChainBuilding:
         # Build chain for simple task type
         chain = registry.build_fallback_chain(task_type="simple")
 
-        # Should contain local (highest priority)
+        # local is always in the chain (highest priority_order=10)
+        # but task-type preferences may place llama.cpp backends first for "simple"
         assert len(chain) > 0
-        assert chain[0] == "local"
+        assert "local" in chain
 
     async def test_fallback_chain_excludes_disabled(self):
         """Test fallback chain excludes disabled providers."""

@@ -21,8 +21,13 @@ from src.guppy.inference.context_injection import (
     augment_system_with_history,
     _bg_store_tool_outcome,
     _bg_summarize_session,
+    _inject_model_identity,
     _inject_semantic_context,
     _inject_semantic_context_async,
+    _inject_surface_state,
+    _inject_surface_state_async,
+    _inject_pending_tasks,
+    _inject_pending_tasks_async,
     _build_tool_context,
     _inject_tool_primer,
     _scan_workspace_sync,
@@ -210,6 +215,15 @@ def _merged_openai_tools(owner: Any) -> list[dict] | None:
 # _HISTORY_SNIPPET_MAX_CHARS and _HISTORY_TURNS_SHOWN moved to context_injection.
 _CHAT_HISTORY_LIMIT = 30  # token-aware trimmer acts as backstop for small-context models
 
+# Per-surface hard turn caps.  Companion uses Hermes3 (8K context) so we keep
+# it tight; workspace/codespace use Hermes4 (32K) but code-heavy prompts warrant
+# a slightly shorter cap than pure chat.
+_SURFACE_HISTORY_LIMITS: dict[str, int] = {
+    "companion":  15,   # Hermes3 8K context — keep it tight
+    "workspace":  30,   # Hermes4 32K — full depth
+    "codespace":  25,   # Hermes4 32K but code is verbose
+}
+
 # Context window in tokens for each backend.  Used by _trim_history_to_tokens()
 # to dynamically cap history rather than using the fixed 12-turn limit.
 # Rough estimate: 1 token ≈ 4 chars.  Reserve 1024 tokens for system prompt +
@@ -343,6 +357,7 @@ def call_unified_inference(
     instance_type: Optional[str] = None,
     active_local_model: Optional[str] = None,
     active_cloud_model: Optional[str] = None,
+    surface: str = "",
 ) -> str:
     if not owner.GUPPY_CORE_AVAILABLE:
         raise RuntimeError("Guppy core not available.")
@@ -362,10 +377,20 @@ def call_unified_inference(
         )
 
     router = owner.get_router()
-    clean_history = sanitize_chat_history(history)
-    augmented_system_prompt = augment_system_with_history(system_prompt, clean_history)
+    _ns_history_limit = _SURFACE_HISTORY_LIMITS.get(surface, _CHAT_HISTORY_LIMIT)
+    _ns_surface_backend = {
+        "companion": "llamacpp-hermes3",
+        "workspace": "llamacpp-hermes4",
+        "codespace": "llamacpp-hermes4",
+    }.get(surface, "")
+    clean_history = sanitize_chat_history(history, limit=_ns_history_limit, backend=_ns_surface_backend or None)
+    augmented_system_prompt = _inject_model_identity(system_prompt, surface=surface)
+    augmented_system_prompt = augment_system_with_history(augmented_system_prompt, clean_history)
     augmented_system_prompt = _inject_semantic_context(augmented_system_prompt, user_text, owner)
     augmented_system_prompt = _inject_workspace_context_sync(augmented_system_prompt, owner)
+    augmented_system_prompt = _inject_surface_state(augmented_system_prompt)
+    if surface == "companion":
+        augmented_system_prompt = _inject_pending_tasks(augmented_system_prompt)
     router_messages = build_router_messages(augmented_system_prompt, user_text, clean_history)
     requested_mode = (
         mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto"
@@ -804,16 +829,26 @@ async def stream_unified_inference(
     For llama.cpp backends: true token-level streaming via httpx.
     For Claude / fallbacks: yields the full response as a single chunk.
     """
-    clean_history = sanitize_chat_history(history)
+    _history_limit = _SURFACE_HISTORY_LIMITS.get(surface, _CHAT_HISTORY_LIMIT)
+    _surface_backend = {
+        "companion": "llamacpp-hermes3",
+        "workspace": "llamacpp-hermes4",
+        "codespace": "llamacpp-hermes4",
+    }.get(surface, "")
+    clean_history = sanitize_chat_history(history, limit=_history_limit, backend=_surface_backend or None)
 
     # Auto-summarize long sessions every 10 turns so context accumulates in
     # semantic memory and gets injected into future prompts via RAG.
     if len(clean_history) >= 10 and len(clean_history) % 10 == 0:
         _bg_summarize_session(clean_history)
 
-    augmented_system = augment_system_with_history(system_prompt, clean_history)
+    augmented_system = _inject_model_identity(system_prompt, surface=surface)
+    augmented_system = augment_system_with_history(augmented_system, clean_history)
     augmented_system = await _inject_semantic_context_async(augmented_system, user_text, owner)
     augmented_system = await _inject_workspace_context_async(augmented_system, owner)
+    augmented_system = await _inject_surface_state_async(augmented_system)
+    if surface == "companion":
+        augmented_system = await _inject_pending_tasks_async(augmented_system)
     requested_mode = (mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto").strip().lower()
 
     # Steer mode: prepend a redirection directive then route normally so

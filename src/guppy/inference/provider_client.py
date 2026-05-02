@@ -65,20 +65,24 @@ class InferenceMetadata:
 class ProviderClient(ABC):
     """Abstract base class for all inference providers."""
 
-    def __init__(self, provider_name: str, model: str, timeout: float = 30.0):
+    def __init__(self, provider_id: str, model: str, timeout: float = 30.0):
         """Initialize provider client.
 
         Args:
-            provider_name: "local", "anthropic", "openai", "google", "cohere", "mistral"
+            provider_id: "local", "anthropic", "openai", "google", "cohere", "mistral"
             model: Model ID/name for this provider
             timeout: Request timeout in seconds
         """
-        self.provider_name = provider_name
+        self.provider_id = provider_id
         self.model = model
         self.timeout = timeout
         self._health_check_cache: Optional[Tuple[bool, float]] = None
         self._health_check_cache_ttl = 5.0  # 5 second cache
         self._last_health_check = 0.0
+
+    @property
+    def provider_name(self) -> str:
+        return self.provider_id
 
     @abstractmethod
     async def infer(
@@ -318,7 +322,7 @@ class CloudProviderClient(ProviderClient):
 
     def __init__(
         self,
-        provider_name: str,
+        provider_id: str,
         model: str,
         api_key: str,
         timeout: float = 30.0,
@@ -326,12 +330,12 @@ class CloudProviderClient(ProviderClient):
         """Initialize cloud provider client.
 
         Args:
-            provider_name: "anthropic", "openai", "google", "cohere", "mistral"
+            provider_id: "anthropic", "openai", "google", "cohere", "mistral"
             model: Model ID for this provider
             api_key: API authentication key
             timeout: Request timeout in seconds
         """
-        super().__init__(provider_name, model, timeout)
+        super().__init__(provider_id, model, timeout)
         self.api_key = api_key
 
     async def infer(

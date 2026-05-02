@@ -12,6 +12,17 @@ import os
 _DOWNLOAD_TIMEOUT = 10.0  # qBittorrent add-torrent call
 
 
+def _store_outcome(name: str, args: dict, result: dict) -> None:
+    """Fire-and-forget: persist tool outcome to semantic memory for future recall."""
+    if result.get("ok") is False:
+        return  # don't log failures — they clutter memory
+    try:
+        from src.guppy.inference.context_injection import _bg_store_tool_outcome
+        _bg_store_tool_outcome(name, args, str(result)[:400])
+    except Exception:
+        pass
+
+
 async def _execute_companion_tool(name: str, args: dict) -> dict:
     """Execute one companion tool call. Returns a result dict."""
     import httpx
@@ -101,4 +112,37 @@ async def _execute_companion_tool(name: str, args: dict) -> dict:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
-    return {"ok": False, "error": f"Unknown tool: {name}"}
+    if name == "cancel_workspace_task":
+        task_id = str(args.get("task_id", "")).strip()
+        if not task_id:
+            return {"ok": False, "error": "task_id required"}
+        try:
+            from src.guppy.api.routes_surface import _cancel_task_direct
+            return _cancel_task_direct(task_id)
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    if name == "list_workspace_tasks":
+        status_filter = str(args.get("status", "")).strip()
+        try:
+            from src.guppy.api.routes_surface import _DB_PATH, _db
+            if not _DB_PATH:
+                return {"ok": False, "error": "surface DB not ready"}
+            with _db() as conn:
+                if status_filter:
+                    rows = conn.execute(
+                        "SELECT id, title, status, created_at FROM surface_tasks WHERE status=? ORDER BY created_at DESC LIMIT 10",
+                        (status_filter,)
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT id, title, status, created_at FROM surface_tasks ORDER BY created_at DESC LIMIT 10"
+                    ).fetchall()
+            tasks = [{"id": r[0], "title": r[1], "status": r[2], "created_at": r[3]} for r in rows]
+            return {"ok": True, "tasks": tasks, "count": len(tasks)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    result = {"ok": False, "error": f"Unknown tool: {name}"}
+    _store_outcome(name, args, result)
+    return result

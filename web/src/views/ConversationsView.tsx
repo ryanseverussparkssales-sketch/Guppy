@@ -351,8 +351,22 @@ function PersonalityPicker({ onSwitch }: { onSwitch: () => void }) {
 export default function ConversationsView() {
   const { pendingDraftText, setPendingDraftText } = useAppStore()
 
-  // Session management
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  // Session management — persist session ID in sessionStorage so page reload
+  // re-fetches the same conversation from the server.
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(
+    () => sessionStorage.getItem('conversations_session_id')
+  )
+
+  // Wrapper that keeps sessionStorage in sync whenever the active session changes.
+  const persistSession = useCallback((id: string | null) => {
+    setCurrentSessionId(id)
+    if (id) {
+      try { sessionStorage.setItem('conversations_session_id', id) } catch {}
+    } else {
+      try { sessionStorage.removeItem('conversations_session_id') } catch {}
+    }
+  }, [])
+
   const [currentPartner, setCurrentPartner] = useState<string | null>(null)
 
   const [messages, setMessages]           = useState<Message[]>(() => {
@@ -419,6 +433,29 @@ export default function ConversationsView() {
       setProviderOptions(meta.providers)
       setAllVoices(meta.allVoices)
     })
+  }, [])
+
+  // On mount: if a session ID is saved, re-fetch messages from the server so
+  // conversation history survives a page reload.
+  useEffect(() => {
+    const savedSession = sessionStorage.getItem('conversations_session_id')
+    if (!savedSession) return
+    api.get(`/api/conversations/sessions/${savedSession}/messages?limit=50`)
+      .then((r) => {
+        const msgs: Message[] = (r.data || []).map((m: any) => ({
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          ts: m.created_at ?? new Date().toISOString(),
+        }))
+        if (msgs.length > 0) setMessages(msgs)
+      })
+      .catch(() => {
+        // Session may have expired — clear it so a fresh one is created on next send
+        sessionStorage.removeItem('conversations_session_id')
+        persistSession(null)
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Avatar state derived from voice + sending state
@@ -602,7 +639,7 @@ export default function ConversationsView() {
           imageBase64: currentImage?.base64,
           isVoice,
           signal: controller.signal,
-          onSessionId: setCurrentSessionId,
+          onSessionId: persistSession,
           onToken: (token) => {
             firstTokenArrived = true
             setStreaming((p) => p + token)
@@ -646,7 +683,7 @@ export default function ConversationsView() {
       isSendingRef.current = false
       abortRef.current = null
     }
-  }, [attachedImage, clearAttachedImage, currentSessionId, input, ttsEnabled, voice])
+  }, [attachedImage, clearAttachedImage, currentSessionId, input, persistSession, ttsEnabled, voice])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -665,6 +702,7 @@ export default function ConversationsView() {
 
   const clearMessages = () => {
     setMessages([])
+    persistSession(null)
     try {
       sessionStorage.removeItem('companion_messages')
     } catch {
@@ -775,7 +813,7 @@ export default function ConversationsView() {
           <SessionPicker
             currentSessionId={currentSessionId}
             onSelectSession={(id) => {
-              setCurrentSessionId(id)
+              persistSession(id)
               setMessages([])
             }}
             onNewSession={async () => {
@@ -783,7 +821,7 @@ export default function ConversationsView() {
                 const res = await api.post('/api/conversations/sessions', {
                   session_title: `Chat ${new Date().toLocaleTimeString()}`,
                 })
-                setCurrentSessionId(res.data?.id)
+                persistSession(res.data?.id ?? null)
                 setMessages([])
               } catch {
                 toast.error('Could not create session')

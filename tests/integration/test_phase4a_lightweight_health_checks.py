@@ -36,8 +36,8 @@ class TestLocalProviderHealthCheck:
     """Test Ollama lightweight health check."""
 
     @pytest.mark.asyncio
-    async def test_ollama_health_check_uses_models_endpoint(self):
-        """Verify Ollama uses GET /api/v1/models for health check."""
+    async def test_local_health_check_uses_models_endpoint(self):
+        """Verify LocalProviderClient uses GET /v1/models for health check (llamacpp OpenAI-compat)."""
         client = LocalProviderClient(model="guppy")
 
         # Mock the HTTP request
@@ -51,9 +51,9 @@ class TestLocalProviderHealthCheck:
             result = await client.health_check()
 
             assert result is True
-            # Verify it called the /api/v1/models endpoint (not /api/tags or inference)
+            # Verify it called the OpenAI-compat /v1/models endpoint (llamacpp; Ollama was removed)
             called_url = mock_urlopen.call_args[0][0].full_url
-            assert "/api/v1/models" in called_url
+            assert "/v1/models" in called_url
 
 
 @pytest.mark.asyncio
@@ -169,7 +169,9 @@ class TestCloudProviderHealthChecks:
 
     async def test_health_check_returns_false_without_api_key(self):
         """Verify health check returns False if API key is missing."""
-        client = AnthropicClient(api_key="")
+        import unittest.mock
+        with unittest.mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}, clear=False):
+            client = AnthropicClient(api_key="")
 
         result = await client._lightweight_health_check()
 

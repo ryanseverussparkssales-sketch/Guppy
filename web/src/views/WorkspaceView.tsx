@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react'
 import {
   MessageSquare, LayoutList, Users, Monitor, FolderOpen,
   Cpu, Phone, Zap, AlertCircle, Calendar, Mail, Library,
-  CheckSquare, RefreshCw, FileText, Wrench,
+  CheckSquare, RefreshCw, FileText, Wrench, Brain,
 } from 'lucide-react'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -30,11 +30,12 @@ import { AutomationPanel } from '@/components/workspace/AutomationPanel'
 import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
 import { DocumentsPanel } from '@/components/workspace/DocumentsPanel'
 import { ToolsPanel } from '@/components/workspace/ToolsPanel'
+import { MemoryPanel } from '@/components/workspace/MemoryPanel'
 import AssistantChat from './AssistantView'
 
 // ── Tab config ─────────────────────────────────────────────────────────────────
 
-type Tab = 'chat' | 'agents' | 'crm' | 'screen' | 'files' | 'pc' | 'tasks' | 'voip' | 'calendar' | 'email' | 'media' | 'docs' | 'tools'
+type Tab = 'chat' | 'agents' | 'crm' | 'screen' | 'files' | 'pc' | 'tasks' | 'voip' | 'calendar' | 'email' | 'media' | 'docs' | 'tools' | 'memory'
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'chat',     icon: <MessageSquare className="w-4 h-4" />, label: 'Chat'     },
@@ -50,6 +51,7 @@ const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'media',    icon: <Library       className="w-4 h-4" />, label: 'Media'    },
   { id: 'docs',     icon: <FileText      className="w-4 h-4" />, label: 'Docs'     },
   { id: 'tools',    icon: <Wrench        className="w-4 h-4" />, label: 'Tools'    },
+  { id: 'memory',   icon: <Brain         className="w-4 h-4" />, label: 'Memory'   },
 ]
 
 // ── AgentsPanel ────────────────────────────────────────────────────────────────
@@ -275,6 +277,12 @@ export default function WorkspaceView() {
           {activeTab === 'tools' && (
             <div className="h-full" key={`tools-${refreshKey}`}>
               <ToolsPanel />
+            </div>
+          )}
+
+          {activeTab === 'memory' && (
+            <div className="h-full" key={`memory-${refreshKey}`}>
+              <MemoryPanel />
             </div>
           )}
         </div>
