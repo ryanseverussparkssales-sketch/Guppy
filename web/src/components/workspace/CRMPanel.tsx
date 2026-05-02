@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
+import { toast } from 'sonner'
 import {
   useReactTable,
   getCoreRowModel,
@@ -143,12 +144,16 @@ function ContactsTab() {
 
   const deleteContact = async (name: string) => {
     if (!window.confirm(`Delete contact "${name}"?`)) return
+    // Optimistic remove
+    setContacts((c) => c.filter((x) => x.name !== name))
+    if (expanded === name) setExpanded(null)
     try {
       await api.delete(`/api/workspace/contacts/${encodeURIComponent(name)}`)
-      setContacts((c) => c.filter((x) => x.name !== name))
-      if (expanded === name) setExpanded(null)
+      toast.success(`Contact "${name}" deleted`)
     } catch {
-      alert('Failed to delete contact. Please try again.')
+      // Restore on failure
+      toast.error('Failed to delete contact')
+      load(search)
     }
   }
 

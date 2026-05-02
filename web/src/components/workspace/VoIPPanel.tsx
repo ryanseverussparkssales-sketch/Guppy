@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
+import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -70,7 +71,12 @@ function NoteEditor({ callId, initialNote, onSaved }: { callId: string; initialN
       await api.patch(`/api/voip/calls/${callId}`, { notes: note })
       onSaved(note)
       setEditing(false)
-    } catch { /* ignore */ } finally {
+      toast.success('Note saved')
+    } catch {
+      toast.error('Failed to save note')
+      setNote(initialNote)
+      setEditing(false)
+    } finally {
       setSaving(false)
     }
   }
@@ -78,7 +84,7 @@ function NoteEditor({ callId, initialNote, onSaved }: { callId: string; initialN
   if (!editing) return (
     <div className="flex items-start gap-1.5">
       <p className="text-xs text-on-surface-variant/60 flex-1 italic">{note || 'No notes'}</p>
-      <button onClick={() => setEditing(true)} className="p-0.5 rounded text-on-surface-variant/30 hover:text-on-surface transition-colors">
+      <button type="button" title="Edit note" onClick={() => setEditing(true)} className="p-0.5 rounded text-on-surface-variant/30 hover:text-on-surface transition-colors">
         <Edit3 className="w-3 h-3" />
       </button>
     </div>
@@ -87,6 +93,7 @@ function NoteEditor({ callId, initialNote, onSaved }: { callId: string; initialN
   return (
     <div className="flex gap-1.5">
       <textarea
+        aria-label="Call note"
         value={note}
         onChange={(e) => setNote(e.target.value)}
         rows={2}
@@ -94,10 +101,10 @@ function NoteEditor({ callId, initialNote, onSaved }: { callId: string; initialN
         autoFocus
       />
       <div className="flex flex-col gap-1">
-        <button onClick={save} disabled={saving} className="p-1 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
+        <button type="button" title="Save note" onClick={save} disabled={saving} className="p-1 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
           {saving ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
         </button>
-        <button onClick={() => { setEditing(false); setNote(initialNote) }} className="p-1 rounded hover:bg-surface-variant text-on-surface-variant/50 transition-colors">
+        <button type="button" title="Cancel edit" onClick={() => { setEditing(false); setNote(initialNote) }} className="p-1 rounded hover:bg-surface-variant text-on-surface-variant/50 transition-colors">
           <X className="w-3 h-3" />
         </button>
       </div>
@@ -183,13 +190,17 @@ function LogCallForm({ onLogged }: { onLogged: () => void }) {
       setForm({ phone_number: '', contact_name: '', direction: 'outbound', status: 'completed', duration_s: '', notes: '' })
       setOpen(false)
       onLogged()
-    } catch { /* ignore */ } finally {
+      toast.success('Call logged')
+    } catch {
+      toast.error('Failed to log call')
+    } finally {
       setSaving(false)
     }
   }
 
   if (!open) return (
     <button
+      type="button"
       onClick={() => setOpen(true)}
       className="w-full flex items-center justify-center gap-2 text-xs text-on-surface-variant/60 hover:text-primary transition-colors py-2 border border-dashed border-outline-variant/30 rounded-xl hover:border-primary/30"
     >
@@ -221,6 +232,7 @@ function LogCallForm({ onLogged }: { onLogged: () => void }) {
           className="text-xs bg-surface border border-outline-variant/20 rounded-lg px-2.5 py-1.5 outline-none focus:border-primary/50 text-on-surface placeholder-on-surface-variant/40"
         />
         <select
+          aria-label="Call direction"
           value={form.direction}
           onChange={(e) => setForm((p) => ({ ...p, direction: e.target.value }))}
           className="text-xs bg-surface border border-outline-variant/20 rounded-lg px-2.5 py-1.5 outline-none focus:border-primary/50 text-on-surface"
@@ -229,6 +241,7 @@ function LogCallForm({ onLogged }: { onLogged: () => void }) {
           <option value="inbound">Inbound</option>
         </select>
         <select
+          aria-label="Call status"
           value={form.status}
           onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}
           className="text-xs bg-surface border border-outline-variant/20 rounded-lg px-2.5 py-1.5 outline-none focus:border-primary/50 text-on-surface"
@@ -247,13 +260,14 @@ function LogCallForm({ onLogged }: { onLogged: () => void }) {
       />
       <div className="flex gap-2">
         <button
+          type="button"
           onClick={save}
           disabled={saving || !form.phone_number.trim()}
           className="flex-1 text-xs bg-primary text-on-primary rounded-lg py-1.5 hover:bg-primary/90 disabled:opacity-40 transition-colors"
         >
           {saving ? 'Saving…' : 'Log Call'}
         </button>
-        <button onClick={() => setOpen(false)} className="px-3 text-xs text-on-surface-variant/60 hover:text-on-surface">Cancel</button>
+        <button type="button" onClick={() => setOpen(false)} className="px-3 text-xs text-on-surface-variant/60 hover:text-on-surface">Cancel</button>
       </div>
     </div>
   )
@@ -368,8 +382,10 @@ export function VoIPPanel() {
       {/* Call list */}
       <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 min-h-0">
         {loading ? (
-          <div className="flex items-center justify-center py-10">
-            <RefreshCw className="w-5 h-5 animate-spin text-on-surface-variant/40" />
+          <div className="space-y-2 p-1">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-16 rounded-xl bg-surface-variant/30 animate-pulse" />
+            ))}
           </div>
         ) : calls.length === 0 ? (
           <div className="text-center py-10">

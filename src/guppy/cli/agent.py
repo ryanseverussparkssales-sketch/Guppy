@@ -279,11 +279,6 @@ def voice_mode():
     print("voice_mode() is deprecated. Use the web UI voice interface or call")
     print("  asyncio.run(guppy.voice.speak(text)) / asyncio.run(guppy.voice.transcribe(audio))")
     print("directly from Python.")
-    return
-    except KeyboardInterrupt:
-        print("\n🛑 Stopping voice mode...")
-        voice.stop_wake_word_detection()
-        print("👋 Voice mode exited.")
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

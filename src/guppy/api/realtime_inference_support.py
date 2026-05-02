@@ -24,6 +24,8 @@ from src.guppy.inference.context_injection import (
     _inject_model_identity,
     _inject_semantic_context,
     _inject_semantic_context_async,
+    _inject_user_preferences,
+    _inject_user_preferences_async,
     _inject_surface_state,
     _inject_surface_state_async,
     _inject_pending_tasks,
@@ -384,13 +386,15 @@ def call_unified_inference(
         "codespace": "llamacpp-hermes4",
     }.get(surface, "")
     clean_history = sanitize_chat_history(history, limit=_ns_history_limit, backend=_ns_surface_backend or None)
+    # Injection order: identity → history → workspace/surface context → semantic/prefs (last = most attended)
     augmented_system_prompt = _inject_model_identity(system_prompt, surface=surface)
     augmented_system_prompt = augment_system_with_history(augmented_system_prompt, clean_history)
-    augmented_system_prompt = _inject_semantic_context(augmented_system_prompt, user_text, owner)
     augmented_system_prompt = _inject_workspace_context_sync(augmented_system_prompt, owner)
     augmented_system_prompt = _inject_surface_state(augmented_system_prompt)
     if surface == "companion":
         augmented_system_prompt = _inject_pending_tasks(augmented_system_prompt)
+    augmented_system_prompt = _inject_semantic_context(augmented_system_prompt, user_text, owner, history=clean_history)
+    augmented_system_prompt = _inject_user_preferences(augmented_system_prompt, owner)
     router_messages = build_router_messages(augmented_system_prompt, user_text, clean_history)
     requested_mode = (
         mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto"
@@ -842,13 +846,15 @@ async def stream_unified_inference(
     if len(clean_history) >= 10 and len(clean_history) % 10 == 0:
         _bg_summarize_session(clean_history)
 
+    # Injection order: identity → history → workspace/surface context → semantic/prefs (last = most attended)
     augmented_system = _inject_model_identity(system_prompt, surface=surface)
     augmented_system = augment_system_with_history(augmented_system, clean_history)
-    augmented_system = await _inject_semantic_context_async(augmented_system, user_text, owner)
     augmented_system = await _inject_workspace_context_async(augmented_system, owner)
     augmented_system = await _inject_surface_state_async(augmented_system)
     if surface == "companion":
         augmented_system = await _inject_pending_tasks_async(augmented_system)
+    augmented_system = await _inject_semantic_context_async(augmented_system, user_text, owner, history=clean_history)
+    augmented_system = await _inject_user_preferences_async(augmented_system, owner)
     requested_mode = (mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto").strip().lower()
 
     # Steer mode: prepend a redirection directive then route normally so

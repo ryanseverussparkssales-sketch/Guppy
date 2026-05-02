@@ -52,8 +52,12 @@ def _bg_store_tool_outcome(name: str, args: dict, result: str) -> None:
         try:
             from src.guppy.memory.semantic import remember_semantic
             args_str = str(sorted((args or {}).items()))[:200]
-            key = f"tool_outcome:{name}:{hashlib.md5(args_str.encode()).hexdigest()[:8]}"
-            value = f"{name}({args_str[:150]}) → {result[:500]}"
+            # Include timestamp so repeated calls don't overwrite — preserves history.
+            ts = int(_time.time())
+            key = f"tool_outcome:{name}:{ts}:{hashlib.md5(args_str.encode()).hexdigest()[:6]}"
+            # Generous truncation: code tools return large output that's worth keeping.
+            trunc = 2000 if name in ("file_read", "shell_run", "web_fetch", "web_search") else 800
+            value = f"{name}({args_str[:200]}) → {result[:trunc]}"
             remember_semantic(key, value, category="tool_outcome")
         except Exception:
             pass
@@ -74,15 +78,17 @@ def _bg_summarize_session(history: list[dict], session_id: str = "") -> None:
             import time
             import requests
             turns = []
-            for msg in history[-12:]:
+            # Use full history (not just last 12) so long sessions get a complete arc.
+            for msg in history:
                 role = msg.get("role", "user")
-                content = str(msg.get("content", ""))[:300]
+                content = str(msg.get("content", ""))[:400]
                 turns.append(f"{role}: {content}")
             history_text = "\n".join(turns)
             system_msg = (
-                "Summarize this conversation in 2-3 compact sentences. "
-                "Focus on: what the user asked, which tools were used, and what outcomes occurred. "
-                "Be specific about facts, file names, and results. No preamble."
+                "Summarize this entire conversation in 3-4 compact sentences. "
+                "Cover: (1) the main request or goal, (2) which tools were used and what they returned, "
+                "(3) key facts, file names, or decisions, (4) final outcome or next steps. "
+                "Be specific. No preamble."
             )
             # Cascade: phi-4-mini → hermes3 → hermes4
             _candidates = [
@@ -109,11 +115,19 @@ def _bg_summarize_session(history: list[dict], session_id: str = "") -> None:
                         break
                 except Exception:
                     continue
-            if summary and len(summary) > 20:
-                from src.guppy.memory.semantic import remember_semantic
-                sid_tag = f":{session_id}" if session_id else ""
-                key = f"session_summary{sid_tag}:{int(time.time())}"
-                remember_semantic(key, summary, category="session_summary")
+            if not summary:
+                # All backends offline — store a minimal structural fallback so the
+                # session isn't completely lost from memory.
+                first_user = next(
+                    (m.get("content", "")[:200] for m in history if m.get("role") == "user"), ""
+                )
+                summary = f"Session ({len(history)} turns). First message: {first_user}"
+                _log.warning("[summarizer] All backends offline; storing fallback summary for session %s", session_id or "?")
+
+            from src.guppy.memory.semantic import remember_semantic
+            sid_tag = f":{session_id}" if session_id else ""
+            key = f"session_summary{sid_tag}:{int(time.time())}"
+            remember_semantic(key, summary, category="session_summary")
         except Exception as exc:
             _log.debug("Session summarization failed: %s", exc)
 
@@ -122,13 +136,31 @@ def _bg_summarize_session(history: list[dict], session_id: str = "") -> None:
 
 # ── Semantic RAG injection ─────────────────────────────────────────────────────
 
-def _inject_semantic_context(system_prompt: str, user_text: str, owner: Any) -> str:
-    """Append relevant ChromaDB/SQLite semantic memory to the system prompt."""
+def _inject_semantic_context(
+    system_prompt: str,
+    user_text: str,
+    owner: Any,
+    history: list[dict] | None = None,
+) -> str:
+    """Append relevant semantic memory to the system prompt.
+
+    Builds a composite recall query from the last 3 user turns + current message
+    so multi-turn references ("that project we discussed") resolve correctly.
+    """
     if not (owner.os.environ.get("GUPPY_SEMANTIC_RAG", "1").strip().lower() in {"1", "true", "yes", "on"}):
         return system_prompt
     try:
         from src.guppy.memory.semantic import build_semantic_prompt_context
-        ctx = build_semantic_prompt_context(user_text, n=8)
+        if history:
+            recent = " ".join(
+                m.get("content", "")[:200]
+                for m in history[-3:]
+                if m.get("role") == "user"
+            )
+            query = f"{recent} {user_text}".strip()
+        else:
+            query = user_text
+        ctx = build_semantic_prompt_context(query, n=8)
         if ctx:
             return f"{system_prompt}\n\n{ctx}"
     except Exception as exc:
@@ -136,14 +168,48 @@ def _inject_semantic_context(system_prompt: str, user_text: str, owner: Any) -> 
     return system_prompt
 
 
-async def _inject_semantic_context_async(system_prompt: str, user_text: str, owner: Any) -> str:
+async def _inject_semantic_context_async(
+    system_prompt: str,
+    user_text: str,
+    owner: Any,
+    history: list[dict] | None = None,
+) -> str:
     """Async wrapper — runs the synchronous ChromaDB/SQLite read in a thread pool."""
     try:
         return await asyncio.wait_for(
-            asyncio.to_thread(_inject_semantic_context, system_prompt, user_text, owner),
+            asyncio.to_thread(_inject_semantic_context, system_prompt, user_text, owner, history),
             timeout=2.0,
         )
     except asyncio.TimeoutError:
+        return system_prompt
+
+
+def _inject_user_preferences(system_prompt: str, owner: Any) -> str:
+    """Prepend a [User Preferences] block from stored preference memories.
+
+    Preferences are explicitly recalled by category so they're always surfaced,
+    not just when they happen to match the current query.
+    """
+    if not (owner.os.environ.get("GUPPY_SEMANTIC_RAG", "1").strip().lower() in {"1", "true", "yes", "on"}):
+        return system_prompt
+    try:
+        from src.guppy.memory.semantic import recall_semantic
+        prefs = recall_semantic("", n=10, category="user_preference").strip()
+        if prefs and not prefs.startswith("Nothing found"):
+            return f"{system_prompt}\n\n[User Preferences]\n{prefs}"
+    except Exception as exc:
+        _log.debug("User preference injection failed: %s", exc)
+    return system_prompt
+
+
+async def _inject_user_preferences_async(system_prompt: str, owner: Any) -> str:
+    """Async wrapper for user preference injection (1s hard timeout)."""
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_inject_user_preferences, system_prompt, owner),
+            timeout=1.0,
+        )
+    except (asyncio.TimeoutError, Exception):
         return system_prompt
 
 

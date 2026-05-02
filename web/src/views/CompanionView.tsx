@@ -16,6 +16,7 @@ import { MarkdownMessage } from '@/components/chat/MarkdownMessage'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
 import { useVoice } from '@/hooks/useVoice'
 import api from '../api/client'
+import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -102,9 +103,9 @@ export default function CompanionView() {
           if (msgs.length > 0) setMessages(msgs)
         })
         .catch(() => {
-          // Session may have expired — clear it so a fresh one is created on next send
           sessionStorage.removeItem('companion_session_id')
           setSessionId(null)
+          toast.info('Previous session expired — starting fresh')
         })
     }
   }, [])

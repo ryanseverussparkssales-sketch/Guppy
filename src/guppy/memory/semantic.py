@@ -267,8 +267,20 @@ def _remember_sqlite(k: str, v: str, c: str) -> str:
     return f"Stored in semantic memory: {k}"
 
 
+# Default memory TTL by category (days). Keeps recall fresh without manual curation.
+_CATEGORY_MAX_AGE_DAYS: dict[str, int] = {
+    "tool_outcome":     30,    # tool results go stale quickly
+    "session_summary":  180,   # sessions relevant for ~6 months
+    "workspace_result": 60,
+    "user_preference":  730,   # preferences persist long-term
+    "general":          365,
+}
+_DEFAULT_MAX_AGE_DAYS = 365
+
+
 def _recall_sqlite(q: str, limit: int, cat: str) -> str:
     q_emb = _embed_text(q)
+    max_age = _CATEGORY_MAX_AGE_DAYS.get(cat, _DEFAULT_MAX_AGE_DAYS)
     conn = _conn()
     try:
         latest_rows_sql = """
@@ -281,14 +293,15 @@ def _recall_sqlite(q: str, limit: int, cat: str) -> str:
             ) latest
               ON latest.max_id = s.id
         """
+        age_filter = f" AND s.created > datetime('now', '-{int(max_age)} days')"
         if cat:
             rows = conn.execute(
-                latest_rows_sql + " WHERE s.category=? ORDER BY s.id DESC LIMIT 1000",
+                latest_rows_sql + f" WHERE s.category=?{age_filter} ORDER BY s.id DESC LIMIT 1000",
                 (cat,),
             ).fetchall()
         else:
             rows = conn.execute(
-                latest_rows_sql + " ORDER BY s.id DESC LIMIT 1000"
+                latest_rows_sql + f" WHERE 1=1{age_filter} ORDER BY s.id DESC LIMIT 1000"
             ).fetchall()
     finally:
         conn.close()

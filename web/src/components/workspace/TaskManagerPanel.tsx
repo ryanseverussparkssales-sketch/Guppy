@@ -309,13 +309,15 @@ export function TaskManagerPanel() {
 
       {/* Content */}
       {loading && tasks.length === 0 ? (
-        <div className="flex items-center justify-center flex-1">
-          <RefreshCw className="w-5 h-5 animate-spin text-on-surface-variant/40" />
+        <div className="flex-1 overflow-hidden p-2 space-y-2">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-14 rounded-xl bg-surface-variant/30 animate-pulse" />
+          ))}
         </div>
       ) : view === 'board' ? (
         /* ── Board view ── */
         <div className="flex-1 overflow-x-auto min-h-0">
-          <div className="flex gap-3 h-full" style={{ minWidth: '480px' }}>
+          <div className="flex gap-3 h-full min-w-[480px]">
             {STATUS_COLS.map((col) => {
               const colTasks = byStatus(col)
               return (
@@ -329,6 +331,8 @@ export function TaskManagerPanel() {
                       {colTasks.length}
                     </span>
                     <button
+                      type="button"
+                      title={`Add task to ${STATUS_LABELS[col]}`}
                       onClick={() => { setInitStatus(col); setAdding(true) }}
                       className="ml-auto p-1 rounded hover:bg-surface-variant text-on-surface-variant/30 hover:text-primary transition-colors">
                       <Plus className="w-3 h-3" />
@@ -341,6 +345,7 @@ export function TaskManagerPanel() {
                     ))}
                     {colTasks.length === 0 && (
                       <button
+                        type="button"
                         onClick={() => { setInitStatus(col); setAdding(true) }}
                         className="w-full py-4 text-xs text-on-surface-variant/30 border border-dashed border-outline-variant/20 rounded-xl hover:border-primary/30 hover:text-primary/40 transition-colors">
                         + Add task
@@ -369,7 +374,7 @@ export function TaskManagerPanel() {
       )}
 
       {/* Add button */}
-      <button onClick={() => { setInitStatus('todo'); setAdding(true) }}
+      <button type="button" onClick={() => { setInitStatus('todo'); setAdding(true) }}
         className="flex items-center justify-center gap-2 py-2 text-xs rounded-xl bg-primary/10 text-primary hover:bg-primary/15 transition-colors font-medium flex-shrink-0">
         <Plus className="w-3.5 h-3.5" />
         New task
