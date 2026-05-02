@@ -84,6 +84,14 @@ WAIVED_PATHS: dict[str, Waiver] = {
             "grammar-constrained tool calls. Minor overage; waiver raised Tranche A."
         ),
     ),
+    "src/guppy/api/routes_conversations.py": Waiver(
+        max_lines=950,
+        rationale=(
+            "Conversations surface: session CRUD, two-pass tool-call streaming, "
+            "synthesis phase, auto-title, pagination, SSE heartbeat wrapper. "
+            "Pinned for extraction of tool executor and stream generator to sub-modules."
+        ),
+    ),
 }
 
 

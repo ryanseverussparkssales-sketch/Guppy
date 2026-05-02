@@ -22,6 +22,7 @@ import logging
 import math
 import os
 import sqlite3
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +42,7 @@ CHROMA_PATH = CHROMA_DIR
 # Override to point at any OpenAI-compat embedding server: GUPPY_EMBED_BASE_URL=http://127.0.0.1:8087
 _EMBED_BASE_URL = os.environ.get("GUPPY_EMBED_BASE_URL", "http://localhost:8087").strip().rstrip("/")
 _EMBED_DISABLED_UNTIL: float = 0.0
+_EMBED_DISABLE_LOCK: threading.Lock = threading.Lock()
 
 
 def _embed_temporarily_disabled() -> bool:
@@ -49,7 +51,10 @@ def _embed_temporarily_disabled() -> bool:
 
 def _disable_embed_for(seconds: float, reason: str) -> None:
     global _EMBED_DISABLED_UNTIL
-    _EMBED_DISABLED_UNTIL = max(_EMBED_DISABLED_UNTIL, time.monotonic() + max(1.0, seconds))
+    deadline = time.monotonic() + max(1.0, seconds)
+    with _EMBED_DISABLE_LOCK:
+        if deadline > _EMBED_DISABLED_UNTIL:
+            _EMBED_DISABLED_UNTIL = deadline
     logger.info("Semantic embeddings temporarily disabled for %.0fs: %s", seconds, reason)
 
 

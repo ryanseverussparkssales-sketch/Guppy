@@ -32,9 +32,12 @@ def _mem_conn() -> sqlite3.Connection:
 def _contacts_json(search: str = "") -> list[dict[str, Any]]:
     with _mem_conn() as conn:
         if search:
+            # Escape LIKE wildcards so user input is treated as a literal substring
+            _safe = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"%{_safe}%"
             rows = conn.execute(
-                "SELECT * FROM contacts WHERE name LIKE ? OR company LIKE ? OR email LIKE ? ORDER BY last_contact DESC",
-                (f"%{search}%", f"%{search}%", f"%{search}%"),
+                "SELECT * FROM contacts WHERE name LIKE ? ESCAPE '\\' OR company LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\' ORDER BY last_contact DESC",
+                (pattern, pattern, pattern),
             ).fetchall()
         else:
             rows = conn.execute(

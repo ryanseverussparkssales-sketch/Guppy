@@ -21,7 +21,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -405,8 +405,11 @@ async def run_workspace_task_record(task_id: str) -> dict[str, Any]:
         _emit_event(conn, task_id, "state_changed", {"state": TaskState.RUNNING.value})
         conn.commit()
 
+        task_description = task["task_description"] or ""
+        if not task_description.strip():
+            raise HTTPException(400, "Task has no description to plan")
         for step_number, (tool_name, tool_args) in enumerate(
-            planned_steps(task["task_description"]),
+            planned_steps(task_description),
             start=1,
         ):
             step_id = _insert_step(conn, task_id, step_number, tool_name, tool_args)
@@ -608,6 +611,7 @@ def build_workspace_router(ctx: ServerContext) -> APIRouter:
 
     @router.get("/tasks/{task_id}/stream")
     async def stream_task(
+        request: Request,
         task_id: str,
         _uid: str = Depends(ctx.require_rate_limit),
     ) -> StreamingResponse:
@@ -620,6 +624,9 @@ def build_workspace_router(ctx: ServerContext) -> APIRouter:
                 _task_row(conn, task_id)
 
             while True:
+                if await request.is_disconnected():
+                    return
+
                 with _db() as conn:
                     task = _task_row(conn, task_id)
                     steps = _task_steps(conn, task_id)

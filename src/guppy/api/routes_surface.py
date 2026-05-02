@@ -226,12 +226,14 @@ def _broadcast_event(event_type: str, data: dict[str, Any]) -> None:
     """Thread-safe broadcast to all connected SSE clients."""
     payload = {"type": event_type, "data": data, "ts": _now()}
     msg = f"event: {event_type}\ndata: {json.dumps(payload)}\n\n"
-    if _sse_loop:
-        for q in list(_sse_clients):
-            try:
-                _sse_loop.call_soon_threadsafe(q.put_nowait, msg)
-            except Exception:
-                pass
+    if not _sse_loop:
+        logger.debug("SSE event dropped (no event loop captured yet): %s", event_type)
+        return
+    for q in list(_sse_clients):
+        try:
+            _sse_loop.call_soon_threadsafe(q.put_nowait, msg)
+        except Exception:
+            pass
 
 
 async def _sse_generator() -> AsyncGenerator[str, None]:
@@ -578,6 +580,9 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
             ).fetchone()
         return dict(row) if row else {}
 
+    _STATE_COLUMNS  = frozenset({"status", "current_task", "agent_count", "last_context", "updated_at"})
+    _CONFIG_COLUMNS = frozenset({"backend", "model", "fallback_model", "mode", "system_prompt", "tool_policy", "updated_at"})
+
     @router.put("/state/{surface}")
     def update_surface_state(
         surface: str,
@@ -586,7 +591,10 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
     ):
         if surface not in SURFACES:
             raise HTTPException(400, f"Unknown surface: {surface}")
-        updates: dict[str, Any] = {k: v for k, v in body.model_dump().items() if v is not None}
+        updates: dict[str, Any] = {
+            k: v for k, v in body.model_dump().items()
+            if v is not None and k in _STATE_COLUMNS
+        }
         updates["updated_at"] = _now()
         if not updates:
             return {"ok": True}
@@ -630,7 +638,10 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
     ):
         if surface not in SURFACES:
             raise HTTPException(400, f"Unknown surface: {surface}")
-        updates: dict[str, Any] = {k: v for k, v in body.model_dump().items() if v is not None}
+        updates: dict[str, Any] = {
+            k: v for k, v in body.model_dump().items()
+            if v is not None and k in _CONFIG_COLUMNS
+        }
 
         # When companion model is switched without an explicit system_prompt, auto-apply
         # the matching personality preset so Pepe doesn't respond like Hermes3, etc.
