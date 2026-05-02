@@ -500,11 +500,15 @@ _local_runtime_warm_lock = _runtime_state.local_runtime_warm_lock
 
 _server_context = _server_shell.server_context
 
+# ── Phase 1: pre-imported routers (imported at module level above) ─────────────
+# These routers use factories already imported at the top of this file.
+# They are registered first because some are dependencies for later modules.
+
 app.include_router(build_core_router(_server_context))
 
 _server_context.require_repair_token = _require_repair_token
 _instances_router = build_instances_router(_server_context)
-app.include_router(_instances_router)               # /instances/...
+app.include_router(_instances_router)                # /instances/...
 app.include_router(_instances_router, prefix="/api") # /api/instances/... (web UI prefix)
 
 app.include_router(build_models_router(_server_context))
@@ -513,95 +517,97 @@ app.include_router(build_workspaces_router(_server_context))
 app.include_router(build_chat_history_router(_server_context))
 app.include_router(build_settings_router(_server_context))
 _tools_router = build_tools_router(_server_context)
-app.include_router(_tools_router)               # /tools
+app.include_router(_tools_router)                # /tools
 app.include_router(_tools_router, prefix="/api") # /api/tools (web UI prefix)
 app.include_router(build_ops_router(_server_context))
 
 _realtime_router = build_realtime_router(_server_context)
-app.include_router(_realtime_router)               # /chat
+app.include_router(_realtime_router)                # /chat
 app.include_router(_realtime_router, prefix="/api") # /api/chat (web UI prefix)
 
-app.include_router(build_agents_router(_server_context))            # /api/agents
-app.include_router(build_inference_metrics_router(_server_context)) # /api/inference/metrics
-app.include_router(build_launcher_router(_server_context))          # /api/launcher
+app.include_router(build_agents_router(_server_context))              # /api/agents
+app.include_router(build_inference_metrics_router(_server_context))   # /api/inference/metrics
+app.include_router(build_launcher_router(_server_context))            # /api/launcher
 app.include_router(build_provider_management_router(_server_context)) # /api/providers/health|config
-app.include_router(build_queue_router(_server_context))             # /api/queue
-app.include_router(build_pipeline_router(_server_context))          # /api/pipeline
-app.include_router(build_backends_router(_server_context))          # /api/backends/llamacpp
-app.include_router(build_voice_router(_server_context))             # /api/voices
+app.include_router(build_queue_router(_server_context))               # /api/queue
+app.include_router(build_pipeline_router(_server_context))            # /api/pipeline
+app.include_router(build_backends_router(_server_context))            # /api/backends/llamacpp
+app.include_router(build_voice_router(_server_context))               # /api/voices
 
-from src.guppy.api.routes_reminders import build_reminders_router
-app.include_router(build_reminders_router(_server_context))         # /api/reminders
+# ── Phase 2: table-driven late-import routers ──────────────────────────────────
+# Each entry: (module_path, factory_name, prefix_or_None, description)
+# "DUAL" entries are registered twice (once at root, once under /api/control).
+# "MODEL_ROLES" is a special case — the factory returns TWO routers.
+# If any single module fails to import or build, that router is skipped and
+# the error is logged — the rest of the server continues to start normally.
 
-from src.guppy.api.routes_calibre import build_calibre_router, build_kindle_router
-app.include_router(build_calibre_router(_server_context))           # /api/calibre/*
-app.include_router(build_kindle_router(_server_context))            # /api/kindle/*
+_ROUTER_REGISTRY: list[tuple[str, str, str | None, str]] = [
+    # (module_path, factory_name, prefix, description)
+    ("src.guppy.api.routes_reminders",      "build_reminders_router",      None,              "reminders /api/reminders"),
+    ("src.guppy.api.routes_calibre",        "build_calibre_router",        None,              "calibre /api/calibre/*"),
+    ("src.guppy.api.routes_calibre",        "build_kindle_router",         None,              "kindle /api/kindle/*"),
+    ("src.guppy.api.routes_screenpipe",     "build_screenpipe_router",     None,              "screenpipe /api/screenpipe/*"),
+    ("src.guppy.api.routes_acquisition",    "build_acquisition_router",    None,              "acquisition /api/acquisition/*"),
+    ("src.guppy.api.routes_tier3",          "build_tier3_router",          None,              "tier3 /api/tier3/*"),
+    ("src.guppy.api.routes_booklet",        "build_booklet_router",        None,              "booklet /api/booklet/*"),
+    ("src.guppy.api.routes_files",          "build_files_router",          None,              "files /api/files|system|clipboard"),
+    ("src.guppy.api.routes_drop",           "build_drop_router",           None,              "drop /api/drop/*"),
+    ("src.guppy.api.routes_surface",        "build_surface_router",        None,              "surface /api/surface/*"),
+    ("src.guppy.api.routes_companion",      "build_companion_router",      None,              "companion /api/companion/*"),
+    ("src.guppy.api.routes_workspace_data", "build_workspace_data_router", None,              "workspace_data /api/workspace/*"),
+    ("src.guppy.api.routes_codespace",      "build_codespace_router",      None,              "codespace /api/codespace/*"),
+    ("src.guppy.api.routes_voip",           "build_voip_router",           None,              "voip /api/voip/*"),
+    ("src.guppy.api.routes_calendar",       "build_calendar_router",       None,              "calendar /api/calendar/*"),
+    ("src.guppy.api.routes_email",          "build_email_router",          None,              "email /api/email/*"),
+    ("src.guppy.api.routes_media",          "build_media_router",          None,              "media /api/media/*"),
+    ("src.guppy.api.routes_documents",      "build_documents_router",      None,              "documents /api/documents/*"),
+    ("src.guppy.api.routes_tasks",          "build_tasks_router",          None,              "tasks /api/tasks/*"),
+    ("src.guppy.api.routes_mcp",            "build_mcp_router",            None,              "mcp /api/mcp/*"),
+    ("src.guppy.api.routes_desktop",        "build_desktop_router",        None,              "desktop /api/desktop/*"),
+    # routes_control is mounted under /api/control explicitly
+    ("src.guppy.api.routes_control",        "build_control_router",        "/api/control",    "control /api/control/*"),
+    # routes_model_roles returns TWO routers — handled separately below
+    # routes_conversations is also included via register_tranche_routers — skip here
+]
 
-from src.guppy.api.routes_screenpipe import build_screenpipe_router
-app.include_router(build_screenpipe_router(_server_context))        # /api/screenpipe/*
+_router_fail_count = 0
+for _mod_path, _factory_name, _prefix, _label in _ROUTER_REGISTRY:
+    try:
+        _mod = importlib.import_module(_mod_path)
+        _router = getattr(_mod, _factory_name)(_server_context)
+        if _prefix:
+            app.include_router(_router, prefix=_prefix)
+        else:
+            app.include_router(_router)
+        logger.debug("Router registered: %s", _label)
+    except Exception as _reg_exc:
+        _router_fail_count += 1
+        logger.error(
+            "FAILED to register router %s (%s.%s): %s",
+            _label, _mod_path, _factory_name, _reg_exc,
+        )
+        # Continue — one bad module must not crash the whole server
 
-from src.guppy.api.routes_acquisition import build_acquisition_router
-app.include_router(build_acquisition_router(_server_context))       # /api/acquisition/*
+# ── model_roles: factory returns (primary_router, control_router) ──────────────
+try:
+    import importlib as _il
+    _mrmod = _il.import_module("src.guppy.api.routes_model_roles")
+    _model_roles_router, _control_model_roles_router = _mrmod.build_model_roles_router(_server_context)
+    app.include_router(_model_roles_router)           # /api/model-roles/*
+    app.include_router(_control_model_roles_router)   # /api/control/operator-settings
+    logger.debug("Router registered: model_roles /api/model-roles + /api/control/operator-settings")
+except Exception as _reg_exc:
+    _router_fail_count += 1
+    logger.error("FAILED to register router model_roles: %s", _reg_exc)
 
-from src.guppy.api.routes_tier3 import build_tier3_router
-app.include_router(build_tier3_router(_server_context))             # /api/tier3/*
+if _router_fail_count:
+    logger.warning(
+        "%d router(s) failed to register — those API paths will return 404. "
+        "Check error logs above for details.",
+        _router_fail_count,
+    )
 
-from src.guppy.api.routes_booklet import build_booklet_router
-app.include_router(build_booklet_router(_server_context))           # /api/booklet/*
-
-from src.guppy.api.routes_files import build_files_router
-app.include_router(build_files_router(_server_context))             # /api/files/*, /api/system/*, /api/clipboard
-
-from src.guppy.api.routes_drop import build_drop_router
-app.include_router(build_drop_router(_server_context))              # /api/drop/*
-
-from src.guppy.api.routes_surface import build_surface_router
-app.include_router(build_surface_router(_server_context))           # /api/surface/*
-
-from src.guppy.api.routes_companion import build_companion_router
-app.include_router(build_companion_router(_server_context))         # /api/companion/*
-
-from src.guppy.api.routes_workspace_data import build_workspace_data_router
-app.include_router(build_workspace_data_router(_server_context))    # /api/workspace/*
-
-from src.guppy.api.routes_codespace import build_codespace_router
-app.include_router(build_codespace_router(_server_context))         # /api/codespace/*
-
-from src.guppy.api.routes_voip import build_voip_router
-app.include_router(build_voip_router(_server_context))              # /api/voip/*
-
-from src.guppy.api.routes_calendar import build_calendar_router
-app.include_router(build_calendar_router(_server_context))          # /api/calendar/*
-
-from src.guppy.api.routes_email import build_email_router
-app.include_router(build_email_router(_server_context))             # /api/email/*
-
-from src.guppy.api.routes_media import build_media_router
-app.include_router(build_media_router(_server_context))             # /api/media/*
-
-from src.guppy.api.routes_documents import build_documents_router
-app.include_router(build_documents_router(_server_context))         # /api/documents/*
-
-from src.guppy.api.routes_tasks import build_tasks_router
-app.include_router(build_tasks_router(_server_context))             # /api/tasks/*
-
-from src.guppy.api.routes_mcp import build_mcp_router
-app.include_router(build_mcp_router(_server_context))               # /api/mcp/*
-
-from src.guppy.api.routes_desktop import build_desktop_router
-app.include_router(build_desktop_router(_server_context))           # /api/desktop/*
-
-from src.guppy.api.routes_control import build_control_router
-app.include_router(build_control_router(_server_context), prefix="/api/control")  # /api/control/*
-
-from src.guppy.api.routes_model_roles import build_model_roles_router
-_model_roles_router, _control_model_roles_router = build_model_roles_router(_server_context)
-app.include_router(_model_roles_router)                  # /api/model-roles/*
-app.include_router(_control_model_roles_router)          # /api/control/operator-settings
-
-from src.guppy.api.routes_conversations import build_conversations_router
-app.include_router(build_conversations_router(_server_context))  # /api/conversations/*
-
+# ── Tranche routers (bulk registration — separate pattern, keep as-is) ─────────
 from src.guppy.api.tranche_router_registry import register_tranche_routers
 register_tranche_routers(app, _server_context)
 

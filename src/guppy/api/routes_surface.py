@@ -300,9 +300,11 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
     _bg_log.info("[task_exec] starting task %s: %s", task_id, title)
 
     def _update(status: str, result: str | None = None) -> None:
+        """Update task status and — for terminal states — decrement surface agent_count."""
         if not _DB_PATH:
             return
         try:
+            terminal = status in ("completed", "failed", "cancelled")
             with _db() as conn:
                 if result is not None:
                     conn.execute(
@@ -313,6 +315,26 @@ async def _run_workspace_task(task_id: str, title: str, description: str) -> Non
                     conn.execute(
                         "UPDATE surface_tasks SET status=?, updated_at=? WHERE id=?",
                         (status, _now(), task_id),
+                    )
+                # Decrement agent_count and clear surface status when this task ends.
+                # Without this the surface stays in 'agent_running' state forever
+                # because _run_workspace_task never goes through the update_task HTTP
+                # route (which does its own decrement).
+                if terminal:
+                    conn.execute(
+                        """UPDATE surface_state
+                           SET agent_count = MAX(0, agent_count - 1),
+                               updated_at = ?
+                           WHERE surface = 'workspace'""",
+                        (_now(),),
+                    )
+                    conn.execute(
+                        """UPDATE surface_state
+                           SET status = CASE WHEN agent_count <= 0 THEN 'idle' ELSE status END,
+                               current_task = CASE WHEN agent_count <= 0 THEN NULL ELSE current_task END,
+                               updated_at = ?
+                           WHERE surface = 'workspace'""",
+                        (_now(),),
                     )
                 conn.commit()
         except Exception as _e:
@@ -456,6 +478,11 @@ async def _background_loop() -> None:
     workspace task per cycle through Hermes4, and ages stale tasks after 6 h.
     """
     global _task_executor_running
+    # Capture the running event-loop as early as possible so that _broadcast_event
+    # works correctly even before any SSE client has connected.  Without this the
+    # loop reference stays None and every broadcast silently drops until the first
+    # client opens /api/surface/events.
+    _capture_loop()
     _bg_log.info("[surface.bg] background loop started")
 
     while True:
