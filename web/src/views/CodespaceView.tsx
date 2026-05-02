@@ -306,7 +306,9 @@ function ChatTab() {
         </div>
         <div className="flex items-center gap-3 mt-2 px-1">
           <button
-            onClick={() => setMessages([])}
+            onClick={() => {
+              if (window.confirm('Clear all messages in this session?')) setMessages([])
+            }}
             className="text-xs text-on-surface-variant/40 hover:text-on-surface-variant transition-colors"
           >
             Clear session

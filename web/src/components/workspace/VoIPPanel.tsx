@@ -107,8 +107,9 @@ function NoteEditor({ callId, initialNote, onSaved }: { callId: string; initialN
 
 // ── CallRow ───────────────────────────────────────────────────────────────────
 
-function CallRow({ call, onDelete, onNoteUpdate }: {
+function CallRow({ call, deleting, onDelete, onNoteUpdate }: {
   call: Call
+  deleting: boolean
   onDelete: (id: string) => void
   onNoteUpdate: (id: string, note: string) => void
 }) {
@@ -135,8 +136,11 @@ function CallRow({ call, onDelete, onNoteUpdate }: {
         </div>
         <span className="text-xs text-on-surface-variant/40 flex-shrink-0">{relTime(call.called_at)}</span>
         <button
+          type="button"
+          title="Delete call"
+          disabled={deleting}
           onClick={(e) => { e.stopPropagation(); onDelete(call.id) }}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-error/10 text-on-surface-variant/30 hover:text-error transition-all"
+          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-error/10 text-on-surface-variant/30 hover:text-error transition-all disabled:opacity-30"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
@@ -290,11 +294,19 @@ export function VoIPPanel() {
 
   useEffect(() => { load() }, [load])
 
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
   const deleteCall = async (id: string) => {
+    if (!window.confirm('Delete this call record?')) return
+    setDeletingId(id)
     try {
       await api.delete(`/api/voip/calls/${id}`)
       setCalls((c) => c.filter((x) => x.id !== id))
-    } catch { /* ignore */ }
+    } catch {
+      alert('Failed to delete call. Please try again.')
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   const updateNote = (id: string, note: string) => {
@@ -319,11 +331,11 @@ export function VoIPPanel() {
           </div>
         )}
         {quoStatus?.configured && (
-          <button onClick={syncFromQuo} disabled={syncing} title="Sync from Quo" className="p-1.5 rounded-lg hover:bg-surface-variant text-on-surface-variant/40 hover:text-on-surface transition-colors">
+          <button type="button" onClick={syncFromQuo} disabled={syncing} title="Sync from Quo" className="p-1.5 rounded-lg hover:bg-surface-variant text-on-surface-variant/40 hover:text-on-surface transition-colors">
             <RefreshCw className={cn("w-3.5 h-3.5", syncing && "animate-spin")} />
           </button>
         )}
-        <button onClick={load} className="ml-auto p-1.5 rounded-lg hover:bg-surface-variant text-on-surface-variant/40 hover:text-on-surface transition-colors">
+        <button type="button" onClick={load} title="Refresh" className="ml-auto p-1.5 rounded-lg hover:bg-surface-variant text-on-surface-variant/40 hover:text-on-surface transition-colors">
           <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
         </button>
       </div>
@@ -340,6 +352,7 @@ export function VoIPPanel() {
       <div className="flex gap-1 flex-shrink-0">
         {(['all', 'inbound', 'outbound'] as const).map((f) => (
           <button
+            type="button"
             key={f}
             onClick={() => setFilter(f)}
             className={cn(
@@ -366,7 +379,7 @@ export function VoIPPanel() {
           </div>
         ) : (
           calls.map((c) => (
-            <CallRow key={c.id} call={c} onDelete={deleteCall} onNoteUpdate={updateNote} />
+            <CallRow key={c.id} call={c} deleting={deletingId === c.id} onDelete={deleteCall} onNoteUpdate={updateNote} />
           ))
         )}
       </div>

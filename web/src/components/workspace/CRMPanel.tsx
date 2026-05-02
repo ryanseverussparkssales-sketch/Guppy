@@ -142,11 +142,14 @@ function ContactsTab() {
   const handleSearch = (v: string) => { setSearch(v); load(v) }
 
   const deleteContact = async (name: string) => {
+    if (!window.confirm(`Delete contact "${name}"?`)) return
     try {
       await api.delete(`/api/workspace/contacts/${encodeURIComponent(name)}`)
       setContacts((c) => c.filter((x) => x.name !== name))
       if (expanded === name) setExpanded(null)
-    } catch { /* ignore */ }
+    } catch {
+      alert('Failed to delete contact. Please try again.')
+    }
   }
 
   const columns = [
@@ -331,14 +334,19 @@ function TasksTab() {
     try {
       await api.put(`/api/workspace/crm/tasks/${id}/complete`)
       setTasks((t) => t.filter((x) => x.id !== id))
-    } catch { /* ignore */ }
+    } catch {
+      alert('Failed to mark task complete. Please try again.')
+    }
   }
 
   const remove = async (id: number) => {
+    if (!window.confirm('Delete this task?')) return
     try {
       await api.delete(`/api/workspace/crm/tasks/${id}`)
       setTasks((t) => t.filter((x) => x.id !== id))
-    } catch { /* ignore */ }
+    } catch {
+      alert('Failed to delete task. Please try again.')
+    }
   }
 
   return (

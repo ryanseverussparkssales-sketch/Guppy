@@ -308,6 +308,7 @@ export function SandboxPanel() {
   const [dockerAvail, setDockerAvail] = useState<boolean | null>(null)
   const [loading, setLoading]         = useState(true)
   const [activeTerminal, setTerminal] = useState<string | null>(null)
+  const [removingId, setRemovingId]   = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -323,11 +324,17 @@ export function SandboxPanel() {
   useEffect(() => { load() }, [load])
 
   const remove = async (id: string) => {
+    if (!window.confirm('Remove this sandbox container?')) return
+    setRemovingId(id)
     try {
       await api.delete(`/api/codespace/sandbox/${id}`)
       setSandboxes((s) => s.filter((x) => x.id !== id))
       if (activeTerminal === id) setTerminal(null)
-    } catch { /* ignore */ }
+    } catch {
+      alert('Failed to remove sandbox. Please try again.')
+    } finally {
+      setRemovingId(null)
+    }
   }
 
   return (
@@ -403,8 +410,10 @@ export function SandboxPanel() {
                   <Terminal className="w-3.5 h-3.5" />
                 </button>
                 <button
+                  type="button"
                   onClick={() => remove(s.id)}
-                  className="p-1.5 rounded-lg hover:bg-error/10 text-on-surface-variant/40 hover:text-error transition-colors"
+                  disabled={removingId === s.id}
+                  className="p-1.5 rounded-lg hover:bg-error/10 text-on-surface-variant/40 hover:text-error transition-colors disabled:opacity-30"
                   title="Remove sandbox"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
