@@ -54,6 +54,25 @@ const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'memory',   icon: <Brain         className="w-4 h-4" />, label: 'Memory'   },
 ]
 
+// ── Panel error fallback ───────────────────────────────────────────────────────
+
+function PanelFallback({ label }: { label: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
+      <AlertCircle className="w-8 h-8 text-error/40" />
+      <p className="text-sm text-on-surface-variant/50">{label} panel encountered an error.</p>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-surface-variant hover:bg-surface-container-high text-on-surface-variant transition-colors"
+      >
+        <RefreshCw className="w-3 h-3" />
+        Reload
+      </button>
+    </div>
+  )
+}
+
 // ── AgentsPanel ────────────────────────────────────────────────────────────────
 
 function AgentsPanel() {
@@ -200,26 +219,34 @@ export default function WorkspaceView() {
 
           {activeTab === 'agents' && (
             <div className="h-full overflow-y-auto" key={`agents-${refreshKey}`}>
-              <AgentsPanel />
+              <ErrorBoundary fallback={<PanelFallback label="Agents" />}>
+                <AgentsPanel />
+              </ErrorBoundary>
             </div>
           )}
 
           {activeTab === 'crm' && (
             <div className="h-full" key={`crm-${refreshKey}`}>
-              <CRMPanel />
+              <ErrorBoundary fallback={<PanelFallback label="CRM" />}>
+                <CRMPanel />
+              </ErrorBoundary>
             </div>
           )}
 
           {activeTab === 'screen' && (
             <div className="h-full" key={`screen-${refreshKey}`}>
-              <ScreenPanel />
+              <ErrorBoundary fallback={<PanelFallback label="Screen" />}>
+                <ScreenPanel />
+              </ErrorBoundary>
             </div>
           )}
 
           {activeTab === 'files' && (
             <div className="h-full flex flex-col gap-0 overflow-hidden">
               <div className="flex-1 overflow-hidden">
-                <FilesPanel />
+                <ErrorBoundary fallback={<PanelFallback label="Files" />}>
+                  <FilesPanel />
+                </ErrorBoundary>
               </div>
               <div className="border-t border-outline-variant/10 p-3 bg-surface-container-low/20 flex-shrink-0">
                 <DocumentDropZone surface="workspace" compact />
@@ -229,60 +256,80 @@ export default function WorkspaceView() {
 
           {activeTab === 'pc' && (
             <div className="h-full overflow-y-auto p-4">
-              <SystemMetricsPanel />
+              <ErrorBoundary fallback={<PanelFallback label="System Metrics" />}>
+                <SystemMetricsPanel />
+              </ErrorBoundary>
             </div>
           )}
 
           {activeTab === 'tasks' && (
             <div className="h-full flex flex-col overflow-hidden">
               <div className="flex-1 min-h-0 overflow-hidden">
-                <TaskManagerPanel />
+                <ErrorBoundary fallback={<PanelFallback label="Tasks" />}>
+                  <TaskManagerPanel />
+                </ErrorBoundary>
               </div>
               <div className="border-t border-outline-variant/10 bg-surface-container-low/20 flex-shrink-0 max-h-72 overflow-y-auto">
-                <AutomationPanel />
+                <ErrorBoundary fallback={<PanelFallback label="Automation" />}>
+                  <AutomationPanel />
+                </ErrorBoundary>
               </div>
             </div>
           )}
 
           {activeTab === 'voip' && (
             <div className="h-full">
-              <VoIPPanel />
+              <ErrorBoundary fallback={<PanelFallback label="Calls" />}>
+                <VoIPPanel />
+              </ErrorBoundary>
             </div>
           )}
 
           {activeTab === 'calendar' && (
             <div className="h-full">
-              <CalendarPanel />
+              <ErrorBoundary fallback={<PanelFallback label="Calendar" />}>
+                <CalendarPanel />
+              </ErrorBoundary>
             </div>
           )}
 
           {activeTab === 'email' && (
             <div className="h-full">
-              <EmailPanel />
+              <ErrorBoundary fallback={<PanelFallback label="Email" />}>
+                <EmailPanel />
+              </ErrorBoundary>
             </div>
           )}
 
           {activeTab === 'media' && (
             <div className="h-full">
-              <MediaLibraryPanel />
+              <ErrorBoundary fallback={<PanelFallback label="Media" />}>
+                <MediaLibraryPanel />
+              </ErrorBoundary>
             </div>
           )}
 
           {activeTab === 'docs' && (
             <div className="h-full" key={`docs-${refreshKey}`}>
-              <DocumentsPanel />
+              <ErrorBoundary fallback={<PanelFallback label="Documents" />}>
+                <DocumentsPanel />
+              </ErrorBoundary>
             </div>
           )}
 
           {activeTab === 'tools' && (
             <div className="h-full" key={`tools-${refreshKey}`}>
-              <ToolsPanel />
+              <ErrorBoundary fallback={<PanelFallback label="Tools" />}>
+                <ToolsPanel />
+              </ErrorBoundary>
             </div>
           )}
 
           {activeTab === 'memory' && (
             <div className="h-full" key={`memory-${refreshKey}`}>
-              <MemoryPanel />
+              <ErrorBoundary fallback={<PanelFallback label="Memory" />}>
+                <MemoryPanel />
+              </ErrorBoundary>
             </div>
           )}
         </div>

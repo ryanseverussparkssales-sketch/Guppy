@@ -66,15 +66,17 @@ function CodeBlock({ className, children, inline }: CodeBlockProps) {
 
   useEffect(() => {
     if (inline || !lang) return
-    getHighlighter().then((hl) => {
-      try {
-        const knownLang = SUPPORTED_LANGS.includes(lang) ? lang : 'text'
-        const raw = hl.codeToHtml(code, { lang: knownLang, theme: 'github-dark' })
-        setHtml(DOMPurify.sanitize(raw, PURIFY_CONFIG) as string)
-      } catch {
-        setHtml(null)
-      }
-    })
+    getHighlighter()
+      .then((hl) => {
+        try {
+          const knownLang = SUPPORTED_LANGS.includes(lang) ? lang : 'text'
+          const raw = hl.codeToHtml(code, { lang: knownLang, theme: 'github-dark' })
+          setHtml(DOMPurify.sanitize(raw, PURIFY_CONFIG) as string)
+        } catch {
+          setHtml(null)
+        }
+      })
+      .catch(() => setHtml(null))
   }, [code, lang, inline])
 
   const handleCopy = () => {
