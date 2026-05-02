@@ -226,36 +226,32 @@ export function MemoryPanel() {
   const [confirmClear,setConfirmClear]= useState(false)
   const debounceRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const load = useCallback(async (q?: string, cat?: CategoryFilter) => {
+  const load = useCallback(async (q: string, cat: CategoryFilter) => {
     setLoading(true)
     try {
-      const activeCat = cat ?? catFilter
-      const activeQ   = q   ?? query
-      if (activeQ.trim()) {
+      if (q.trim()) {
         const r = await api.get('/api/memory/entries/search', {
-          params: { q: activeQ.trim(), n: 50 },
+          params: { q: q.trim(), n: 50 },
         })
         setEntries(r.data.entries ?? [])
         setTotal(r.data.total ?? 0)
       } else {
         const params: Record<string, unknown> = { limit: 200, offset: 0 }
-        if (activeCat !== 'all') params.category = activeCat
+        if (cat !== 'all') params.category = cat
         const r = await api.get('/api/memory/entries', { params })
         setEntries(r.data.entries ?? [])
         setTotal(r.data.total ?? 0)
       }
     } catch { /* silent */ } finally { setLoading(false) }
-  }, [catFilter, query])
+  }, []) // stable — all state is passed as explicit args
 
-  useEffect(() => { load() }, [load])
+  // Initial load only — subsequent loads are driven by handler calls below.
+  useEffect(() => { load('', 'all') }, [load])
 
-  // Debounce search
   const handleSearch = (val: string) => {
     setQuery(val)
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      load(val, catFilter)
-    }, 300)
+    debounceRef.current = setTimeout(() => load(val, catFilter), 300)
   }
 
   const handleCatChange = (cat: CategoryFilter) => {
@@ -270,7 +266,7 @@ export function MemoryPanel() {
       toast.success('Memory deleted')
     } catch {
       toast.error('Failed to delete memory')
-      load()
+      load(query, catFilter)
     }
   }
 
@@ -279,7 +275,7 @@ export function MemoryPanel() {
     try {
       await api.delete('/api/memory/entries', { params: { confirm: true } })
       toast.success('All memories cleared')
-      load()
+      load(query, catFilter)
     } catch {
       toast.error('Failed to clear memories')
     }
@@ -296,7 +292,7 @@ export function MemoryPanel() {
     <div className="relative flex flex-col h-full p-4 gap-3">
       {adding && (
         <NewMemoryForm
-          onSave={() => { setAdding(false); load() }}
+          onSave={() => { setAdding(false); load(query, catFilter) }}
           onClose={() => setAdding(false)}
         />
       )}
@@ -324,7 +320,7 @@ export function MemoryPanel() {
             Clear all
           </button>
           <button
-            onClick={() => load()}
+            onClick={() => load(query, catFilter)}
             className="p-1 rounded hover:bg-surface-variant text-on-surface-variant/40"
             title="Refresh"
           >

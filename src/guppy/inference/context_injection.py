@@ -317,6 +317,7 @@ def _inject_tool_primer(system_prompt: str, surface: str) -> str:
 # ── Workspace filesystem snapshot ─────────────────────────────────────────────
 
 _FS_SNAPSHOT_CACHE: dict[str, tuple[float, str]] = {}
+_FS_SNAPSHOT_CACHE_MAX = 200
 _FS_SNAPSHOT_TTL = 60.0   # seconds
 _FS_MAX_ENTRIES = 40
 _FS_MAX_DEPTH = 2
@@ -393,6 +394,9 @@ def _scan_workspace_sync(directory: str) -> str:
         "Do NOT explore or list these files unless explicitly asked to.\n"
         + "\n".join(entries[:_FS_MAX_ENTRIES])
     )
+    if len(_FS_SNAPSHOT_CACHE) >= _FS_SNAPSHOT_CACHE_MAX:
+        oldest = min(_FS_SNAPSHOT_CACHE, key=lambda k: _FS_SNAPSHOT_CACHE[k][0])
+        del _FS_SNAPSHOT_CACHE[oldest]
     _FS_SNAPSHOT_CACHE[directory] = (now, result)
     return result
 

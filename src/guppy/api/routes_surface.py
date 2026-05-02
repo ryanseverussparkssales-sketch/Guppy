@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import sqlite3
+import threading
 import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
@@ -236,6 +237,7 @@ def _cancel_task_direct(task_id: str) -> dict:
 # ── SSE event bus ──────────────────────────────────────────────────────────────
 
 _sse_clients: set[asyncio.Queue] = set()
+_sse_clients_lock = threading.Lock()
 _sse_loop: asyncio.AbstractEventLoop | None = None
 
 
@@ -252,18 +254,22 @@ def _broadcast_event(event_type: str, data: dict[str, Any]) -> None:
     """Thread-safe broadcast to all connected SSE clients."""
     payload = {"type": event_type, "data": data, "ts": _now()}
     msg = f"event: {event_type}\ndata: {json.dumps(payload)}\n\n"
-    if _sse_loop:
-        for q in list(_sse_clients):
-            try:
-                _sse_loop.call_soon_threadsafe(q.put_nowait, msg)
-            except Exception:
-                pass
+    if not _sse_loop:
+        return
+    with _sse_clients_lock:
+        snapshot = list(_sse_clients)
+    for q in snapshot:
+        try:
+            _sse_loop.call_soon_threadsafe(q.put_nowait, msg)
+        except Exception:
+            _log.debug("[surface.sse] broadcast drop for queue %s: event=%s", id(q), event_type)
 
 
 async def _sse_generator() -> AsyncGenerator[str, None]:
     _capture_loop()
     q: asyncio.Queue = asyncio.Queue()
-    _sse_clients.add(q)
+    with _sse_clients_lock:
+        _sse_clients.add(q)
     try:
         # Send current state snapshot on connect
         with _db() as conn:
@@ -278,7 +284,8 @@ async def _sse_generator() -> AsyncGenerator[str, None]:
             except asyncio.TimeoutError:
                 yield ": keepalive\n\n"
     finally:
-        _sse_clients.discard(q)
+        with _sse_clients_lock:
+            _sse_clients.discard(q)
 
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
@@ -553,12 +560,31 @@ async def _background_loop() -> None:
             ).isoformat()
             if _DB_PATH:
                 with _db() as conn:
-                    conn.execute(
-                        """UPDATE surface_tasks SET status = 'stale', updated_at = ?
+                    # Fetch affected tasks so we can decrement agent_count per surface.
+                    stale_rows = conn.execute(
+                        """SELECT id, surface FROM surface_tasks
                            WHERE status = 'queued' AND created_at < ?""",
-                        (_now(), stale_cutoff),
-                    )
-                    conn.commit()
+                        (stale_cutoff,),
+                    ).fetchall()
+                    if stale_rows:
+                        ids = [r[0] for r in stale_rows]
+                        conn.execute(
+                            f"UPDATE surface_tasks SET status = 'stale', updated_at = ? "
+                            f"WHERE id IN ({','.join('?' * len(ids))})",
+                            (_now(), *ids),
+                        )
+                        # Decrement agent_count for each affected surface.
+                        surfaces_affected: set[str] = {r[1] for r in stale_rows if r[1]}
+                        for surf in surfaces_affected:
+                            count = sum(1 for r in stale_rows if r[1] == surf)
+                            conn.execute(
+                                """UPDATE surface_state
+                                   SET agent_count = MAX(0, agent_count - ?),
+                                       updated_at  = ?
+                                   WHERE surface = ?""",
+                                (count, _now(), surf),
+                            )
+                        conn.commit()
         except Exception as exc:
             _bg_log.error("[surface.bg] stale task cleanup error: %s", exc)
 
@@ -783,8 +809,8 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
                 f"UPDATE surface_tasks SET {set_clause} WHERE id = ?",
                 (*updates.values(), task_id),
             )
-            # If task is complete/failed, decrement agent_count
-            if updates.get("status") in ("complete", "failed", "cancelled"):
+            # If task is terminal, decrement agent_count
+            if updates.get("status") in ("completed", "failed", "cancelled", "stale"):
                 row = conn.execute(
                     "SELECT surface FROM surface_tasks WHERE id = ?", (task_id,)
                 ).fetchone()

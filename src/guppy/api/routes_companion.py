@@ -210,9 +210,10 @@ COMPANION_ALLOWED_TOOLS = {
 
 # ── Voice session state ────────────────────────────────────────────────────────
 
-_voice_session_active = False
+_voice_lock            = threading.Lock()
+_voice_session_active  = False
 _voice_session_thread: threading.Thread | None = None
-_voice_session_stop   = threading.Event()
+_voice_session_stop    = threading.Event()
 
 
 def _stop_voice_session() -> None:
@@ -393,49 +394,53 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
         """Start a persistent wake-word voice session for the companion surface."""
         global _voice_session_active, _voice_session_thread, _voice_session_stop
 
-        if _voice_session_active:
-            return {"ok": True, "status": "already_active"}
+        with _voice_lock:
+            if _voice_session_active:
+                return {"ok": True, "status": "already_active"}
 
-        try:
-            from src.guppy.voice import voice as _voice
-            _voice_session_stop.clear()
-            _voice_session_active = True
+            try:
+                from src.guppy.voice import voice as _voice
+                _voice_session_stop.clear()
+                _voice_session_active = True
 
-            def _run_session():
-                try:
-                    _voice.start_wake_word_detection()
-                except Exception as e:
-                    logger.warning(f"[companion] Voice session error: {e}")
-                finally:
-                    global _voice_session_active
-                    _voice_session_active = False
+                def _run_session():
+                    try:
+                        _voice.start_wake_word_detection()
+                    except Exception as e:
+                        logger.warning("[companion] Voice session error: %s", e)
+                    finally:
+                        with _voice_lock:
+                            global _voice_session_active
+                            _voice_session_active = False
 
-            _voice_session_thread = threading.Thread(target=_run_session, daemon=True)
-            _voice_session_thread.start()
-            return {"ok": True, "status": "started"}
-        except Exception as e:
-            _voice_session_active = False
-            raise HTTPException(500, f"Could not start voice session: {e}")
+                _voice_session_thread = threading.Thread(target=_run_session, daemon=True)
+                _voice_session_thread.start()
+                return {"ok": True, "status": "started"}
+            except Exception as e:
+                _voice_session_active = False
+                raise HTTPException(500, f"Could not start voice session: {e}")
 
     @router.delete("/voice/session")
     def stop_voice_session(_uid: str = Depends(ctx.require_rate_limit)):
         """Stop the wake-word voice session."""
-        global _voice_session_active
-        if not _voice_session_active:
-            return {"ok": True, "status": "not_active"}
-        try:
-            from src.guppy.voice import voice as _voice
-            _voice.stop()
-        except Exception:
-            pass
-        _stop_voice_session()
+        with _voice_lock:
+            if not _voice_session_active:
+                return {"ok": True, "status": "not_active"}
+            try:
+                from src.guppy.voice import voice as _voice
+                _voice.stop()
+            except Exception:
+                pass
+            _stop_voice_session()
         return {"ok": True, "status": "stopped"}
 
     @router.get("/voice/session")
     def voice_session_status(_uid: str = Depends(ctx.require_rate_limit)):
+        with _voice_lock:
+            active = _voice_session_active
         return {
-            "active":   _voice_session_active,
-            "status":   "active" if _voice_session_active else "idle",
+            "active": active,
+            "status": "active" if active else "idle",
         }
 
     # ── Companion action bridge ────────────────────────────────────────────────
