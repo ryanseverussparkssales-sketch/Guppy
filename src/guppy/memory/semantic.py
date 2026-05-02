@@ -37,10 +37,11 @@ from utils.db_utils import open_db as _open_db
 import requests
 
 DB_PATH = MEMORY_DB_PATH
-EMBED_MODEL = os.environ.get("GUPPY_EMBED_MODEL", "hermes-3-8b-lorablated").strip() or "hermes-3-8b-lorablated"
+EMBED_MODEL = os.environ.get("GUPPY_EMBED_MODEL", "nomic-embed-text-v1.5").strip() or "nomic-embed-text-v1.5"
 CHROMA_PATH = CHROMA_DIR
-# Override to point at any OpenAI-compat embedding server: GUPPY_EMBED_BASE_URL=http://127.0.0.1:8087
-_EMBED_BASE_URL = os.environ.get("GUPPY_EMBED_BASE_URL", "http://localhost:8087").strip().rstrip("/")
+# Dedicated nomic-embed-text server (port 8092). Falls back to the legacy
+# Hermes3 port only if explicitly overridden via GUPPY_EMBED_BASE_URL.
+_EMBED_BASE_URL = os.environ.get("GUPPY_EMBED_BASE_URL", "http://localhost:8092").strip().rstrip("/")
 _EMBED_DISABLED_UNTIL: float = 0.0
 _EMBED_DISABLE_LOCK: threading.Lock = threading.Lock()
 

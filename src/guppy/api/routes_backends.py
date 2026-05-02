@@ -85,6 +85,15 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "vram_gb": 2.5,
         "auto_start": True,
     },
+    "llamacpp-nomic-embed": {
+        "bat":     r"C:\llama-cpp\launch-nomic-embed.bat",
+        "port":    8092,
+        "label":   "nomic-embed-text-v1.5 Embeddings",
+        "mode":    "A",
+        "note":    "Dedicated embedding server · ~274 MB VRAM · /v1/embeddings only — auto-starts",
+        "vram_gb": 0.3,
+        "auto_start": True,
+    },
     "llamacpp-hermes4": {
         "bat":     r"C:\llama-cpp\launch-hermes-4-14b.bat",
         "port":    8086,
@@ -501,9 +510,10 @@ def _warm_kv_cache(port: int) -> None:
 # If any of these crash the watchdog restarts them automatically.
 
 _WATCHDOG_ALWAYS_ON = {
-    "llamacpp-phi4-mini": 8091,
-    "llamacpp-hermes3":  8087,
-    "llamacpp-hermes4":  8086,
+    "llamacpp-nomic-embed": 8092,
+    "llamacpp-phi4-mini":   8091,
+    "llamacpp-hermes3":     8087,
+    "llamacpp-hermes4":     8086,
 }
 
 
