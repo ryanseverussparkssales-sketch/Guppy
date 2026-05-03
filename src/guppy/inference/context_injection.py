@@ -561,8 +561,8 @@ RESPONSE FORMAT:
 
 _MODEL_IDENTITY: dict[str, str] = {
     "companion": _COMPANION_IDENTITY,
-    "workspace": "[Surface: Workspace | Model: Hermes4 14B | Role: Agentic ops hub — execute tasks with full tool access.]",
-    "codespace": "[Surface: Codespace | Model: Hermes4 14B | Role: Code generation, debugging, sandbox execution.]",
+    "workspace": "[Surface: Workspace | Model: Hermes 4.3 36B | Role: Agentic ops hub — execute tasks with full tool access.]",
+    "codespace": "[Surface: Codespace | Model: Hermes 4.3 36B | Role: Code generation, debugging, sandbox execution.]",
 }
 
 

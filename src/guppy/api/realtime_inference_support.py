@@ -217,13 +217,12 @@ def _merged_openai_tools(owner: Any) -> list[dict] | None:
 # _HISTORY_SNIPPET_MAX_CHARS and _HISTORY_TURNS_SHOWN moved to context_injection.
 _CHAT_HISTORY_LIMIT = 30  # token-aware trimmer acts as backstop for small-context models
 
-# Per-surface hard turn caps.  Companion uses Rocinante 12B (16K context) as primary
-# with Hermes3 (8K) as fallback — cap at 20 so both models stay comfortable.
-# Workspace/codespace use Hermes4 (32K) but code-heavy prompts warrant a shorter cap.
+# Per-surface hard turn caps.  All surfaces now use Hermes 4.3 36B (512K context,
+# 128K practical) — limits raised significantly from the old 8K/16K/32K era.
 _SURFACE_HISTORY_LIMITS: dict[str, int] = {
-    "companion":  20,   # Rocinante 16K / Hermes3 8K fallback
-    "workspace":  30,   # Hermes4 32K — full depth
-    "codespace":  25,   # Hermes4 32K but code is verbose
+    "companion":  50,   # Hermes 4.3 128K — comfortable for long conversations
+    "workspace":  80,   # Hermes 4.3 128K — deep task context
+    "codespace":  60,   # Hermes 4.3 128K — code sessions are verbose but manageable
 }
 
 # Context window in tokens for each backend.  Used by _trim_history_to_tokens()
@@ -231,8 +230,8 @@ _SURFACE_HISTORY_LIMITS: dict[str, int] = {
 # Rough estimate: 1 token ≈ 4 chars.  Reserve 1024 tokens for system prompt +
 # current user message + model response headroom.
 _BACKEND_CONTEXT_TOKENS: dict[str, int] = {
-    "llamacpp-hermes3":    8192,    # Hermes 3 8B — 8K context
-    "llamacpp-hermes4":   32768,    # Hermes 4 14B — 32K context
+    "llamacpp-hermes3":    8192,    # Hermes 3 8B — 8K context (on-demand fallback)
+    "llamacpp-hermes4":  131072,    # Hermes 4.3 36B Heretic — 128K practical (512K max)
     "llamacpp-dispatch":   4096,    # Qwen2.5-3B — 4K context
     "llamacpp-phi4-mini": 131072,   # Phi-4-mini — 128K context
     "llamacpp-pepe":       8192,    # Assistant Pepe 8B
@@ -381,7 +380,7 @@ def call_unified_inference(
     router = owner.get_router()
     _ns_history_limit = _SURFACE_HISTORY_LIMITS.get(surface, _CHAT_HISTORY_LIMIT)
     _ns_surface_backend = {
-        "companion": "llamacpp-hermes3",
+        "companion": "llamacpp-hermes4",
         "workspace": "llamacpp-hermes4",
         "codespace": "llamacpp-hermes4",
     }.get(surface, "")
@@ -835,7 +834,7 @@ async def stream_unified_inference(
     """
     _history_limit = _SURFACE_HISTORY_LIMITS.get(surface, _CHAT_HISTORY_LIMIT)
     _surface_backend = {
-        "companion": "llamacpp-rocinante",
+        "companion": "llamacpp-hermes4",
         "workspace": "llamacpp-hermes4",
         "codespace": "llamacpp-hermes4",
     }.get(surface, "")

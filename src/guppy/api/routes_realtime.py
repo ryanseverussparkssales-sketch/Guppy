@@ -412,14 +412,12 @@ def _get_active_cloud_model(provider: str = "") -> Optional[str]:
 
 # ── Surface-aware model selection ──────────────────────────────────────────────
 # Each surface has a dedicated always-on local model and a preferred cloud fallback.
-# companion → Hermes 3 (fast, uncensored, 9GB VRAM, port 8087)
-# workspace → Hermes 4 (tools, uncensored, 11GB VRAM, port 8086)
-# codespace → Hermes 4 (code-capable, same stack)
-# Cloud fallbacks are surface-appropriate: Haiku for companion (fast/cheap),
-# Sonnet for workspace/codespace (capable).
+# Single primary model: Hermes 4.3 36B Heretic (port 8086) handles all surfaces.
+# Replaces Rocinante (companion) + Hermes 4 14B (workspace) with one 36B model.
+# Cloud fallbacks remain surface-appropriate: Haiku for companion, Sonnet for workspace/codespace.
 
 _SURFACE_LOCAL_DEFAULTS: dict[str, str] = {
-    "companion": "llamacpp-rocinante",
+    "companion": "llamacpp-hermes4",
     "workspace": "llamacpp-hermes4",
     "codespace": "llamacpp-hermes4",
 }
@@ -633,9 +631,6 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     owner.logger.debug("Response cache lookup skipped: %s", e)
 
             _active_local = _get_surface_local_model(request.surface)
-            # Voice fast-path: companion voice always uses Hermes3 (fastest always-on)
-            if request.is_voice and request.surface == "companion":
-                _active_local = "llamacpp-hermes3"
 
             response = await ctx.run_blocking(
                 ctx.call_unified_inference,
@@ -730,11 +725,9 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
         _active_local_model = _get_surface_local_model(request.surface)
         _active_cloud_model = _get_surface_cloud_model(request.surface)
 
-        # Voice fast-path: companion voice uses Hermes3 (8B, fastest for low latency TTS)
-        # Regular companion chat uses Rocinante (12B, better personality depth)
+        # Voice brevity injection: TTS responses must be 1-2 sentences, no markdown.
+        # Single model (Hermes 4.3 36B) handles voice — no routing change needed.
         if request.is_voice and request.surface == "companion":
-            _active_local_model = "llamacpp-hermes3"
-            # Voice brevity injection: TTS responses must be 1-2 sentences, no markdown
             system_prompt = (
                 "VOICE MODE: You are responding via text-to-speech. "
                 "Reply in ONE or TWO sentences only. "
@@ -1044,7 +1037,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                                         "temperature": 0.0,
                                     }
                                     async with _httpx.AsyncClient(timeout=10.0) as _c:
-                                        _cr = await _c.post("http://localhost:8087/v1/chat/completions", json=_correction_payload)
+                                        _cr = await _c.post("http://localhost:8086/v1/chat/completions", json=_correction_payload)
                                         _cr.raise_for_status()
                                     _corrected_text = _cr.json()["choices"][0]["message"]["content"]
                                     _corrected_blocks = _TOOL_CALL_RE.findall(_corrected_text)

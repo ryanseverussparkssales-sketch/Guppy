@@ -12,8 +12,8 @@ Backend selection (GUPPY_LOCAL_RUNTIME_BACKEND env var):
   llamacpp-qwen3      — Qwen3 35B-A3B MoE at 127.0.0.1:8083 (GUPPY_LLAMACPP_QWEN3_URL)
   llamacpp-minicpm    — MiniCPM-o 4.5 Omni at 127.0.0.1:8084 (GUPPY_LLAMACPP_MINICPM_URL)
   llamacpp-dispatch   — Qwen2.5-3B-Instruct dispatcher at 127.0.0.1:8085 (GUPPY_LLAMACPP_DISPATCH_URL)
-  llamacpp-hermes4    — Hermes 4 14B at 127.0.0.1:8086 (GUPPY_LLAMACPP_HERMES4_URL)
-  llamacpp-hermes3    — Hermes 3 8B Lorablated at 127.0.0.1:8087 (GUPPY_LLAMACPP_HERMES3_URL) [default]
+  llamacpp-hermes4    — Hermes 4.3 36B Heretic at 127.0.0.1:8086 (GUPPY_LLAMACPP_HERMES4_URL) [primary — all surfaces]
+  llamacpp-hermes3    — Hermes 3 8B Lorablated at 127.0.0.1:8087 (GUPPY_LLAMACPP_HERMES3_URL) [on-demand fallback]
   llamacpp-rocinante  — Rocinante X 12B at 127.0.0.1:8088 (GUPPY_LLAMACPP_ROCINANTE_URL)
   llamacpp-xlam       — xLAM-2-8B-fc-r at 127.0.0.1:8089  (GUPPY_LLAMACPP_XLAM_URL)
   llamacpp-chat       — Llama 3.3 70B CPU-only at 127.0.0.1:8090 (GUPPY_LLAMACPP_CHAT_URL)
@@ -112,7 +112,9 @@ _BACKENDS: Dict[str, Dict[str, Any]] = {
         "delete_path": None,
         "format": "openai",
     },
-    # ── Hermes 4 14B — tool-capable, uncensored, NousResearch ────────────────
+    # ── Hermes 4.3 36B Heretic — single primary model for all surfaces ──────────
+    # ByteDance Seed OSS 36B base · 512K context · Hermes tool format
+    # Replaces Hermes 3 (companion) + Hermes 4 (workspace) with one model.
     "llamacpp-hermes4": {
         "default_url": "http://127.0.0.1:8086",
         "chat_path": "/v1/chat/completions",
@@ -121,7 +123,7 @@ _BACKENDS: Dict[str, Dict[str, Any]] = {
         "delete_path": None,
         "format": "openai",
     },
-    # ── Hermes 3 8B Lorablated — fast, uncensored, tool-capable ──────────────
+    # ── Hermes 3 8B Lorablated — on-demand fallback only (not always-on) ────────
     "llamacpp-hermes3": {
         "default_url": "http://127.0.0.1:8087",
         "chat_path": "/v1/chat/completions",

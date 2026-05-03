@@ -114,19 +114,14 @@ async def route_by_surface(
             _log.warning("Surface %s free cloud (%s) failed: %s", surface, _prov, _fc_err)
 
     if surface == "companion":
-        # Pass-1: user-selected model OR Rocinante (12B, 16K ctx, personality-first default)
-        # Falls back to Hermes3 if Rocinante is offline.
-        # Voice fast-path exception: if caller pinned llamacpp-hermes3 (low-latency TTS),
-        # honour that order — Hermes3 first, Rocinante as fallback.
+        # Single primary model: Hermes 4.3 36B Heretic (llamacpp-hermes4, port 8086).
+        # Handles companion, workspace, and codespace — no more surface-specific model split.
+        # Rocinante is on-demand only; Hermes 3 is a fallback if the primary is down.
         _p1_keys = []
-        if active_local_model and active_local_model not in ("llamacpp-rocinante", "llamacpp-hermes3"):
+        if active_local_model and active_local_model != "llamacpp-hermes4":
             _p1_keys.append(active_local_model)
-        if active_local_model == "llamacpp-hermes3":
-            _p1_keys.append("llamacpp-hermes3")
-            _p1_keys.append("llamacpp-rocinante")
-        else:
-            _p1_keys.append("llamacpp-rocinante")
-            _p1_keys.append("llamacpp-hermes3")
+        _p1_keys.append("llamacpp-hermes4")
+        _p1_keys.append("llamacpp-hermes3")  # on-demand fallback if 36B is down
 
         for _p1_key in _p1_keys:
             _p1m = _sp_backend_alive(_p1_key)

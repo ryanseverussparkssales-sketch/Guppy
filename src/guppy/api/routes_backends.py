@@ -103,12 +103,12 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "auto_start": True,
     },
     "llamacpp-hermes4": {
-        "bat":     r"C:\llama-cpp\launch-hermes-4-14b.bat",
+        "bat":     r"C:\llama-cpp\launch-hermes-4_3-36b.bat",
         "port":    8086,
-        "label":   "Hermes 4 14B",
+        "label":   "Hermes 4.3 36B Heretic",
         "mode":    "A",
-        "note":    "Tools · ~11 GB VRAM — uncensored — always-on workspace agent",
-        "vram_gb": 11.0,
+        "note":    "Primary · ~21.8 GB VRAM — uncensored — companion + workspace + codespace",
+        "vram_gb": 21.8,
         "auto_start": True,
     },
     "llamacpp-hermes3": {
@@ -116,9 +116,8 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "port":    8087,
         "label":   "Hermes 3 8B Lorablated",
         "mode":    "A",
-        "note":    "Companion voice · ~9 GB VRAM — uncensored — always-on",
+        "note":    "On-demand fallback · ~9 GB VRAM — not always-on",
         "vram_gb": 9.0,
-        "auto_start": True,
     },
     "llamacpp-rocinante": {
         "bat":     r"C:\llama-cpp\launch-rocinante-12b.bat",
@@ -171,7 +170,7 @@ _GPU_VRAM_GB: float = float(os.environ.get("GUPPY_GPU_VRAM_GB", "24"))
 
 _MODE_A = {
     "llamacpp-pepe", "llamacpp-gemma", "llamacpp-minicpm", "llamacpp-dispatch",
-    "llamacpp-phi4-mini", "llamacpp-hermes4", "llamacpp-hermes3",
+    "llamacpp-phi4-mini", "llamacpp-hermes4", "llamacpp-hermes3",  # hermes3 on-demand
     "llamacpp-rocinante", "llamacpp-xlam", "llamacpp-chat",
 }
 _MODE_B = {"llamacpp-qwen3"}
@@ -475,14 +474,10 @@ _WARMUP_SYSTEM_PROMPTS: dict[str, str] = {
         "You are a task orchestrator. Route requests to the appropriate specialist. "
         "Be concise and accurate."
     ),
-    8087: (  # Hermes3 — companion surface
-        "You are Guppy, a helpful AI companion. You are direct, warm, and concise. "
-        "You can use tools to help the user with tasks."
-    ),
-    8086: (  # Hermes4 — workspace surface
-        "You are the Guppy Workspace agent — an intelligent operations assistant. "
-        "You help users manage tasks, contacts, files, calendar, and communications. "
-        "You are precise, action-oriented, and thorough."
+    8086: (  # Hermes 4.3 36B Heretic — all surfaces (companion + workspace + codespace)
+        "You are Guppy — Ryan's personal AI, running locally. "
+        "You are direct, capable, and not sycophantic. "
+        "You handle conversation, tools, files, tasks, and code equally well."
     ),
 }
 
@@ -520,14 +515,13 @@ def _warm_kv_cache(port: int) -> None:
 
 
 # ── watchdog ──────────────────────────────────────────────────────────────────
-# The always-on stack is: dispatch(8085) + Hermes3(8087) + Hermes4(8086).
-# If any of these crash the watchdog restarts them automatically.
+# Always-on stack: embed(8092) + phi4-mini(8091) + dispatch(8085) + Hermes4.3(8086).
+# Hermes 3 (8087) is on-demand only — not watched or auto-restarted.
 
 _WATCHDOG_ALWAYS_ON = {
     "llamacpp-nomic-embed": 8092,
     "llamacpp-phi4-mini":   8091,
     "llamacpp-dispatch":    8085,
-    "llamacpp-hermes3":     8087,
     "llamacpp-hermes4":     8086,
 }
 
