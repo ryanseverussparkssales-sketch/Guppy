@@ -734,6 +734,13 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
         # Regular companion chat uses Rocinante (12B, better personality depth)
         if request.is_voice and request.surface == "companion":
             _active_local_model = "llamacpp-hermes3"
+            # Voice brevity injection: TTS responses must be 1-2 sentences, no markdown
+            system_prompt = (
+                "VOICE MODE: You are responding via text-to-speech. "
+                "Reply in ONE or TWO sentences only. "
+                "No bullet points, no markdown, no lists. "
+                "Be direct and conversational — your response will be read aloud.\n\n"
+            ) + system_prompt
 
         # ── Local-model check — prefer local, fall back to cloud transparently ──
         # If the companion's local model port is down, announce it in-stream and
@@ -870,18 +877,24 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         except Exception as exc:
                             tool_results.append({"tool": "?", "error": str(exc)})
 
-                    tool_result_text = "\n\n".join(
-                        f"[{r['tool']} result]\n{json.dumps(r.get('result', r.get('error', '')), ensure_ascii=False)[:6000]}"
-                        for r in tool_results
-                    )
+                    def _fmt_ws_result(r: dict) -> str:
+                        if "error" in r:
+                            return f"[{r['tool']}] Error: {r['error']}"
+                        result = r.get("result", "")
+                        if isinstance(result, dict):
+                            flat = "\n".join(f"  {k}: {v}" for k, v in result.items() if k != "ok")
+                            return f"[{r['tool']}]\n{flat}" if flat else f"[{r['tool']}] done"
+                        text = str(result)[:6000]
+                        return f"[{r['tool']}]\n{text}"
+
+                    tool_result_text = "\n\n".join(_fmt_ws_result(r) for r in tool_results)
                     follow_up_history = list(request.history or []) + [
                         {"role": "assistant", "content": first_response},
                         {
                             "role": "user",
                             "content": (
-                                f"Tool execution complete:\n\n{tool_result_text}\n\n"
-                                "Give a clear response based on these results. "
-                                "Continue with more tool calls if the task needs them."
+                                f"Results:\n\n{tool_result_text}\n\n"
+                                "Give a clear, direct response. Continue with more tool calls if the task needs them."
                             ),
                         },
                     ]
@@ -893,7 +906,11 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     # By this point the tool schema is in conversation history; re-injecting
                     # it doubles context usage and pushes the 32K context over the limit.
                     _p2_system = system_prompt.replace(_WORKSPACE_TOOL_SCHEMA, "").strip()
-                    _p2_system += "\n\nSynthesize the tool results above and give a clear, direct response to the user."
+                    _p2_system += (
+                        "\n\nYou have the tool results above. Give a clear, direct response. "
+                        "State findings and conclusions without narrating what commands you ran. "
+                        "Do NOT emit any <tool_call> blocks."
+                    )
 
                     try:
                         async for token in stream_unified_inference(
@@ -1052,20 +1069,25 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         except Exception as exc:
                             tool_results.append({"tool": "?", "error": str(exc)})
 
-                    # Build tool-result injection for pass 2
-                    tool_result_text = "\n\n".join(
-                        f"[{r['tool']} result]\n{json.dumps(r.get('result', r.get('error', '')), ensure_ascii=False)[:4000]}"
-                        for r in tool_results
-                    )
+                    # Build tool-result injection for pass 2.
+                    # Format results as readable text, not raw JSON dumps.
+                    def _fmt_result(r: dict) -> str:
+                        if "error" in r:
+                            return f"[{r['tool']}] Error: {r['error']}"
+                        result = r.get("result", "")
+                        if isinstance(result, dict):
+                            # Flatten simple dicts (e.g. get_time) to readable k: v lines
+                            flat = "\n".join(f"  {k}: {v}" for k, v in result.items() if k != "ok")
+                            return f"[{r['tool']}]\n{flat}" if flat else f"[{r['tool']}] done"
+                        text = str(result)[:4000]
+                        return f"[{r['tool']}]\n{text}"
+
+                    tool_result_text = "\n\n".join(_fmt_result(r) for r in tool_results)
                     follow_up_history = list(request.history or []) + [
                         {"role": "assistant", "content": first_response},
                         {
                             "role": "user",
-                            "content": (
-                                f"Tool execution complete:\n\n{tool_result_text}\n\n"
-                                "Give the user a natural, conversational response based on these results. "
-                                "No more <tool_call> blocks."
-                            ),
+                            "content": f"Here are the results:\n\n{tool_result_text}",
                         },
                     ]
 
@@ -1075,7 +1097,14 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     # Pass 2: synthesize tool results into a natural reply.
                     # skip_tools=True prevents the tool primer from re-entering the prompt
                     # and stops the model from emitting another tool-call loop.
-                    _p2_system = system_prompt + "\n\nYou have just executed tools. Synthesize the results into a natural, conversational reply. Do NOT emit any <tool_call> blocks."
+                    _p2_system = (
+                        system_prompt
+                        + "\n\nAnswer Ryan naturally based on the information above. "
+                        "Respond as if you simply know the answer — don't say 'the tool returned' "
+                        "or 'I executed get_time'. Just give Ryan the answer directly. "
+                        "One to three sentences unless the task needs more. "
+                        "Do NOT emit any <tool_call> blocks."
+                    )
                     try:
                         async for token in stream_unified_inference(
                             owner,

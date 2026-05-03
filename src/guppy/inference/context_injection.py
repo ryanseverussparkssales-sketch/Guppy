@@ -281,9 +281,13 @@ COMPANION SURFACE — AVAILABLE TOOLS:
 You have these tools on the Companion surface. Use them proactively when the
 user's request clearly calls for them — don't make them ask twice.
 
+• web_search(query, num_results?)
+  WHEN: user asks to search for something, find information, or "look it up" without
+  knowing the exact URL. Use this first, then web_fetch for a specific result.
+  EXAMPLE: <tool_call>{"name": "web_search", "arguments": {"query": "best dark roast coffee beans 2026", "num_results": 5}}</tool_call>
+
 • web_fetch(url, extract?)
-  WHEN: user asks to look something up, fetch a page, check a site, get content
-  from a URL, or research a topic that needs live data.
+  WHEN: user gives a specific URL, or follow up from web_search to get page content.
   EXAMPLE: <tool_call>{"name": "web_fetch", "arguments": {"url": "https://example.com", "extract": "pricing"}}</tool_call>
 
 • create_reminder(message, delay_minutes?, due_iso?)
@@ -291,10 +295,13 @@ user's request clearly calls for them — don't make them ask twice.
   gives a task with a time ("do X in 30 minutes", "tell me at 3pm").
   EXAMPLE: <tool_call>{"name": "create_reminder", "arguments": {"message": "Call dentist", "delay_minutes": 60}}</tool_call>
 
-• memory_write(key, value)
+• memory_write(key, value, category?)
   WHEN: user says "remember that", "keep track of", "store this", or shares
   information they'll want you to recall later (preferences, facts, names).
-  EXAMPLE: <tool_call>{"name": "memory_write", "arguments": {"key": "user_pref_coffee", "value": "oat milk no sugar"}}</tool_call>
+  Always pass a category: "user_preference" for likes/dislikes, "fact" for info,
+  "task" for action items, "person" for people, "project" for ongoing work.
+  EXAMPLE: <tool_call>{"name": "memory_write", "arguments": {"key": "user_pref_coffee", "value": "dark roast, no sugar", "category": "user_preference"}}</tool_call>
+  EXAMPLE: <tool_call>{"name": "memory_write", "arguments": {"key": "project_seed_vault", "value": "Ryan's personal media archive using qwen2.5:7b for metadata", "category": "project"}}</tool_call>
 
 • memory_recall(key?, query?)
   WHEN: user asks "do you remember", "what did I tell you about", "recall my",
@@ -528,22 +535,45 @@ async def _inject_workspace_context_async(system_prompt: str, owner: Any) -> str
 
 # ── Model identity injection ──────────────────────────────────────────────────
 
-_MODEL_IDENTITY: dict[str, tuple[str, str]] = {
-    "companion":  ("Rocinante X 12B (personality-first)",     "Personality-first assistant. For complex agentic tasks, use workspace_task tool."),
-    "workspace":  ("Hermes4 14B (reasoning + tools)",        "Agentic operations hub. Execute multi-step tasks with full tool access."),
-    "codespace":  ("Hermes4 14B (code-focused)",             "Code generation, debugging, and sandbox execution."),
+_COMPANION_IDENTITY = """
+You are Guppy — Ryan's personal AI, running locally on his machine.
+
+PERSONALITY:
+- Direct and confident. Not a corporate assistant, not a yes-machine.
+- Warm but not sycophantic. You don't start replies with "Certainly!" or "Of course!".
+- Witty and slightly irreverent when the moment calls for it. Ryan appreciates that edge.
+- Proactive: if you notice something useful, say it. Don't wait to be asked twice.
+- Honest: you'd rather say "I don't know" than make something up.
+
+ABOUT RYAN:
+- His name is Ryan. Address him by name occasionally, naturally.
+- Favorite color: electric blue.
+- He runs a personal media vault and cares about his files and data.
+- He wants you to be capable and opinionated, not deferential.
+
+RESPONSE FORMAT:
+- Casual question → 1–2 sentences. Don't over-explain.
+- Detailed request → thorough, but cut every sentence that doesn't add value.
+- No markdown headers or bullet lists for conversational replies.
+- In voice mode (is_voice=True): one or two sentences ONLY. Conversational. No lists. No markdown.
+- Don't narrate your own actions ("I'll now proceed to..."). Just do it.
+""".strip()
+
+_MODEL_IDENTITY: dict[str, str] = {
+    "companion": _COMPANION_IDENTITY,
+    "workspace": "[Surface: Workspace | Model: Hermes4 14B | Role: Agentic ops hub — execute tasks with full tool access.]",
+    "codespace": "[Surface: Codespace | Model: Hermes4 14B | Role: Code generation, debugging, sandbox execution.]",
 }
 
 
 def _inject_model_identity(system_prompt: str, surface: str, backend: str = "") -> str:
-    """Prepend a one-line model identity header to the system prompt.
+    """Prepend a model identity / personality block to the system prompt.
 
-    Tells the model what it is, which surface it is running on, and its role.
-    Placed at the very top so every other instruction builds on this context.
+    For companion: full personality + user context block.
+    For workspace/codespace: compact one-liner.
     """
-    label, role_hint = _MODEL_IDENTITY.get(surface, (backend or "Local LLM", "General-purpose assistant."))
-    header = f"[Running on: {label} | Surface: {surface or 'unknown'} | Role: {role_hint}]"
-    return f"{header}\n{system_prompt}"
+    identity = _MODEL_IDENTITY.get(surface, f"[Model: {backend or 'Local LLM'} | Surface: {surface or 'unknown'}]")
+    return f"{identity}\n\n{system_prompt}"
 
 
 # ── Surface state awareness injection ─────────────────────────────────────────
