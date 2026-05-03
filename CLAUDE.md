@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-05-03 — Two-model core stability checkpoint (Rocinante + Hermes4)
+**Last updated:** 2026-05-03 — Single-model consolidation (Hermes 4.3 36B Heretic replaces two-model split)
 
 ---
 
@@ -247,6 +247,17 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
   - **Windows file lock fix** — `_inject_user_preferences` SQLite conn explicitly closed in `finally`; context manager is commit-only on Windows
   - **22-test integration suite** — `tests/integration/test_two_model_core.py`; all green; covers tool primer injection, XML→JSON normalization, context budget math, messages-array history path, semantic memory pipeline
 
+- ✅ **Single-model consolidation** (2026-05-03):
+  - **Hermes 4.3 36B Heretic** replaces both Rocinante (companion primary) and Hermes 4 14B (workspace/codespace) — one model, all three surfaces, port 8086
+  - **`llamacpp-hermes4` key preserved** — no routing layer changes needed; backend config updated to point to 36B model and new launch bat
+  - **History limits raised** — companion 20→50, workspace 40→80, codespace 30→60 (128K context window)
+  - **`_BACKEND_CONTEXT_TOKENS["llamacpp-hermes4"]`** → 131072 (was 16384 for 14B)
+  - **Voice fast-path simplified** — removed Hermes3 model override; brevity injection kept; single model handles all modes
+  - **Companion `<think>` suppressed** — `_COMPANION_IDENTITY` ends with explicit "Do NOT use `<think>` blocks" directive; Hermes 4.3 36B has hybrid thinking mode that must be suppressed for conversational use
+  - **Launch script** — `C:\llama-cpp\launch-hermes-4_3-36b.bat`; `--ctx-size 32768`, `--n-gpu-layers 99`; overflow to 96 GB RAM via CPU layers
+  - **Hermes3 demoted to on-demand fallback** — `auto_start` removed from routes_backends; only starts if 36B is down
+  - **Watchdog updated** — `_WATCHDOG_ALWAYS_ON` no longer includes port 8087 (Hermes3)
+
 **For detailed implementation notes on completed initiatives, see `SHIPPING_LOG.md` in the Guppy repo.**
 
 ---
@@ -284,14 +295,15 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 
 → See `docs/MODEL_ROUTING.md` for full table.
 
-**Always-on stack (~25.5 GB VRAM):**
+**Always-on stack (~27 GB VRAM; overflow to 96 GB RAM):**
 | Surface role | Key | Port | Model |
 |---|---|---|---|
-| Companion watchdog fallback | `llamacpp-hermes3` | 8087 | Hermes 3 8B Q8_0 |
-| Companion primary (on-demand) | `llamacpp-rocinante` | 8088 | Rocinante X 12B Q5_K_M |
-| Workspace/codespace reasoning | `llamacpp-hermes4` | 8086 | Hermes 4 14B Q5_K_M |
+| **Primary — all surfaces** | `llamacpp-hermes4` | 8086 | Hermes 4.3 36B Heretic Q4_K_M (~21.8 GB) |
+| On-demand fallback | `llamacpp-hermes3` | 8087 | Hermes 3 8B Lorablated Q8_0 (starts if 36B is down) |
 | Orchestrator / summarizer | `llamacpp-phi4-mini` | 8091 | Phi-4-mini-instruct Q4_K_M |
 | Semantic embedding | `llamacpp-nomic-embed` | 8092 | nomic-embed-text-v1.5 |
+
+**Single-model consolidation (2026-05-03):** Rocinante (companion primary) and Hermes 4 14B (workspace) replaced by Hermes 4.3 36B Heretic as the single model for all three surfaces. Launch script: `C:\llama-cpp\launch-hermes-4_3-36b.bat`. Requires llama.cpp build ≥ 2025-08-24 (seed_oss arch PR #15490).
 
 **Ollama is removed from routing.** `can_stream_ollama=False`. All local routes go to llamacpp.
 
@@ -303,9 +315,9 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 | `llamacpp-qwen3` | Qwen3 35B-A3B MoE | 8083 | ~19 GB | Reasoning, Mode B (solo only) |
 | `llamacpp-minicpm` | MiniCPM-o 4.5 Omni | 8084 | ~9 GB | Vision+speech, needs mmproj |
 | `llamacpp-dispatch` | Qwen2.5-3B-Instruct Q4_K_M | 8085 | ~2 GB | Lightweight router fallback |
-| `llamacpp-hermes4` | Hermes 4 14B Q5_K_M | 8086 | ~11 GB | Tools + uncensored (primary recommended) |
-| `llamacpp-hermes3` | Hermes 3 8B Lorablated Q8_0 | 8087 | ~9 GB | Fast tools + uncensored |
-| `llamacpp-rocinante` | Rocinante X 12B Q5_K_M | 8088 | ~10 GB | Creative writing / roleplay |
+| `llamacpp-hermes4` | Hermes 4.3 36B Heretic Q4_K_M | 8086 | ~21.8 GB | **Primary — all surfaces** (companion + workspace + codespace) |
+| `llamacpp-hermes3` | Hermes 3 8B Lorablated Q8_0 | 8087 | ~9 GB | On-demand fallback only (not always-on) |
+| `llamacpp-rocinante` | Rocinante X 12B Q5_K_M | 8088 | ~10 GB | On-demand only; was companion primary pre-consolidation |
 | `llamacpp-xlam` | xLAM-2-8B-fc-r Q4_K_M | 8089 | ~5 GB | Tool-call specialist (#1 BFCL ≤8B); on-demand |
 | `llamacpp-chat` | Llama 3.3 70B Instruct Q4_K_M | 8090 | 0 VRAM (~42 GB RAM) | CPU-only flagship chat; ~4-6 tok/s on Ryzen 9 9900X |
 | `llamacpp-phi4-mini` | Phi-4-mini-instruct Q4_K_M | 8091 | ~2.5 GB | True JSON tool_call orchestrator (always-on); model file needed |

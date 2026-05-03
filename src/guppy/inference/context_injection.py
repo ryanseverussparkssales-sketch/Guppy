@@ -557,6 +557,7 @@ RESPONSE FORMAT:
 - No markdown headers or bullet lists for conversational replies.
 - In voice mode (is_voice=True): one or two sentences ONLY. Conversational. No lists. No markdown.
 - Don't narrate your own actions ("I'll now proceed to..."). Just do it.
+- Do NOT use <think>...</think> reasoning blocks. Respond directly.
 """.strip()
 
 _MODEL_IDENTITY: dict[str, str] = {
