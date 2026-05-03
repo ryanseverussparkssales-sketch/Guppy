@@ -5,13 +5,17 @@ PUT  /api/voices/settings       — persist TTS/STT preferences
 POST /api/voices/test           — synthesize TTS (server-side test)
 POST /api/voices/speak          — synthesize text → audio bytes for browser
 POST /api/voices/transcribe     — STT via fallback chain (Deepgram → Whisper → SAPI)
+POST /api/voices/vad            — voice activity detection on a single audio chunk
 POST /api/voices/stop           — interrupt active TTS
 """
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
+import math
 import os
+import struct
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -81,6 +85,36 @@ def _audio_response(audio_data: bytes, fmt: str, sample_rate: int = 22050) -> Re
         media_type=mime,
         headers={"Cache-Control": "no-store"},
     )
+
+
+def _rms_energy(audio_bytes: bytes) -> float:
+    """Return normalised RMS energy [0..1] for 16-bit PCM audio."""
+    count = len(audio_bytes) // 2
+    if count == 0:
+        return 0.0
+    samples = struct.unpack(f"<{count}h", audio_bytes[: count * 2])
+    sumsq = sum((s / 32768.0) ** 2 for s in samples)
+    return math.sqrt(sumsq / count)
+
+
+async def _vad_speech(audio_bytes: bytes, sample_rate: int = 16000) -> bool:
+    """Return True if the chunk contains speech.
+
+    Tries silero-vad first; falls back to RMS energy threshold (>−34 dB).
+    """
+    try:
+        import torch  # type: ignore
+        import silero_vad as svad  # type: ignore
+
+        model, utils = svad.load_silero_vad()
+        (get_speech_timestamps, _, read_audio, *_) = utils
+        audio_tensor = torch.frombuffer(audio_bytes, dtype=torch.int16).float() / 32768.0
+        ts = get_speech_timestamps(audio_tensor, model, sampling_rate=sample_rate, threshold=0.5)
+        return bool(ts)
+    except Exception:
+        pass
+
+    return _rms_energy(audio_bytes) > 0.015
 
 
 def build_voice_router(ctx: ServerContext) -> APIRouter:
@@ -205,6 +239,26 @@ def build_voice_router(ctx: ServerContext) -> APIRouter:
                 detail=result.error or "TTS produced no audio",
             )
         return _audio_response(result.audio_data, result.format, getattr(result, "sample_rate", 0) or 22050)
+
+    @router.post("/vad")
+    async def voice_activity_detection(
+        payload: Dict[str, Any],
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ):
+        """Run VAD on a single audio chunk (base64-encoded 16-bit PCM).
+
+        Returns ``{speech: bool}``; client tracks timing to detect end-of-speech.
+        """
+        audio_b64 = str(payload.get("audio_b64", "")).strip()
+        sample_rate = int(payload.get("sample_rate", 16000))
+        if not audio_b64:
+            raise HTTPException(status_code=400, detail="audio_b64 required")
+        try:
+            audio_bytes = base64.b64decode(audio_b64)
+        except Exception:
+            raise HTTPException(status_code=400, detail="invalid base64")
+        speech = await _vad_speech(audio_bytes, sample_rate)
+        return {"speech": speech}
 
     @router.post("/test")
     async def test_voice(

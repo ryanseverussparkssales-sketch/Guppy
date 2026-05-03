@@ -3,6 +3,8 @@ import api from '../api/client'
 
 interface UseVoiceOptions {
   onTranscript?: (text: string) => void
+  /** Called with the final transcript after VAD-triggered auto-stop. */
+  onAutoSubmit?: (text: string) => void
   onResponse?: (text: string) => void
   onError?: (error: Error) => void
   language?: string
@@ -10,6 +12,8 @@ interface UseVoiceOptions {
   voiceId?: string
   /** Active TTS provider ("auto" | "kokoro" | "elevenlabs" | "sapi") */
   ttsProvider?: string
+  /** When true, stream chunks to /api/voices/vad and auto-stop on 500ms silence. */
+  vadAutoSend?: boolean
 }
 
 const RECORDER_MIME = (() => {
@@ -30,10 +34,13 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
   const optionsRef = useRef(options)
   useEffect(() => { optionsRef.current = options })
 
-  const recorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef   = useRef<Blob[]>([])
-  const audioRef    = useRef<HTMLAudioElement | null>(null)
-  const abortRef    = useRef<AbortController | null>(null)
+  const recorderRef    = useRef<MediaRecorder | null>(null)
+  const chunksRef      = useRef<Blob[]>([])
+  const audioRef       = useRef<HTMLAudioElement | null>(null)
+  const abortRef       = useRef<AbortController | null>(null)
+  const vadTriggeredRef = useRef(false)
+  const hadSpeechRef   = useRef(false)
+  const silenceCountRef = useRef(0)
 
   // Sentence-queue refs for streaming TTS
   const sentenceQueueRef = useRef<string[]>([])
@@ -81,22 +88,48 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
   const startListening = useCallback(async () => {
     if (isListening) return
     setTranscript('')
+    vadTriggeredRef.current = false
+    hadSpeechRef.current    = false
+    silenceCountRef.current = 0
 
     if (RECORDER_MIME && navigator.mediaDevices) {
       try {
         const stream   = await navigator.mediaDevices.getUserMedia({ audio: true })
+        const chunkMs  = optionsRef.current.vadAutoSend ? 100 : 250
         const recorder = new MediaRecorder(stream, { mimeType: RECORDER_MIME })
         chunksRef.current = []
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) chunksRef.current.push(e.data)
+
+        recorder.ondataavailable = async (e) => {
+          if (e.data.size === 0) return
+          chunksRef.current.push(e.data)
+
+          if (optionsRef.current.vadAutoSend && recorderRef.current?.state === 'recording') {
+            try {
+              const buf = await e.data.arrayBuffer()
+              const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+              const res = await api.post('/api/voices/vad', { audio_b64: b64 })
+              if (res.data?.speech) {
+                hadSpeechRef.current    = true
+                silenceCountRef.current = 0
+              } else if (hadSpeechRef.current) {
+                silenceCountRef.current++
+                if (silenceCountRef.current >= 5) {
+                  vadTriggeredRef.current = true
+                  recorderRef.current?.stop()
+                }
+              }
+            } catch { /* VAD errors are non-fatal */ }
+          }
         }
+
         recorder.onstop = async () => {
           stream.getTracks().forEach((t) => t.stop())
           const blob = new Blob(chunksRef.current, { type: RECORDER_MIME })
-          if (blob.size < 1000) return // too short to be speech
+          if (blob.size < 1000) { vadTriggeredRef.current = false; return }
           await _transcribeBlob(blob)
         }
-        recorder.start(250) // collect chunks every 250 ms
+
+        recorder.start(chunkMs)
         recorderRef.current = recorder
         setIsListening(true)
       } catch {
@@ -130,8 +163,12 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
   }, [isListening])
 
   /** Send recorded audio to /api/voices/transcribe (Deepgram → Whisper).
-   *  Falls back to /api/chat/voice only if transcribe returns 503. */
+   *  Falls back to browser Web Speech if transcribe returns 503.
+   *  Calls onAutoSubmit if this transcription was VAD-triggered. */
   const _transcribeBlob = useCallback(async (blob: Blob) => {
+    const wasVad = vadTriggeredRef.current
+    vadTriggeredRef.current = false
+
     const form = new FormData()
     form.append('file', blob, 'recording.webm')
 
@@ -143,9 +180,9 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
       if (text) {
         setTranscript(text)
         optionsRef.current.onTranscript?.(text)
+        if (wasVad) optionsRef.current.onAutoSubmit?.(text)
       }
     } catch (err: any) {
-      // If 503 (no backend), try browser Web Speech fallback instead
       if (err?.response?.status === 503) {
         _fallbackStartListening()
         return

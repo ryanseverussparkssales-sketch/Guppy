@@ -502,6 +502,46 @@ def stop() -> None:
     logger.debug("[voice] stop() called — no active playback to interrupt")
 
 
+def start_wake_word_detection(on_wake=None) -> None:
+    """Blocking wake-word detection loop. Designed to be called from a background thread.
+
+    Uses ``make_best_provider()`` (Porcupine → OpenWakeWord → EnergyThreshold).
+    Calls ``on_wake(WakeWordEvent)`` on each detection, if provided.
+    Returns when the thread is interrupted or sounddevice is unavailable.
+    """
+    from guppy.voice.wake_word import make_best_provider, WakeWordDetector, WakeWordConfig
+
+    provider = make_best_provider()
+    detector = WakeWordDetector(
+        provider=provider,
+        config=WakeWordConfig(provider_name=provider.name),
+    )
+    logger.info("[voice] Starting wake-word detection with provider: %s", provider.name)
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    async def _run() -> None:
+        stream = _stream_microphone_audio_generator()
+        async for event in detector.listen(stream):
+            logger.info(
+                "[voice] Wake word detected: keyword=%s confidence=%.2f provider=%s",
+                event.keyword, event.confidence, event.provider,
+            )
+            if on_wake is not None:
+                try:
+                    on_wake(event)
+                except Exception as exc:
+                    logger.warning("[voice] on_wake callback error: %s", exc)
+
+    try:
+        loop.run_until_complete(_run())
+    except Exception as exc:
+        logger.warning("[voice] Wake-word loop exited: %s", exc)
+    finally:
+        loop.close()
+
+
 def record_audio_quality_feedback(
     rating: AudioQualityRating,
     provider: str,

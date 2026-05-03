@@ -53,6 +53,7 @@ export default function CompanionView() {
   const [activePreset, setActivePreset]     = useState('sharp')
   const [presetLoading, setPresetLoading]   = useState(false)
   const [avatarState, setAvatarState]       = useState<AvatarState>('idle')
+  const [vadSending, setVadSending]         = useState(false)
 
   const abortRef  = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -60,7 +61,13 @@ export default function CompanionView() {
 
   const voice = useVoice({
     onTranscript: (text) => { setInput((prev) => prev + text) },
+    onAutoSubmit:  (text) => {
+      setVadSending(true)
+      setTimeout(() => setVadSending(false), 800)
+      handleSend(text)
+    },
     onError: () => {},
+    vadAutoSend: true,
   })
 
   // Sync avatar state
@@ -251,6 +258,7 @@ export default function CompanionView() {
           <BackendSelector surface="companion" simple />
           {/* Wake-word toggle */}
           <button
+            type="button"
             onClick={toggleWake}
             disabled={wakeLoading}
             title={wakeActive ? 'Stop wake-word listening' : 'Start wake-word listening'}
@@ -275,6 +283,7 @@ export default function CompanionView() {
         <div className="flex flex-wrap justify-center gap-1.5 px-4">
           {presets.map((p) => (
             <button
+              type="button"
               key={p.key}
               onClick={() => switchPreset(p.key)}
               disabled={presetLoading}
@@ -349,12 +358,17 @@ export default function CompanionView() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={voice.isListening ? 'Listening…' : 'Say something or type…'}
+            placeholder={
+              vadSending ? 'Sending…' :
+              voice.isListening ? 'Listening…' :
+              'Say something or type…'
+            }
             rows={1}
             className={cn(
               'flex-1 bg-transparent text-sm text-on-surface resize-none outline-none py-1.5 leading-relaxed',
               'placeholder:text-on-surface-variant/40',
-              voice.isListening && 'placeholder:text-error'
+              voice.isListening && !vadSending && 'placeholder:text-error',
+              vadSending && 'placeholder:text-primary',
             )}
           />
 
@@ -390,12 +404,12 @@ export default function CompanionView() {
 
           {/* Send / Stop */}
           {isSending ? (
-            <button type="button" onClick={handleStop}
+            <button type="button" onClick={handleStop} title="Stop"
               className="p-2 mb-1 rounded-xl bg-error/10 text-error hover:bg-error/20 transition-colors flex-shrink-0">
               <StopCircle className="w-4 h-4" />
             </button>
           ) : (
-            <button type="button" onClick={() => handleSend()}
+            <button type="button" onClick={() => handleSend()} title="Send"
               disabled={!input.trim()}
               className="p-2 mb-1 rounded-xl bg-primary text-on-primary disabled:opacity-30 hover:bg-primary/90 transition-colors flex-shrink-0">
               <ArrowUp className="w-4 h-4" />
