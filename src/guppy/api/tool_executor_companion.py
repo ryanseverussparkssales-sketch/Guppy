@@ -7,6 +7,7 @@ tool_executor_workspace.py.
 from __future__ import annotations
 
 import os
+import re
 
 # ── Per-tool HTTP timeout constants ───────────────────────────────────────────
 _DOWNLOAD_TIMEOUT = 10.0  # qBittorrent add-torrent call
@@ -32,6 +33,31 @@ async def _execute_companion_tool(name: str, args: dict) -> dict:
         url     = str(args.get("url", "")).strip()
         extract = str(args.get("extract", "")).strip().lower()
         return await safe_web_fetch(url, extract=extract)
+
+    if name == "web_search":
+        query = str(args.get("query", "")).strip()
+        num_results = min(int(args.get("num_results", 5)), 10)
+        if not query:
+            return {"ok": False, "error": "query required"}
+        try:
+            async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+                resp = await client.get(
+                    "https://html.duckduckgo.com/html/",
+                    params={"q": query},
+                    headers={"User-Agent": "Mozilla/5.0 Guppy/1.0"},
+                )
+            # Extract result snippets from DDG HTML response
+            anchors = re.findall(
+                r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a',
+                resp.text, re.DOTALL,
+            )
+            results = [
+                {"url": u, "title": re.sub(r"<[^>]+>", "", t).strip()}
+                for u, t in anchors[:num_results]
+            ]
+            return {"ok": True, "results": results, "query": query}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
 
     if name == "create_reminder":
         from src.guppy.api.routes_reminders import create_reminder
