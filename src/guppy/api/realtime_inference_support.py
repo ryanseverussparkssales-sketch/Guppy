@@ -876,10 +876,11 @@ async def stream_unified_inference(
     augmented_system = _inject_tool_primer(augmented_system, surface)
 
     # ── Fix 4: Context budget guard ───────────────────────────────────────────
-    # Estimate token usage and trim history further if we are over 85% of the
+    # Estimate token usage and trim history further if we are over 60% of the
     # backend's context window.  Uses _CHARS_PER_TOKEN from this module.
+    # Trim order: workspace file tree → surface state → semantic RAG (most expensive).
     _ctx_limit = _BACKEND_CONTEXT_TOKENS.get(_surface_backend, _DEFAULT_CONTEXT_TOKENS)
-    _budget_chars = int(_ctx_limit * 0.85 * _CHARS_PER_TOKEN)
+    _budget_chars = int(_ctx_limit * 0.60 * _CHARS_PER_TOKEN)
     _current_chars = len(augmented_system) + sum(
         len(str(m.get("content", ""))) for m in clean_history
     )

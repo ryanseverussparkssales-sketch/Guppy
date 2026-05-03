@@ -43,7 +43,12 @@ def augment_system_with_history(system_prompt: str, history: list[dict[str, str]
 
 # ── Background memory workers ─────────────────────────────────────────────────
 
-def _bg_store_tool_outcome(name: str, args: dict, result: str) -> None:
+def _bg_store_tool_outcome(
+    name: str,
+    args: dict,
+    result: str,
+    workspace_name: str | None = None,
+) -> None:
     """Fire-and-forget: persist successful tool call outcome to semantic memory."""
     import threading
     import hashlib
@@ -52,13 +57,11 @@ def _bg_store_tool_outcome(name: str, args: dict, result: str) -> None:
         try:
             from src.guppy.memory.semantic import remember_semantic
             args_str = str(sorted((args or {}).items()))[:200]
-            # Include timestamp so repeated calls don't overwrite — preserves history.
             ts = int(_time.time())
             key = f"tool_outcome:{name}:{ts}:{hashlib.md5(args_str.encode()).hexdigest()[:6]}"
-            # Generous truncation: code tools return large output that's worth keeping.
             trunc = 2000 if name in ("file_read", "shell_run", "web_fetch", "web_search") else 800
             value = f"{name}({args_str[:200]}) → {result[:trunc]}"
-            remember_semantic(key, value, category="tool_outcome")
+            remember_semantic(key, value, category="tool_outcome", workspace_name=workspace_name)
         except Exception:
             pass
 
@@ -89,7 +92,9 @@ def _bg_summarize_session(history: list[dict], session_id: str = "") -> None:
                 "1. User preferences or decisions stated explicitly\n"
                 "2. Tasks completed or outcomes reached\n"
                 "3. Topics the user asked about that would be useful to remember\n"
-                "4. Any named entities (people, projects, tools) mentioned\n\n"
+                "4. Any named entities (people, projects, tools) mentioned\n"
+                "5. Tool calls made and what they returned (web searches, file reads, commands, etc.)\n"
+                "6. Explicit decisions made ('we decided to…', 'going with X', 'chose Y over Z')\n\n"
                 "Be concise. Only list facts worth remembering for future conversations."
             )
             # Cascade: phi-4-mini → hermes3 → hermes4

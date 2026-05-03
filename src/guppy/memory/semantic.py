@@ -237,6 +237,21 @@ def _get_chroma_collection():
 
 
 def _remember_sqlite(k: str, v: str, c: str) -> str:
+    # Dedup: skip if an identical value was stored within the last 24 hours.
+    # Prevents session summarizer from creating duplicate preference entries.
+    from datetime import timedelta
+    conn = _conn()
+    try:
+        cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
+        dup = conn.execute(
+            "SELECT id FROM semantic_memory WHERE value=? AND created>? LIMIT 1",
+            (v, cutoff),
+        ).fetchone()
+    finally:
+        conn.close()
+    if dup:
+        return f"Memory already stored (deduped): {k}"
+
     emb = _embed_text(v)
     conn = _conn()
     try:
@@ -414,12 +429,23 @@ def _recall_chroma(q: str, limit: int, cat: str) -> str:
     return "\n".join(lines)
 
 
-def remember_semantic(key: str, value: str, category: str = "general") -> str:
+def remember_semantic(
+    key: str,
+    value: str,
+    category: str = "general",
+    workspace_name: str | None = None,
+) -> str:
     k = (key or "").strip()
     v = (value or "").strip()
     c = (category or "general").strip() or "general"
     if not k or not v:
         return "Error: key and value are required for semantic memory."
+
+    # Prefix value with workspace tag when provided (non-breaking; existing records get none).
+    if workspace_name:
+        ws = workspace_name.strip()
+        if ws:
+            v = f"[workspace:{ws}] {v}"
 
     try:
         backend = _backend()
