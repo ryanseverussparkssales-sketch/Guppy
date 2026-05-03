@@ -102,8 +102,11 @@ async def route_by_surface(
         # Single primary model: Hermes 4.3 36B Heretic (llamacpp-hermes4, port 8086).
         # Handles companion, workspace, and codespace — no more surface-specific model split.
         # Rocinante is on-demand only; Hermes 3 is a fallback if the primary is down.
+        # Small-context orchestrators must never be companion primaries — they
+        # overflow on the full augmented system prompt and produce garbage.
+        _COMPANION_EXCLUDED = {"llamacpp-dispatch", "llamacpp-phi4-mini", "llamacpp-xlam"}
         _p1_keys = []
-        if active_local_model and active_local_model != "llamacpp-hermes4":
+        if active_local_model and active_local_model not in _COMPANION_EXCLUDED | {"llamacpp-hermes4"}:
             _p1_keys.append(active_local_model)
         _p1_keys.append("llamacpp-hermes4")
         _p1_keys.append("llamacpp-hermes3")  # on-demand fallback if 36B is down
