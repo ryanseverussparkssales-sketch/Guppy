@@ -511,9 +511,11 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
         # ── memory_write ───────────────────────────────────────────────────────
         if action == "memory_write":
             from src.guppy.memory.semantic import remember_semantic
-            key      = str(p.get("key", "note")).strip()
+            key      = str(p.get("key", "")).strip()
             value    = str(p.get("value", "")).strip()
             category = str(p.get("category", "general")).strip()
+            if not key:
+                raise HTTPException(400, "key required")
             if not value:
                 raise HTTPException(400, "value required")
             try:

@@ -318,6 +318,10 @@ user's request clearly calls for them — don't make them ask twice.
   WHEN: user asks what tasks are running, pending, or completed; or "what's the status of my tasks".
   EXAMPLE: <tool_call>{"name": "list_workspace_tasks", "arguments": {"status": "queued"}}</tool_call>
 
+• download_media(url, category?)
+  WHEN: user asks to download a file, torrent, magnet link, or media via qBittorrent.
+  EXAMPLE: <tool_call>{"name": "download_media", "arguments": {"url": "magnet:?xt=urn:btih:...", "category": "books"}}</tool_call>
+
 CONVERSATION HISTORY: If the user refers to something said earlier ("what did I ask",
 "remember when I said", "what was the last thing"), look at the prior messages above —
 the answer is already there. Do NOT say "you haven't sent anything yet."

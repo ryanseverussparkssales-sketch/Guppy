@@ -7,9 +7,9 @@ server) and verify recall still returns content via lexical matching.
 """
 from __future__ import annotations
 
+import datetime
 import sqlite3
 import tempfile
-import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,8 +29,15 @@ pytestmark = pytest.mark.skipif(
 
 
 def _seed_db(db_path: Path) -> None:
-    """Write two semantic_memory rows directly so recall has data to find."""
+    """Write two semantic_memory rows directly so recall has data to find.
+
+    IMPORTANT: created must be a TEXT ISO-8601 string, not a REAL unix float.
+    The production age filter uses `created > datetime('now', '-N days')` which
+    returns TEXT.  In SQLite, REAL < TEXT always, so a float timestamp would
+    always fail the comparison and the row would never be returned.
+    """
     conn = sqlite3.connect(str(db_path))
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS semantic_memory (
@@ -39,16 +46,16 @@ def _seed_db(db_path: Path) -> None:
                 category TEXT NOT NULL DEFAULT '',
                 value TEXT NOT NULL,
                 embedding_json TEXT NOT NULL,
-                created REAL NOT NULL
+                created TEXT NOT NULL
             )
         """)
         conn.execute(
             "INSERT INTO semantic_memory (memory_key, category, value, embedding_json, created) VALUES (?,?,?,?,?)",
-            ("key_python", "tech", "Python is a programming language", "[]", time.time()),
+            ("key_python", "tech", "Python is a programming language", "[]", now),
         )
         conn.execute(
             "INSERT INTO semantic_memory (memory_key, category, value, embedding_json, created) VALUES (?,?,?,?,?)",
-            ("key_coffee", "food", "Coffee is a popular hot drink", "[]", time.time()),
+            ("key_coffee", "food", "Coffee is a popular hot drink", "[]", now),
         )
         conn.commit()
     finally:
@@ -107,7 +114,7 @@ def test_recall_sqlite_empty_db_offline_embed_returns_no_results(tmp_path: Path)
             category TEXT NOT NULL DEFAULT '',
             value TEXT NOT NULL,
             embedding_json TEXT NOT NULL,
-            created REAL NOT NULL
+            created TEXT NOT NULL
         )
     """)
     conn.commit()
