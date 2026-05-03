@@ -15,7 +15,6 @@ from src.guppy.inference.streaming_backends import (
     _stream_cohere_tokens,
     _stream_claude_with_tools,
 )
-from src.guppy.inference.context_injection import _inject_tool_primer
 from src.guppy.inference.local_client import (
     _BACKENDS as _LOCAL_BACKENDS,
     _BACKEND_DEFAULT_MODELS as _LOCAL_BACKEND_DEFAULT_MODELS,
@@ -49,10 +48,9 @@ async def route_by_surface(
     "codespace"} and requested_mode in {"auto", ""}`` is satisfied.
     Always yields at least one token (tokens or an error message).
     """
-    # Inject surface-specific tool primer + few-shot examples so local models
-    # know exactly what tools exist here and when/how to invoke them.
-    if not skip_tools:
-        augmented_system = _inject_tool_primer(augmented_system, surface)
+    # Tool primer is already injected by stream_unified_inference unconditionally
+    # before route_by_surface is called. Do NOT re-inject here — that causes
+    # double injection (~300 wasted tokens) on every non-pass-2 call.
 
     from src.guppy.api.routes_backends import _port_alive as _sp_port_alive
 
@@ -118,11 +116,17 @@ async def route_by_surface(
     if surface == "companion":
         # Pass-1: user-selected model OR Rocinante (12B, 16K ctx, personality-first default)
         # Falls back to Hermes3 if Rocinante is offline.
+        # Voice fast-path exception: if caller pinned llamacpp-hermes3 (low-latency TTS),
+        # honour that order — Hermes3 first, Rocinante as fallback.
         _p1_keys = []
         if active_local_model and active_local_model not in ("llamacpp-rocinante", "llamacpp-hermes3"):
             _p1_keys.append(active_local_model)
-        _p1_keys.append("llamacpp-rocinante")
-        _p1_keys.append("llamacpp-hermes3")
+        if active_local_model == "llamacpp-hermes3":
+            _p1_keys.append("llamacpp-hermes3")
+            _p1_keys.append("llamacpp-rocinante")
+        else:
+            _p1_keys.append("llamacpp-rocinante")
+            _p1_keys.append("llamacpp-hermes3")
 
         for _p1_key in _p1_keys:
             _p1m = _sp_backend_alive(_p1_key)

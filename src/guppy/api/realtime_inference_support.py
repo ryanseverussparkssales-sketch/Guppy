@@ -900,6 +900,9 @@ async def stream_unified_inference(
             augmented_system, user_text, owner, history=clean_history
         )
         augmented_system = await _inject_user_preferences_async(augmented_system, owner)
+        # Tool primer must be re-injected in the recovery path — the trimmed rebuild
+        # skips the normal injection chain above which runs unconditionally before this block.
+        augmented_system = _inject_tool_primer(augmented_system, surface)
     requested_mode = (mode or owner.os.environ.get("GUPPY_DEFAULT_MODE", "auto") or "auto").strip().lower()
 
     # Steer mode: prepend a redirection directive then route normally so
