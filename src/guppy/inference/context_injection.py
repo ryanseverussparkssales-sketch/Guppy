@@ -97,11 +97,10 @@ def _bg_summarize_session(history: list[dict], session_id: str = "") -> None:
                 "6. Explicit decisions made ('we decided to…', 'going with X', 'chose Y over Z')\n\n"
                 "Be concise. Only list facts worth remembering for future conversations."
             )
-            # Cascade: phi-4-mini → hermes3 → hermes4
+            # Cascade: phi-4-mini → hermes4 (hermes3 is on-demand only, not always-on)
             _candidates = [
                 ("http://localhost:8091/v1/chat/completions", "phi-4-mini-instruct"),
-                ("http://localhost:8087/v1/chat/completions", "hermes-3-8b-lorablated"),
-                ("http://localhost:8086/v1/chat/completions", "hermes-4-14b"),
+                ("http://localhost:8086/v1/chat/completions", "hermes-4-36b"),
             ]
             summary = ""
             for url, model in _candidates:
@@ -560,7 +559,7 @@ RESPONSE FORMAT:
 - Casual question → 1–2 sentences. Don't over-explain.
 - Detailed request → thorough, but cut every sentence that doesn't add value.
 - No markdown headers or bullet lists for conversational replies.
-- In voice mode (is_voice=True): one or two sentences ONLY. Conversational. No lists. No markdown.
+- Short/conversational messages (under ~20 words): reply in 1–2 sentences. No lists, no markdown.
 - Don't narrate your own actions ("I'll now proceed to..."). Just do it.
 - Do NOT use <think>...</think> reasoning blocks. Respond directly.
 """.strip()

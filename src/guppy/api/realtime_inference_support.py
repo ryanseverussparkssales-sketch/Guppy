@@ -839,9 +839,9 @@ async def stream_unified_inference(
     }.get(surface, "")
     clean_history = sanitize_chat_history(history, limit=_history_limit, backend=_surface_backend or None)
 
-    # Auto-summarize long sessions every 10 turns so context accumulates in
+    # Auto-summarize long sessions every 20 turns so context accumulates in
     # semantic memory and gets injected into future prompts via RAG.
-    if len(clean_history) >= 10 and len(clean_history) % 10 == 0:
+    if len(clean_history) >= 20 and len(clean_history) % 20 == 0:
         _bg_summarize_session(clean_history)
 
     # ── Keyword sets used for context-budget decisions ────────────────────────

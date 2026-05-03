@@ -2,7 +2,7 @@
 
 Groups raw Screenpipe OCR/audio captures into 30-minute activity windows,
 stores them in SQLite, and exposes a timeline API. After each snapshot a
-Hermes 3 call generates a one-sentence AI activity summary
+phi-4-mini → hermes4 cascade generates a one-sentence AI activity summary
 ("You were working on…"). A background job runs every 30 minutes; the UI
 can also trigger on-demand snapshots.
 
@@ -145,7 +145,7 @@ def _word_count(items: list[dict]) -> int:
 # ── AI summary ────────────────────────────────────────────────────────────────
 
 def _generate_ai_summary(apps: list[str], highlights: list[str]) -> str:
-    """Call hermes3 (llamacpp port 8087) to produce a one-sentence 'you were working on…' label."""
+    """Produce a one-sentence 'you were working on…' label. Cascades phi-4-mini → hermes4."""
     if not apps and not highlights:
         return ""
     context_parts: list[str] = []
@@ -161,35 +161,109 @@ def _generate_ai_summary(apps: list[str], highlights: list[str]) -> str:
     )
     try:
         import json as _json, urllib.request as _req
-        payload = _json.dumps({
-            "model": "hermes3",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.3,
-            "max_tokens": 60,
-            "stream": False,
-        }).encode()
         try:
             from src.guppy.api.routes_backends import _LLAMACPP_CONFIG as _lcfg
-            _port = _lcfg.get("llamacpp-hermes3", {}).get("port", 8087)
         except Exception:
-            _port = 8087
-        request = _req.Request(
-            f"http://127.0.0.1:{_port}/v1/chat/completions",
+            _lcfg = {}
+        _candidates = [
+            (_lcfg.get("llamacpp-phi4-mini", {}).get("port", 8091), "phi-4-mini-instruct"),
+            (_lcfg.get("llamacpp-hermes4", {}).get("port", 8086), "hermes-4-36b"),
+        ]
+        for _port, _model in _candidates:
+            try:
+                payload = _json.dumps({
+                    "model": _model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                    "max_tokens": 60,
+                    "stream": False,
+                }).encode()
+                request = _req.Request(
+                    f"http://127.0.0.1:{_port}/v1/chat/completions",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with _req.urlopen(request, timeout=15) as resp:
+                    data = _json.loads(resp.read().decode())
+                    choices = data.get("choices", [])
+                    if choices:
+                        content = choices[0].get("message", {}).get("content", "")
+                        text = content.strip().split("\n")[0].strip()
+                        if text:
+                            return text
+            except Exception:
+                continue
+    except Exception as exc:
+        logger.debug("[screen_monitor] AI summary failed: %s", exc)
+    return ""
+
+
+# ── mss vision capture ────────────────────────────────────────────────────────
+
+def _mss_capture_description() -> str:
+    """Screenshot → MiniCPM vision. Only fires if port 8084 is already warm.
+
+    Never cold-starts MiniCPM — the health check returns immediately if offline.
+    """
+    try:
+        import urllib.request as _req
+        _req.urlopen("http://127.0.0.1:8084/health", timeout=1).close()
+    except Exception:
+        return ""  # MiniCPM offline — skip
+
+    try:
+        import io, base64, json as _json, mss, mss.tools
+        import urllib.request as _req2
+        with mss.mss() as sct:
+            monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+            shot = sct.grab(monitor)
+            png_bytes = mss.tools.to_png(shot.rgb, shot.size)
+
+        # Downsample if PIL is available to keep payload under 1 MB
+        try:
+            from PIL import Image
+            img = Image.open(io.BytesIO(png_bytes))
+            img.thumbnail((1280, 720))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=65)
+            img_bytes = buf.getvalue()
+            mime = "image/jpeg"
+        except ImportError:
+            img_bytes = png_bytes
+            mime = "image/png"
+
+        b64 = base64.b64encode(img_bytes).decode()
+        payload = _json.dumps({
+            "model": "minicpm-o",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                    {"type": "text", "text": (
+                        "Briefly describe what is visible on the screen. "
+                        "Focus on which applications are open and what the user appears to be doing. "
+                        "One short paragraph, no more than 60 words."
+                    )},
+                ],
+            }],
+            "max_tokens": 120,
+            "stream": False,
+        }).encode()
+        req = _req2.Request(
+            "http://127.0.0.1:8084/v1/chat/completions",
             data=payload,
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with _req.urlopen(request, timeout=25) as resp:
+        with _req2.urlopen(req, timeout=25) as resp:
             data = _json.loads(resp.read().decode())
-            # Extract text from OpenAI chat completion format
             choices = data.get("choices", [])
             if choices:
-                content = choices[0].get("message", {}).get("content", "")
-                return content.strip().split("\n")[0].strip()
-            return ""
+                return choices[0].get("message", {}).get("content", "").strip()
     except Exception as exc:
-        logger.debug("[screen_monitor] AI summary failed: %s", exc)
-        return ""
+        logger.debug("[screen_monitor] mss/vision failed: %s", exc)
+    return ""
 
 
 # ── Core snapshot function ────────────────────────────────────────────────────
@@ -197,6 +271,15 @@ def _generate_ai_summary(apps: list[str], highlights: list[str]) -> str:
 def take_snapshot(minutes: int = 30) -> dict[str, Any] | None:
     """Capture the last `minutes` of screen activity and store a window record."""
     items = _call_screenpipe_recent(minutes=minutes, limit=200)
+
+    # If only window titles are available (no OCR text), opportunistically enrich
+    # with a MiniCPM screen description — but only if MiniCPM is already warm.
+    _has_rich_text = any(len((i.get("text") or "").split()) > 20 for i in items)
+    if not _has_rich_text:
+        vision_desc = _mss_capture_description()
+        if vision_desc:
+            items.append({"app_name": "screen-vision", "window_name": "", "text": vision_desc})
+
     if not items:
         return None
 

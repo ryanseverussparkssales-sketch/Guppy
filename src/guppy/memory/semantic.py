@@ -247,60 +247,25 @@ def _remember_sqlite(k: str, v: str, c: str) -> str:
             "SELECT id FROM semantic_memory WHERE value=? AND created>? LIMIT 1",
             (v, cutoff),
         ).fetchone()
-    finally:
-        conn.close()
-    if dup:
-        return f"Memory already stored (deduped): {k}"
-
-    emb = _embed_text(v)
-    conn = _conn()
-    try:
-        created = datetime.now().isoformat()
-        latest = conn.execute(
-            "SELECT id FROM semantic_memory WHERE memory_key=? ORDER BY id DESC LIMIT 1",
-            (k,),
-        ).fetchone()
-        if latest:
-            keep_id = int(latest[0])
-            conn.execute(
-                """
-                UPDATE semantic_memory
-                SET category=?, value=?, embedding_json=?, created=?
-                WHERE id=?
-                """,
-                (c, v, json.dumps(emb), created, keep_id),
-            )
-            conn.execute("DELETE FROM semantic_memory WHERE memory_key=? AND id<>?", (k, keep_id))
-        else:
-            conn.execute(
-                "INSERT INTO semantic_memory (memory_key, category, value, embedding_json, created) VALUES (?,?,?,?,?)",
-                (k, c, v, json.dumps(emb), created),
-            )
+        if dup:
+            return f"Memory already stored (deduped): {k}"
+        emb = _embed_text(v)
+        conn.execute(
+            "INSERT INTO semantic_memory (memory_key, category, value, embedding_json, created) VALUES (?, ?, ?, ?, ?)",
+            (k, c, v, json.dumps(emb), datetime.now().isoformat()),
+        )
         conn.commit()
     finally:
         conn.close()
     return f"Stored in semantic memory: {k}"
 
 
-# Default memory TTL by category (days). Keeps recall fresh without manual curation.
-_CATEGORY_MAX_AGE_DAYS: dict[str, int] = {
-    "tool_outcome":     30,    # tool results go stale quickly
-    "session_summary":  180,   # sessions relevant for ~6 months
-    "workspace_result": 60,
-    "user_preference":  730,   # preferences persist long-term
-    "general":          365,
-}
-_DEFAULT_MAX_AGE_DAYS = 365
-
-
-def _recall_sqlite(q: str, limit: int, cat: str) -> str:
-    max_age = _CATEGORY_MAX_AGE_DAYS.get(cat, _DEFAULT_MAX_AGE_DAYS)
+def _recall_sqlite(q: str, limit: int = 4, cat: str = "", max_age: int = 90, workspace_name: str | None = None) -> str:
     conn = _conn()
     try:
-        # Exact-key lookup: check for case-insensitive exact match first — skip
-        # the embedding path entirely when the user names a key directly.
+        # Exact key match: short-circuit before any embedding I/O.
         exact_rows = conn.execute(
-            "SELECT memory_key, category, value FROM semantic_memory WHERE LOWER(memory_key) = LOWER(?)",
+            "SELECT memory_key, category, value FROM semantic_memory WHERE LOWER(memory_key)=LOWER(?)",
             (q,),
         ).fetchall()
         if exact_rows:
