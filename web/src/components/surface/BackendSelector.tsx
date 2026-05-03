@@ -2,7 +2,8 @@
  * BackendSelector — per-surface backend/model picker
  *
  * Reads and writes /api/surface/config/{surface}.
- * Shows a compact chip in the surface header that opens a dropdown.
+ * Default: compact chip in the surface header that opens a dropdown.
+ * simple={true}: 2-button Local/Cloud toggle for Companion (single primary model).
  * Surfaces: companion | workspace | codespace
  */
 import { useState, useEffect, useRef } from 'react'
@@ -30,18 +31,24 @@ interface BackendOption {
 const BACKEND_OPTIONS: BackendOption[] = [
   // llama.cpp — GPU (VRAM)
   { backend: 'llamacpp', model: 'llamacpp-chat',      mode: 'local', label: 'Llama 3.3 70B (CPU)',     description: 'llamacpp · 42GB RAM · 0 VRAM · flagship chat' },
-  { backend: 'llamacpp', model: 'llamacpp-hermes4',   mode: 'local', label: 'Hermes 4 14B',            description: 'llamacpp · 11GB VRAM · tools + uncensored' },
-  { backend: 'llamacpp', model: 'llamacpp-hermes3',   mode: 'local', label: 'Hermes 3 8B',             description: 'llamacpp · 9GB VRAM · fast + uncensored' },
-  { backend: 'llamacpp', model: 'llamacpp-rocinante', mode: 'local', label: 'Rocinante 12B',           description: 'llamacpp · 10GB VRAM · creative/roleplay' },
+  { backend: 'llamacpp', model: 'llamacpp-hermes4',   mode: 'local', label: 'Hermes 4.3 36B',          description: 'llamacpp · 21.8GB VRAM · primary — all surfaces' },
+  { backend: 'llamacpp', model: 'llamacpp-hermes3',   mode: 'local', label: 'Hermes 3 8B',             description: 'llamacpp · 9GB VRAM · on-demand fallback' },
+  { backend: 'llamacpp', model: 'llamacpp-rocinante', mode: 'local', label: 'Rocinante 12B',           description: 'llamacpp · 10GB VRAM · on-demand / roleplay' },
   { backend: 'llamacpp', model: 'llamacpp-qwen3',     mode: 'local', label: 'Qwen3 35B MoE',           description: 'llamacpp · 19GB VRAM · deep reasoning' },
   { backend: 'llamacpp', model: 'llamacpp-xlam',      mode: 'local', label: 'xLAM 8B',                 description: 'llamacpp · 5GB VRAM · tool-call specialist' },
   { backend: 'llamacpp', model: 'llamacpp-pepe',      mode: 'local', label: 'Pepe 8B',                 description: 'llamacpp · 8.5GB VRAM · fast chat' },
   { backend: 'llamacpp', model: 'llamacpp-minicpm',   mode: 'local', label: 'MiniCPM (Vision+Voice)',  description: 'llamacpp · 9GB VRAM · vision+speech' },
   { backend: 'llamacpp', model: 'llamacpp-dispatch',  mode: 'local', label: 'Dispatch 3B',             description: 'llamacpp · 2GB VRAM · text router' },
-  { backend: 'llamacpp', model: 'llamacpp-phi4-mini', mode: 'local', label: 'Phi-4-mini (Dispatch)',    description: 'llamacpp · 2.5GB VRAM · JSON tool_call orchestrator' },
+  { backend: 'llamacpp', model: 'llamacpp-phi4-mini', mode: 'local', label: 'Phi-4-mini (Dispatch)',   description: 'llamacpp · 2.5GB VRAM · JSON tool_call orchestrator' },
   // Cloud
   { backend: 'cloud', model: 'claude', mode: 'claude', label: 'Claude (Anthropic)', description: 'Cloud API · max capability' },
   { backend: 'cloud', model: 'auto',   mode: 'auto',   label: 'Auto (Smart Route)', description: 'Auto-routes by task: tool/chat/reason' },
+]
+
+// Simple toggle options for Companion (single primary model — only local vs cloud matters)
+const SIMPLE_TOGGLE_OPTIONS: BackendOption[] = [
+  { backend: 'llamacpp', model: 'llamacpp-hermes4', mode: 'local', label: 'Local',  description: 'Hermes 4.3 36B · 21.8GB VRAM' },
+  { backend: 'cloud',    model: 'claude',           mode: 'claude', label: 'Cloud', description: 'Claude · cloud API' },
 ]
 
 const BACKEND_ICONS: Record<string, React.ReactNode> = {
@@ -52,9 +59,10 @@ const BACKEND_ICONS: Record<string, React.ReactNode> = {
 interface BackendSelectorProps {
   surface: 'companion' | 'workspace' | 'codespace'
   compact?: boolean
+  simple?: boolean
 }
 
-export function BackendSelector({ surface, compact = false }: BackendSelectorProps) {
+export function BackendSelector({ surface, compact = false, simple = false }: BackendSelectorProps) {
   const [config, setConfig]   = useState<SurfaceConfig | null>(null)
   const [open, setOpen]       = useState(false)
   const [saving, setSaving]   = useState(false)
@@ -112,6 +120,37 @@ export function BackendSelector({ surface, compact = false }: BackendSelectorPro
   )
   const label = currentOpt?.label ?? config?.model ?? '…'
   const icon  = config ? BACKEND_ICONS[config.backend] : null
+
+  // ── Simple local/cloud toggle (Companion) ──────────────────────────────────
+  if (simple) {
+    const isCloud = config?.backend === 'cloud'
+    return (
+      <div className="flex items-center rounded-lg overflow-hidden border border-outline-variant/30 text-xs font-medium">
+        {SIMPLE_TOGGLE_OPTIONS.map((opt) => {
+          const active = opt.backend === 'cloud' ? isCloud : !isCloud
+          return (
+            <button
+              type="button"
+              key={opt.model}
+              onClick={() => selectOption(opt)}
+              disabled={saving}
+              title={opt.description}
+              className={cn(
+                'flex items-center gap-1 px-2.5 py-1 transition-colors',
+                active
+                  ? 'bg-primary text-on-primary'
+                  : 'bg-surface-container text-on-surface-variant hover:bg-surface-variant',
+                saving && 'opacity-50 cursor-not-allowed'
+              )}
+            >
+              {opt.backend === 'cloud' ? <Cloud className="w-3 h-3" /> : <Cpu className="w-3 h-3" />}
+              {opt.label}
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
 
   return (
     <div ref={dropdownRef} className="relative">

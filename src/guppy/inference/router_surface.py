@@ -69,21 +69,6 @@ async def route_by_surface(
         return str(owner.core.run_tool(name, args,
             instance_name=instance_name, instance_type=instance_type))
 
-    # Tools passed to companion are stripped to the basics (read/write memory,
-    # create_reminder, web_fetch, workspace_task) — heavy agentic tools stay with workspace.
-    _COMPANION_BASIC_TOOLS = [
-        "memory_write", "memory_recall", "create_reminder",
-        "web_fetch", "get_time", "workspace_task", "download_media",
-    ]
-
-    def _sp_companion_tools() -> list[dict] | None:
-        if not owner.GUPPY_CORE_AVAILABLE:
-            return None
-        all_tools = _merged_openai_tools(owner) or []
-        basic = [t for t in all_tools
-                 if (t.get("function", {}).get("name") or t.get("name", "")) in _COMPANION_BASIC_TOOLS]
-        return basic or None
-
     def _sp_full_tools() -> list[dict] | None:
         return _merged_openai_tools(owner) if owner.GUPPY_CORE_AVAILABLE else None
 
@@ -128,13 +113,13 @@ async def route_by_surface(
             if not _p1m:
                 continue
             _msgs = _sp_make_messages(_p1_key)
-            _tools = _sp_companion_tools() if not skip_tools else None
+            _tools = _sp_full_tools() if not skip_tools else None
             try:
                 _yielded = False
                 async for tok in _stream_llamacpp_tokens(
                     model=_p1m, backend=_p1_key,
                     messages=_msgs, tools=_tools, tool_runner=_sp_tool_runner,
-                    max_tool_rounds=2,
+                    max_tool_rounds=4,
                 ):
                     yield tok
                     _yielded = True
@@ -143,32 +128,9 @@ async def route_by_surface(
                 yield _SOURCE_SENTINEL + f"{_p1_key}:{_p1m}"
                 return
             except RuntimeError as _e:
-                _log.warning("Companion %s failed: %s — trying orchestrator", _p1_key, _e)
+                _log.warning("Companion %s failed: %s — trying cloud", _p1_key, _e)
 
-        # Pass-2: Phi-4-mini dispatch as orchestrator (complex escalation)
-        for _orch_key in ("llamacpp-phi4-mini", "llamacpp-dispatch"):
-            if active_local_model and _orch_key == active_local_model:
-                continue  # already tried above
-            _om = _sp_backend_alive(_orch_key)
-            if _om:
-                _msgs = _sp_make_messages(_orch_key)
-                try:
-                    _yielded = False
-                    async for tok in _stream_llamacpp_tokens(
-                        model=_om, backend=_orch_key,
-                        messages=_msgs, tools=_sp_full_tools(), tool_runner=_sp_tool_runner,
-                        max_tool_rounds=6,
-                    ):
-                        yield tok
-                        _yielded = True
-                    if not _yielded:
-                        raise RuntimeError(f"{_orch_key} yielded 0 tokens — falling through")
-                    yield _SOURCE_SENTINEL + f"{_orch_key}:{_om}"
-                    return
-                except RuntimeError as _e:
-                    _log.warning("Companion orchestrator %s failed: %s", _orch_key, _e)
-
-        # Pass-3: free cloud (Mistral or Cohere)
+        # Pass-2: free cloud (Mistral or Cohere)
         _prov, _fck = _sp_free_cloud_key()
         if _fck:
             _msgs = _sp_make_messages()
@@ -182,7 +144,7 @@ async def route_by_surface(
             except Exception as _fe:
                 _log.warning("Companion free cloud (%s) failed: %s", _prov, _fe)
 
-        # Pass-4: paid Haiku (cheap/fast companion fallback)
+        # Pass-3: paid Haiku (cheap/fast companion fallback)
         _ak = _get_cloud_api_key("anthropic", owner)
         if _ak:
             _msgs = _sp_make_messages()
@@ -218,9 +180,9 @@ async def route_by_surface(
             if not _wm:
                 continue
             _msgs = _sp_make_messages(_w_key)
-            # Small-context orchestrators (phi4-mini, dispatch) get limited tools to avoid overflow
+            # Small-context models (phi4-mini, dispatch at 4K ctx) can't fit workspace prompt + tools
             _is_small_ctx = _w_key in ("llamacpp-phi4-mini", "llamacpp-dispatch")
-            _tools = (_sp_companion_tools() if _is_small_ctx else _sp_full_tools()) if not skip_tools else None
+            _tools = (None if _is_small_ctx else _sp_full_tools()) if not skip_tools else None
             try:
                 _yielded = False
                 async for tok in _stream_llamacpp_tokens(
@@ -245,7 +207,7 @@ async def route_by_surface(
                 _yielded = False
                 async for tok in _stream_llamacpp_tokens(
                     model=_h3m, backend="llamacpp-hermes3",
-                    messages=_msgs, tools=_sp_companion_tools(), tool_runner=_sp_tool_runner,
+                    messages=_msgs, tools=_sp_full_tools(), tool_runner=_sp_tool_runner,
                     max_tool_rounds=2,
                 ):
                     yield tok

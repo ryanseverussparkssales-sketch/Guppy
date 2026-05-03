@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { AvatarPresence, type AvatarState } from '@/components/surface/AvatarPresence'
 import { MarkdownMessage } from '@/components/chat/MarkdownMessage'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
+import { BackendSelector } from '@/components/surface/BackendSelector'
 import { useVoice } from '@/hooks/useVoice'
 import api from '../api/client'
 import { toast } from 'sonner'
@@ -247,6 +248,7 @@ export default function CompanionView() {
         <div className="flex items-center gap-2">
           <SurfaceStatusBar surface="workspace" compact label="Workspace" />
           <SurfaceStatusBar surface="codespace" compact label="Codespace" />
+          <BackendSelector surface="companion" simple />
           {/* Wake-word toggle */}
           <button
             onClick={toggleWake}

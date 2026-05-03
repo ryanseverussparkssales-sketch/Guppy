@@ -690,8 +690,8 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     idempotency_key, error=str(e), status_code=500
                 )
             user_msg = str(e)
-            if "llamacpp" in user_msg.lower() or "8087" in user_msg or "connect" in user_msg.lower():
-                user_msg = f"Cannot reach local inference backend. Start llamacpp (hermes3 on port 8087) and try again. ({e})"
+            if "llamacpp" in user_msg.lower() or "8086" in user_msg or "connect" in user_msg.lower():
+                user_msg = f"Cannot reach local inference backend (port 8086 — Hermes 4.3 36B). Ensure the backend is running and try again. ({e})"
             raise HTTPException(status_code=500, detail=user_msg)
 
     @router.post("/chat/stream")
@@ -832,7 +832,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                                 try:
                                     import httpx as _httpx
                                     _correction_payload = {
-                                        "model": "hermes-4-14b",
+                                        "model": "hermes-4-3-36b-heretic",
                                         "messages": [
                                             {"role": "user", "content": (
                                                 f"You emitted an invalid tool call. Raw output:\n\n{tc_json}\n\n"
@@ -1024,7 +1024,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                                 try:
                                     import httpx as _httpx
                                     _correction_payload = {
-                                        "model": "hermes-3-8b",
+                                        "model": "hermes-4-3-36b-heretic",
                                         "messages": [
                                             {"role": "user", "content": (
                                                 f"You emitted an invalid tool call. Raw output:\n\n{tc_json}\n\n"

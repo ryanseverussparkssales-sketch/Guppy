@@ -235,7 +235,6 @@ _BACKEND_CONTEXT_TOKENS: dict[str, int] = {
     "llamacpp-dispatch":   4096,    # Qwen2.5-3B — 4K context
     "llamacpp-phi4-mini": 131072,   # Phi-4-mini — 128K context
     "llamacpp-pepe":       8192,    # Assistant Pepe 8B
-    "llamacpp-rocinante": 16384,    # Rocinante 12B
     "llamacpp-xlam":       8192,    # xLAM-2-8B
     "llamacpp-minicpm":    8192,    # MiniCPM-o
     "llamacpp-qwen3":     40960,    # Qwen3 35B MoE
@@ -1084,7 +1083,7 @@ async def stream_unified_inference(
         _MODE_A_FALLBACK_ORDER = [
             "llamacpp-hermes4", "llamacpp-hermes3",
             "llamacpp-chat",    # 70B CPU -- zero VRAM, high quality
-            "llamacpp-pepe", "llamacpp-rocinante",
+            "llamacpp-pepe",
             "llamacpp-minicpm", "llamacpp-dispatch",
         ]
         for _fb_backend in _MODE_A_FALLBACK_ORDER:
