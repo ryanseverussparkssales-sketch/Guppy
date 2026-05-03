@@ -5,14 +5,8 @@ POST /api/backends/llamacpp/{name}/start  — launch the server process
 POST /api/backends/llamacpp/{name}/stop   — terminate the server + children
 GET  /api/backends/llamacpp               — list all backends with live probe status
 
-VRAM budget is enforced server-side:
-  Mode A  Pepe (8082) + Gemma (8080) + MiniCPM (8084)  any combination  ~8-26 GB total
-           Pepe+MiniCPM = ~17 GB ✓   Pepe+Gemma = ~17 GB ✓
-           All three together = ~26 GB (tight on 24 GB card)
-  Mode B  Qwen3 (8083) alone                            ~19 GB
-
-Starting a Mode B server while a Mode A server is alive (or vice versa) returns
-HTTP 409 with a clear explanation.
+Always-on stack: Hermes4.3(8086) + Phi4-mini(8091) + nomic-embed(8092) = ~24.6 GB VRAM.
+All other models are on-demand (start on first use, no watchdog restart).
 
 MiniCPM-o 4.5 note: requires TWO files — main GGUF + mmproj-model-f16.gguf.
 Launch script: C:\\llama-cpp\\launch-minicpm.bat
@@ -44,22 +38,6 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "note":    "Fast · ~8.5 GB VRAM",
         "vram_gb": 8.5,
     },
-    "llamacpp-gemma": {
-        "bat":     r"C:\llama-cpp\launch-gemma.bat",
-        "port":    8080,
-        "label":   "Gemma 4 E4B Heretic",
-        "mode":    "A",
-        "note":    "Vision · ~8.5 GB VRAM",
-        "vram_gb": 8.5,
-    },
-    "llamacpp-qwen3": {
-        "bat":     r"C:\llama-cpp\launch-qwen3.bat",
-        "port":    8083,
-        "label":   "Qwen3 35B Uncensored",
-        "mode":    "B",
-        "note":    "Reasoning · ~19 GB VRAM — run alone",
-        "vram_gb": 19.0,
-    },
     "llamacpp-minicpm": {
         "bat":     r"C:\llama-cpp\launch-minicpm.bat",
         "port":    8084,
@@ -69,13 +47,12 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
         "vram_gb": 9.0,
     },
     "llamacpp-dispatch": {
-        "bat":        r"C:\llama-cpp\launch-dispatch.bat",
-        "port":       8085,
-        "label":      "Qwen2.5-3B Dispatch",
-        "mode":       "A",
-        "note":       "Dispatch · ~2 GB VRAM · lightweight router — always-on",
-        "vram_gb":    2.0,
-        "auto_start": True,
+        "bat":     r"C:\llama-cpp\launch-dispatch.bat",
+        "port":    8085,
+        "label":   "Qwen2.5-3B Dispatch",
+        "mode":    "A",
+        "note":    "Dispatch · ~2 GB VRAM · lightweight router — on-demand",
+        "vram_gb": 2.0,
     },
     "llamacpp-phi4-mini": {
         "cmd":     [
@@ -169,11 +146,11 @@ _LLAMACPP_CONFIG: Dict[str, Dict[str, Any]] = {
 _GPU_VRAM_GB: float = float(os.environ.get("GUPPY_GPU_VRAM_GB", "24"))
 
 _MODE_A = {
-    "llamacpp-pepe", "llamacpp-gemma", "llamacpp-minicpm", "llamacpp-dispatch",
-    "llamacpp-phi4-mini", "llamacpp-hermes4", "llamacpp-hermes3",  # hermes3 on-demand
+    "llamacpp-pepe", "llamacpp-minicpm", "llamacpp-dispatch",
+    "llamacpp-phi4-mini", "llamacpp-hermes4", "llamacpp-hermes3",
     "llamacpp-rocinante", "llamacpp-xlam", "llamacpp-chat",
 }
-_MODE_B = {"llamacpp-qwen3"}
+_MODE_B: set[str] = set()
 
 # ── process registry (in-memory, survives API requests but not restarts) ──────
 
@@ -515,13 +492,12 @@ def _warm_kv_cache(port: int) -> None:
 
 
 # ── watchdog ──────────────────────────────────────────────────────────────────
-# Always-on stack: embed(8092) + phi4-mini(8091) + dispatch(8085) + Hermes4.3(8086).
-# Hermes 3 (8087) is on-demand only — not watched or auto-restarted.
+# Always-on stack: embed(8092) + phi4-mini(8091) + Hermes4.3(8086) ≈ 24.6 GB VRAM.
+# All other models are on-demand — no watchdog restart.
 
 _WATCHDOG_ALWAYS_ON = {
     "llamacpp-nomic-embed": 8092,
     "llamacpp-phi4-mini":   8091,
-    "llamacpp-dispatch":    8085,
     "llamacpp-hermes4":     8086,
 }
 

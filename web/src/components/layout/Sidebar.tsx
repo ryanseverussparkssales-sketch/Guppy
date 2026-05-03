@@ -9,8 +9,6 @@ import {
   Settings,
   Plus,
   HelpCircle,
-  BookText,
-  LayoutGrid,
 } from "lucide-react"
 
 interface NavItem {
@@ -46,23 +44,21 @@ const primaryNavItems: NavItem[] = [
   },
 ]
 
-// Secondary: control + config destinations
+// Secondary: config + admin destinations
 const secondaryNavItems: NavItem[] = [
-  { id: "control",      label: "Control Panel", icon: <LayoutGrid className="w-4 h-4" />, view: "control",      route: "/control" },
-  { id: "settings",     label: "Settings",      icon: <Settings className="w-4 h-4" />,  view: "settings",     route: "/settings" },
-  { id: "instructions", label: "Instructions",  icon: <BookText className="w-4 h-4" />,  view: "instructions", route: "/instructions" },
+  { id: "settings", label: "Settings", icon: <Settings className="w-4 h-4" />, view: "settings", route: "/settings" },
 ]
 
 const ROUTE_TO_VIEW: Record<string, string> = {
   '/':               'companion',
   '/companion':      'companion',
-  '/conversations':  'companion',   // conversations still accessible, highlights companion tab
+  '/conversations':  'companion',
   '/workspace':      'workspace',
   '/codespace':      'codespace',
-  '/control':        'control',
   '/settings':       'settings',
-  '/instructions':   'instructions',
   '/admin':          'settings',
+  '/control':        'settings',
+  '/instructions':   'companion',
   '/assistant':      'companion',
   '/launch-control': 'workspace',
   '/agents':         'workspace',
