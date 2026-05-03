@@ -68,13 +68,23 @@ WAIVED_PATHS: dict[str, Waiver] = {
         ),
     ),
     "src/guppy/api/routes_realtime.py": Waiver(
-        max_lines=1250,
+        max_lines=1450,
         rationale=(
             "Main chat/stream route handler: ChatRequest validation, surface-locked routing, "
             "per-surface model/cloud resolution, SSE streaming, tool-call two-pass parser, "
             "workspace task executor, KV cache warm hooks. "
             "Waiver raised Tranche A — pinned for extraction to routes_realtime_stream.py. "
-            "Cap raised Tranche H: screenpipe_search tool + acquisition policy gate added."
+            "Cap raised Tranche H: screenpipe_search tool + acquisition policy gate added. "
+            "Cap raised Tranche I: voice brevity injection, pass-2 synthesis quality, tool result formatting."
+        ),
+    ),
+    "src/guppy/inference/context_injection.py": Waiver(
+        max_lines=750,
+        rationale=(
+            "Context injection pipeline: companion identity, model identity injection, "
+            "tool primer, user preferences, semantic memory recall, workspace context, "
+            "surface state, context budget guard, session summarizer. "
+            "Minor overage after companion identity and tool primer expansion in Tranche I."
         ),
     ),
     "src/guppy/inference/local_client.py": Waiver(
