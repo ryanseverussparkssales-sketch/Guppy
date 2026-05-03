@@ -7,7 +7,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Mic, MicOff, Volume2, VolumeX, StopCircle, ArrowUp,
-  Radio, RadioTower, RefreshCw,
+  Radio, RadioTower, RefreshCw, Paperclip, X,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
@@ -54,10 +54,13 @@ export default function CompanionView() {
   const [presetLoading, setPresetLoading]   = useState(false)
   const [avatarState, setAvatarState]       = useState<AvatarState>('idle')
   const [vadSending, setVadSending]         = useState(false)
+  const [imageFile, setImageFile]           = useState<File | null>(null)
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
 
-  const abortRef  = useRef<AbortController | null>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const abortRef    = useRef<AbortController | null>(null)
+  const bottomRef   = useRef<HTMLDivElement>(null)
   const textareaRef = useAutoHeight(input)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const voice = useVoice({
     onTranscript: (text) => { setInput((prev) => prev + text) },
@@ -162,6 +165,13 @@ export default function CompanionView() {
       sessionStorage.setItem('companion_session_id', currentSessionId)
     }
 
+    // Capture and clear image attachment before async work
+    const attachedImage = imageFile
+    if (attachedImage) {
+      setImageFile(null)
+      if (imagePreviewUrl) { URL.revokeObjectURL(imagePreviewUrl); setImagePreviewUrl(null) }
+    }
+
     setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'user', content: text }])
     if (!override) setInput('')
     setIsSending(true)
@@ -172,6 +182,25 @@ export default function CompanionView() {
 
     let fullText = ''
     try {
+      // Vision path: multipart POST to /api/companion/vision when image attached
+      if (attachedImage) {
+        toast.info('Loading vision model…', { id: 'vision-load', duration: 8000 })
+        const form = new FormData()
+        form.append('text', text)
+        form.append('image', attachedImage)
+        const vRes = await api.post('/api/companion/vision', form, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        toast.dismiss('vision-load')
+        const reply = vRes.data?.response ?? JSON.stringify(vRes.data)
+        fullText = typeof reply === 'string' ? reply : JSON.stringify(reply)
+        setStreaming(fullText)
+        if (ttsEnabled) voice.speak(fullText)
+        setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', content: fullText }])
+        setStreaming('')
+        return
+      }
+
       const res = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: {
@@ -350,8 +379,43 @@ export default function CompanionView() {
         <div ref={bottomRef} />
       </div>
 
+      {/* Hidden file input for image attachment */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        title="Attach image"
+        aria-label="Attach image"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (!file) return
+          if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl)
+          setImageFile(file)
+          setImagePreviewUrl(URL.createObjectURL(file))
+          e.target.value = ''
+        }}
+      />
+
       {/* Input bar */}
       <div className="flex-shrink-0 px-4 pb-5 pt-3 border-t border-outline-variant/10">
+        {/* Image thumbnail preview */}
+        {imagePreviewUrl && (
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <div className="relative">
+              <img src={imagePreviewUrl} alt="attachment" className="h-14 rounded-lg border border-outline-variant/30 object-cover" />
+              <button
+                type="button"
+                onClick={() => { if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl); setImageFile(null); setImagePreviewUrl(null) }}
+                title="Remove image"
+                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-error text-white flex items-center justify-center hover:bg-error/80 transition-colors"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+            </div>
+            <span className="text-xs text-on-surface-variant/50 truncate max-w-[160px]">{imageFile?.name}</span>
+          </div>
+        )}
         <div className="flex items-end gap-2 bg-surface-container rounded-2xl px-3 py-2 border border-outline-variant/20 focus-within:border-primary/40 transition-colors">
           <textarea
             ref={textareaRef}
@@ -371,6 +435,19 @@ export default function CompanionView() {
               vadSending && 'placeholder:text-primary',
             )}
           />
+
+          {/* Image attachment */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            title="Attach image (vision)"
+            className={cn(
+              'p-1.5 mb-1 rounded-lg transition-colors flex-shrink-0',
+              imageFile ? 'text-primary bg-primary/10' : 'text-on-surface-variant/50 hover:bg-surface-container-high'
+            )}
+          >
+            <Paperclip className="w-4 h-4" />
+          </button>
 
           {/* TTS toggle */}
           <button

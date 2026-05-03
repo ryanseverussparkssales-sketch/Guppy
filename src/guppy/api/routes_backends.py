@@ -491,6 +491,22 @@ def _warm_kv_cache(port: int) -> None:
         logger.debug("[warmup] port %d warmup skipped: %s", port, exc)
 
 
+# ── idle-unload registry ──────────────────────────────────────────────────────
+# On-demand backends that should be stopped after N seconds of inactivity.
+
+import time as _time
+
+_IDLE_UNLOAD: dict[str, float] = {
+    "llamacpp-minicpm": 300.0,  # stop MiniCPM 5 min after last vision query
+}
+_last_used: dict[str, float] = {}
+
+
+def mark_backend_used(name: str) -> None:
+    """Record that a backend was used now (call from the endpoint that invokes it)."""
+    _last_used[name] = _time.monotonic()
+
+
 # ── watchdog ──────────────────────────────────────────────────────────────────
 # Always-on stack: embed(8092) + phi4-mini(8091) + Hermes4.3(8086) ≈ 24.6 GB VRAM.
 # All other models are on-demand — no watchdog restart.
@@ -536,6 +552,23 @@ def _run_watchdog() -> None:
             elif port not in _warmed and port in _WARMUP_SYSTEM_PROMPTS:
                 _warm_kv_cache(port)
                 _warmed.add(port)
+
+        # Idle-unload on-demand backends that exceeded their TTL
+        for idle_name, ttl in _IDLE_UNLOAD.items():
+            idle_cfg = _LLAMACPP_CONFIG.get(idle_name)
+            if not idle_cfg:
+                continue
+            if not _port_alive(idle_cfg["port"]):
+                continue
+            last = _last_used.get(idle_name, 0.0)
+            if last > 0.0 and time.monotonic() - last > ttl:
+                logger.info("[watchdog] idle-unload %s (idle >%.0fs)", idle_name, ttl)
+                _last_used.pop(idle_name, None)
+                try:
+                    _do_stop(idle_name)
+                except Exception as exc:
+                    logger.warning("[watchdog] idle-unload %s failed: %s", idle_name, exc)
+
         time.sleep(60)
 
 

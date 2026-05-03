@@ -345,6 +345,13 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
         if image_b64:
             payload["image_base64"] = image_b64
 
+        # Mark MiniCPM as used (triggers idle-unload timer in watchdog)
+        try:
+            from src.guppy.api.routes_backends import mark_backend_used
+            mark_backend_used("llamacpp-minicpm")
+        except Exception:
+            pass
+
         # Forward to internal chat endpoint
         try:
             from src.guppy.api import services_realtime
