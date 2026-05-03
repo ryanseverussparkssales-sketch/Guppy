@@ -1,11 +1,12 @@
 /**
- * SettingsView — 5-tab consolidated control centre.
- * Tabs: Cloud · Credentials · Voice · Tools · Personas
+ * SettingsView — 4-tab consolidated control centre.
+ * Tabs: Providers · Voice · Tools · Personas
+ * (Cloud + Credentials merged into Providers)
  */
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 import {
-  Cloud, Key, Mic, Wrench, Users, Eye, EyeOff,
+  Cloud, Mic, Wrench, Users, Eye, EyeOff,
   Save, Trash2, RefreshCw, CheckCircle, ExternalLink,
   ToggleLeft, ToggleRight, Lock,
   Plug, Check, Edit2, X,
@@ -19,7 +20,7 @@ import MCPView from './MCPView'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'cloud' | 'credentials' | 'voice' | 'tools' | 'personas'
+type Tab = 'providers' | 'voice' | 'tools' | 'personas'
 
 interface CredRow { key: string; label: string; placeholder: string; url?: string; hint?: string }
 
@@ -47,17 +48,16 @@ const SERVICE_CREDS: CredRow[] = [
 // ── Tab config ─────────────────────────────────────────────────────────────────
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-  { id: 'cloud',       label: 'Cloud',       icon: <Cloud className="w-4 h-4" /> },
-  { id: 'credentials', label: 'Credentials', icon: <Key className="w-4 h-4" /> },
-  { id: 'voice',       label: 'Voice',       icon: <Mic className="w-4 h-4" /> },
-  { id: 'tools',       label: 'Tools',       icon: <Wrench className="w-4 h-4" /> },
-  { id: 'personas',    label: 'Personas',    icon: <Users className="w-4 h-4" /> },
+  { id: 'providers', label: 'Providers', icon: <Cloud className="w-4 h-4" /> },
+  { id: 'voice',     label: 'Voice',     icon: <Mic className="w-4 h-4" /> },
+  { id: 'tools',     label: 'Tools',     icon: <Wrench className="w-4 h-4" /> },
+  { id: 'personas',  label: 'Personas',  icon: <Users className="w-4 h-4" /> },
 ]
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function SettingsView() {
-  const [tab, setTab] = useState<Tab>('cloud')
+  const [tab, setTab] = useState<Tab>('providers')
   return (
     <div className="h-full flex flex-col max-w-4xl">
       {/* Header */}
@@ -83,19 +83,18 @@ export default function SettingsView() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-auto px-6 py-6">
-        {tab === 'cloud'       && <CloudTab />}
-        {tab === 'credentials' && <CredentialsTab />}
-        {tab === 'voice'       && <VoicesView />}
-        {tab === 'tools'       && <ToolsTab />}
-        {tab === 'personas'    && <PersonasTab />}
+        {tab === 'providers' && <ProvidersTab />}
+        {tab === 'voice'     && <VoicesView />}
+        {tab === 'tools'     && <ToolsTab />}
+        {tab === 'personas'  && <PersonasTab />}
       </div>
     </div>
   )
 }
 
-// ── Cloud Tab ─────────────────────────────────────────────────────────────────
+// ── Providers Tab (merged Cloud + Credentials) ────────────────────────────────
 
-function CloudTab() {
+function ProvidersTab() {
   const { settings, fetchSettings, storeCredential, deleteCredential } = useSettings()
   const { activeTheme, setTheme, themes } = useTheme()
   const [inputs, setInputs]   = useState<Record<string, string>>({})
@@ -153,6 +152,30 @@ function CloudTab() {
         ))}
       </section>
 
+      {/* Service credentials */}
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant/50">
+          Services
+        </h2>
+        <p className="text-xs text-on-surface-variant/50 -mt-1">
+          API keys stored locally in your Guppy data directory.
+        </p>
+        {SERVICE_CREDS.map(row => (
+          <CredentialRow
+            key={row.key}
+            row={row}
+            configured={configured(row.key)}
+            saving={saving === row.key}
+            value={inputs[row.key] || ''}
+            visible={!!visible[row.key]}
+            onValue={v => setInputs(p => ({ ...p, [row.key]: v }))}
+            onToggleVisible={() => setVisible(p => ({ ...p, [row.key]: !p[row.key] }))}
+            onSave={() => save(row.key)}
+            onRemove={() => remove(row.key)}
+          />
+        ))}
+      </section>
+
       {/* Appearance */}
       <section className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant/50">
@@ -182,65 +205,6 @@ function CloudTab() {
           ))}
         </div>
       </section>
-    </div>
-  )
-}
-
-// ── Credentials Tab ────────────────────────────────────────────────────────────
-
-function CredentialsTab() {
-  const { settings, fetchSettings, storeCredential, deleteCredential } = useSettings()
-  const [inputs, setInputs]   = useState<Record<string, string>>({})
-  const [visible, setVisible] = useState<Record<string, boolean>>({})
-  const [saving, setSaving]   = useState<string | null>(null)
-
-  useEffect(() => { fetchSettings() }, [fetchSettings])
-
-  const configured = (key: string) => {
-    const credentials = settings?.credentials as Record<string, { configured: boolean } | undefined> | undefined
-    return credentials?.[key]?.configured ?? false
-  }
-
-  const save = async (key: string) => {
-    const val = inputs[key]?.trim()
-    if (!val) return
-    setSaving(key)
-    try {
-      await storeCredential(key as any, val)
-      setInputs(p => ({ ...p, [key]: '' }))
-      toast.success('Saved')
-    } catch { toast.error('Save failed') }
-    finally { setSaving(null) }
-  }
-
-  const remove = async (key: string) => {
-    setSaving(key)
-    try {
-      await deleteCredential(key as any)
-      toast.success('Removed')
-    } catch { toast.error('Remove failed') }
-    finally { setSaving(null) }
-  }
-
-  return (
-    <div className="space-y-3">
-      <p className="text-xs text-on-surface-variant/50 mb-4">
-        Service API keys stored locally in your Guppy data directory.
-      </p>
-      {SERVICE_CREDS.map(row => (
-        <CredentialRow
-          key={row.key}
-          row={row}
-          configured={configured(row.key)}
-          saving={saving === row.key}
-          value={inputs[row.key] || ''}
-          visible={!!visible[row.key]}
-          onValue={v => setInputs(p => ({ ...p, [row.key]: v }))}
-          onToggleVisible={() => setVisible(p => ({ ...p, [row.key]: !p[row.key] }))}
-          onSave={() => save(row.key)}
-          onRemove={() => remove(row.key)}
-        />
-      ))}
     </div>
   )
 }

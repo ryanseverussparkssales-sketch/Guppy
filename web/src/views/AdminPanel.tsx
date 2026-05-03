@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   BarChart, Activity, Wrench, Server,
   CheckCircle, XCircle, AlertCircle, RefreshCw,
-  Play, Eye,
+  Play, Eye, Cpu, Cloud, CloudOff, StopCircle,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -11,11 +11,39 @@ import {
   useMetrics, useStatus, useLogs, useTelemetry,
   useRepairToken, useRunRepair,
 } from '@/api/queries'
+import api from '@/api/client'
+import { cn } from '@/lib/utils'
 import type { Status } from '@/api/schemas'
 
 type ReadinessCheck = NonNullable<Status['startup_readiness']>['checks'][string]
 
-type Tab = 'dashboard' | 'activity' | 'recovery' | 'system'
+type Tab = 'dashboard' | 'activity' | 'recovery' | 'system' | 'backends'
+
+// ── Backends tab types ────────────────────────────────────────────────────────
+
+interface BackendEntry {
+  name: string
+  label: string
+  port: number
+  alive: boolean
+  vram_gb: number
+  note: string
+  auto_start?: boolean
+}
+
+interface OperatorSettings {
+  cloud_paid_enabled: boolean
+  cloud_free_enabled: boolean
+}
+
+interface ServiceEntry {
+  key: string
+  label: string
+  state: 'running' | 'stopped'
+  health: 'up' | 'down' | 'degraded' | 'unknown'
+  port: number | null
+  health_detail: string
+}
 
 function formatUptime(startedAt: string): string {
   const s = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)
@@ -44,6 +72,55 @@ export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
   const [repairResults, setRepairResults] = useState<Record<string, unknown> | null>(null)
 
+  // ── Backends tab state ──────────────────────────────────────────────────────
+  const [backends, setBackends]         = useState<BackendEntry[]>([])
+  const [services, setServices]         = useState<ServiceEntry[]>([])
+  const [opSettings, setOpSettings]     = useState<OperatorSettings>({ cloud_paid_enabled: true, cloud_free_enabled: false })
+  const [backendBusy, setBackendBusy]   = useState<string | null>(null)
+  const [backendsLoading, setBLoading]  = useState(false)
+
+  const fetchBackends = useCallback(async () => {
+    setBLoading(true)
+    try {
+      const [bRes, sRes, oRes] = await Promise.all([
+        api.get('/api/backends/llamacpp').catch(() => ({ data: [] })),
+        api.get('/api/control/services').catch(() => ({ data: [] })),
+        api.get('/api/control/operator-settings').catch(() => ({ data: {} })),
+      ])
+      setBackends(Array.isArray(bRes.data) ? bRes.data : [])
+      setServices(Array.isArray(sRes.data) ? sRes.data : [])
+      if (oRes.data && typeof oRes.data === 'object') setOpSettings(oRes.data as OperatorSettings)
+    } finally {
+      setBLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'backends') void fetchBackends()
+  }, [activeTab, fetchBackends])
+
+  const backendAction = useCallback(async (name: string, action: 'start' | 'stop' | 'health') => {
+    setBackendBusy(`${name}:${action}`)
+    try {
+      if (action === 'health') {
+        await api.get(`/api/control/models/${name}/health`)
+      } else {
+        await api.post(`/api/backends/llamacpp/${name}/${action}`)
+      }
+    } catch { /* ignore */ }
+    finally {
+      setBackendBusy(null)
+      void fetchBackends()
+    }
+  }, [fetchBackends])
+
+  const patchOp = useCallback(async (patch: Partial<OperatorSettings>) => {
+    const next = { ...opSettings, ...patch }
+    setOpSettings(next)
+    try { await api.put('/api/control/operator-settings', next) } catch { /* ignore */ }
+  }, [opSettings])
+
+  // ── existing hooks ──────────────────────────────────────────────────────────
   const metrics    = useMetrics()
   const status     = useStatus()
   const logs       = useLogs()
@@ -56,13 +133,8 @@ export default function AdminPanel() {
 
   const handleTabChange = (tab: Tab) => {
     setActiveTab(tab)
-    if (tab === 'activity') {
-      logs.refetch()
-      telemetry.refetch()
-    }
-    if (tab === 'recovery') {
-      repairQ.refetch()
-    }
+    if (tab === 'activity') { logs.refetch(); telemetry.refetch() }
+    if (tab === 'recovery')  repairQ.refetch()
   }
 
   const doRepair = async (action: string, dryRun: boolean) => {
@@ -82,6 +154,7 @@ export default function AdminPanel() {
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <BarChart size={16} /> },
+    { id: 'backends',  label: 'Backends',  icon: <Cpu size={16} /> },
     { id: 'activity',  label: 'Activity',  icon: <Activity size={16} /> },
     { id: 'recovery',  label: 'Recovery',  icon: <Wrench size={16} /> },
     { id: 'system',    label: 'System',    icon: <Server size={16} /> },
@@ -231,6 +304,118 @@ export default function AdminPanel() {
                 </Card>
               )}
             </>
+          )}
+        </div>
+      )}
+
+      {/* Backends Tab */}
+      {activeTab === 'backends' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-on-surface-variant">
+              {backends.filter(b => b.alive).length} / {backends.length} models live
+            </p>
+            <Button variant="ghost" size="sm" onClick={fetchBackends} disabled={backendsLoading}>
+              <RefreshCw size={16} className={backendsLoading ? 'animate-spin' : ''} />
+            </Button>
+          </div>
+
+          {/* Model health table */}
+          <Card>
+            <CardHeader><CardTitle>Local Models</CardTitle></CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y divide-outline-variant/20">
+                {backends.map(b => {
+                  const busy = backendBusy?.startsWith(`${b.name}:`)
+                  return (
+                    <div key={b.name} className="flex items-center gap-3 px-4 py-2.5">
+                      <div className={cn('w-2 h-2 rounded-full flex-shrink-0', b.alive ? 'bg-success' : 'bg-error/50')} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-on-surface truncate">{b.label}</p>
+                        <p className="text-xs text-on-surface-variant/60 truncate">{b.note}</p>
+                      </div>
+                      <div className="flex items-center gap-1 text-xs text-on-surface-variant shrink-0">
+                        <span className="font-mono">{b.port}</span>
+                        {b.vram_gb > 0 && <span className="text-on-surface-variant/40">· {b.vram_gb}GB</span>}
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <button type="button" disabled={!!busy || b.alive}
+                          onClick={() => backendAction(b.name, 'start')}
+                          className="p-1 rounded text-success hover:bg-success/10 disabled:opacity-30 transition-colors"
+                          title="Start">
+                          <Play size={13} />
+                        </button>
+                        <button type="button" disabled={!!busy || !b.alive}
+                          onClick={() => backendAction(b.name, 'stop')}
+                          className="p-1 rounded text-error hover:bg-error/10 disabled:opacity-30 transition-colors"
+                          title="Stop">
+                          <StopCircle size={13} />
+                        </button>
+                        <button type="button" disabled={!!busy}
+                          onClick={() => backendAction(b.name, 'health')}
+                          className="p-1 rounded text-on-surface-variant hover:bg-surface-variant disabled:opacity-30 transition-colors"
+                          title="Health check">
+                          <RefreshCw size={13} className={busy ? 'animate-spin' : ''} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+                {!backends.length && !backendsLoading && (
+                  <p className="text-sm text-on-surface-variant p-4">No backends registered.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Cloud access toggles */}
+          <Card>
+            <CardHeader><CardTitle>Cloud Access</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              {[
+                { key: 'cloud_paid_enabled' as const, label: 'Paid Cloud', sub: 'Claude (Anthropic) — requires API key', icon: <Cloud size={16} /> },
+                { key: 'cloud_free_enabled' as const, label: 'Free Cloud',  sub: 'Mistral · Cohere free tier — rate-limited', icon: <CloudOff size={16} /> },
+              ].map(({ key, label, sub, icon }) => (
+                <button type="button" key={key}
+                  onClick={() => patchOp({ [key]: !opSettings[key] })}
+                  className={cn(
+                    'w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-colors',
+                    opSettings[key]
+                      ? 'bg-primary/10 border-primary/40 text-on-surface'
+                      : 'bg-surface-container border-outline-variant/30 text-on-surface-variant',
+                  )}>
+                  {icon}
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">{label}</p>
+                    <p className="text-xs opacity-60">{sub}</p>
+                  </div>
+                  <div className={cn('w-4 h-4 rounded-full border-2 flex-shrink-0',
+                    opSettings[key] ? 'bg-primary border-primary' : 'border-outline-variant')} />
+                </button>
+              ))}
+            </CardContent>
+          </Card>
+
+          {/* Service controls */}
+          {services.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle>Services</CardTitle></CardHeader>
+              <CardContent className="p-0">
+                <div className="divide-y divide-outline-variant/20">
+                  {services.map(s => (
+                    <div key={s.key} className="flex items-center gap-3 px-4 py-2.5">
+                      <div className={cn('w-2 h-2 rounded-full flex-shrink-0',
+                        s.health === 'up' ? 'bg-success' : s.health === 'degraded' ? 'bg-warning' : 'bg-error/50')} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-on-surface">{s.label}</p>
+                        <p className="text-xs text-on-surface-variant/60">{s.health_detail}</p>
+                      </div>
+                      <Badge variant={s.state === 'running' ? 'success' : 'secondary'}>{s.state}</Badge>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
       )}
