@@ -17,6 +17,7 @@ import { useWorkspaceStore, syncManager } from '@/store'
 import { useAppStore } from '@/store/appStore'
 import { MarkdownMessage } from '@/components/chat/MarkdownMessage'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
+import { BackendSelector } from '@/components/surface/BackendSelector'
 import { SandboxPanel } from '@/components/codespace/SandboxPanel'
 import { TriagePanel } from '@/components/codespace/TriagePanel'
 import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
@@ -390,6 +391,7 @@ export default function CodespaceView() {
         </div>
         <div className="flex items-center gap-2">
           <SurfaceStatusBar surface="codespace" compact label="Codespace" />
+          <BackendSelector surface="codespace" compact />
         </div>
       </div>
 

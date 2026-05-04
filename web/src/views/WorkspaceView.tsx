@@ -18,6 +18,7 @@ import { useSurfaceEvents } from '@/hooks/useSurfaceEvents'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
+import { BackendSelector } from '@/components/surface/BackendSelector'
 import { CRMPanel } from '@/components/workspace/CRMPanel'
 import { ScreenPanel } from '@/components/workspace/ScreenPanel'
 import { FilesPanel } from '@/components/workspace/FilesPanel'
@@ -197,6 +198,7 @@ export default function WorkspaceView() {
         <div className="flex items-center gap-2">
           <SurfaceStatusBar surface="companion" compact label="Companion" />
           <SurfaceStatusBar surface="codespace" compact label="Codespace" />
+          <BackendSelector surface="workspace" compact />
           <button
             onClick={handleRefresh}
             title="Refresh data (F5)"

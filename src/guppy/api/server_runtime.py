@@ -626,7 +626,7 @@ try:
             path = request.url.path
             if any(path.startswith(p) for p in _NON_SPA_PREFIXES):
                 return JSONResponse({"detail": "Not Found"}, status_code=404)
-            return FileResponse(_spa_index)
+            return FileResponse(_spa_index, headers={"Cache-Control": "no-store"})
 
 except Exception as e:
     logger.warning(f"Could not mount static files: {e}")
