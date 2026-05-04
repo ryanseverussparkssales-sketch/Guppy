@@ -218,6 +218,60 @@ async def _stream_cohere_tokens(
         yield token
 
 
+async def _stream_groq_tokens(
+    *,
+    api_key: str,
+    model: str,
+    messages: list[dict],
+    timeout: float = 60.0,
+) -> AsyncGenerator[str, None]:
+    """Yield content tokens from Groq's OpenAI-compatible API (free tier, very fast)."""
+    async for token in _stream_openai_compat_tokens(
+        base_url="https://api.groq.com/openai/v1",
+        api_key=api_key,
+        model=model,
+        messages=messages,
+        timeout=timeout,
+    ):
+        yield token
+
+
+async def _stream_gemini_tokens(
+    *,
+    api_key: str,
+    model: str,
+    messages: list[dict],
+    timeout: float = 120.0,
+) -> AsyncGenerator[str, None]:
+    """Yield tokens from Google Gemini via their OpenAI-compatible endpoint (free tier)."""
+    async for token in _stream_openai_compat_tokens(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        api_key=api_key,
+        model=model,
+        messages=messages,
+        timeout=timeout,
+    ):
+        yield token
+
+
+async def _stream_openrouter_tokens(
+    *,
+    api_key: str,
+    model: str,
+    messages: list[dict],
+    timeout: float = 120.0,
+) -> AsyncGenerator[str, None]:
+    """Yield tokens from OpenRouter (aggregates 200+ models, many free)."""
+    async for token in _stream_openai_compat_tokens(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=api_key,
+        model=model,
+        messages=messages,
+        timeout=timeout,
+    ):
+        yield token
+
+
 async def _stream_claude_with_tools(
     *,
     api_key: str,

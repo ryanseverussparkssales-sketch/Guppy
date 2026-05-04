@@ -13,6 +13,9 @@ from src.guppy.inference.streaming_backends import (
     _stream_openai_compat_tokens,
     _stream_mistral_tokens,
     _stream_cohere_tokens,
+    _stream_groq_tokens,
+    _stream_gemini_tokens,
+    _stream_openrouter_tokens,
     _stream_claude_with_tools,
     _stream_llamacpp_tokens,
     _TOOL_CALL_GBNF,
@@ -785,19 +788,49 @@ _COHERE_MODEL_IDS: frozenset = frozenset({
     "command-a-03-2025", "command-r-plus-08-2024", "command-r-08-2024",
     "command-r7b-12-2024", "command-light", "aya-23-35b", "aya-23-8b",
 })
+_GROQ_MODEL_IDS: frozenset = frozenset({
+    # Free tier — ultra-fast hardware (GroqChip)
+    "llama-3.3-70b-versatile",
+    "llama-3.1-70b-versatile",
+    "llama-3.1-8b-instant",
+    "llama3-70b-8192",
+    "llama3-8b-8192",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it",
+    "gemma-7b-it",
+    "qwen-qwq-32b",
+    "deepseek-r1-distill-llama-70b",
+    "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "meta-llama/llama-4-scout-17b-16e-instruct",
+})
+_GEMINI_MODEL_IDS: frozenset = frozenset({
+    # Free tier via Google Generative Language API
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+    "gemini-1.5-pro",
+    "gemini-2.5-flash-preview-04-17",
+    "gemini-2.5-pro-preview-03-25",
+})
 # Best free-tier models to try when auto-routing without local resources
 _FREE_MISTRAL_MODEL = "ministral-8b-latest"
 _FREE_COHERE_MODEL  = "command-r7b-12-2024"
+_FREE_GROQ_MODEL    = "llama-3.3-70b-versatile"
+_FREE_GEMINI_MODEL  = "gemini-2.0-flash"
 
 
 def _get_cloud_api_key(provider: str, owner: Any) -> str:
     """Return API key for provider: env var first, then settings DB."""
     _env_map = {
-        "mistral":   "MISTRAL_API_KEY",
-        "cohere":    "COHERE_API_KEY",
-        "google":    "GOOGLE_API_KEY",
-        "openai":    "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
+        "mistral":    "MISTRAL_API_KEY",
+        "cohere":     "COHERE_API_KEY",
+        "google":     "GOOGLE_API_KEY",
+        "openai":     "OPENAI_API_KEY",
+        "anthropic":  "ANTHROPIC_API_KEY",
+        "groq":       "GROQ_API_KEY",
+        "gemini":     "GOOGLE_API_KEY",   # same key, different endpoint
+        "openrouter": "OPENROUTER_API_KEY",
     }
     key = owner.os.environ.get(_env_map.get(provider, ""), "").strip()
     if key:
@@ -980,6 +1013,61 @@ async def stream_unified_inference(
                     _log.warning(
                         "Cohere explicit model %s failed: %s — falling back",
                         active_cloud_model, _cerr,
+                    )
+
+        elif active_cloud_model in _GROQ_MODEL_IDS:
+            _gk = _get_cloud_api_key("groq", owner)
+            if _gk:
+                _log.info("Explicit cloud: streaming from Groq model %s", active_cloud_model)
+                _msgs = build_router_messages(augmented_system, user_text, clean_history)
+                try:
+                    async for token in _stream_groq_tokens(
+                        api_key=_gk, model=active_cloud_model, messages=_msgs
+                    ):
+                        yield token
+                    yield _SOURCE_SENTINEL + f"groq:{active_cloud_model}"
+                    return
+                except Exception as _gerr:
+                    _log.warning(
+                        "Groq explicit model %s failed: %s — falling back",
+                        active_cloud_model, _gerr,
+                    )
+
+        elif active_cloud_model in _GEMINI_MODEL_IDS:
+            _gk = _get_cloud_api_key("gemini", owner)
+            if _gk:
+                _log.info("Explicit cloud: streaming from Gemini model %s", active_cloud_model)
+                _msgs = build_router_messages(augmented_system, user_text, clean_history)
+                try:
+                    async for token in _stream_gemini_tokens(
+                        api_key=_gk, model=active_cloud_model, messages=_msgs
+                    ):
+                        yield token
+                    yield _SOURCE_SENTINEL + f"gemini:{active_cloud_model}"
+                    return
+                except Exception as _gmerr:
+                    _log.warning(
+                        "Gemini explicit model %s failed: %s — falling back",
+                        active_cloud_model, _gmerr,
+                    )
+
+        elif active_cloud_model and active_cloud_model.startswith("openrouter/"):
+            _ok = _get_cloud_api_key("openrouter", owner)
+            if _ok:
+                _or_model = active_cloud_model[len("openrouter/"):]
+                _log.info("Explicit cloud: streaming from OpenRouter model %s", _or_model)
+                _msgs = build_router_messages(augmented_system, user_text, clean_history)
+                try:
+                    async for token in _stream_openrouter_tokens(
+                        api_key=_ok, model=_or_model, messages=_msgs
+                    ):
+                        yield token
+                    yield _SOURCE_SENTINEL + f"openrouter:{_or_model}"
+                    return
+                except Exception as _orerr:
+                    _log.warning(
+                        "OpenRouter model %s failed: %s — falling back",
+                        _or_model, _orerr,
                     )
 
     # ── Task-type routing: tool_call / agentic / complex / simple / teaching ──
