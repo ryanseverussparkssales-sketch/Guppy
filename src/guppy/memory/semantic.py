@@ -192,12 +192,28 @@ def _simple_text_score(query: str, key: str, value: str) -> float:
 
 
 def _lexical_recall(rows: list[tuple], query: str, limit: int) -> str:
-    scored = []
-    for key, row_cat, value, _emb_json in rows:
-        score = _simple_text_score(query, key, value)
-        if score <= 0:
-            continue
-        scored.append((score, key, row_cat, value))
+    if not rows:
+        return "Nothing found in semantic memory."
+    corpus = [f"{key} {value}".lower().split() for key, _, value, _ in rows]
+    q_tokens = query.lower().split() if query.strip() else []
+    raw_scores: list[float] = [0.0] * len(rows)
+    try:
+        from rank_bm25 import BM25Okapi
+        bm25 = BM25Okapi(corpus)
+        bm25_scores = bm25.get_scores(q_tokens) if q_tokens else raw_scores
+        # BM25 IDF collapses to 0 on very small corpora (N≤2, unique terms).
+        # Fall back to simple scoring when all BM25 scores are zero.
+        if any(s > 0 for s in bm25_scores):
+            raw_scores = [float(s) for s in bm25_scores]
+        else:
+            raw_scores = [_simple_text_score(query, r[0], r[2]) for r in rows]
+    except Exception:
+        raw_scores = [_simple_text_score(query, r[0], r[2]) for r in rows]
+    scored = [
+        (raw_scores[i], rows[i][0], rows[i][1], rows[i][2])
+        for i in range(len(rows))
+        if raw_scores[i] > 0
+    ]
     if not scored:
         return "Nothing found in semantic memory."
     top = sorted(scored, key=lambda x: x[0], reverse=True)[:limit]
@@ -237,11 +253,12 @@ def _get_chroma_collection():
 
 
 def _remember_sqlite(k: str, v: str, c: str) -> str:
-    # Dedup: skip if an identical value was stored within the last 24 hours.
-    # Prevents session summarizer from creating duplicate preference entries.
+    # Upsert-by-key: if the same key already exists, replace it with the new value.
+    # Value dedup: if the identical value already exists for ANY key within 24h, skip.
     from datetime import timedelta
     conn = _conn()
     try:
+        # Skip if exact same value was stored within 24h (session summarizer dedup)
         cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
         dup = conn.execute(
             "SELECT id FROM semantic_memory WHERE value=? AND created>? LIMIT 1",
@@ -249,6 +266,9 @@ def _remember_sqlite(k: str, v: str, c: str) -> str:
         ).fetchone()
         if dup:
             return f"Memory already stored (deduped): {k}"
+        # Upsert: remove any existing entry for this key before inserting the new one.
+        # Ensures each key has exactly one current value (no stale preference drift).
+        conn.execute("DELETE FROM semantic_memory WHERE memory_key=?", (k,))
         emb = _embed_text(v)
         conn.execute(
             "INSERT INTO semantic_memory (memory_key, category, value, embedding_json, created) VALUES (?, ?, ?, ?, ?)",

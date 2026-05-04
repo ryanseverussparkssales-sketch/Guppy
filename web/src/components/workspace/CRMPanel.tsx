@@ -18,6 +18,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Users, CheckSquare, Search, Plus, Trash2, Check,
   RefreshCw, ChevronDown, ChevronUp, ChevronsUpDown,
+  Globe, Download, X, Eye, CheckCircle2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
@@ -110,6 +111,182 @@ function AddContactForm({ onAdded }: { onAdded: () => void }) {
           onClick={() => setOpen(false)}
           className="px-3 text-xs text-on-surface-variant/60 hover:text-on-surface transition-colors"
         >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── ScraperImportForm ─────────────────────────────────────────────────────────
+
+const SCRAPER_KEY_LS = 'guppy_scraper_do_api_key'
+
+interface ScrapedContact { name: string; company: string; email: string; phone: string; notes: string }
+
+function ScraperImportForm({ onImported }: { onImported: () => void }) {
+  const [open, setOpen]           = useState(false)
+  const [url, setUrl]             = useState('')
+  const [apiKey, setApiKey]       = useState(() => localStorage.getItem(SCRAPER_KEY_LS) || '')
+  const [render, setRender]       = useState(false)
+  const [running, setRunning]     = useState(false)
+  const [results, setResults]     = useState<ScrapedContact[]>([])
+  const [selected, setSelected]   = useState<Set<number>>(new Set())
+  const [importing, setImporting] = useState(false)
+  const [error, setError]         = useState<string | null>(null)
+
+  const run = async () => {
+    if (!url.trim() || !apiKey.trim()) return
+    setRunning(true); setError(null); setResults([])
+    try {
+      const res = await api.post('/api/workspace/scraper/run', { url, api_key: apiKey, render })
+      localStorage.setItem(SCRAPER_KEY_LS, apiKey)
+      const contacts: ScrapedContact[] = res.data?.contacts ?? []
+      setResults(contacts)
+      setSelected(new Set(contacts.map((_, i) => i)))
+    } catch (e: any) {
+      setError(e?.response?.data?.detail ?? 'Scrape failed')
+    } finally { setRunning(false) }
+  }
+
+  const saveCsv = () => {
+    const toExport = results.filter((_, i) => selected.has(i))
+    if (!toExport.length) return
+    const headers = ['name', 'company', 'email', 'phone', 'notes']
+    const escape = (v: string) => `"${v.replace(/"/g, '""')}"`
+    const rows = [
+      headers.join(','),
+      ...toExport.map((c) => headers.map((h) => escape((c as any)[h] || '')).join(',')),
+    ]
+    const blob = new Blob([rows.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    const domain = (() => { try { return new URL(url).hostname.replace(/^www\./, '') } catch { return 'contacts' } })()
+    a.download = `${domain}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
+    toast.success(`Saved ${toExport.length} contact${toExport.length > 1 ? 's' : ''} to CSV`)
+  }
+
+  const importSelected = async () => {
+    const toImport = results.filter((_, i) => selected.has(i)).filter((c) => c.name.trim())
+    if (!toImport.length) return
+    setImporting(true)
+    try {
+      await Promise.all(toImport.map((c) => api.post('/api/workspace/contacts', c)))
+      toast.success(`Imported ${toImport.length} contact${toImport.length > 1 ? 's' : ''}`)
+      setOpen(false); setResults([]); setUrl('')
+      onImported()
+    } catch { toast.error('Import failed') } finally { setImporting(false) }
+  }
+
+  if (!open) return (
+    <button
+      onClick={() => setOpen(true)}
+      className="w-full flex items-center justify-center gap-2 text-xs text-on-surface-variant/60 hover:text-primary transition-colors py-2 border border-dashed border-outline-variant/30 rounded-lg hover:border-primary/30"
+    >
+      <Globe className="w-3.5 h-3.5" /> Scrape URL (scraper.do)
+    </button>
+  )
+
+  return (
+    <div className="bg-surface-container rounded-xl p-3 space-y-2 border border-outline-variant/20">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-on-surface flex items-center gap-1.5">
+          <Globe className="w-3.5 h-3.5 text-primary" /> Scrape Contacts
+        </span>
+        <button onClick={() => { setOpen(false); setResults([]) }} className="text-on-surface-variant/40 hover:text-on-surface">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <input
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        placeholder="https://company.com/team or LinkedIn search URL…"
+        className="w-full text-xs bg-surface border border-outline-variant/20 rounded-lg px-2.5 py-1.5 outline-none focus:border-primary/50 text-on-surface placeholder-on-surface-variant/40"
+      />
+      <input
+        value={apiKey}
+        onChange={(e) => setApiKey(e.target.value)}
+        placeholder="scraper.do API key…"
+        type="password"
+        className="w-full text-xs bg-surface border border-outline-variant/20 rounded-lg px-2.5 py-1.5 outline-none focus:border-primary/50 text-on-surface placeholder-on-surface-variant/40"
+      />
+      <label className="flex items-center gap-2 text-xs text-on-surface-variant/60 cursor-pointer select-none">
+        <input type="checkbox" checked={render} onChange={(e) => setRender(e.target.checked)} className="rounded" />
+        Render JavaScript (slower, use for SPAs)
+      </label>
+      {error && <p className="text-xs text-error bg-error/8 rounded-lg px-2.5 py-1.5">{error}</p>}
+      {results.length > 0 && (
+        <div className="space-y-1 max-h-48 overflow-y-auto custom-scrollbar">
+          <div className="flex items-center justify-between text-xs text-on-surface-variant/60 px-0.5">
+            <span>{results.length} contact{results.length !== 1 ? 's' : ''} found</span>
+            <button
+              onClick={() => setSelected(selected.size === results.length ? new Set() : new Set(results.map((_, i) => i)))}
+              className="text-primary hover:underline"
+            >
+              {selected.size === results.length ? 'Deselect all' : 'Select all'}
+            </button>
+          </div>
+          {results.map((c, i) => (
+            <div
+              key={i}
+              onClick={() => {
+                const s = new Set(selected)
+                s.has(i) ? s.delete(i) : s.add(i)
+                setSelected(s)
+              }}
+              className={cn(
+                'flex items-start gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors border text-xs',
+                selected.has(i) ? 'bg-primary/8 border-primary/20' : 'border-transparent hover:bg-surface-variant/30'
+              )}
+            >
+              <CheckCircle2 className={cn('w-3.5 h-3.5 mt-0.5 shrink-0', selected.has(i) ? 'text-primary' : 'text-on-surface-variant/20')} />
+              <div className="min-w-0">
+                <p className="font-medium text-on-surface truncate">{c.name || '—'}</p>
+                <p className="text-on-surface-variant/60 truncate">{[c.company, c.email].filter(Boolean).join(' · ')}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-2">
+        {results.length === 0 ? (
+          <button
+            onClick={run}
+            disabled={running || !url.trim() || !apiKey.trim()}
+            className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-primary text-on-primary rounded-lg py-1.5 hover:bg-primary/90 disabled:opacity-40 transition-colors"
+          >
+            {running ? <><RefreshCw className="w-3 h-3 animate-spin" /> Scraping…</> : <><Eye className="w-3 h-3" /> Scrape</>}
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={run}
+              disabled={running}
+              className="px-3 text-xs bg-surface-container border border-outline-variant/20 text-on-surface-variant rounded-lg py-1.5 hover:bg-surface-variant transition-colors"
+            >
+              {running ? <RefreshCw className="w-3 h-3 animate-spin" /> : 'Re-scrape'}
+            </button>
+            <button
+              onClick={saveCsv}
+              disabled={selected.size === 0}
+              title="Save selected contacts as CSV"
+              className="px-3 text-xs bg-surface-container border border-outline-variant/20 text-on-surface-variant rounded-lg py-1.5 hover:bg-surface-variant disabled:opacity-40 transition-colors flex items-center gap-1.5"
+            >
+              <Download className="w-3 h-3" /> CSV
+            </button>
+            <button
+              onClick={importSelected}
+              disabled={importing || selected.size === 0}
+              className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-primary text-on-primary rounded-lg py-1.5 hover:bg-primary/90 disabled:opacity-40 transition-colors"
+            >
+              {importing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+              Import {selected.size > 0 ? `(${selected.size})` : ''}
+            </button>
+          </>
+        )}
+        <button onClick={() => { setOpen(false); setResults([]) }} className="px-3 text-xs text-on-surface-variant/60 hover:text-on-surface transition-colors">
           Cancel
         </button>
       </div>
@@ -297,6 +474,9 @@ function ContactsTab() {
 
       {/* Add form */}
       <AddContactForm onAdded={() => load(search)} />
+
+      {/* Scraper.do import */}
+      <ScraperImportForm onImported={() => load(search)} />
     </div>
   )
 }

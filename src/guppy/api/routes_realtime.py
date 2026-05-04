@@ -46,6 +46,78 @@ def _normalize_tool_calls(text: str) -> str:
     return _TOOL_CALL_XML_RE.sub(_to_json, text)
 
 
+async def _think_filter(source):
+    """Strip <think>...</think> reasoning blocks from a token SSE stream.
+
+    Hermes 4.3 36B has a hybrid thinking mode that leaks <think> blocks
+    even when the system prompt says not to. This filter removes them from
+    every token event before they reach the client, handling cases where
+    the opening/closing tags are split across multiple streaming tokens.
+    Non-token events (replace, error, done, tool_exec, heartbeats) pass through unchanged.
+    """
+    _buf = ""
+    _in_think = False
+    _OPEN = "<think>"
+    _CLOSE = "</think>"
+    _SAFE = len(_OPEN) - 1  # chars to keep buffered to avoid missing a split tag
+
+    async for event in source:
+        if not event.startswith("data: "):
+            yield event
+            continue
+        raw = event[5:].strip()
+        if not raw or raw == "[DONE]":
+            # Flush buffered content before forwarding the done signal.
+            # Without this, the last ≤6 chars in _buf would be emitted AFTER [DONE],
+            # which SSE clients break on — causing truncated responses like "was A" for "was AURORA".
+            if _buf and not _in_think:
+                yield f"data: {json.dumps({'token': _buf})}\n\n"
+                _buf = ""
+            yield event
+            continue
+        try:
+            obj = json.loads(raw)
+        except Exception:
+            yield event
+            continue
+
+        tok = obj.get("token")
+        if tok is None:
+            # replace, error, done, tool_exec — pass through unchanged
+            yield event
+            continue
+
+        _buf += tok
+        out = ""
+
+        while _buf:
+            if _in_think:
+                end = _buf.find(_CLOSE)
+                if end == -1:
+                    keep = min(len(_buf), len(_CLOSE) - 1)
+                    _buf = _buf[-keep:] if keep else ""
+                    break
+                _buf = _buf[end + len(_CLOSE):]
+                _in_think = False
+            else:
+                start = _buf.find(_OPEN)
+                if start == -1:
+                    safe_end = max(0, len(_buf) - _SAFE)
+                    out += _buf[:safe_end]
+                    _buf = _buf[safe_end:]
+                    break
+                out += _buf[:start]
+                _buf = _buf[start + len(_OPEN):]
+                _in_think = True
+
+        if out:
+            yield f"data: {json.dumps({**obj, 'token': out})}\n\n"
+
+    # Flush remaining buffer (only if not inside an unclosed think block)
+    if _buf and not _in_think:
+        yield f"data: {json.dumps({'token': _buf})}\n\n"
+
+
 async def _execute_companion_tool(name: str, args: dict) -> dict:
     """Execute one companion tool call. Returns a result dict."""
     import httpx
@@ -471,6 +543,10 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
     router = APIRouter()
     owner = ctx.owner
 
+    def _strip_think_from_text(text: str) -> str:
+        """Remove <think>...</think> blocks from a completed assistant response."""
+        return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
     def _persist_chat_memory(
         *,
         session_id: str | None,
@@ -481,6 +557,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
     ) -> None:
         if not session_id or not owner.GUPPY_MEMORY_AVAILABLE:
             return
+        assistant_text = _strip_think_from_text(assistant_text)
         try:
             owner.memory.save_message(
                 session_id,
@@ -810,17 +887,19 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     yield f"data: {json.dumps({'error': str(exc)})}\n\n"
                     return
 
-                if not first_response.strip():
-                    first_response = "Ready — what do you need?"
+                first_response_clean = _strip_think_from_text(first_response)
+                if not first_response_clean.strip():
+                    first_response_clean = "Ready — what do you need?"
+                    yield f"data: {json.dumps({'token': first_response_clean})}\n\n"
 
-                tool_blocks = _TOOL_CALL_RE.findall(_normalize_tool_calls(first_response))
+                tool_blocks = _TOOL_CALL_RE.findall(_normalize_tool_calls(first_response_clean))
 
                 if not tool_blocks:
-                    full_response = first_response
+                    full_response = first_response_clean
                     if _p1_tool_signal:
                         # A replace was sent (cache hit or false tool_call signal) —
                         # ensure the client has the correct final text.
-                        yield f"data: {json.dumps({'replace': first_response})}\n\n"
+                        yield f"data: {json.dumps({'replace': first_response_clean})}\n\n"
                     # Tokens already streamed for normal case — just signal done below.
                 else:
                     tool_results: list[dict] = []
@@ -882,7 +961,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
 
                     tool_result_text = "\n\n".join(_fmt_ws_result(r) for r in tool_results)
                     follow_up_history = list(request.history or []) + [
-                        {"role": "assistant", "content": first_response},
+                        {"role": "assistant", "content": first_response_clean},
                         {
                             "role": "user",
                             "content": (
@@ -902,7 +981,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     _p2_system += (
                         "\n\nYou have the tool results above. Give a clear, direct response. "
                         "State findings and conclusions without narrating what commands you ran. "
-                        "Do NOT emit any <tool_call> blocks."
+                        "Do NOT emit any <tool_call> blocks. Do NOT use <think> blocks."
                     )
 
                     try:
@@ -1000,18 +1079,26 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     yield f"data: {json.dumps({'error': str(exc)})}\n\n"
                     return
 
-                # If the model generated nothing, substitute a polite fallback so the
-                # frontend never receives an empty display.
-                if not first_response.strip():
-                    first_response = "I'm here — could you rephrase that?"
+                # Strip think blocks from first_response before tool detection.
+                # first_response accumulates raw tokens; _think_filter only strips
+                # them from the SSE stream (what the client sees), not from this variable.
+                # If the entire response was think content, the client already saw nothing —
+                # we need the fallback to fire correctly here too.
+                first_response_clean = _strip_think_from_text(first_response)
 
-                tool_blocks = _TOOL_CALL_RE.findall(_normalize_tool_calls(first_response))
+                # If the model generated nothing visible (all think content or empty),
+                # substitute a polite fallback so the frontend never receives an empty display.
+                if not first_response_clean.strip():
+                    first_response_clean = "I'm here — could you rephrase that?"
+                    yield f"data: {json.dumps({'token': first_response_clean})}\n\n"
+
+                tool_blocks = _TOOL_CALL_RE.findall(_normalize_tool_calls(first_response_clean))
 
                 if not tool_blocks:
-                    full_response = first_response
+                    full_response = first_response_clean
                     if _p1_tool_signal:
                         # Replace sent earlier (cache hit or false tool signal)
-                        yield f"data: {json.dumps({'replace': first_response})}\n\n"
+                        yield f"data: {json.dumps({'replace': first_response_clean})}\n\n"
                     # Normal case: tokens already streamed — done signal sent below
                 else:
                     # Execute each tool in sequence, emitting tool_exec status events
@@ -1077,7 +1164,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
 
                     tool_result_text = "\n\n".join(_fmt_result(r) for r in tool_results)
                     follow_up_history = list(request.history or []) + [
-                        {"role": "assistant", "content": first_response},
+                        {"role": "assistant", "content": first_response_clean},
                         {
                             "role": "user",
                             "content": f"Here are the results:\n\n{tool_result_text}",
@@ -1096,7 +1183,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                         "Respond as if you simply know the answer — don't say 'the tool returned' "
                         "or 'I executed get_time'. Just give Ryan the answer directly. "
                         "One to three sentences unless the task needs more. "
-                        "Do NOT emit any <tool_call> blocks."
+                        "Do NOT emit any <tool_call> blocks. Do NOT use <think> blocks."
                     )
                     try:
                         async for token in stream_unified_inference(
@@ -1227,7 +1314,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
 
             async def _drain() -> None:
                 try:
-                    async for chunk in _generate():
+                    async for chunk in _think_filter(_generate()):
                         await q.put(chunk)
                 except Exception as exc:
                     await q.put(exc)

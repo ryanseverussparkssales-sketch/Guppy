@@ -158,8 +158,8 @@ class TestContextBudgetGuard(unittest.TestCase):
         from src.guppy.api.realtime_inference_support import (
             _BACKEND_CONTEXT_TOKENS, _CHARS_PER_TOKEN
         )
-        rocinante_ctx = _BACKEND_CONTEXT_TOKENS["llamacpp-rocinante"]
-        budget_chars = int(rocinante_ctx * 0.85 * _CHARS_PER_TOKEN)
+        hermes4_ctx = _BACKEND_CONTEXT_TOKENS["llamacpp-hermes4"]
+        budget_chars = int(hermes4_ctx * 0.85 * _CHARS_PER_TOKEN)
 
         # Realistic companion turn: 15 turns × 200 chars avg = 3000 chars history
         # System prompt with injections: ~6000 chars
@@ -173,29 +173,29 @@ class TestContextBudgetGuard(unittest.TestCase):
         from src.guppy.api.realtime_inference_support import (
             _BACKEND_CONTEXT_TOKENS, _CHARS_PER_TOKEN
         )
-        rocinante_ctx = _BACKEND_CONTEXT_TOKENS["llamacpp-rocinante"]
-        budget_chars = int(rocinante_ctx * 0.85 * _CHARS_PER_TOKEN)
+        hermes4_ctx = _BACKEND_CONTEXT_TOKENS["llamacpp-hermes4"]
+        budget_chars = int(hermes4_ctx * 0.85 * _CHARS_PER_TOKEN)
 
-        # A pathological case: 100 very long turns
+        # A pathological case: 5000 very long turns (128K ctx is huge)
         simulated_system = "A" * 6000
-        simulated_history_chars = self._chars_for_turns(100, 500)
+        simulated_history_chars = self._chars_for_turns(5000, 500)
         total = len(simulated_system) + simulated_history_chars
         self.assertGreater(total, budget_chars,
             "Very long session should exceed budget and trigger guard")
 
-    def test_rocinante_context_larger_than_hermes3(self):
+    def test_hermes4_context_larger_than_hermes3(self):
         from src.guppy.api.realtime_inference_support import _BACKEND_CONTEXT_TOKENS
         self.assertGreater(
-            _BACKEND_CONTEXT_TOKENS["llamacpp-rocinante"],
+            _BACKEND_CONTEXT_TOKENS["llamacpp-hermes4"],
             _BACKEND_CONTEXT_TOKENS["llamacpp-hermes3"],
-            "Rocinante should have more context than Hermes3"
+            "Hermes4 (128K) should have more context than Hermes3 (8K)"
         )
 
-    def test_companion_history_limit_matches_rocinante(self):
-        """Companion history limit (20) should be larger than the old hermes3 limit (15)."""
+    def test_companion_history_limit_matches_hermes4(self):
+        """Companion history limit should be large given Hermes4's 128K context."""
         from src.guppy.api.realtime_inference_support import _SURFACE_HISTORY_LIMITS
         self.assertGreaterEqual(_SURFACE_HISTORY_LIMITS["companion"], 20,
-            "Companion history limit should be >= 20 now that Rocinante (16K) is primary")
+            "Companion history limit should be >= 20 given Hermes4 128K context")
 
 
 # ---------------------------------------------------------------------------

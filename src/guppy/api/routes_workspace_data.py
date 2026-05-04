@@ -223,4 +223,78 @@ def build_workspace_data_router(ctx: ServerContext) -> APIRouter:
         except Exception:
             return []
 
+    # ── Scraper.do integration ─────────────────────────────────────────────────
+
+    class ScraperRequest(BaseModel):
+        url: str
+        api_key: str
+        fields: list[str] = ["name", "company", "email", "phone", "title"]
+        render: bool = False
+
+    @router.post("/scraper/run")
+    async def run_scraper(
+        body: ScraperRequest,
+        _uid: str = Depends(ctx.require_rate_limit),
+    ):
+        """
+        Scrape a URL via scraper.do and extract structured contact data.
+        Returns a list of contact-shaped dicts ready to import into CRM.
+        """
+        if not body.url.strip():
+            raise HTTPException(400, "url is required")
+        if not body.api_key.strip():
+            raise HTTPException(400, "api_key is required")
+
+        # Build a schema description from requested fields
+        field_schema = ", ".join(f'"{f}": "string"' for f in body.fields)
+
+        # scraper.do AI extraction endpoint
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(
+                    "https://api.scraper.do/v1/extract",
+                    headers={
+                        "Authorization": f"Bearer {body.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "url": body.url,
+                        "render": body.render,
+                        "extractionPrompt": (
+                            f"Extract all people / contacts from this page as a JSON array. "
+                            f"Each entry should have these fields if present: {', '.join(body.fields)}. "
+                            f"Return only valid JSON array, no prose."
+                        ),
+                    },
+                )
+        except httpx.TimeoutException:
+            raise HTTPException(504, "scraper.do request timed out")
+        except Exception as e:
+            raise HTTPException(502, f"scraper.do request failed: {e}")
+
+        if resp.status_code not in (200, 201):
+            raise HTTPException(resp.status_code, f"scraper.do error: {resp.text[:300]}")
+
+        try:
+            data = resp.json()
+            # scraper.do returns { result: [...] } or the array directly
+            contacts = data.get("result", data) if isinstance(data, dict) else data
+            if not isinstance(contacts, list):
+                contacts = [contacts]
+            # Normalize to our contact schema
+            normalized = []
+            for c in contacts:
+                if not isinstance(c, dict):
+                    continue
+                normalized.append({
+                    "name":    str(c.get("name", "")).strip(),
+                    "company": str(c.get("company", "") or c.get("organization", "")).strip(),
+                    "email":   str(c.get("email", "")).strip(),
+                    "phone":   str(c.get("phone", "") or c.get("tel", "")).strip(),
+                    "notes":   str(c.get("title", "") or c.get("role", "") or c.get("notes", "")).strip(),
+                })
+            return {"ok": True, "count": len(normalized), "contacts": normalized}
+        except Exception as e:
+            raise HTTPException(500, f"Could not parse scraper.do response: {e}")
+
     return router

@@ -91,6 +91,8 @@ _CONVERSATION_SYSTEM_PROMPT_BASE = """
 You are Guppy in the dedicated Conversations surface: warm, direct, and useful.
 Answer naturally and keep continuity with the provided session history.
 
+RESPONSE LENGTH: Match complexity to the question. 1–2 sentences for simple or conversational messages. More detail only when the request is clearly technical or multi-part. No bullet lists for casual replies.
+
 If a tool is truly needed, emit a raw tool block in this exact form:
 <tool_call>{"name":"tool_name","arguments":{}}</tool_call>
 
@@ -303,15 +305,19 @@ _TOOL_CALL_RE = re.compile(
     r"(?:<tool_call>|<\|tool_call\|>)\s*(\{.*?\})\s*(?:</tool_call>|<\|tool_call\|>)",
     re.DOTALL,
 )
-_TOOL_START_MARKERS = ("<tool_call>", "<|tool_call|>")
+_TOOL_START_MARKERS = ("<tool_call>", "<|tool_call|>", "<think>")
 _TOOL_END_MARKERS = {
     "<tool_call>": "</tool_call>",
     "<|tool_call|>": "<|tool_call|>",
+    "<think>": "</think>",
 }
 
 
 def _strip_tool_blocks(text: str) -> str:
-    return _TOOL_CALL_RE.sub("", text).strip()
+    import re as _re
+    text = _TOOL_CALL_RE.sub("", text)
+    text = _re.sub(r"<think>.*?</think>", "", text, flags=_re.DOTALL)
+    return text.strip()
 
 
 def _marker_suffix_len(buffer: str) -> int:
@@ -413,6 +419,58 @@ async def _execute_and_format_conversation_tools(
             logger.exception(f"Tool parse/exec error: {e}")
 
     return results_markdown, tool_results
+
+
+async def _auto_generate_title(session_id: str, user_message: str) -> None:
+    """Generate a descriptive 4-7 word title using phi-4-mini (port 8091).
+
+    Fires as a background task after the first assistant response is saved.
+    Falls back to a truncated user message if phi-4-mini is unavailable.
+    """
+    try:
+        from src.guppy.api.routes_backends import _port_alive
+        title: str = ""
+        if _port_alive(8091):
+            import httpx
+            prompt = (
+                f"Write a short 4-7 word title for this conversation.\n"
+                f"First message: {user_message[:300]}\n"
+                f"Output ONLY the title text. No quotes, no punctuation at end."
+            )
+            payload = {
+                "model": "phi-4-mini",
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "max_tokens": 24,
+                "temperature": 0.3,
+            }
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                resp = await client.post(
+                    "http://127.0.0.1:8091/v1/chat/completions",
+                    json=payload,
+                )
+                resp.raise_for_status()
+                raw = (
+                    resp.json()
+                    .get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                    .strip()
+                )
+                title = raw.strip("\"'").split("\n")[0][:80].strip()
+
+        if not title:
+            title = user_message[:60].rstrip(" .,?!") or "Conversation"
+
+        with _db() as conn:
+            conn.execute(
+                "UPDATE conversation_sessions SET session_title = ? WHERE id = ?",
+                (title, session_id),
+            )
+            conn.commit()
+        logger.debug("[conversations] Auto-titled session %s → %r", session_id, title)
+    except Exception:
+        logger.debug("[conversations] Auto-title failed for session %s", session_id, exc_info=True)
 
 
 async def _with_keepalives(
@@ -707,6 +765,7 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
         # Save assistant message; auto-title on first exchange
         assistant_msg_id = str(uuid.uuid4())
         now = _now()
+        _needs_title = False
         with _db() as conn:
             conn.execute(
                 """INSERT INTO conversation_session_messages
@@ -722,12 +781,10 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                 "SELECT session_title FROM conversation_sessions WHERE id = ?", (session_id,)
             ).fetchone()
             if title_row and title_row[0].startswith("Session "):
-                new_title = req.message[:60].rstrip() or title_row[0]
-                conn.execute(
-                    "UPDATE conversation_sessions SET session_title = ? WHERE id = ?",
-                    (new_title, session_id),
-                )
+                _needs_title = True
             conn.commit()
+        if _needs_title:
+            asyncio.create_task(_auto_generate_title(session_id, req.message))
 
         return {
             "ok": True,
@@ -860,6 +917,8 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                             "Using the results above, answer the original question directly and concisely."
                         )
                         synthesis_text = ""
+                        _synth_buf = ""
+                        _synth_marker: str | None = None
                         try:
                             async with asyncio.timeout(90.0):
                                 async for token in _stream_conversation_inference(
@@ -869,14 +928,21 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                                     history=synthesis_history,
                                 ):
                                     synthesis_text += token
-                                    if token:
-                                        yield f"data: {json.dumps({'token': token})}\n\n"
+                                    _synth_buf += token
+                                    _chunks, _synth_buf, _synth_marker = _visible_stream_chunks(
+                                        _synth_buf, _synth_marker
+                                    )
+                                    for _chunk in _chunks:
+                                        if _chunk:
+                                            yield f"data: {json.dumps({'token': _chunk})}\n\n"
                         except asyncio.TimeoutError:
                             logger.warning("[conversations] Synthesis inference timed out (session %s)", session_id)
                             yield f"data: {json.dumps({'error': 'Synthesis timed out.'})}\n\n"
                         except asyncio.CancelledError:
                             logger.info("Client disconnected mid-stream — cancelling conversations synthesis inference")
                             return
+                        if _synth_buf and _synth_marker is None:
+                            yield f"data: {json.dumps({'token': _synth_buf})}\n\n"
 
                         final_response = (
                             (stripped_response.strip() + "\n\n" if stripped_response.strip() else "")
@@ -886,6 +952,7 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                 # Save assistant message; auto-title on first exchange
                 assistant_msg_id = str(uuid.uuid4())
                 save_now = _now()
+                _needs_title = False
                 with _db() as conn:
                     conn.execute(
                         """INSERT INTO conversation_session_messages
@@ -901,12 +968,10 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
                         "SELECT session_title FROM conversation_sessions WHERE id = ?", (session_id,)
                     ).fetchone()
                     if title_row and title_row[0].startswith("Session "):
-                        new_title = req.message[:60].rstrip() or title_row[0]
-                        conn.execute(
-                            "UPDATE conversation_sessions SET session_title = ? WHERE id = ?",
-                            (new_title, session_id),
-                        )
+                        _needs_title = True
                     conn.commit()
+                if _needs_title:
+                    asyncio.create_task(_auto_generate_title(session_id, req.message))
 
                 yield "data: [DONE]\n\n"
             except asyncio.CancelledError:

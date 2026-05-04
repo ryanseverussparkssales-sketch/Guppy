@@ -569,7 +569,7 @@ def _run_watchdog() -> None:
                 except Exception as exc:
                     logger.warning("[watchdog] idle-unload %s failed: %s", idle_name, exc)
 
-        time.sleep(60)
+        time.sleep(20)
 
 
 # ── router ────────────────────────────────────────────────────────────────────

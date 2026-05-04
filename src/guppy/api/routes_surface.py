@@ -640,7 +640,23 @@ async def _background_loop() -> None:
                     ) -> None:
                         global _task_executor_running
                         try:
-                            await _run_workspace_task(tid, ttl, desc, ptid, cbsurf)
+                            await asyncio.wait_for(
+                                _run_workspace_task(tid, ttl, desc, ptid, cbsurf),
+                                timeout=600,
+                            )
+                        except asyncio.TimeoutError:
+                            _bg_log.error(
+                                "[surface.bg] task %s timed out after 600s — marking failed", tid
+                            )
+                            try:
+                                if _DB_PATH:
+                                    with _db() as conn:
+                                        conn.execute(
+                                            "UPDATE tasks SET status='failed', updated_at=? WHERE id=?",
+                                            (datetime.now(timezone.utc).isoformat(), tid),
+                                        )
+                            except Exception:
+                                pass
                         finally:
                             _task_executor_running = False
 

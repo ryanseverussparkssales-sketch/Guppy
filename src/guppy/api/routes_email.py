@@ -85,6 +85,12 @@ def _conn() -> sqlite3.Connection:
 
 def _thread_row(r: sqlite3.Row) -> dict[str, Any]:
     import json as _json
+    import arrow
+    last_at = r["last_message_at"]
+    try:
+        last_human = arrow.get(last_at).humanize()
+    except Exception:
+        last_human = ""
     return {
         "id":             r["id"],
         "gmail_thread_id":r["gmail_thread_id"],
@@ -95,7 +101,8 @@ def _thread_row(r: sqlite3.Row) -> dict[str, Any]:
         "unread":         bool(r["unread"]),
         "starred":        bool(r["starred"]),
         "message_count":  r["message_count"],
-        "last_message_at":r["last_message_at"],
+        "last_message_at":last_at,
+        "last_message_at_human": last_human,
     }
 
 

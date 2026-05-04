@@ -703,8 +703,8 @@ class TestContextBudgetGuard(unittest.TestCase):
         from src.guppy.api.realtime_inference_support import (
             _BACKEND_CONTEXT_TOKENS, _CHARS_PER_TOKEN,
         )
-        ctx = _BACKEND_CONTEXT_TOKENS["llamacpp-rocinante"]
-        budget = int(ctx * 0.85 * _CHARS_PER_TOKEN)
+        ctx = _BACKEND_CONTEXT_TOKENS["llamacpp-hermes4"]
+        budget = int(ctx * 0.60 * _CHARS_PER_TOKEN)
         # 6KB system + 20 turns × 200 chars
         total = 6000 + 20 * 200
         self.assertLess(total, budget,
@@ -714,17 +714,17 @@ class TestContextBudgetGuard(unittest.TestCase):
         from src.guppy.api.realtime_inference_support import (
             _BACKEND_CONTEXT_TOKENS, _CHARS_PER_TOKEN,
         )
-        ctx = _BACKEND_CONTEXT_TOKENS["llamacpp-rocinante"]
-        budget = int(ctx * 0.85 * _CHARS_PER_TOKEN)
-        # 6KB system + 100 turns × 500 chars
-        total = 6000 + 100 * 500
+        ctx = _BACKEND_CONTEXT_TOKENS["llamacpp-hermes4"]
+        budget = int(ctx * 0.60 * _CHARS_PER_TOKEN)
+        # 6KB system + 700 turns × 500 chars — hermes4 128K = 314K char budget at 60%
+        total = 6000 + 700 * 500
         self.assertGreater(total, budget,
-            "100-turn × 500-char session must trigger the budget guard")
+            "700-turn × 500-char session must trigger the budget guard")
 
-    def test_rocinante_context_larger_than_hermes3(self):
+    def test_hermes4_context_larger_than_hermes3(self):
         from src.guppy.api.realtime_inference_support import _BACKEND_CONTEXT_TOKENS
         self.assertGreater(
-            _BACKEND_CONTEXT_TOKENS["llamacpp-rocinante"],
+            _BACKEND_CONTEXT_TOKENS["llamacpp-hermes4"],
             _BACKEND_CONTEXT_TOKENS["llamacpp-hermes3"],
         )
 

@@ -1,8 +1,7 @@
 """Surface-pinned routing for stream_unified_inference.
 
 Handles companion / workspace / codespace waterfall routing.
-Each surface has a fixed local-preference order and specific cloud-fallback
-tiers (free Mistral/Cohere first, then paid Haiku or Sonnet).
+Each surface has a fixed local-preference order; all inference is local-only.
 """
 from __future__ import annotations
 
@@ -11,9 +10,6 @@ from typing import Any, AsyncGenerator
 
 from src.guppy.inference.streaming_backends import (
     _stream_llamacpp_tokens,
-    _stream_mistral_tokens,
-    _stream_cohere_tokens,
-    _stream_claude_with_tools,
 )
 from src.guppy.inference.local_client import (
     _BACKENDS as _LOCAL_BACKENDS,
@@ -21,13 +17,18 @@ from src.guppy.inference.local_client import (
 )
 from src.guppy.inference._routing_shared import (
     _SOURCE_SENTINEL,
-    _get_cloud_api_key,
     _merged_openai_tools,
     build_router_messages,
     sanitize_chat_history,
 )
 
 _log = logging.getLogger(__name__)
+
+_SURFACE_TEMPS: dict[str, float] = {
+    "companion":  0.85,   # warmer — personality-first, creative
+    "workspace":  0.75,   # balanced — task-focused but flexible
+    "codespace":  0.60,   # precise — deterministic code generation
+}
 
 
 async def route_by_surface(
@@ -72,31 +73,30 @@ async def route_by_surface(
     def _sp_full_tools() -> list[dict] | None:
         return _merged_openai_tools(owner) if owner.GUPPY_CORE_AVAILABLE else None
 
-    # ── free cloud helpers ──
-    def _sp_free_cloud_key() -> tuple[str, str]:
-        """Return (provider, api_key) for first available free cloud provider."""
-        _mk = _get_cloud_api_key("mistral", owner)
-        if _mk:
-            return ("mistral", _mk)
-        _ck = _get_cloud_api_key("cohere", owner)
-        if _ck:
-            return ("cohere", _ck)
-        return ("", "")
+    def _sp_suppress_think(msgs: list[dict]) -> list[dict]:
+        """Suppress Qwen3/Hermes thinking mode via /no_think in both system and user messages.
 
-    async def _sp_stream_free_cloud(msgs: list[dict], tools, tr, label: str):
-        _prov, _key = _sp_free_cloud_key()
-        if not _key:
-            return
-        try:
-            if _prov == "mistral":
-                async for tok in _stream_mistral_tokens(_key, "mistral-small-latest", msgs):
-                    yield tok
-            else:
-                async for tok in _stream_cohere_tokens(_key, "command-r-plus", msgs):
-                    yield tok
-            yield _SOURCE_SENTINEL + _prov
-        except Exception as _fc_err:
-            _log.warning("Surface %s free cloud (%s) failed: %s", surface, _prov, _fc_err)
+        Qwen3-based models (including Hermes 4.3 36B Heretic) recognize /no_think
+        in either the system or the last user message via the chat template. We set
+        both so that thinking is disabled regardless of which the model checks first.
+        """
+        if not msgs:
+            return msgs
+        msgs = list(msgs)
+        # Prepend /no_think to system message so the chat template disables thinking
+        for i, m in enumerate(msgs):
+            if m.get("role") == "system":
+                if "/no_think" not in m["content"]:
+                    msgs[i] = {**m, "content": "/no_think\n\n" + m["content"]}
+                break
+        # Also append to last user message (belt-and-suspenders)
+        for i in range(len(msgs) - 1, -1, -1):
+            if msgs[i].get("role") == "user":
+                content = msgs[i]["content"]
+                if not content.endswith(" /no_think"):
+                    msgs[i] = {**msgs[i], "content": content + " /no_think"}
+                break
+        return msgs
 
     if surface == "companion":
         # Single primary model: Hermes 4.3 36B Heretic (llamacpp-hermes4, port 8086).
@@ -115,7 +115,7 @@ async def route_by_surface(
             _p1m = _sp_backend_alive(_p1_key)
             if not _p1m:
                 continue
-            _msgs = _sp_make_messages(_p1_key)
+            _msgs = _sp_suppress_think(_sp_make_messages(_p1_key))
             _tools = _sp_full_tools() if not skip_tools else None
             try:
                 _yielded = False
@@ -123,6 +123,9 @@ async def route_by_surface(
                     model=_p1m, backend=_p1_key,
                     messages=_msgs, tools=_tools, tool_runner=_sp_tool_runner,
                     max_tool_rounds=4,
+                    thinking_budget=0,
+                    max_tokens=8192,
+                    temperature=_SURFACE_TEMPS["companion"],
                 ):
                     yield tok
                     _yielded = True
@@ -131,39 +134,9 @@ async def route_by_surface(
                 yield _SOURCE_SENTINEL + f"{_p1_key}:{_p1m}"
                 return
             except RuntimeError as _e:
-                _log.warning("Companion %s failed: %s — trying cloud", _p1_key, _e)
+                _log.warning("Companion %s failed: %s — trying next", _p1_key, _e)
 
-        # Pass-2: free cloud (Mistral or Cohere)
-        _prov, _fck = _sp_free_cloud_key()
-        if _fck:
-            _msgs = _sp_make_messages()
-            try:
-                _free_model = "mistral-small-latest" if _prov == "mistral" else "command-r-plus"
-                _stream_fn = _stream_mistral_tokens if _prov == "mistral" else _stream_cohere_tokens
-                async for tok in _stream_fn(_fck, _free_model, _msgs):
-                    yield tok
-                yield _SOURCE_SENTINEL + _prov
-                return
-            except Exception as _fe:
-                _log.warning("Companion free cloud (%s) failed: %s", _prov, _fe)
-
-        # Pass-3: paid Haiku (cheap/fast companion fallback)
-        _ak = _get_cloud_api_key("anthropic", owner)
-        if _ak:
-            _msgs = _sp_make_messages()
-            try:
-                async for tok in _stream_claude_with_tools(
-                    api_key=_ak, model="claude-haiku-4-5-20251001",
-                    system_prompt=augmented_system, messages=_msgs,
-                    tools=None, tool_runner=_sp_tool_runner,
-                ):
-                    yield tok
-                yield _SOURCE_SENTINEL + "claude-haiku-4-5-20251001"
-                return
-            except Exception as _pe:
-                _log.warning("Companion paid Haiku failed: %s", _pe)
-
-        yield "⚠️ No backend available for companion surface."
+        yield "⚠️ No local model available for companion. Start llamacpp-hermes4 on port 8086."
         return
 
     elif surface == "workspace":
@@ -182,7 +155,7 @@ async def route_by_surface(
             _wm = _sp_backend_alive(_w_key)
             if not _wm:
                 continue
-            _msgs = _sp_make_messages(_w_key)
+            _msgs = _sp_suppress_think(_sp_make_messages(_w_key))
             # Small-context models (phi4-mini, dispatch at 4K ctx) can't fit workspace prompt + tools
             _is_small_ctx = _w_key in ("llamacpp-phi4-mini", "llamacpp-dispatch")
             _tools = (None if _is_small_ctx else _sp_full_tools()) if not skip_tools else None
@@ -192,6 +165,8 @@ async def route_by_surface(
                     model=_wm, backend=_w_key,
                     messages=_msgs, tools=_tools, tool_runner=_sp_tool_runner,
                     max_tool_rounds=8 if not _is_small_ctx else 3,
+                    thinking_budget=0,
+                    temperature=_SURFACE_TEMPS["workspace"],
                 ):
                     yield tok
                     _yielded = True
@@ -212,6 +187,8 @@ async def route_by_surface(
                     model=_h3m, backend="llamacpp-hermes3",
                     messages=_msgs, tools=_sp_full_tools(), tool_runner=_sp_tool_runner,
                     max_tool_rounds=2,
+                    thinking_budget=0,
+                    temperature=_SURFACE_TEMPS["workspace"],
                 ):
                     yield tok
                     _yielded = True
@@ -222,37 +199,7 @@ async def route_by_surface(
             except RuntimeError as _e:
                 _log.warning("Workspace hermes3 fallback failed: %s", _e)
 
-        # Pass-3: free cloud
-        _prov, _fck = _sp_free_cloud_key()
-        if _fck:
-            _msgs = _sp_make_messages()
-            try:
-                _free_model = "mistral-small-latest" if _prov == "mistral" else "command-r-plus"
-                _stream_fn = _stream_mistral_tokens if _prov == "mistral" else _stream_cohere_tokens
-                async for tok in _stream_fn(_fck, _free_model, _msgs):
-                    yield tok
-                yield _SOURCE_SENTINEL + _prov
-                return
-            except Exception as _fe:
-                _log.warning("Workspace free cloud (%s) failed: %s", _prov, _fe)
-
-        # Pass-4: paid Sonnet (capable workspace fallback)
-        _ak = _get_cloud_api_key("anthropic", owner)
-        if _ak:
-            _msgs = _sp_make_messages()
-            try:
-                async for tok in _stream_claude_with_tools(
-                    api_key=_ak, model="claude-sonnet-4-6",
-                    system_prompt=augmented_system, messages=_msgs,
-                    tools=_sp_full_tools(), tool_runner=_sp_tool_runner,
-                ):
-                    yield tok
-                yield _SOURCE_SENTINEL + "claude-sonnet-4-6"
-                return
-            except Exception as _pe:
-                _log.warning("Workspace paid Sonnet failed: %s", _pe)
-
-        yield "⚠️ No backend available for workspace surface."
+        yield "⚠️ No local model available for workspace. Start llamacpp-hermes4 on port 8086."
         return
 
     elif surface == "codespace":
@@ -268,13 +215,15 @@ async def route_by_surface(
             _wm = _sp_backend_alive(_w_key)
             if not _wm:
                 continue
-            _msgs = _sp_make_messages(_w_key)
+            _msgs = _sp_suppress_think(_sp_make_messages(_w_key))
             try:
                 _yielded = False
                 async for tok in _stream_llamacpp_tokens(
                     model=_wm, backend=_w_key,
                     messages=_msgs, tools=_sp_full_tools(), tool_runner=_sp_tool_runner,
                     max_tool_rounds=6,
+                    thinking_budget=0,
+                    temperature=_SURFACE_TEMPS["codespace"],
                 ):
                     yield tok
                     _yielded = True
@@ -285,35 +234,5 @@ async def route_by_surface(
             except RuntimeError as _e:
                 _log.warning("Codespace worker %s failed: %s — trying next", _w_key, _e)
 
-        # Free cloud fallback
-        _prov, _fck = _sp_free_cloud_key()
-        if _fck:
-            _msgs = _sp_make_messages()
-            try:
-                _free_model = "mistral-small-latest" if _prov == "mistral" else "command-r-plus"
-                _stream_fn = _stream_mistral_tokens if _prov == "mistral" else _stream_cohere_tokens
-                async for tok in _stream_fn(_fck, _free_model, _msgs):
-                    yield tok
-                yield _SOURCE_SENTINEL + _prov
-                return
-            except Exception as _fe:
-                _log.warning("Codespace free cloud (%s) failed: %s", _prov, _fe)
-
-        # Paid Sonnet
-        _ak = _get_cloud_api_key("anthropic", owner)
-        if _ak:
-            _msgs = _sp_make_messages()
-            try:
-                async for tok in _stream_claude_with_tools(
-                    api_key=_ak, model="claude-sonnet-4-6",
-                    system_prompt=augmented_system, messages=_msgs,
-                    tools=_sp_full_tools(), tool_runner=_sp_tool_runner,
-                ):
-                    yield tok
-                yield _SOURCE_SENTINEL + "claude-sonnet-4-6"
-                return
-            except Exception as _pe:
-                _log.warning("Codespace paid Sonnet failed: %s", _pe)
-
-        yield "⚠️ No backend available for codespace surface."
+        yield "⚠️ No local model available for codespace. Start llamacpp-hermes4 on port 8086."
         return

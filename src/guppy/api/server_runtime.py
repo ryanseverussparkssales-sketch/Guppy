@@ -557,6 +557,7 @@ _ROUTER_REGISTRY: list[tuple[str, str, str | None, str]] = [
     ("src.guppy.api.routes_workspace_data", "build_workspace_data_router", None,              "workspace_data /api/workspace/*"),
     ("src.guppy.api.routes_codespace",      "build_codespace_router",      None,              "codespace /api/codespace/*"),
     ("src.guppy.api.routes_voip",           "build_voip_router",           None,              "voip /api/voip/*"),
+    ("src.guppy.api.routes_vpn",            "build_vpn_router",            None,              "vpn /api/vpn/*"),
     ("src.guppy.api.routes_calendar",       "build_calendar_router",       None,              "calendar /api/calendar/*"),
     ("src.guppy.api.routes_email",          "build_email_router",          None,              "email /api/email/*"),
     ("src.guppy.api.routes_media",          "build_media_router",          None,              "media /api/media/*"),

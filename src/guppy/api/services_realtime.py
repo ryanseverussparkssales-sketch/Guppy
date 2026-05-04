@@ -155,7 +155,9 @@ def build_chat_system_prompt(
                 system_prompt += "\n\n" + str(row["system_prompt"]).strip()
         except Exception:
             pass
-    if resolved_surface in ("workspace", "chat", "") or not resolved_surface:
+    # workspace surface uses _WORKSPACE_TOOL_SCHEMA (routes_realtime) + _WORKSPACE_TOOL_PRIMER
+    # (context_injection) — skip the legacy bootstrap block to avoid triple tool-list bloat
+    if resolved_surface in ("chat", "") or (not resolved_surface):
         system_prompt += "\n\n" + _WORKSPACE_TOOL_BLOCK
     try:
         _persona_payload, overlay = owner.build_persona_prompt_overlay(

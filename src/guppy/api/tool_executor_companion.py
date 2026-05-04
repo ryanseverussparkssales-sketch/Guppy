@@ -24,9 +24,20 @@ def _store_outcome(name: str, args: dict, result: dict) -> None:
         pass
 
 
+_TOOL_ALIASES: dict[str, str] = {
+    "fetch_url":         "web_fetch",
+    "semantic_remember": "memory_write",
+    "memory_read":       "memory_recall",
+    "remember":          "memory_write",
+    "recall":            "memory_recall",
+}
+
+
 async def _execute_companion_tool(name: str, args: dict) -> dict:
     """Execute one companion tool call. Returns a result dict."""
     import httpx
+
+    name = _TOOL_ALIASES.get(name, name)
 
     if name == "web_fetch":
         from src.guppy.api.web_fetch_safe import safe_web_fetch

@@ -334,7 +334,9 @@ def build_media_router(ctx: ServerContext) -> APIRouter:
         ext       = Path(file.filename or "rec.wav").suffix or ".wav"
         dest_path = _REC_DIR / f"{rid}{ext}"
         data      = await file.read()
-        dest_path.write_bytes(data)
+        import aiofiles
+        async with aiofiles.open(dest_path, "wb") as _f:
+            await _f.write(data)
 
         now = datetime.now(timezone.utc).isoformat()
         rec_title = title or file.filename or f"Recording {now[:10]}"

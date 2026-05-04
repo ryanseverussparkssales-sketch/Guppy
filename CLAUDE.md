@@ -251,7 +251,7 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
   - **Hermes 4.3 36B Heretic** replaces both Rocinante (companion primary) and Hermes 4 14B (workspace/codespace) — one model, all three surfaces, port 8086
   - **`llamacpp-hermes4` key preserved** — no routing layer changes needed; backend config updated to point to 36B model and new launch bat
   - **History limits raised** — companion 20→50, workspace 40→80, codespace 30→60 (128K context window)
-  - **`_BACKEND_CONTEXT_TOKENS["llamacpp-hermes4"]`** → 131072 (was 16384 for 14B)
+  - **`_BACKEND_CONTEXT_TOKENS["llamacpp-hermes4"]`** → 32768 (matches `--ctx-size 32768` in launch-hermes-4_3-36b.bat; was 16384 for 14B)
   - **Voice fast-path simplified** — removed Hermes3 model override; brevity injection kept; single model handles all modes
   - **Companion `<think>` suppressed** — `_COMPANION_IDENTITY` ends with explicit "Do NOT use `<think>` blocks" directive; Hermes 4.3 36B has hybrid thinking mode that must be suppressed for conversational use
   - **Launch script** — `C:\llama-cpp\launch-hermes-4_3-36b.bat`; `--ctx-size 32768`, `--n-gpu-layers 99`; overflow to 96 GB RAM via CPU layers

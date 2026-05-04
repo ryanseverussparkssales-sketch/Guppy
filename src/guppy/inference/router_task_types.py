@@ -1,9 +1,8 @@
 """Task-type routing for stream_unified_inference.
 
 Handles tool_call / agentic / complex / simple / teaching waterfall routing.
-Each block tries its preferred local backend(s) and falls back to cloud when
-all local options are offline or fail.  Yields nothing if the task type does
-not match any block (caller continues to general routing).
+Each block tries its preferred local backend(s) in order; all inference is
+local-only (no cloud fallback).
 """
 from __future__ import annotations
 
@@ -13,7 +12,6 @@ from typing import Any, AsyncGenerator
 
 from src.guppy.inference.streaming_backends import (
     _stream_llamacpp_tokens,
-    _stream_claude_with_tools,
 )
 from src.guppy.inference.local_client import (
     _BACKENDS as _LOCAL_BACKENDS,
@@ -21,7 +19,6 @@ from src.guppy.inference.local_client import (
 )
 from src.guppy.inference._routing_shared import (
     _SOURCE_SENTINEL,
-    _get_cloud_api_key,
     _merged_openai_tools,
     build_router_messages,
     sanitize_chat_history,
@@ -48,8 +45,7 @@ class _RouteSpec:
     task_type: str
     backends: list[_BackendSpec]
     requires_core: bool = True
-    cloud_fallback: str = ""          # empty string = no cloud escalation
-    cloud_model: str = "claude-sonnet-4-6"
+    cloud_fallback: str = ""          # always empty — all inference is local-only
 
 
 # Ordered routing table.  The dispatcher tries backends left-to-right and
@@ -78,7 +74,7 @@ _ROUTE_TABLE: list[_RouteSpec] = [
             _BackendSpec("llamacpp-hermes4", label="Hermes 4",  max_tool_rounds=8),
         ],
         requires_core=True,
-        cloud_fallback="anthropic",
+        cloud_fallback="",
     ),
     # complex: Hermes 4 (always-on workspace agent) → Claude Sonnet.
     # 14B handles multi-step reasoning and tool chains; Sonnet is the cloud safety net.
@@ -88,7 +84,7 @@ _ROUTE_TABLE: list[_RouteSpec] = [
             _BackendSpec("llamacpp-hermes4", label="Hermes 4 workspace agent", max_tool_rounds=6),
         ],
         requires_core=True,
-        cloud_fallback="anthropic",
+        cloud_fallback="",
     ),
     # simple: Hermes 3 (fast 8B, uncensored) → Hermes 4 fallback.  No cloud escalation.
     _RouteSpec(
@@ -194,30 +190,4 @@ async def route_by_task_type(
                     spec.task_type, label, err,
                 )
 
-        if spec.cloud_fallback:
-            ak = _get_cloud_api_key(spec.cloud_fallback, owner)
-            if ak:
-                _log.info(
-                    "%s task: local backends offline, routing to %s (streaming)",
-                    spec.task_type, spec.cloud_model,
-                )
-                cloud_msgs = build_router_messages(augmented_system, user_text, clean_history)
-                cloud_tools = owner.core.TOOLS if owner.GUPPY_CORE_AVAILABLE else None
-                try:
-                    async for token in _stream_claude_with_tools(
-                        api_key=ak,
-                        model=spec.cloud_model,
-                        system_prompt=augmented_system,
-                        messages=cloud_msgs,
-                        tools=cloud_tools,
-                        tool_runner=_tool_runner,
-                    ):
-                        yield token
-                    yield _SOURCE_SENTINEL + spec.cloud_model
-                    return
-                except Exception as cloud_err:
-                    _log.warning(
-                        "%s cloud fallback (%s) failed: %s — continuing to local models",
-                        spec.task_type, spec.cloud_model, cloud_err,
-                    )
-        return  # spec matched; handled (even if all local + cloud failed)
+        return  # spec matched; all local backends tried

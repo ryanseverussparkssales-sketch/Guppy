@@ -7,7 +7,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Mic, MicOff, Volume2, VolumeX, StopCircle, ArrowUp,
-  Radio, RadioTower, RefreshCw, Paperclip, X,
+  Radio, RadioTower, RefreshCw, Paperclip, X, Bot, Navigation,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
@@ -56,6 +56,8 @@ export default function CompanionView() {
   const [vadSending, setVadSending]         = useState(false)
   const [imageFile, setImageFile]           = useState<File | null>(null)
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
+
+  const [isSteerMode, setIsSteerMode]   = useState(false)
 
   const abortRef    = useRef<AbortController | null>(null)
   const bottomRef   = useRef<HTMLDivElement>(null)
@@ -151,7 +153,19 @@ export default function CompanionView() {
     voice.stopSpeaking()
     setStreaming('')
     setIsSending(false)
+    setIsSteerMode(false)
   }, [voice])
+
+  const handleSteer = useCallback(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    voice.stopSpeaking()
+    setStreaming('')
+    setIsSending(false)
+    setIsSteerMode(true)
+    setInput('')
+    setTimeout(() => textareaRef.current?.focus(), 50)
+  }, [voice, textareaRef])
 
   const handleSend = useCallback(async (override?: string) => {
     const text = (override ?? input).trim()
@@ -174,6 +188,7 @@ export default function CompanionView() {
 
     setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'user', content: text }])
     if (!override) setInput('')
+    setIsSteerMode(false)
     setIsSending(true)
     setStreaming('')
 
@@ -332,51 +347,64 @@ export default function CompanionView() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-2 space-y-4">
-        <AnimatePresence initial={false}>
-          {messages.map((msg) => (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={cn('flex gap-3', msg.role === 'user' ? 'justify-end' : 'justify-start')}
-            >
-              <div className={cn(
-                'max-w-[85%] rounded-2xl px-4 py-3 text-sm',
-                msg.role === 'user'
-                  ? 'bg-primary text-on-primary rounded-br-sm'
-                  : 'bg-surface-container text-on-surface rounded-bl-sm',
-              )}>
-                {msg.role === 'assistant'
-                  ? <MarkdownMessage content={msg.content} />
-                  : <span className="leading-relaxed">{msg.content}</span>}
-              </div>
-            </motion.div>
-          ))}
+      <div className="flex-1 overflow-y-auto custom-scrollbar py-4">
+        <div className="max-w-2xl mx-auto px-4 space-y-5">
+          <AnimatePresence initial={false}>
+            {messages.map((msg) => (
+              <motion.div
+                key={msg.id}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.15 }}
+                className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start gap-3')}
+              >
+                {msg.role === 'assistant' && (
+                  <div className="w-7 h-7 rounded-full bg-primary-container flex items-center justify-center shrink-0 mt-0.5">
+                    <Bot className="w-4 h-4 text-primary" />
+                  </div>
+                )}
+                <div className={cn(
+                  msg.role === 'user'
+                    ? 'max-w-[78%] px-4 py-2.5 rounded-2xl rounded-tr-sm bg-primary text-white text-sm leading-relaxed'
+                    : 'flex-1 min-w-0 text-sm leading-relaxed text-on-surface',
+                )}>
+                  {msg.role === 'assistant'
+                    ? <MarkdownMessage content={msg.content} />
+                    : <span>{msg.content}</span>}
+                </div>
+              </motion.div>
+            ))}
 
-          {streaming && (
-            <motion.div key="streaming" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start">
-              <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-4 py-3 text-sm bg-surface-container text-on-surface">
-                <MarkdownMessage content={streaming} />
-                <span className="inline-block w-1.5 h-3 bg-primary/50 ml-0.5 animate-pulse rounded-sm" />
-              </div>
-            </motion.div>
-          )}
+            {streaming && (
+              <motion.div key="streaming" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3">
+                <div className="w-7 h-7 rounded-full bg-primary-container flex items-center justify-center shrink-0 mt-0.5">
+                  <Bot className="w-4 h-4 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0 text-sm leading-relaxed text-on-surface">
+                  <MarkdownMessage content={streaming} />
+                  <span className="inline-block w-1.5 h-3 bg-primary/50 ml-0.5 animate-pulse rounded-sm" />
+                </div>
+              </motion.div>
+            )}
 
-          {isSending && !streaming && (
-            <motion.div key="thinking" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
-              <div className="rounded-2xl rounded-bl-sm px-4 py-3 bg-surface-container">
-                <div className="flex gap-1">
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-bounce"
-                      style={{ animationDelay: `${i * 0.15}s` }} />
+            {isSending && !streaming && (
+              <motion.div key="thinking" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-3">
+                <div className="w-7 h-7 rounded-full bg-primary-container flex items-center justify-center shrink-0 mt-0.5 relative">
+                  <Bot className="w-4 h-4 text-primary" />
+                  <span className="absolute inset-0 rounded-full border border-primary/30 animate-ping" style={{ animationDuration: '1.6s' }} />
+                </div>
+                <div className="flex items-center gap-1.5 py-1.5">
+                  <span className="text-sm text-on-surface-variant/60">Thinking</span>
+                  {[0, 180, 360].map((d) => (
+                    <span key={d} className="w-1 h-1 rounded-full bg-primary/50 animate-bounce"
+                      style={{ animationDelay: `${d}ms`, animationDuration: '1s' }} />
                   ))}
                 </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <div ref={bottomRef} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <div ref={bottomRef} />
+        </div>
       </div>
 
       {/* Hidden file input for image attachment */}
@@ -399,6 +427,27 @@ export default function CompanionView() {
 
       {/* Input bar */}
       <div className="flex-shrink-0 px-4 pb-5 pt-3 border-t border-outline-variant/10">
+        {/* Stop / Steer action strip — shown while generating */}
+        {isSending && (
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              type="button"
+              onClick={handleStop}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-error/10 text-error hover:bg-error/20 text-xs font-medium transition-colors"
+            >
+              <StopCircle className="w-3.5 h-3.5" />
+              Stop
+            </button>
+            <button
+              type="button"
+              onClick={handleSteer}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 text-xs font-medium transition-colors"
+            >
+              <Navigation className="w-3.5 h-3.5" />
+              Steer
+            </button>
+          </div>
+        )}
         {/* Image thumbnail preview */}
         {imagePreviewUrl && (
           <div className="flex items-center gap-2 mb-2 px-1">
@@ -416,7 +465,18 @@ export default function CompanionView() {
             <span className="text-xs text-on-surface-variant/50 truncate max-w-[160px]">{imageFile?.name}</span>
           </div>
         )}
-        <div className="flex items-end gap-2 bg-surface-container rounded-2xl px-3 py-2 border border-outline-variant/20 focus-within:border-primary/40 transition-colors">
+        <div className={cn(
+          "flex flex-col bg-surface-container rounded-2xl border transition-colors",
+          isSteerMode
+            ? "border-amber-500/60 ring-1 ring-amber-500/20"
+            : "border-outline-variant/20 focus-within:border-primary/40"
+        )}>
+          {isSteerMode && (
+            <div className="px-3 pt-2 text-[11px] text-amber-600 font-semibold tracking-wide">
+              ↗ STEERING — redirect the conversation
+            </div>
+          )}
+          <div className="flex items-end gap-2 px-3 py-2">
           <textarea
             ref={textareaRef}
             value={input}
@@ -425,6 +485,7 @@ export default function CompanionView() {
             placeholder={
               vadSending ? 'Sending…' :
               voice.isListening ? 'Listening…' :
+              isSteerMode ? 'Where should we go instead?' :
               'Say something or type…'
             }
             rows={1}
@@ -479,19 +540,13 @@ export default function CompanionView() {
             </button>
           )}
 
-          {/* Send / Stop */}
-          {isSending ? (
-            <button type="button" onClick={handleStop} title="Stop"
-              className="p-2 mb-1 rounded-xl bg-error/10 text-error hover:bg-error/20 transition-colors flex-shrink-0">
-              <StopCircle className="w-4 h-4" />
-            </button>
-          ) : (
-            <button type="button" onClick={() => handleSend()} title="Send"
-              disabled={!input.trim()}
-              className="p-2 mb-1 rounded-xl bg-primary text-on-primary disabled:opacity-30 hover:bg-primary/90 transition-colors flex-shrink-0">
-              <ArrowUp className="w-4 h-4" />
-            </button>
-          )}
+          {/* Send */}
+          <button type="button" onClick={() => handleSend()} title="Send"
+            disabled={isSending || !input.trim()}
+            className="p-2 mb-1 rounded-xl bg-primary text-on-primary disabled:opacity-30 hover:bg-primary/90 transition-colors flex-shrink-0">
+            <ArrowUp className="w-4 h-4" />
+          </button>
+          </div>
         </div>
 
         <div className="flex items-center justify-between mt-1.5 px-1">

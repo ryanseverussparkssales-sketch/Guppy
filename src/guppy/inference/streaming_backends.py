@@ -12,10 +12,21 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 
 import httpx
 from typing import Any, AsyncGenerator
+
+# Inter-token stall: abort if no token arrives within this many seconds.
+# Catches mid-stream hangs where llama.cpp stops producing but doesn't close the stream.
+_INTER_TOKEN_TIMEOUT = float(os.environ.get("GUPPY_INTER_TOKEN_TIMEOUT_S", "45"))
+
+# Per-tool-call timeout: how long a single tool execution may take.
+_TOOL_EXEC_TIMEOUT = float(os.environ.get("GUPPY_TOOL_EXEC_TIMEOUT_S", "30"))
+
+# Pre-flight liveness timeout: fast port check before sending to a backend.
+_PREFLIGHT_TIMEOUT = float(os.environ.get("GUPPY_PREFLIGHT_TIMEOUT_S", "2.0"))
 
 from src.guppy.inference.local_client import (
     _BACKENDS as _LOCAL_BACKENDS,
@@ -24,6 +35,20 @@ from src.guppy.inference.local_client import (
 from src.guppy.inference.context_injection import _bg_store_tool_outcome  # noqa: F401 re-exported
 
 _log = logging.getLogger(__name__)
+
+
+# ── Pre-flight liveness check ─────────────────────────────────────────────────
+
+async def _check_backend_alive(backend: str) -> bool:
+    """Return True if the backend's /health endpoint responds within _PREFLIGHT_TIMEOUT."""
+    base = _local_resolve_url(backend)
+    try:
+        async with httpx.AsyncClient(timeout=_PREFLIGHT_TIMEOUT) as client:
+            resp = await client.get(f"{base}/health")
+            return resp.status_code == 200
+    except Exception:
+        return False
+
 
 # ── OOM detection ─────────────────────────────────────────────────────────────
 
@@ -275,6 +300,9 @@ async def _stream_llamacpp_tokens(
     _loop_history: list[str] | None = None,
     escalate_on_all_tool_errors: bool = False,
     grammar: str | None = None,
+    thinking_budget: int | None = None,
+    max_tokens: int = 4096,
+    temperature: float = 0.8,
 ) -> AsyncGenerator[str, None]:
     """Yield content tokens from a llama.cpp OpenAI-compatible SSE stream.
 
@@ -292,6 +320,12 @@ async def _stream_llamacpp_tokens(
     cfg = _LOCAL_BACKENDS.get(backend, {})
     url = f"{_local_resolve_url(backend)}{cfg.get('chat_path', '/v1/chat/completions')}"
 
+    # Pre-flight: fail fast if the backend is down rather than waiting for httpx timeout
+    if not await _check_backend_alive(backend):
+        raise RuntimeError(
+            f"llama.cpp backend '{backend}' is not responding — is the server running?"
+        )
+
     current_messages = list(messages)
     # Loop detection: track (name, args_fingerprint) per round.
     # Two identical consecutive call-sets = model is stuck; break early.
@@ -302,15 +336,19 @@ async def _stream_llamacpp_tokens(
             "model": model,
             "messages": current_messages,
             "stream": True,
-            "max_tokens": 2048,
-            "temperature": 0.8,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
             "top_p": 0.95,
+            "min_p": 0.05,
+            "repeat_penalty": 1.05,
         }
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
         if grammar:
             payload["grammar"] = grammar
+        if thinking_budget is not None:
+            payload["budget_tokens"] = thinking_budget
 
         full_content = ""
         tool_calls_acc: dict[int, dict] = {}   # delta index → accumulated call
@@ -320,7 +358,19 @@ async def _stream_llamacpp_tokens(
             async with httpx.AsyncClient(timeout=timeout) as client:
                 async with client.stream("POST", url, json=payload) as response:
                     response.raise_for_status()
-                    async for raw_line in response.aiter_lines():
+                    _line_iter = response.aiter_lines()
+                    while True:
+                        try:
+                            raw_line = await asyncio.wait_for(
+                                _line_iter.__anext__(), timeout=_INTER_TOKEN_TIMEOUT
+                            )
+                        except asyncio.TimeoutError:
+                            raise RuntimeError(
+                                f"llama.cpp backend '{backend}' stalled — "
+                                f"no data for {_INTER_TOKEN_TIMEOUT:.0f}s mid-stream"
+                            )
+                        except StopAsyncIteration:
+                            break
                         line = raw_line.strip()
                         if not line or not line.startswith("data: "):
                             continue
@@ -415,14 +465,20 @@ async def _stream_llamacpp_tokens(
                     args = {}
 
                 try:
-                    result = await asyncio.to_thread(
-                        tool_runner, name, args if isinstance(args, dict) else {}
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            tool_runner, name, args if isinstance(args, dict) else {}
+                        ),
+                        timeout=_TOOL_EXEC_TIMEOUT,
                     )
                     result_str = str(result)
                     _round_all_errors = False
                     # Persist outcome to semantic memory (background, non-blocking)
                     if len(result_str) > 50:
                         _bg_store_tool_outcome(name, args if isinstance(args, dict) else {}, result_str)
+                except asyncio.TimeoutError:
+                    result_str = f"[tool timeout: {name} did not complete within {_TOOL_EXEC_TIMEOUT:.0f}s]"
+                    _log.warning("Tool %r timed out after %.0fs", name, _TOOL_EXEC_TIMEOUT)
                 except Exception as exc:
                     result_str = f"[tool error: {exc}]"
                     _log.warning("llamacpp tool_runner(%r) error: %s", name, exc)

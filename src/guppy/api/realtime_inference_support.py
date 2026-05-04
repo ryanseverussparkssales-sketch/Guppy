@@ -231,7 +231,7 @@ _SURFACE_HISTORY_LIMITS: dict[str, int] = {
 # current user message + model response headroom.
 _BACKEND_CONTEXT_TOKENS: dict[str, int] = {
     "llamacpp-hermes3":    8192,    # Hermes 3 8B — 8K context (on-demand fallback)
-    "llamacpp-hermes4":  131072,    # Hermes 4.3 36B Heretic — 128K practical (512K max)
+    "llamacpp-hermes4":   32768,    # Hermes 4.3 36B Heretic — ctx-size from launch-hermes-4_3-36b.bat
     "llamacpp-dispatch":   4096,    # Qwen2.5-3B — 4K context
     "llamacpp-phi4-mini": 131072,   # Phi-4-mini — 128K context
     "llamacpp-pepe":       8192,    # Assistant Pepe 8B

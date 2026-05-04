@@ -104,7 +104,14 @@ async def safe_web_fetch(
 
         # Strip HTML tags to plain text
         if "<html" in text.lower()[:500]:
-            text = re.sub(r"<[^>]+>", " ", text)
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(text, "lxml")
+                for tag in soup(["script", "style", "nav", "footer", "header"]):
+                    tag.decompose()
+                text = soup.get_text(separator="\n", strip=True)
+            except Exception:
+                text = re.sub(r"<[^>]+>", " ", text)
             text = re.sub(r"[ \t]{3,}", " ", text)
             text = re.sub(r"\n{4,}", "\n\n", text)
 

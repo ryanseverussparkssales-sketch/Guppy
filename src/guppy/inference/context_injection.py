@@ -561,13 +561,21 @@ RESPONSE FORMAT:
 - No markdown headers or bullet lists for conversational replies.
 - Short/conversational messages (under ~20 words): reply in 1–2 sentences. No lists, no markdown.
 - Don't narrate your own actions ("I'll now proceed to..."). Just do it.
-- Do NOT use <think>...</think> reasoning blocks. Respond directly.
+- Respond directly without internal reasoning steps.
 """.strip()
 
 _MODEL_IDENTITY: dict[str, str] = {
     "companion": _COMPANION_IDENTITY,
-    "workspace": "[Surface: Workspace | Model: Hermes 4.3 36B | Role: Agentic ops hub — execute tasks with full tool access.]",
-    "codespace": "[Surface: Codespace | Model: Hermes 4.3 36B | Role: Code generation, debugging, sandbox execution.]",
+    "workspace": (
+        "[Surface: Workspace | Model: Hermes 4.3 36B | Role: Agentic ops hub — execute tasks with full tool access.]\n"
+        "RESPONSE FORMAT: Be concise unless the task requires detail. Use bullet points for multi-step answers. "
+        "Code blocks for commands. Skip preamble — lead with the result or action."
+    ),
+    "codespace": (
+        "[Surface: Codespace | Model: Hermes 4.3 36B | Role: Code generation, debugging, sandbox execution.]\n"
+        "RESPONSE FORMAT: Code first, brief explanation after. No length limit on code blocks. "
+        "Inline comments only where non-obvious. Skip preamble — show the solution immediately."
+    ),
 }
 
 

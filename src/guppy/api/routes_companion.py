@@ -85,12 +85,12 @@ _WORKSPACE_DELEGATION = (
 )
 
 PERSONALITY_PRESETS: dict[str, dict[str, str]] = {
-    "sharp": {
-        "label":       "Sharp (Hermes 3)",
-        "model":       "llamacpp-hermes3",
+    "smart": {
+        "label":       "Smart (Hermes 4.3)",
+        "model":       "llamacpp-hermes4",
         "backend":     "llamacpp",
         "mode":        "local",
-        "description": "Direct, fast, uncensored. Best for quick back-and-forth.",
+        "description": "Default mode. Sharp, direct, capable — full Hermes 4.3 36B. Best all-around.",
         "system_prompt": (
             "You are Guppy — sharp, direct, uncensored. No filler, no lectures. "
             "Answer the question. If you don't know, say so. "
@@ -267,7 +267,7 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
         # Find which preset matches the current model
         active_preset = next(
             (k for k, v in PERSONALITY_PRESETS.items() if v["model"] == current_model),
-            "sharp",
+            "smart",
         )
 
         return {

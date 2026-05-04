@@ -32,6 +32,7 @@ import { AutomationPanel } from '@/components/workspace/AutomationPanel'
 import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
 import { DocumentsPanel } from '@/components/workspace/DocumentsPanel'
 import { ToolsPanel } from '@/components/workspace/ToolsPanel'
+import { VPNPanel } from '@/components/workspace/VPNPanel'
 import { MemoryPanel } from '@/components/workspace/MemoryPanel'
 import AssistantChat from './AssistantView'
 
@@ -281,9 +282,14 @@ export default function WorkspaceView() {
           )}
 
           {activeTab === 'pc' && (
-            <div className="h-full overflow-y-auto p-4">
+            <div className="h-full overflow-y-auto">
               <ErrorBoundary fallback={<PanelFallback label="System Metrics" />}>
-                <SystemMetricsPanel />
+                <div className="p-4 border-b border-outline-variant/15">
+                  <SystemMetricsPanel />
+                </div>
+              </ErrorBoundary>
+              <ErrorBoundary fallback={<PanelFallback label="VPN" />}>
+                <VPNPanel />
               </ErrorBoundary>
             </div>
           )}

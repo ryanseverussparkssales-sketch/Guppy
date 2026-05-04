@@ -144,12 +144,16 @@ def test_local_runtime_status_collapses_removed_backend_config_to_llamacpp_regis
         clear=False,
     ), patch.object(
         services_runtime_local,
-        "probe_backends",
+        "_probe_backends_cached",  # patch the cached wrapper, not probe_backends (bypassed by module cache)
         return_value={"llamacpp-hermes3": True, "llamacpp-hermes4": False},
     ), patch.object(
         services_runtime_local,
         "list_local_models",
         return_value=["hermes-3-8b-lorablated"],
+    ), patch.object(
+        guppy_api,
+        "_local_runtime_warm_cached_or_unknown",  # warm cache may be contaminated by prior tests
+        return_value={"chat_ready": False, "chat_state": "UNKNOWN", "chat_detail": "", "model": ""},
     ):
         payload = guppy_api._build_local_runtime_status()
 
