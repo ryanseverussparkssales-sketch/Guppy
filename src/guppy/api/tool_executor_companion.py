@@ -1,11 +1,11 @@
 """Companion surface tool executor.
 
-All tools available to the companion surface (Hermes 3). Shared tools are
-called directly from here; workspace-specific tools live in
-tool_executor_workspace.py.
+All tools available to the companion surface. Desktop control tools require
+GUPPY_DESKTOP_CONTROL=1 env var and pyautogui installed.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 
@@ -189,6 +189,74 @@ async def _execute_companion_tool(name: str, args: dict) -> dict:
             "date": now.strftime("%A, %B %d, %Y"),
             "iso": now.isoformat(),
         }
+
+    # ── Desktop vision & control ───────────────────────────────────────────────
+
+    if name == "desktop_screenshot":
+        question = str(args.get("question", "Describe everything you can see on the screen in detail.")).strip()
+        region   = args.get("region") or None
+        try:
+            from src.guppy.api.routes_desktop import _sync_read_screen
+            description = await asyncio.to_thread(_sync_read_screen, region, question, 82)
+            return {"ok": True, "description": description}
+        except Exception as exc:
+            return {"ok": False, "error": getattr(exc, "detail", str(exc))}
+
+    if name == "desktop_click":
+        if not os.environ.get("GUPPY_DESKTOP_CONTROL"):
+            return {"ok": False, "error": "Desktop control is disabled — set GUPPY_DESKTOP_CONTROL=1 to enable."}
+        description = str(args.get("description", "")).strip()
+        x = args.get("x")
+        y = args.get("y")
+        try:
+            from src.guppy.api.routes_desktop import _sync_click
+            from src.guppy.workspace import screen_parser
+            if description and x is None:
+                coords = await asyncio.to_thread(screen_parser.ground_click, description)
+                if not coords:
+                    return {"ok": False, "error": f"Could not find '{description}' on screen"}
+                x, y = coords
+            result_msg = await asyncio.to_thread(_sync_click, int(x), int(y), "left", 1, 0.1)
+            return {"ok": True, "result": result_msg}
+        except Exception as exc:
+            return {"ok": False, "error": getattr(exc, "detail", str(exc))}
+
+    if name == "desktop_type":
+        if not os.environ.get("GUPPY_DESKTOP_CONTROL"):
+            return {"ok": False, "error": "Desktop control is disabled — set GUPPY_DESKTOP_CONTROL=1 to enable."}
+        text = str(args.get("text", "")).strip()
+        if not text:
+            return {"ok": False, "error": "text required"}
+        try:
+            from src.guppy.api.routes_desktop import _sync_type
+            result_msg = await asyncio.to_thread(_sync_type, text[:2000], 0.03)
+            return {"ok": True, "result": result_msg}
+        except Exception as exc:
+            return {"ok": False, "error": getattr(exc, "detail", str(exc))}
+
+    if name == "desktop_shortcut":
+        if not os.environ.get("GUPPY_DESKTOP_CONTROL"):
+            return {"ok": False, "error": "Desktop control is disabled — set GUPPY_DESKTOP_CONTROL=1 to enable."}
+        keys = str(args.get("keys", "")).strip()
+        if not keys:
+            return {"ok": False, "error": "keys required (e.g. 'ctrl+c', 'win+d')"}
+        try:
+            from src.guppy.api.routes_desktop import _sync_shortcut
+            result_msg = await asyncio.to_thread(_sync_shortcut, keys)
+            return {"ok": True, "result": result_msg}
+        except Exception as exc:
+            return {"ok": False, "error": getattr(exc, "detail", str(exc))}
+
+    if name == "desktop_scroll":
+        x      = int(args.get("x", 0))
+        y      = int(args.get("y", 0))
+        clicks = int(args.get("clicks", 3))
+        try:
+            from src.guppy.api.routes_desktop import _sync_scroll
+            result_msg = await asyncio.to_thread(_sync_scroll, x, y, clicks)
+            return {"ok": True, "result": result_msg}
+        except Exception as exc:
+            return {"ok": False, "error": getattr(exc, "detail", str(exc))}
 
     result = {"ok": False, "error": f"Unknown tool: {name}"}
     _store_outcome(name, args, result)

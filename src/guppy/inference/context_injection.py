@@ -333,6 +333,30 @@ user's request clearly calls for them — don't make them ask twice.
   WHEN: user asks to download a file, torrent, magnet link, or media via qBittorrent.
   EXAMPLE: <tool_call>{"name": "download_media", "arguments": {"url": "magnet:?xt=urn:btih:...", "category": "books"}}</tool_call>
 
+• desktop_screenshot(question?, region?)
+  WHEN: user asks you to look at their screen, read something on screen, describe what's
+  open, check an error message, or "take a screenshot". Runs vision to answer the question.
+  region options: "full" | "active_window" | "top" | "bottom" | "left" | "right"
+  EXAMPLE: <tool_call>{"name": "desktop_screenshot", "arguments": {"question": "What error message is shown?"}}</tool_call>
+  EXAMPLE: <tool_call>{"name": "desktop_screenshot", "arguments": {"question": "What is currently open?", "region": "active_window"}}</tool_call>
+
+• desktop_click(description?, x?, y?)
+  WHEN: user asks you to click something on screen. Requires GUPPY_DESKTOP_CONTROL=1.
+  Prefer description (grounded by vision) over raw coordinates.
+  EXAMPLE: <tool_call>{"name": "desktop_click", "arguments": {"description": "Submit button"}}</tool_call>
+
+• desktop_type(text)
+  WHEN: user asks you to type something. Requires GUPPY_DESKTOP_CONTROL=1.
+  EXAMPLE: <tool_call>{"name": "desktop_type", "arguments": {"text": "Hello world"}}</tool_call>
+
+• desktop_shortcut(keys)
+  WHEN: user asks you to press a keyboard shortcut. Requires GUPPY_DESKTOP_CONTROL=1.
+  EXAMPLE: <tool_call>{"name": "desktop_shortcut", "arguments": {"keys": "ctrl+c"}}</tool_call>
+
+• desktop_scroll(x?, y?, clicks?)
+  WHEN: user asks to scroll the screen. Positive clicks = up, negative = down.
+  EXAMPLE: <tool_call>{"name": "desktop_scroll", "arguments": {"clicks": -5}}</tool_call>
+
 CONVERSATION HISTORY: If the user refers to something said earlier ("what did I ask",
 "remember when I said", "what was the last thing"), look at the prior messages above —
 the answer is already there. Do NOT say "you haven't sent anything yet."

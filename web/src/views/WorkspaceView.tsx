@@ -29,6 +29,7 @@ import { MediaLibraryPanel } from '@/components/workspace/MediaLibraryPanel'
 import { TaskManagerPanel } from '@/components/workspace/TaskManagerPanel'
 import { TaskPanel } from '@/components/workspace/TaskPanel'
 import { AutomationPanel } from '@/components/workspace/AutomationPanel'
+import { PCControlPanel } from '@/components/workspace/PCControlPanel'
 import { DocumentDropZone } from '@/components/shared/DocumentDropZone'
 import { DocumentsPanel } from '@/components/workspace/DocumentsPanel'
 import { ToolsPanel } from '@/components/workspace/ToolsPanel'
@@ -290,6 +291,9 @@ export default function WorkspaceView() {
               </ErrorBoundary>
               <ErrorBoundary fallback={<PanelFallback label="VPN" />}>
                 <VPNPanel />
+              </ErrorBoundary>
+              <ErrorBoundary fallback={<PanelFallback label="Desktop Control" />}>
+                <PCControlPanel />
               </ErrorBoundary>
             </div>
           )}

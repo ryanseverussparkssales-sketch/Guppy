@@ -10,6 +10,7 @@ GET  /api/workspace/pipeline/templates — available pipeline templates
 """
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from typing import Any
@@ -278,10 +279,26 @@ def build_workspace_data_router(ctx: ServerContext) -> APIRouter:
         try:
             data = resp.json()
             # scraper.do returns { result: [...] } or the array directly
-            contacts = data.get("result", data) if isinstance(data, dict) else data
-            if not isinstance(contacts, list):
-                contacts = [contacts]
-            # Normalize to our contact schema
+            raw_result = data.get("result", data) if isinstance(data, dict) else data
+
+            # ── Try xLAM-structured extraction first ─────────────────────────
+            # xLAM-2-8B is purpose-built for this; falls back to regex if offline.
+            raw_text = (
+                json.dumps(raw_result) if isinstance(raw_result, (list, dict))
+                else str(raw_result)
+            )
+            xlam_contacts: list[dict] = []
+            try:
+                from src.guppy.inference.xlam_extractor import extract_contacts
+                xlam_contacts = await extract_contacts(raw_text)
+            except Exception:
+                pass
+
+            if xlam_contacts:
+                return {"ok": True, "count": len(xlam_contacts), "contacts": xlam_contacts, "extractor": "xlam"}
+
+            # ── Regex/dict fallback ───────────────────────────────────────────
+            contacts = raw_result if isinstance(raw_result, list) else [raw_result]
             normalized = []
             for c in contacts:
                 if not isinstance(c, dict):
@@ -293,7 +310,7 @@ def build_workspace_data_router(ctx: ServerContext) -> APIRouter:
                     "phone":   str(c.get("phone", "") or c.get("tel", "")).strip(),
                     "notes":   str(c.get("title", "") or c.get("role", "") or c.get("notes", "")).strip(),
                 })
-            return {"ok": True, "count": len(normalized), "contacts": normalized}
+            return {"ok": True, "count": len(normalized), "contacts": normalized, "extractor": "regex"}
         except Exception as e:
             raise HTTPException(500, f"Could not parse scraper.do response: {e}")
 
