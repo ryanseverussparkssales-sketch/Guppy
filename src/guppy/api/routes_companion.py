@@ -327,53 +327,110 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
         _uid: str = Depends(ctx.require_rate_limit),
     ):
         """
-        Accept text + optional image, route to minicpm vision model via /api/chat.
+        Accept text + optional image → MiniCPM-o 4.5 Omni on port 8084.
+        Auto-starts MiniCPM-o if not running (on-demand, idles out after 5 min).
         Returns a streaming SSE response so the frontend can display tokens progressively.
         """
+        import time as _time
+        import urllib.request as _urlreq
+        import json as _json
+
         image_b64: str | None = None
         if image:
             data = await image.read()
             image_b64 = base64.b64encode(data).decode()
 
-        # Build the chat payload for the realtime endpoint
-        payload: dict[str, Any] = {
-            "message": text,
-            "mode":    "local",
-            "model":   "llamacpp-minicpm",
-            "surface": "companion",
-        }
-        if image_b64:
-            payload["image_base64"] = image_b64
+        # ── Auto-start MiniCPM-o if offline ──────────────────────────────────
+        _MINICPM_PORT = 8084
+        _MINICPM_URL  = f"http://127.0.0.1:{_MINICPM_PORT}"
 
-        # Mark MiniCPM as used (triggers idle-unload timer in watchdog)
+        def _minicpm_alive() -> bool:
+            try:
+                _r = _urlreq.urlopen(f"{_MINICPM_URL}/health", timeout=1.5)
+                return _r.status == 200
+            except Exception:
+                return False
+
+        if not _minicpm_alive():
+            logger.info("[vision] MiniCPM-o offline — starting on port %d", _MINICPM_PORT)
+            try:
+                from src.guppy.api.routes_backends import _do_start
+                _do_start("llamacpp-minicpm")
+            except Exception as _e:
+                logger.warning("[vision] Failed to start MiniCPM-o: %s", _e)
+
+            # Wait up to 45 s for it to come up (model is ~5 GB, loads fast from VRAM)
+            for _ in range(45):
+                await asyncio.sleep(1.0)
+                if _minicpm_alive():
+                    logger.info("[vision] MiniCPM-o ready")
+                    break
+            else:
+                raise HTTPException(503, "MiniCPM-o did not start in time — try again in a moment")
+
+        # Mark backend used to reset the 5-min idle-unload timer
         try:
             from src.guppy.api.routes_backends import mark_backend_used
             mark_backend_used("llamacpp-minicpm")
         except Exception:
             pass
 
-        # Forward to internal chat endpoint
-        try:
-            from src.guppy.api import services_realtime
-            # Use the existing realtime inference directly
-            result = await services_realtime.stream_chat_response(payload)
-            return result
-        except Exception as e:
-            logger.warning(f"[companion] Vision via services_realtime failed: {e}")
+        # ── Build OpenAI multimodal message ───────────────────────────────────
+        # llamacpp-server with --mmproj accepts the OpenAI vision content-array format.
+        if image_b64:
+            user_content: Any = [
+                {"type": "text", "text": text},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+            ]
+        else:
+            user_content = text
 
-        # Fallback: call /api/chat internally via httpx
-        try:
-            import httpx
-            port = int(os.environ.get("GUPPY_API_PORT", "8081"))
-            async with httpx.AsyncClient(timeout=120) as client:
-                resp = await client.post(
-                    f"http://127.0.0.1:{port}/api/chat",
-                    json=payload,
-                    headers={"Authorization": f"Bearer {_uid}"},
-                )
-                return JSONResponse(content={"response": resp.text})
-        except Exception as e:
-            raise HTTPException(500, f"Vision query failed: {e}")
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are Guppy — Ryan's personal AI with vision capability. "
+                    "Describe images directly and accurately. Be concise and conversational."
+                ),
+            },
+            {"role": "user", "content": user_content},
+        ]
+
+        # ── Stream directly from MiniCPM-o llamacpp server ───────────────────
+        async def _stream_vision():
+            payload = {
+                "model":       "minicpm",
+                "messages":    messages,
+                "max_tokens":  1024,
+                "temperature": 0.7,
+                "stream":      True,
+            }
+            req = _urlreq.Request(
+                f"{_MINICPM_URL}/v1/chat/completions",
+                data=_json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with _urlreq.urlopen(req, timeout=120) as resp:
+                    for raw_line in resp:
+                        line = raw_line.decode("utf-8", errors="replace").strip()
+                        if not line or line == "data: [DONE]":
+                            continue
+                        if line.startswith("data: "):
+                            try:
+                                chunk = _json.loads(line[6:])
+                                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                token = delta.get("content", "")
+                                if token:
+                                    yield f"data: {_json.dumps({'token': token})}\n\n"
+                            except Exception:
+                                continue
+            except Exception as exc:
+                yield f"data: {_json.dumps({'error': str(exc)})}\n\n"
+
+        from fastapi.responses import StreamingResponse
+        return StreamingResponse(_stream_vision(), media_type="text/event-stream")
 
     # ── Tool policy enforcement ────────────────────────────────────────────────
 

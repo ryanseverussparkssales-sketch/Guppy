@@ -99,9 +99,59 @@ async def route_by_surface(
         return msgs
 
     if surface == "companion":
-        # Single primary model: Hermes 4.3 36B Heretic (llamacpp-hermes4, port 8086).
-        # Handles companion, workspace, and codespace — no more surface-specific model split.
-        # Rocinante is on-demand only; Hermes 3 is a fallback if the primary is down.
+        # ── Fast path: simple conversational queries → Phi-4-mini (port 8091) ─────────
+        # Phi-4-mini is 2.3 GB vs 21.8 GB for the 36B — first token in ~0.3s vs ~3s.
+        # Used for queries that need no tools, no memory recall, no file context.
+        # Detection: ≤ 12 words AND no "heavy" cue keywords.
+        # Falls through to hermes4 on failure or if phi4-mini is offline.
+        _FAST_PATH_MAX_WORDS = 12
+        _FAST_PATH_HEAVY_CUES = frozenset({
+            # tools / operations
+            "file", "task", "email", "calendar", "download", "remind", "search",
+            "code", "run", "script", "workspace", "agent", "screen", "fetch",
+            # memory / continuation
+            "remember", "earlier", "previous", "follow", "continue", "again",
+            # complexity signals
+            "debug", "project", "explain", "compare", "tradeoff", "why", "how",
+            "list", "write", "draft", "summarize", "analyze",
+        })
+        _user_words_lower = user_text.lower().split()
+        _is_simple = (
+            len(_user_words_lower) <= _FAST_PATH_MAX_WORDS
+            and not any(cue in _user_words_lower for cue in _FAST_PATH_HEAVY_CUES)
+            and active_local_model is None  # user override → always use their chosen model
+        )
+
+        if _is_simple:
+            _fast_model = _sp_backend_alive("llamacpp-phi4-mini")
+            if _fast_model:
+                # Minimal prompt — avoid the 4K+ augmented companion system prompt that
+                # would overwhelm phi4-mini's useful context and slow first-token time.
+                _fast_sys = (
+                    "You are Guppy — Ryan's personal AI. Sharp, direct, conversational. "
+                    "Keep replies concise. No filler. Voice-optimized: short sentences."
+                )
+                _fast_msgs = build_router_messages(_fast_sys, user_text, [])
+                try:
+                    _yielded = False
+                    async for tok in _stream_llamacpp_tokens(
+                        model=_fast_model, backend="llamacpp-phi4-mini",
+                        messages=_fast_msgs, tools=None, tool_runner=None,
+                        max_tool_rounds=0,
+                        thinking_budget=0,
+                        max_tokens=512,
+                        temperature=_SURFACE_TEMPS["companion"],
+                    ):
+                        yield tok
+                        _yielded = True
+                    if not _yielded:
+                        raise RuntimeError("phi4-mini yielded 0 tokens")
+                    yield _SOURCE_SENTINEL + f"llamacpp-phi4-mini:{_fast_model}"
+                    return
+                except RuntimeError as _fe:
+                    _log.info("Companion fast-path (phi4-mini) failed: %s — falling through to hermes4", _fe)
+
+        # ── Primary path: Hermes 4.3 36B Heretic (all other queries) ─────────────────
         # Small-context orchestrators must never be companion primaries — they
         # overflow on the full augmented system prompt and produce garbage.
         _COMPANION_EXCLUDED = {"llamacpp-dispatch", "llamacpp-phi4-mini", "llamacpp-xlam"}

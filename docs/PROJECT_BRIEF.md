@@ -1,6 +1,6 @@
 # Guppy Project Brief
 
-Last updated: 2026-05-03
+Last updated: 2026-05-04
 
 ## What Guppy Is
 
@@ -18,9 +18,11 @@ The desktop launcher (`launcher_app.py`) spawns a FastAPI server and opens a bro
 
 | Surface | Route | Model | Purpose |
 |---|---|---|---|
-| **Companion** | `/companion` | Rocinante X 12B (port 8088) / Hermes 3 fallback | Voice/chat/vision, personality, avatar |
-| **Workspace** | `/workspace` | Hermes 4 (port 8086) | 11-tab operations hub |
-| **Codespace** | `/codespace` | Hermes 4 (port 8086) | Docker sandbox, self-triage, AI fix proposals |
+| **Companion** | `/companion` | Hermes 4.3 36B Heretic (port 8086) / Phi-4-mini fast path | Voice/chat/vision, personality, avatar |
+| **Workspace** | `/workspace` | Hermes 4.3 36B Heretic (port 8086) | 11-tab operations hub |
+| **Codespace** | `/codespace` | Hermes 4.3 36B Heretic (port 8086) | Docker sandbox, self-triage, AI fix proposals |
+
+**Single-model consolidation (2026-05-03):** All three surfaces share one primary — Hermes 4.3 36B Heretic Q4_K_M at port 8086. Companion has a fast path: simple queries (≤12 words, no tool cues) route to Phi-4-mini first (~0.3s TTFT), falling through to the 36B if needed.
 
 Secondary nav: `/settings`, `/tools`, `/voices`, `/personas`, `/library`, `/control`, `/admin`
 
@@ -42,15 +44,18 @@ FastAPI (`src/guppy/api/server_runtime.py`) with 40+ route modules. All routes m
 | `routes_settings.py` | `/api/settings/*` | All settings |
 | `routes_chat_history.py` | `/api/chat-history/*` | Conversation history |
 
-### Always-On Model Stack (22 GB VRAM)
+### Always-On Model Stack (~25.3 GB VRAM)
 
 | Role | Model | Port | VRAM |
 |---|---|---|---|
-| Companion primary | Rocinante X 12B Q5_K_M | 8088 | ~10 GB (on-demand) |
-| Companion fallback (watchdog) | Hermes 3 8B Q8_0 | 8087 | ~9 GB |
-| Workspace/Codespace reasoning | Hermes 4 14B Q5_K_M | 8086 | ~11 GB |
-| Orchestrator/summarizer | Phi-4-mini Q4_K_M | 8091 | ~2.5 GB |
-| Embedding server | nomic-embed-text-v1.5 | 8092 | ~1 GB |
+| **Primary — all surfaces** | Hermes 4.3 36B Heretic Q4_K_M | 8086 | ~21.8 GB |
+| Companion fast path / orchestrator | Phi-4-mini-instruct Q4_K_M | 8091 | ~2.5 GB |
+| Semantic embedding | nomic-embed-text-v1.5 | 8092 | ~1 GB |
+| On-demand fallback | Hermes 3 8B Lorablated Q8_0 | 8087 | ~9 GB (if 36B offline) |
+| Vision (on-demand) | MiniCPM-o 4.5 Omni | 8084 | ~9 GB |
+
+Launch: `C:\llama-cpp\warmup.bat` starts always-on stack (ports 8086, 8091, 8092).
+Context: 49,152 tokens (`--ctx-size 49152`), `--parallel 2`, `--flash-attn on`.
 
 Full model roster: `docs/MODEL_ROUTING.md`
 
@@ -60,12 +65,12 @@ Single SQLite at `guppy_main.db` (path via `src/guppy/paths.MAIN_DB_PATH`). All 
 
 ---
 
-## Active Status (2026-05-03)
+## Active Status (2026-05-04)
 
-### Shipped (Phases 1–6 complete)
-- ✅ Three-surface architecture — Conversations / Workspace / Codespace
+### Shipped (Phases 1–6 + 8-improvement batch complete)
+- ✅ Three-surface architecture — Companion / Workspace / Codespace
 - ✅ Persistent sessions with auto-titling via dispatch model
-- ✅ Conversation partner selection (Hermes3 / Hermes4 / Rocinante / Pepe / MiniCPM)
+- ✅ Conversation partner selection (Hermes4 / Phi-4-mini / Hermes3 / Pepe / MiniCPM)
 - ✅ Operator settings (cloud paid/free toggle, partner selection)
 - ✅ Surface-locked model routing + per-surface cloud fallback
 - ✅ Two-pass tool-call execution (companion + workspace)
@@ -83,12 +88,19 @@ Single SQLite at `guppy_main.db` (path via `src/guppy/paths.MAIN_DB_PATH`). All 
 - ✅ Desktop control API (pyautogui)
 - ✅ PWA manifest + streaming + security hardening
 - ✅ Control panel — service/model lifecycle, logs viewer, PC health
+- ✅ **Single-model consolidation** — Hermes 4.3 36B Heretic replaces Rocinante + Hermes4 14B; 49K context
+- ✅ **Companion fast path** — simple queries route to Phi-4-mini (~0.3s TTFT) with fallthrough to 36B
+- ✅ **Kokoro ONNX TTS** — three-tier: HTTP API → local ONNX (HF cache auto-discovery) → KPipeline
+- ✅ **Anthropic prompt caching** — `cache_control: ephemeral` on system blocks; ~80% cost reduction
+- ✅ **System prompt TTL cache** — 60s in-memory LRU; bypasses full injection pipeline on cache hit
+- ✅ **Structured memory categories** — `MEMORY_CATEGORIES` frozenset + `normalize_category()` + typed fact slots
+- ✅ **Proactive companion nudge** — calendar-event SSE alerts voiced by TTS in ambient mode
+- ✅ **MiniCPM-o vision endpoint** — `/api/companion/vision` auto-starts model, streams multimodal response
 
 ### In Progress / Next
 - Wake word production (pvporcupine needs access key + .ppn files)
 - True microphone streaming (sounddevice/pyaudio wiring)
 - Local LLM benchmark harness (spec: `docs/LOCAL_LLM_BENCHMARK_SPEC.md`)
-- Phi-4-mini as JSON tool_call orchestrator (model file needed)
 - TASKS.md for full queue
 
 ---
