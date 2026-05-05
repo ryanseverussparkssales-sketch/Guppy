@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import tempfile
+import time
 from functools import partial
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
@@ -102,6 +103,31 @@ def should_use_rich_prompt_context(
     return False
 
 
+# ── System prompt cache — avoids rebuilding identical prompts within 60 s ─────
+# Key: (surface, persona, mode) — message/history intentionally excluded since
+# they don't affect the static parts of the system prompt.
+_SYSTEM_PROMPT_CACHE: dict[tuple, tuple[str, float]] = {}
+_SYSTEM_PROMPT_TTL = 60.0  # seconds
+
+
+def _get_cached_system_prompt(cache_key: tuple) -> str | None:
+    entry = _SYSTEM_PROMPT_CACHE.get(cache_key)
+    if entry:
+        prompt, ts = entry
+        if time.monotonic() - ts < _SYSTEM_PROMPT_TTL:
+            return prompt
+        del _SYSTEM_PROMPT_CACHE[cache_key]
+    return None
+
+
+def _cache_system_prompt(cache_key: tuple, prompt: str) -> None:
+    # Keep cache small — evict oldest if over 20 entries
+    if len(_SYSTEM_PROMPT_CACHE) >= 20:
+        oldest = min(_SYSTEM_PROMPT_CACHE, key=lambda k: _SYSTEM_PROMPT_CACHE[k][1])
+        _SYSTEM_PROMPT_CACHE.pop(oldest, None)
+    _SYSTEM_PROMPT_CACHE[cache_key] = (prompt, time.monotonic())
+
+
 def build_chat_system_prompt(
     owner: Any,
     *,
@@ -113,6 +139,11 @@ def build_chat_system_prompt(
     history: Any = None,
     surface: str | None = None,
 ) -> str:
+    # Check cache first — static portions don't depend on message/history
+    _cache_key = (str(surface or ""), str(persona or ""), str(mode or ""))
+    _cached = _get_cached_system_prompt(_cache_key)
+    if _cached is not None:
+        return _cached
     from datetime import datetime as _dt
     from src.guppy.api._server_fragment_bootstrap import _WORKSPACE_TOOL_BLOCK
     _now = _dt.now()
@@ -168,6 +199,7 @@ def build_chat_system_prompt(
             system_prompt += "\n\n" + overlay
     except Exception:
         pass
+    _cache_system_prompt(_cache_key, system_prompt)
     return system_prompt
 
 

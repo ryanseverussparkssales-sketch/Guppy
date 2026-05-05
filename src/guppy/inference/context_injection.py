@@ -302,10 +302,17 @@ user's request clearly calls for them — don't make them ask twice.
 • memory_write(key, value, category?)
   WHEN: user says "remember that", "keep track of", "store this", or shares
   information they'll want you to recall later (preferences, facts, names).
-  Always pass a category: "user_preference" for likes/dislikes, "fact" for info,
-  "task" for action items, "person" for people, "project" for ongoing work.
+  Categories (typed slots — use the most specific match):
+    "user_preference"  → Ryan's likes/dislikes, settings, defaults
+    "commitment"       → promises, recurring obligations, things Ryan must do
+    "project_state"    → status of ongoing projects
+    "contact_note"     → notes about a specific person
+    "decision"         → decisions made and why
+    "entity"           → named things (companies, products, places)
+    "general"          → anything that doesn't fit above
   EXAMPLE: <tool_call>{"name": "memory_write", "arguments": {"key": "user_pref_coffee", "value": "dark roast, no sugar", "category": "user_preference"}}</tool_call>
-  EXAMPLE: <tool_call>{"name": "memory_write", "arguments": {"key": "project_seed_vault", "value": "Ryan's personal media archive using qwen2.5:7b for metadata", "category": "project"}}</tool_call>
+  EXAMPLE: <tool_call>{"name": "memory_write", "arguments": {"key": "project_seed_vault", "value": "Ryan's personal media archive using qwen2.5:7b for metadata", "category": "project_state"}}</tool_call>
+  EXAMPLE: <tool_call>{"name": "memory_write", "arguments": {"key": "commitment_gym", "value": "Ryan goes to gym every Tuesday and Thursday morning", "category": "commitment"}}</tool_call>
 
 • memory_recall(key?, query?)
   WHEN: user asks "do you remember", "what did I tell you about", "recall my",

@@ -88,8 +88,9 @@ class TestKokoroTTSProvider:
     @pytest.mark.asyncio
     async def test_health_check_returns_false_when_neither_mode_available(self):
         provider = KokoroTTSProvider(api_url="http://invalid:9999")
-        # Force both detection paths to fail
+        # Force all three detection paths to fail
         with patch.object(provider, "_probe_api", return_value=False), \
+             patch.object(provider, "_load_onnx", return_value=False), \
              patch.object(provider, "_load_local", return_value=False):
             assert await provider.health_check() is False
 
@@ -97,6 +98,7 @@ class TestKokoroTTSProvider:
     async def test_synthesize_returns_error_when_unavailable(self):
         provider = KokoroTTSProvider(api_url="http://invalid:9999")
         with patch.object(provider, "_probe_api", return_value=False), \
+             patch.object(provider, "_load_onnx", return_value=False), \
              patch.object(provider, "_load_local", return_value=False):
             result = await provider.synthesize("hi")
             assert result.error == "kokoro_not_available"
@@ -106,7 +108,7 @@ class TestKokoroTTSProvider:
     async def test_synthesize_via_api_returns_audio(self):
         provider = KokoroTTSProvider(api_url="http://api/v1/audio/speech")
         with patch.object(provider, "_probe_api", return_value=True), \
-             patch.object(provider, "_synthesize_api", return_value=b"WAV...") as m:
+             patch.object(provider, "_call_api", return_value=b"WAV...") as m:
             result = await provider.synthesize("hello", voice="af_bella")
             assert result.audio_data == b"WAV..."
             assert result.provider == "kokoro_tts"

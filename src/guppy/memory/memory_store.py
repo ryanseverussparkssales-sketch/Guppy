@@ -24,6 +24,49 @@ def _normalize_workspace_name(workspace_name: str | None) -> str:
 
 _ALLOWED_MEMORY_TABLES: frozenset[str] = frozenset({"facts", "conversations"})
 
+# ── Structured memory slot categories ────────────────────────────────────────
+# These categories are enforced as first-class typed slots. Direct SQL queries
+# hit these categories without needing fuzzy embedding search, which makes
+# recall fast and deterministic for well-known fact types.
+MEMORY_CATEGORIES = frozenset({
+    "user_preference",   # Ryan's preferences (food, music, work style, etc.)
+    "commitment",        # promises / recurring commitments Ryan has made
+    "project_state",     # current state of ongoing projects
+    "contact_note",      # notes about specific people
+    "decision",          # decisions made and their rationale
+    "general",           # catch-all for everything else
+    "session_summary",   # auto-generated session summaries
+    "entity",            # named entities (companies, products, places)
+})
+
+_DEFAULT_CATEGORY = "general"
+
+
+def normalize_category(category: str) -> str:
+    """Coerce *category* to a known slot; fall back to 'general'."""
+    c = str(category or "").strip().lower()
+    return c if c in MEMORY_CATEGORIES else _DEFAULT_CATEGORY
+
+
+def recall_by_category(db_path: Path, category: str, limit: int = 20) -> list[dict]:
+    """Fetch all facts in a category directly (no embedding needed).
+
+    Returns a list of dicts with keys: key, value, updated.
+    Useful for user_preference and commitment slots where you want everything,
+    not just semantically similar results.
+    """
+    cat = normalize_category(category)
+    try:
+        conn = _open_db(db_path)
+        rows = conn.execute(
+            "SELECT key, value, updated FROM facts WHERE category=? ORDER BY updated DESC LIMIT ?",
+            (cat, limit),
+        ).fetchall()
+        conn.close()
+        return [{"key": r[0], "value": r[1], "updated": r[2]} for r in rows]
+    except Exception:
+        return []
+
 
 def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
     """Add *column* to *table* if it doesn't exist yet.
@@ -117,6 +160,7 @@ def open_memory_connection(db_path: Path) -> sqlite3.Connection:
 
 
 def remember_fact(db_path: Path, key: str, value: str, category: str = "general") -> str:
+    category = normalize_category(category)  # enforce typed slot vocabulary
     conn = open_memory_connection(db_path)
     try:
         now = datetime.now().isoformat()

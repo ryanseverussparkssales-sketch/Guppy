@@ -16,6 +16,7 @@ import { MarkdownMessage } from '@/components/chat/MarkdownMessage'
 import { SurfaceStatusBar } from '@/components/surface/SurfaceStatusBar'
 import { BackendSelector } from '@/components/surface/BackendSelector'
 import { useVoice } from '@/hooks/useVoice'
+import { useSurfaceEvents } from '@/hooks/useSurfaceEvents'
 import api from '../api/client'
 import { toast } from 'sonner'
 
@@ -82,6 +83,27 @@ export default function CompanionView() {
     else if (voice.isSpeaking) setAvatarState('speaking')
     else                       setAvatarState('idle')
   }, [voice.isListening, isSending, voice.isSpeaking])
+
+  // Proactive ambient nudges — calendar reminders and surface events voiced aloud
+  const handleSurfaceEvent = useCallback((type: string, payload: any) => {
+    if (!ttsEnabled) return
+    if (type === 'reminder_due') {
+      const msg = payload?.message || payload?.data?.message
+      if (msg) voice.speak(`Reminder: ${msg}`)
+    }
+    if (type === 'proactive_nudge') {
+      const nudgeType = payload?.type
+      if (nudgeType === 'calendar_reminder') {
+        const title = payload?.title || 'an event'
+        const mins = payload?.starts_in_minutes ?? 0
+        const loc = payload?.location ? ` at ${payload.location}` : ''
+        const timeStr = mins <= 1 ? 'right now' : mins < 60 ? `in ${mins} minutes` : 'in about an hour'
+        voice.speak(`Heads up — ${title} starts ${timeStr}${loc}.`)
+      }
+    }
+  }, [ttsEnabled, voice])
+
+  useSurfaceEvents(handleSurfaceEvent)
 
   // Scroll to bottom
   useEffect(() => {

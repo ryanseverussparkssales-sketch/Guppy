@@ -834,8 +834,13 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
             except Exception:
                 pass
 
-        # Inject workspace tool schema so Hermes4 knows what tools it has
-        if request.surface == "workspace" and _WORKSPACE_TOOL_SCHEMA not in system_prompt:
+        # Inject workspace tool schema — local models need the XML <tool_call> schema;
+        # cloud models (Anthropic etc.) use native tool_use and don't need it.
+        _is_cloud_only = (
+            not _active_local_model
+            or (request.use_claude and not _active_local_model)
+        )
+        if request.surface == "workspace" and _WORKSPACE_TOOL_SCHEMA not in system_prompt and not _is_cloud_only:
             system_prompt = system_prompt + _WORKSPACE_TOOL_SCHEMA
 
         async def _generate():

@@ -296,10 +296,19 @@ async def _stream_claude_with_tools(
 
     msgs: list[dict] = list(messages)
     for _round in range(max_tool_rounds + 1):
+        # Wrap system prompt with cache_control so Anthropic caches it across turns.
+        # This cuts cost ~80% and shaves 1-2s off latency on repeated calls.
+        cached_system = [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
         kwargs: dict = {
             "model": model,
             "max_tokens": max_tokens,
-            "system": system_prompt,
+            "system": cached_system,
             "messages": msgs,
         }
         if tools:

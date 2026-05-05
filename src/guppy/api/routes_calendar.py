@@ -334,3 +334,39 @@ def build_calendar_router(ctx: ServerContext) -> APIRouter:
         return result
 
     return router
+
+
+def _get_upcoming_events(horizon_minutes: int = 60) -> list[dict]:
+    """Return events starting within the next *horizon_minutes* minutes.
+
+    Used by the proactive companion nudge in routes_surface._background_loop.
+    Returns a list of dicts with keys: title, starts_in_minutes, location.
+    """
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    horizon = now + timedelta(minutes=horizon_minutes)
+    try:
+        with _conn() as conn:
+            rows = conn.execute(
+                """SELECT title, start_time, location FROM calendar_events
+                   WHERE start_time >= ? AND start_time <= ?
+                   ORDER BY start_time ASC LIMIT 5""",
+                (now.isoformat(), horizon.isoformat()),
+            ).fetchall()
+    except Exception:
+        return []
+    result = []
+    for row in rows:
+        try:
+            start = datetime.fromisoformat(str(row["start_time"]))
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            delta_minutes = max(0, int((start - now).total_seconds() / 60))
+            result.append({
+                "title": row["title"] or "Untitled event",
+                "starts_in_minutes": delta_minutes,
+                "location": row["location"] or "",
+            })
+        except Exception:
+            continue
+    return result

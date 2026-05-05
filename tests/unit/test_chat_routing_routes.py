@@ -350,6 +350,8 @@ def test_chat_route_simple_request_uses_light_prompt_context() -> None:
 
 
 def test_chat_route_follow_up_request_keeps_rich_prompt_context() -> None:
+    import src.guppy.api.services_realtime as _svc_rt
+
     app = _with_rate_limit_override()
     client = TestClient(app)
     captured: dict[str, object] = {}
@@ -367,6 +369,10 @@ def test_chat_route_follow_up_request_keeps_rich_prompt_context() -> None:
             guppy_api,
             "get_cached_response",
             return_value=None,
+        ), patch.object(
+            _svc_rt,
+            "_get_cached_system_prompt",
+            return_value=None,  # force cache miss so get_startup_system is always called
         ):
             resp = client.post(
                 "/chat",

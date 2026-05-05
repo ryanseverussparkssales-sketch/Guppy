@@ -701,6 +701,39 @@ async def _background_loop() -> None:
         except Exception as exc:
             _bg_log.error("[surface.bg] stale task cleanup error: %s", exc)
 
+        # ── Proactive companion nudges (every 5 min) ─────────────────────────
+        # Surface upcoming calendar events and unread email counts as ambient
+        # SSE events so CompanionView can speak them without the user asking.
+        try:
+            import time as _time
+            _now_epoch = _time.monotonic()
+            if not hasattr(_background_loop, "_last_proactive"):
+                _background_loop._last_proactive = 0.0  # type: ignore[attr-defined]
+            if _now_epoch - _background_loop._last_proactive > 300:  # type: ignore[attr-defined]
+                _background_loop._last_proactive = _now_epoch  # type: ignore[attr-defined]
+                nudges: list[dict] = []
+
+                # Check for calendar events starting in the next 60 minutes
+                try:
+                    from src.guppy.api.routes_calendar import _get_upcoming_events
+                    upcoming = _get_upcoming_events(horizon_minutes=60)
+                    for ev in upcoming[:2]:
+                        nudges.append({
+                            "type": "calendar_reminder",
+                            "title": ev.get("title", "Event"),
+                            "starts_in_minutes": ev.get("starts_in_minutes", 0),
+                            "location": ev.get("location", ""),
+                        })
+                except Exception:
+                    pass
+
+                # Broadcast each nudge so CompanionView can voice it
+                for nudge in nudges:
+                    _broadcast_event("proactive_nudge", nudge)
+                    _bg_log.debug("[surface.bg] proactive nudge: %s", nudge.get("type"))
+        except Exception as exc:
+            _bg_log.error("[surface.bg] proactive nudge error: %s", exc)
+
         # ── Tombstone deletion (once per 24 h) ───────────────────────────────
         # Delete terminal tasks older than 30 days to prevent unbounded table growth.
         try:
