@@ -258,6 +258,15 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
   - **Hermes3 demoted to on-demand fallback** — `auto_start` removed from routes_backends; only starts if 36B is down
   - **Watchdog updated** — `_WATCHDOG_ALWAYS_ON` no longer includes port 8087 (Hermes3)
 
+- ✅ **8-improvement batch** (2026-05-04, commit ca68ae1):
+  - **Cloud latency fix** — skip workspace XML tool schema injection for cloud-only routing (`routes_realtime.py`); removes ~3KB from context on every Anthropic call
+  - **Anthropic prompt caching** — `cache_control: {type: ephemeral}` on system message block in `_stream_claude_with_tools`; ~80% cost reduction on system prompt tokens per turn
+  - **Kokoro ONNX TTS** — `kokoro_provider.py` three-tier mode: HTTP API → local ONNX (via `kokoro-onnx` package, auto-discovers model from HF cache at `~/.cache/huggingface/hub/models--mikkoph--kokoro-onnx/`) → legacy KPipeline; `create_stream()` for native chunked streaming; `GUPPY_TTS_PROVIDER=kokoro` in `.env`; ElevenLabs kept as paid fallback
+  - **System prompt TTL cache** — 60s in-memory dict in `services_realtime.py`; key = `(surface, persona, mode)`; max 20 entries, LRU eviction; cache hit bypasses full injection pipeline
+  - **Proactive companion nudge** — background loop in `routes_surface._background_loop()` checks calendar events in next 60 min every 5 min; broadcasts `proactive_nudge` SSE events; `CompanionView.tsx` voices them via `voice.speak()` when TTS enabled; `_get_upcoming_events()` added to `routes_calendar.py`
+  - **Structured memory categories** — `MEMORY_CATEGORIES` frozenset + `normalize_category()` + `recall_by_category()` in `memory_store.py`; tool primer in `context_injection.py` updated with 7 typed slot descriptions; `remember_fact()` normalizes category before storing
+  - **Test fixes** — TTS tests updated for new `_load_onnx()` / `_call_api()` method names; chat routing test patches system prompt cache to force cache miss so `get_startup_system` is always invoked; 925 unit tests green
+
 **For detailed implementation notes on completed initiatives, see `SHIPPING_LOG.md` in the Guppy repo.**
 
 ---
