@@ -191,10 +191,11 @@ def recall_facts(db_path: Path, query: str = "", category: str = "") -> str:
     conn = open_memory_connection(db_path)
     try:
         if category:
+            cat = normalize_category(category)  # tolerate legacy/alias names
             rows = conn.execute(
                 "SELECT category,key,value,updated,COALESCE(normalized_key,''),COALESCE(normalized_value,'') "
                 "FROM facts WHERE category=?",
-                (category,),
+                (cat,),
             ).fetchall()
         else:
             rows = conn.execute(

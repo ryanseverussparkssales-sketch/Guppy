@@ -91,24 +91,26 @@ class TestChatMemoryRoundtrip(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_remember_and_recall_fact(self):
-        result = remember_fact(self.db, "user_city", "Austin", category="identity")
+        # "identity" is not a canonical category — normalizes to "general"
+        result = remember_fact(self.db, "user_city", "Austin", category="general")
         self.assertIn("Remembered", result)
 
         recalled = recall_facts(self.db, query="user_city")
         self.assertIn("Austin", recalled)
-        self.assertIn("identity", recalled)
+        self.assertIn("general", recalled)
 
     def test_recall_by_category(self):
-        remember_fact(self.db, "pref_theme", "dark mode", category="preference")
-        remember_fact(self.db, "user_name", "Ryan", category="identity")
+        # Use canonical category names from MEMORY_CATEGORIES
+        remember_fact(self.db, "pref_theme", "dark mode", category="user_preference")
+        remember_fact(self.db, "user_name", "Ryan", category="general")
 
-        prefs = recall_facts(self.db, category="preference")
+        prefs = recall_facts(self.db, category="user_preference")
         self.assertIn("dark mode", prefs)
         self.assertNotIn("Ryan", prefs)
 
     def test_remember_updates_existing_key(self):
-        remember_fact(self.db, "fav_color", "blue", category="preference")
-        result = remember_fact(self.db, "fav_color", "green", category="preference")
+        remember_fact(self.db, "fav_color", "blue", category="user_preference")
+        result = remember_fact(self.db, "fav_color", "green", category="user_preference")
         self.assertIn("Updated", result)
 
         recalled = recall_facts(self.db, query="fav_color")
@@ -137,7 +139,7 @@ class TestChatMemoryRoundtrip(unittest.TestCase):
         save_conversation_message(self.db, session, "assistant", assistant_msg)
 
         # Simulate the runtime promoting a fact extracted from the turn
-        remember_fact(self.db, "work_schedule", "prefers late night after 10pm", category="preference")
+        remember_fact(self.db, "work_schedule", "prefers late night after 10pm", category="user_preference")
 
         # Verify the conversation is persisted
         history = load_recent_history_records(self.db, session_id=session)
@@ -146,7 +148,7 @@ class TestChatMemoryRoundtrip(unittest.TestCase):
         # Verify the promoted fact is recallable
         recalled = recall_facts(self.db, query="work_schedule")
         self.assertIn("late night", recalled)
-        self.assertIn("preference", recalled)
+        self.assertIn("user_preference", recalled)
 
 
 if __name__ == "__main__":

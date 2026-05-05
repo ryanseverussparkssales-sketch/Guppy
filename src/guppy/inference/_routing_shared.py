@@ -38,7 +38,7 @@ _CHAT_CONTENT_MAX_CHARS = 2000
 _CHAT_HISTORY_LIMIT = 12
 _BACKEND_CONTEXT_TOKENS: dict[str, int] = {
     "llamacpp-hermes3":    8192,
-    "llamacpp-hermes4":   32768,
+    "llamacpp-hermes4":   49152,
     "llamacpp-dispatch":   4096,
     "llamacpp-phi4-mini": 131072,
     "llamacpp-pepe":       8192,
