@@ -94,7 +94,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
           "w-full flex items-center font-body text-sm font-semibold tracking-tight transition-all duration-200 ease-viscous",
           collapsed ? "justify-center px-4 py-3.5" : "py-3",
           isActive
-            ? "text-primary bg-white shadow-sm rounded-r-full pl-6 pr-4"
+            ? cn("text-primary bg-white shadow-sm", collapsed ? "rounded-xl mx-1.5" : "rounded-r-full pl-6 pr-4")
             : "text-on-surface/70 hover:text-primary px-6",
           !isActive && isHovered && !collapsed && "translate-x-1"
         )}
@@ -145,7 +145,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
   return (
     <aside
       className={cn(
-        "bg-surface-container-low flex flex-col h-full py-6 gap-y-1 overflow-y-auto custom-scrollbar transition-all duration-300 ease-viscous",
+        "bg-surface-container-low flex flex-col h-full py-6 gap-y-1 overflow-y-auto overflow-x-hidden custom-scrollbar transition-all duration-300 ease-viscous",
         collapsed ? "w-20" : "w-60"
       )}
     >

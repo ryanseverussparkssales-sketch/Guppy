@@ -64,6 +64,11 @@ export default function CompanionView() {
   const bottomRef   = useRef<HTMLDivElement>(null)
   const textareaRef = useAutoHeight(input)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Accumulates streaming tokens until a sentence boundary before speaking via TTS.
+  // Prevents individual short tokens ("sys", "I", etc.) from firing TTS in isolation.
+  const ttsBufRef   = useRef<string>('')
+  // Tracks slow-model hint timer so we can clear it when response arrives.
+  const slowHintRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const voice = useVoice({
     onTranscript: (text) => { setInput((prev) => prev + text) },
@@ -83,6 +88,18 @@ export default function CompanionView() {
     else if (voice.isSpeaking) setAvatarState('speaking')
     else                       setAvatarState('idle')
   }, [voice.isListening, isSending, voice.isSpeaking])
+
+  // Cleanup on unmount: abort any in-flight stream and drain the TTS queue.
+  // Without this, navigating away leaves the stream alive and TTS fires ghost audio
+  // (e.g. the first few tokens of a slow-model response played ~60s later).
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort()
+      if (slowHintRef.current) clearTimeout(slowHintRef.current)
+      voice.stopSpeaking()
+      ttsBufRef.current = ''
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Proactive ambient nudges — calendar reminders and surface events voiced aloud
   const handleSurfaceEvent = useCallback((type: string, payload: any) => {
@@ -213,6 +230,13 @@ export default function CompanionView() {
     setIsSteerMode(false)
     setIsSending(true)
     setStreaming('')
+    ttsBufRef.current = ''
+
+    // Show a hint after 12s if the model hasn't responded yet (cold start / large model).
+    if (slowHintRef.current) clearTimeout(slowHintRef.current)
+    slowHintRef.current = setTimeout(() => {
+      setStreaming('_hint_')   // sentinel that triggers the slow-model UI note
+    }, 12000)
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -271,15 +295,35 @@ export default function CompanionView() {
                 break outer
               }
               if (evt.replace != null) {
-                // Companion non-tool path: full response delivered as one replace event
+                // Clear slow-model hint on first real content
+                if (slowHintRef.current) { clearTimeout(slowHintRef.current); slowHintRef.current = null }
+                // Companion non-tool path: full response delivered as one replace event.
+                // Speak the whole thing at once (not through the sentence accumulator).
                 fullText = evt.replace
                 setStreaming(fullText)
                 if (ttsEnabled) voice.speak(fullText)
               } else if (evt.token != null) {
-                // Tool-call pass-2 streaming tokens
+                // Clear slow-model hint on first real content
+                if (slowHintRef.current) { clearTimeout(slowHintRef.current); slowHintRef.current = null }
+                // Tool-call pass-2 streaming tokens — accumulate into sentences before
+                // speaking. Calling speakQueued on every raw token causes short fragments
+                // like "sys", "I", "The" to fire individually as spoken audio artifacts.
                 fullText += evt.token
                 setStreaming(fullText)
-                if (ttsEnabled) voice.speakQueued(evt.token)
+                if (ttsEnabled) {
+                  ttsBufRef.current += evt.token
+                  // Flush any complete sentences (ending with . ! ? or newline)
+                  const SENT_RE = /[^.!?\n]+[.!?\n]+\s*/g
+                  let m: RegExpExecArray | null
+                  let consumed = 0
+                  SENT_RE.lastIndex = 0
+                  while ((m = SENT_RE.exec(ttsBufRef.current)) !== null) {
+                    const sentence = m[0].trim()
+                    if (sentence.length >= 6) voice.speakQueued(sentence)
+                    consumed = SENT_RE.lastIndex
+                  }
+                  ttsBufRef.current = ttsBufRef.current.slice(consumed)
+                }
               }
               // evt.tool_exec: ignore status events (could show a toast later)
             } catch { /* non-JSON line, skip */ }
@@ -287,18 +331,27 @@ export default function CompanionView() {
         }
       }
 
-      setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', content: fullText || streaming }])
+      // Flush any remaining TTS buffer (incomplete sentence at end of stream)
+      if (ttsEnabled) {
+        const tail = ttsBufRef.current.trim()
+        if (tail.length >= 6) voice.speakQueued(tail)
+        ttsBufRef.current = ''
+      }
+
+      setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', content: fullText }])
       setStreaming('')
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
         setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', content: '⚠ Something went wrong.' }])
       }
     } finally {
+      if (slowHintRef.current) { clearTimeout(slowHintRef.current); slowHintRef.current = null }
+      ttsBufRef.current = ''
       setStreaming('')
       setIsSending(false)
       abortRef.current = null
     }
-  }, [input, isSending, sessionId, streaming, ttsEnabled, voice])
+  }, [input, isSending, sessionId, ttsEnabled, voice])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -397,7 +450,7 @@ export default function CompanionView() {
               </motion.div>
             ))}
 
-            {streaming && (
+            {streaming && streaming !== '_hint_' && (
               <motion.div key="streaming" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3">
                 <div className="w-7 h-7 rounded-full bg-primary-container flex items-center justify-center shrink-0 mt-0.5">
                   <Bot className="w-4 h-4 text-primary" />
@@ -409,18 +462,23 @@ export default function CompanionView() {
               </motion.div>
             )}
 
-            {isSending && !streaming && (
+            {isSending && (!streaming || streaming === '_hint_') && (
               <motion.div key="thinking" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-3">
                 <div className="w-7 h-7 rounded-full bg-primary-container flex items-center justify-center shrink-0 mt-0.5 relative">
                   <Bot className="w-4 h-4 text-primary" />
                   <span className="absolute inset-0 rounded-full border border-primary/30 animate-ping" style={{ animationDuration: '1.6s' }} />
                 </div>
-                <div className="flex items-center gap-1.5 py-1.5">
-                  <span className="text-sm text-on-surface-variant/60">Thinking</span>
-                  {[0, 180, 360].map((d) => (
-                    <span key={d} className="w-1 h-1 rounded-full bg-primary/50 animate-bounce"
-                      style={{ animationDelay: `${d}ms`, animationDuration: '1s' }} />
-                  ))}
+                <div className="flex flex-col gap-0.5 py-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm text-on-surface-variant/60">Thinking</span>
+                    {[0, 180, 360].map((d) => (
+                      <span key={d} className="w-1 h-1 rounded-full bg-primary/50 animate-bounce"
+                        style={{ animationDelay: `${d}ms`, animationDuration: '1s' }} />
+                    ))}
+                  </div>
+                  {streaming === '_hint_' && (
+                    <span className="text-[11px] text-on-surface-variant/40">Model may be cold — usually ready in 30–60s</span>
+                  )}
                 </div>
               </motion.div>
             )}
