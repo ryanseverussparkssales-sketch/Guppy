@@ -383,9 +383,12 @@ export function ScreenPanel() {
   const [alive, setAlive] = useState<boolean | null>(null)
 
   useEffect(() => {
-    api.get('/api/screenpipe/status')
+    const check = () => api.get('/api/screenpipe/status')
       .then((r) => setAlive(r.data?.available ?? true))
       .catch(() => setAlive(false))
+    check()
+    const id = setInterval(check, 30_000)
+    return () => clearInterval(id)
   }, [])
 
   return (

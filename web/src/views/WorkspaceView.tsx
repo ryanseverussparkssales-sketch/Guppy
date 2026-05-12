@@ -276,7 +276,7 @@ export default function WorkspaceView() {
           )}
 
           {activeTab === 'files' && (
-            <div className="h-full flex flex-col gap-0 overflow-hidden">
+            <div className="h-full flex flex-col gap-0 overflow-hidden" key={`files-${refreshKey}`}>
               <div className="flex-1 overflow-hidden">
                 <ErrorBoundary fallback={<PanelFallback label="Files" />}>
                   <FilesPanel />
