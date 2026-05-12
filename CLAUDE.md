@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-05-12 — Tray model control, security hardening, SSE fixes, leads tab, --parallel 1
+**Last updated:** 2026-05-12 — Mullvad VPN, Tier 1/2 improvements, Screenpipe auto-refresh
 
 ---
 
@@ -266,6 +266,15 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
   - **Proactive companion nudge** — background loop in `routes_surface._background_loop()` checks calendar events in next 60 min every 5 min; broadcasts `proactive_nudge` SSE events; `CompanionView.tsx` voices them via `voice.speak()` when TTS enabled; `_get_upcoming_events()` added to `routes_calendar.py`
   - **Structured memory categories** — `MEMORY_CATEGORIES` frozenset + `normalize_category()` + `recall_by_category()` in `memory_store.py`; tool primer in `context_injection.py` updated with 7 typed slot descriptions; `remember_fact()` normalizes category before storing
   - **Test fixes** — TTS tests updated for new `_load_onnx()` / `_call_api()` method names; chat routing test patches system prompt cache to force cache miss so `get_startup_system` is always invoked; 925 unit tests green
+
+- ✅ **Mullvad VPN + companion cleanup + Tier 1/2 batch** (2026-05-12):
+  - **Mullvad VPN** — `routes_vpn.py` rewritten from Windows VPN API to `mullvad` CLI; `VPNPanel.tsx` rewritten with status card, relay picker (country→city cascade), kill-switch toggle, 10s auto-refresh; returns HTTP 503 with helpful message if CLI not on PATH
+  - **Personality pills removed** — `CompanionView.tsx` no longer has Smart/Creative/Voice/Humor/Deep preset buttons (were no-ops); just avatar + chat
+  - **ConversationsView retired** — `/conversations` route redirects to `/companion`; ConversationsView import removed from App.tsx
+  - **Tool schema gap fixed** — 8 tools added to `_WORKSPACE_TOOL_SCHEMA` in `routes_realtime.py`: get_weather, get_news, clipboard_read, clipboard_write, open_application, api_request, read_screen_text, write_file (all already implemented in `tool_executor_workspace.py`)
+  - **Screenpipe auto-refresh** — RecentTab + TimelineTab get 2-min interval + `visibilitychange` listener; ScreenPanel status polls every 30s (was load-once-on-mount)
+  - **Universal refreshKey** — all 15 workspace tabs now have `key={tab-${refreshKey}}`; F5/Ctrl+R remounts any active panel
+  - **918 unit tests green** (1 pre-existing failure in `test_local_client_no_ollama_cleanup.py`)
 
 - ✅ **Security + tray + usability batch** (2026-05-12, commit 701f2f9):
   - **Tray model management** — `tray_app.py` monitors and controls all 3 always-on llama.cpp models (ports 8086/8091/8092); Models submenu with ●/○ live status, per-model Start/Stop/Restart, Start All / Restart All / Stop All; icon turns yellow when API up but primary model offline; 30s refresh cycle; `tools/register_tray_startup.ps1` registers as Windows logon Task Scheduler task
