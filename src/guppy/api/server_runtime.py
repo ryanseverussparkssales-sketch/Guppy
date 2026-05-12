@@ -621,6 +621,17 @@ try:
             "/logs/", "/telemetry/", "/repair", "/auth/",
         )
 
+        # Serve standalone HTML tools that must not be caught by the SPA fallback
+        _lead_scraper_path = str(_static_path / "lead-scraper.html")
+        if (_static_path / "lead-scraper.html").exists():
+            @app.get("/lead-scraper.html", include_in_schema=False)
+            async def _serve_lead_scraper_html(_f: str = _lead_scraper_path) -> FileResponse:
+                return FileResponse(_f, media_type="text/html", headers={"Cache-Control": "no-store"})
+
+            @app.get("/lead-scraper", include_in_schema=False)
+            async def _serve_lead_scraper(_f: str = _lead_scraper_path) -> FileResponse:
+                return FileResponse(_f, media_type="text/html", headers={"Cache-Control": "no-store"})
+
         @app.exception_handler(404)
         async def _spa_404(request: Any, exc: Any):
             path = request.url.path

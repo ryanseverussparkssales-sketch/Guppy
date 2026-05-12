@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lead Scraper — Guppy</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0b0d; --bg2: #111318; --bg3: #181c22;
+    --border: #1e2530; --border2: #2a3444;
+    --accent: #00d4ff; --accent2: #0099cc;
+    --green: #00ff88; --yellow: #ffd600; --red: #ff4444; --purple: #a855f7;
+    --text: #e2e8f0; --text2: #8899aa; --text3: #4a5568;
+    --mono: 'IBM Plex Mono', monospace; --sans: 'IBM Plex Sans', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; display: flex; flex-direction: column; }
+
+  .topbar { border-bottom: 1px solid var(--border); padding: 0 24px; height: 52px; display: flex; align-items: center; justify-content: space-between; background: var(--bg2); position: sticky; top: 0; z-index: 100; }
+  .topbar-left { display: flex; align-items: center; gap: 16px; }
+  .logo { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; }
+  .logo span { color: var(--text3); }
+  .nav-pill { font-family: var(--mono); font-size: 11px; padding: 3px 10px; border-radius: 2px; border: 1px solid var(--border2); color: var(--text2); background: var(--bg3); cursor: pointer; text-decoration: none; transition: all 0.15s; }
+  .nav-pill:hover { color: var(--text); border-color: var(--accent); }
+  .topbar-right { display: flex; align-items: center; gap: 10px; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text3); transition: all 0.3s; }
+  .status-dot.running { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100%{box-shadow:0 0 4px var(--green);}50%{box-shadow:0 0 16px var(--green);} }
+  .status-label { font-family: var(--mono); font-size: 11px; color: var(--text2); }
+  .progress-bar-wrap { height: 2px; background: var(--border); overflow: hidden; }
+  .progress-bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.4s; box-shadow: 0 0 8px var(--accent); }
+  .progress-bar.indeterminate { width: 30%; animation: indeterminate 1.4s infinite ease-in-out; }
+  @keyframes indeterminate { 0%{transform:translateX(-200%);}100%{transform:translateX(500%);} }
+
+  .main { display: flex; flex: 1; height: calc(100vh - 54px); overflow: hidden; }
+  .sidebar { width: 316px; border-right: 1px solid var(--border); background: var(--bg2); display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0; }
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+  .sidebar-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .section-label { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text3); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
+
+  .field { margin-bottom: 9px; }
+  .field label { display: block; font-family: var(--mono); font-size: 11px; color: var(--text2); margin-bottom: 4px; }
+  .field input, .field select, .field textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-family: var(--mono); font-size: 12px; padding: 7px 10px; outline: none; transition: border-color 0.15s; appearance: none; }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent2); }
+  .field input::placeholder, .field textarea::placeholder { color: var(--text3); }
+  .field textarea { resize: vertical; min-height: 54px; line-height: 1.5; }
+
+  .industry-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 9px; }
+  .industry-chip { padding: 6px 7px; border-radius: 3px; border: 1px solid var(--border); background: var(--bg); color: var(--text2); font-family: var(--mono); font-size: 10px; cursor: pointer; text-align: left; transition: all 0.15s; user-select: none; display: flex; align-items: center; gap: 5px; }
+  .industry-chip:hover { border-color: var(--border2); color: var(--text); }
+  .industry-chip.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.06); }
+
+  .ai-box { background: rgba(168,85,247,0.05); border: 1px solid rgba(168,85,247,0.2); border-radius: 4px; padding: 11px; }
+  .ai-label { font-family: var(--mono); font-size: 10px; color: var(--purple); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 7px; display: flex; align-items: center; gap: 5px; }
+  .ai-textarea { width: 100%; background: rgba(0,0,0,0.3); border: 1px solid rgba(168,85,247,0.25); border-radius: 3px; color: var(--text); font-family: var(--sans); font-size: 12px; padding: 7px 9px; outline: none; resize: none; min-height: 52px; line-height: 1.5; transition: border-color 0.15s; }
+  .ai-textarea:focus { border-color: var(--purple); }
+  .ai-textarea::placeholder { color: var(--text3); }
+  .ai-btn { width: 100%; margin-top: 7px; padding: 7px; background: rgba(168,85,247,0.12); border: 1px solid rgba(168,85,247,0.35); color: var(--purple); font-family: var(--mono); font-size: 11px; font-weight: 600; border-radius: 3px; cursor: pointer; transition: all 0.2s; letter-spacing: 0.06em; display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .ai-btn:hover { background: rgba(168,85,247,0.22); color: #fff; }
+  .ai-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ai-btn.loading { animation: aiPulse 1s infinite; }
+  @keyframes aiPulse { 0%,100%{opacity:0.7;}50%{opacity:1;} }
+  .ai-result { margin-top: 8px; padding: 9px; background: rgba(0,0,0,0.3); border: 1px solid rgba(168,85,247,0.18); border-radius: 3px; font-family: var(--mono); font-size: 11px; color: var(--text2); line-height: 1.7; display: none; }
+  .ai-result.visible { display: block; animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from{opacity:0;}to{opacity:1;} }
+  .ai-row { display: flex; align-items: center; justify-content: space-between; padding: 1px 0; }
+  .ai-micro { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text3); margin: 6px 0 3px; }
+  .ai-use-btn { background: none; border: 1px solid rgba(168,85,247,0.3); border-radius: 2px; color: var(--purple); font-family: var(--mono); font-size: 9px; padding: 1px 5px; cursor: pointer; transition: all 0.15s; }
+  .ai-use-btn:hover { background: rgba(168,85,247,0.12); }
+  .ai-use-all { width: 100%; margin-top: 5px; padding: 4px; background: none; border: 1px solid rgba(168,85,247,0.25); color: var(--purple); font-family: var(--mono); font-size: 10px; border-radius: 2px; cursor: pointer; transition: all 0.15s; }
+  .ai-use-all:hover { background: rgba(168,85,247,0.08); }
+  .ai-tip { margin-top: 7px; padding: 5px 7px; background: rgba(168,85,247,0.06); border-left: 2px solid var(--purple); font-size: 10px; color: var(--text2); line-height: 1.5; }
+
+  .targets-list { display: flex; flex-direction: column; gap: 4px; }
+  .target-tag { display: flex; align-items: center; justify-content: space-between; background: var(--bg3); border: 1px solid var(--border); border-radius: 3px; padding: 5px 9px; font-family: var(--mono); font-size: 11px; color: var(--text); animation: slideIn 0.2s ease; }
+  @keyframes slideIn { from{opacity:0;transform:translateY(-3px);}to{opacity:1;transform:translateY(0);} }
+  .target-tag .remove { color: var(--text3); cursor: pointer; font-size: 15px; line-height: 1; transition: color 0.15s; }
+  .target-tag .remove:hover { color: var(--red); }
+  .add-row { display: flex; gap: 5px; margin-top: 7px; }
+  .add-row input { flex:1; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-family: var(--mono); font-size: 12px; padding: 6px 9px; outline: none; transition: border-color 0.15s; }
+  .add-row input:focus { border-color: var(--accent2); }
+  .add-row input::placeholder { color: var(--text3); }
+  .btn-add { background: var(--bg3); border: 1px solid var(--border2); color: var(--text2); width: 30px; height: 30px; border-radius: 3px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.15s; flex-shrink: 0; }
+  .btn-add:hover { border-color: var(--accent); color: var(--accent); }
+
+  .chains-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chain-tag { font-family: var(--mono); font-size: 10px; padding: 2px 6px; border-radius: 2px; border: 1px solid var(--border); color: var(--text3); background: var(--bg); cursor: pointer; transition: all 0.15s; user-select: none; }
+  .chain-tag.active { border-color: var(--red); color: var(--red); background: rgba(255,68,68,0.05); }
+
+  .stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
+  .stat { background: var(--bg); padding: 8px 4px; text-align: center; }
+  .stat-num { font-family: var(--mono); font-size: 17px; font-weight: 600; color: var(--text); line-height: 1; }
+  .stat-num.green { color: var(--green); }
+  .stat-num.yellow { color: var(--yellow); }
+  .stat-label { font-family: var(--mono); font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 2px; }
+
+  .run-btn { width: 100%; padding: 11px; background: var(--accent); color: #000; border: none; border-radius: 3px; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; transition: all 0.2s; }
+  .run-btn:hover { background: #33ddff; }
+  .run-btn.running { background: var(--bg3); color: var(--green); border: 1px solid var(--green); cursor: not-allowed; }
+
+  .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .log-panel { height: 145px; border-bottom: 1px solid var(--border); background: var(--bg); overflow-y: auto; padding: 9px 13px; flex-shrink: 0; }
+  .log-panel::-webkit-scrollbar { width: 4px; }
+  .log-panel::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+  .log-entry { font-family: var(--mono); font-size: 11px; line-height: 1.8; color: var(--text2); display: flex; gap: 12px; }
+  .log-time { color: var(--text3); flex-shrink: 0; }
+  .log-entry.success .log-msg { color: var(--green); }
+  .log-entry.error .log-msg { color: var(--red); }
+  .log-entry.info .log-msg { color: var(--accent); }
+  .log-entry.ai .log-msg { color: var(--purple); }
+  .log-entry.skip .log-msg { color: var(--text3); }
+
+  .results-toolbar { padding: 8px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--bg2); flex-shrink: 0; }
+  .results-toolbar-left { display: flex; align-items: center; gap: 8px; }
+  .results-count { font-family: var(--mono); font-size: 11px; color: var(--text2); }
+  .industry-badge { font-family: var(--mono); font-size: 10px; padding: 2px 7px; border-radius: 2px; background: rgba(0,212,255,0.07); border: 1px solid rgba(0,212,255,0.18); color: var(--accent); }
+  .filter-input { background: var(--bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-family: var(--mono); font-size: 11px; padding: 5px 9px; outline: none; width: 190px; transition: border-color 0.15s; }
+  .filter-input:focus { border-color: var(--accent2); }
+  .filter-input::placeholder { color: var(--text3); }
+  .toolbar-btn { font-family: var(--mono); font-size: 11px; padding: 4px 11px; border-radius: 3px; border: 1px solid var(--border2); background: var(--bg3); color: var(--text2); cursor: pointer; transition: all 0.15s; }
+  .toolbar-btn:hover { border-color: var(--green); color: var(--green); }
+  .toolbar-btn.crm { border-color: rgba(168,85,247,0.4); color: var(--purple); }
+  .toolbar-btn.crm:hover { background: rgba(168,85,247,0.1); border-color: var(--purple); }
+
+  .table-wrap { flex: 1; overflow-y: auto; }
+  .table-wrap::-webkit-scrollbar { width: 5px; }
+  .table-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  thead { position: sticky; top: 0; z-index: 10; background: var(--bg2); }
+  th { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text3); padding: 8px 13px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; cursor: pointer; user-select: none; transition: color 0.15s; }
+  th:hover { color: var(--text2); }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; animation: rowIn 0.22s ease; }
+  @keyframes rowIn { from{opacity:0;transform:translateX(-4px);}to{opacity:1;transform:translateX(0);} }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+  td { padding: 8px 13px; vertical-align: middle; font-size: 12px; color: var(--text); }
+  .phone-link { color: var(--accent); text-decoration: none; font-family: var(--mono); font-size: 11px; transition: color 0.15s; }
+  .phone-link:hover { color: #fff; }
+  .web-link { color: var(--text2); text-decoration: none; font-size: 11px; font-family: var(--mono); transition: color 0.15s; max-width: 155px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+  .web-link:hover { color: var(--accent); }
+  .no-web { color: var(--text3); font-family: var(--mono); font-size: 11px; }
+  .has-web-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--green); margin-right: 4px; }
+  .row-num { color: var(--text3); font-family: var(--mono); font-size: 10px; }
+  .sheet-btn { background: none; border: 1px solid var(--border); border-radius: 2px; color: var(--text3); font-family: var(--mono); font-size: 10px; padding: 3px 7px; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .sheet-btn:hover { border-color: var(--yellow); color: var(--yellow); }
+  .sheet-btn.added { border-color: var(--green); color: var(--green); }
+
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text3); font-family: var(--mono); font-size: 12px; text-align: center; gap: 10px; }
+  .empty-state .big { font-size: 42px; opacity: 0.1; }
+  .empty-state .hint { font-size: 11px; line-height: 1.7; }
+
+  .api-key-wrap { position: relative; }
+  .api-key-wrap input { padding-right: 32px; }
+  .eye-btn { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text3); font-size: 12px; padding: 2px; transition: color 0.15s; }
+  .eye-btn:hover { color: var(--text); }
+
+  .toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg2); border: 1px solid var(--green); color: var(--green); font-family: var(--mono); font-size: 12px; padding: 9px 15px; border-radius: 3px; z-index: 999; transform: translateY(60px); opacity: 0; transition: all 0.3s ease; }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .key-row { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+
+  .history-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+  .history-list::-webkit-scrollbar { width: 3px; }
+  .history-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+  .history-item { background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 8px 10px; cursor: pointer; transition: all 0.15s; }
+  .history-item:hover { border-color: var(--border2); background: var(--bg3); }
+  .history-item.active-session { border-color: var(--accent); background: rgba(0,212,255,0.04); }
+  .history-item-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; }
+  .history-industry { font-family: var(--mono); font-size: 10px; color: var(--accent); }
+  .history-count { font-family: var(--mono); font-size: 10px; color: var(--green); }
+  .history-meta { font-family: var(--mono); font-size: 10px; color: var(--text3); line-height: 1.5; }
+  .history-cities { font-family: var(--mono); font-size: 10px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .history-actions { display: flex; gap: 4px; margin-top: 5px; }
+  .h-btn { background: none; border: 1px solid var(--border2); border-radius: 2px; color: var(--text3); font-family: var(--mono); font-size: 9px; padding: 2px 6px; cursor: pointer; transition: all 0.15s; }
+  .h-btn:hover { color: var(--text); border-color: var(--text3); }
+  .h-btn.del:hover { color: var(--red); border-color: var(--red); }
+  .h-btn.load { color: var(--accent); border-color: rgba(0,212,255,0.3); }
+  .h-btn.load:hover { background: rgba(0,212,255,0.08); }
+  .db-status { font-family: var(--mono); font-size: 10px; display: flex; align-items: center; gap: 5px; }
+  .db-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text3); }
+  .db-dot.ready { background: var(--green); box-shadow: 0 0 4px var(--green); }
+  .no-history { font-family: var(--mono); font-size: 11px; color: var(--text3); text-align: center; padding: 16px 0; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="logo">GUPPY <span>/</span> LEAD SCRAPER</div>
+    <a href="/workspace" class="nav-pill">← Workspace</a>
+  </div>
+  <div class="topbar-right">
+    <div class="status-dot" id="statusDot"></div>
+    <div class="status-label" id="statusLabel">IDLE</div>
+  </div>
+</div>
+<div class="progress-bar-wrap"><div class="progress-bar" id="progressBar"></div></div>
+
+<div class="main">
+<div class="sidebar">
+
+  <div class="sidebar-section">
+    <div class="section-label">API Keys</div>
+    <div class="key-row">
+      <div class="field" style="margin:0;">
+        <label>scrape.do</label>
+        <div class="api-key-wrap">
+          <input type="password" id="scrapeKey" placeholder="token">
+          <button class="eye-btn" onclick="toggleKey('scrapeKey')">👁</button>
+        </div>
+      </div>
+      <div class="field" style="margin:0;">
+        <label>Anthropic</label>
+        <div class="api-key-wrap">
+          <input type="password" id="claudeKey" placeholder="sk-ant-...">
+          <button class="eye-btn" onclick="toggleKey('claudeKey')">👁</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="section-label">Industry</div>
+    <div class="industry-grid" id="industryGrid"></div>
+    <div class="field" style="margin:0;">
+      <label>Custom override</label>
+      <input type="text" id="customIndustry" placeholder="e.g. plumbing, dental, HVAC...">
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="section-label">AI Smart Search <span style="color:var(--purple);font-size:9px;">◈ Claude</span></div>
+    <div class="ai-box">
+      <div class="ai-label">◈ Describe your target</div>
+      <textarea class="ai-textarea" id="aiPrompt" placeholder="e.g. Independent HVAC shops in Florida that would benefit from sales automation..."></textarea>
+      <button class="ai-btn" id="aiBtn" onclick="generateSearches()">◈ Generate Search Terms</button>
+      <div class="ai-result" id="aiResult"></div>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="section-label">
+      Search Targets
+      <span style="color:var(--text3);font-size:10px;" id="targetCount">0 cities</span>
+    </div>
+    <div class="targets-list" id="targetsList"></div>
+    <div class="add-row">
+      <input type="text" id="addCityInput" placeholder="City, ST" onkeydown="if(event.key==='Enter')addTarget()">
+      <button class="btn-add" onclick="addTarget()">+</button>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="section-label">Filter Chains</div>
+    <div class="chains-grid" id="chainsGrid"></div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="section-label">Options</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;">
+      <div class="field" style="margin:0;"><label>Per city</label><select id="resultsPerCity"><option value="10">10</option><option value="15" selected>15</option><option value="20">20</option><option value="25">25</option></select></div>
+      <div class="field" style="margin:0;"><label>Delay ms</label><select id="delayMs"><option value="1000">1000</option><option value="1500" selected>1500</option><option value="2000">2000</option><option value="3000">3000</option></select></div>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="section-label">Session Stats</div>
+    <div class="stats-row">
+      <div class="stat"><div class="stat-num" id="statFound">0</div><div class="stat-label">Found</div></div>
+      <div class="stat"><div class="stat-num green" id="statHasPhone">0</div><div class="stat-label">w/ Phone</div></div>
+      <div class="stat"><div class="stat-num yellow" id="statHasWeb">0</div><div class="stat-label">w/ Web</div></div>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <button class="run-btn" id="runBtn" onclick="toggleRun()">▶ RUN SCRAPE</button>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="section-label">
+      Search History
+      <div class="db-status"><div class="db-dot" id="dbDot"></div><span id="dbLabel">connecting...</span></div>
+    </div>
+    <div class="history-list" id="historyList">
+      <div class="no-history">No saved searches yet</div>
+    </div>
+  </div>
+
+</div><!-- /sidebar -->
+
+<div class="content">
+  <div class="log-panel" id="logPanel">
+    <div class="log-entry info"><span class="log-time">00:00:00</span><span class="log-msg">Ready. Select industry → add cities → run.</span></div>
+  </div>
+
+  <div class="results-toolbar">
+    <div class="results-toolbar-left">
+      <span class="results-count" id="resultsCount">0 results</span>
+      <span class="industry-badge" id="industryBadge">auto repair</span>
+      <input class="filter-input" type="text" placeholder="Filter results..." id="filterInput" oninput="filterResults()">
+    </div>
+    <div style="display:flex;gap:6px;">
+      <button class="toolbar-btn" onclick="exportCSV()">⬇ CSV</button>
+      <button class="toolbar-btn crm" onclick="pushToGuppyCRM()" title="Import all results into Guppy CRM contacts">◈ → CRM</button>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <div class="empty-state" id="emptyState">
+      <div class="big">⌖</div>
+      <div style="font-size:13px;color:var(--text2);">No results yet</div>
+      <div class="hint">Pick an industry, add cities,<br>then press RUN SCRAPE</div>
+    </div>
+    <table id="resultsTable" style="display:none;">
+      <thead><tr>
+        <th style="width:26px;">#</th>
+        <th onclick="sortBy('name')">Business</th>
+        <th onclick="sortBy('city')">City</th>
+        <th onclick="sortBy('phone')">Phone</th>
+        <th onclick="sortBy('website')">Website</th>
+        <th onclick="sortBy('industry')">Industry</th>
+        <th></th>
+      </tr></thead>
+      <tbody id="resultsBody"></tbody>
+    </table>
+  </div>
+</div>
+</div><!-- /main -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── INDUSTRY PRESETS ──────────────────────────────────
+const INDUSTRIES = [
+  { id:'auto',      label:'Auto Repair',   icon:'🔧', terms:['auto repair','auto mechanic','car repair'] },
+  { id:'hvac',      label:'HVAC',          icon:'❄️',  terms:['HVAC','heating cooling','air conditioning repair'] },
+  { id:'plumbing',  label:'Plumbing',      icon:'🚿', terms:['plumber','plumbing service','plumbing repair'] },
+  { id:'dental',    label:'Dental',        icon:'🦷', terms:['dentist','dental office','dental clinic'] },
+  { id:'roofing',   label:'Roofing',       icon:'🏠', terms:['roofing contractor','roof repair','roofer'] },
+  { id:'restaurant',label:'Restaurant',    icon:'🍽️', terms:['restaurant','diner','bistro'] },
+  { id:'salon',     label:'Hair Salon',    icon:'✂️',  terms:['hair salon','barber','hair stylist'] },
+  { id:'gym',       label:'Gym/Fitness',   icon:'💪', terms:['gym','fitness center','personal trainer'] },
+  { id:'law',       label:'Law Firms',     icon:'⚖️',  terms:['law firm','attorney','lawyer office'] },
+  { id:'realty',    label:'Real Estate',   icon:'🏡', terms:['real estate agent','realtor','real estate office'] },
+  { id:'electric',  label:'Electrical',    icon:'⚡', terms:['electrician','electrical contractor','electrical service'] },
+  { id:'med',       label:'Medical',       icon:'🏥', terms:['medical clinic','urgent care','family practice'] },
+];
+
+const CHAIN_FILTERS = {
+  auto:       ['jiffy lube','midas','pep boys','firestone','meineke','mavis','goodyear','valvoline','take 5','christian brothers','aamco','monro','napa autocare'],
+  hvac:       ['one hour heating','comfort systems','service experts','ars rescue rooter','lennox','trane','carrier'],
+  plumbing:   ['roto-rooter','mr. rooter','benjamin franklin','ars rescue rooter'],
+  dental:     ['aspen dental','heartland dental','pacific dental','western dental','gentle dental','smile brands'],
+  roofing:    ['weather tight','standard roofing','abc seamless'],
+  restaurant: ['mcdonalds','burger king','subway','taco bell','wendys','chick-fil','starbucks','dunkin','pizza hut','dominos','panera','chipotle','applebees','olive garden','chilis'],
+  salon:      ['great clips','sport clips','supercuts','fantastic sams','cost cutters','hair cuttery'],
+  gym:        ['planet fitness','la fitness','24 hour fitness','anytime fitness','equinox','orangetheory','crunch fitness'],
+  law:        [],
+  realty:     ['coldwell banker','keller williams','remax','century 21','berkshire hathaway','compass','exp realty'],
+  electric:   ['mr. electric','mister sparky','arc electric'],
+  med:        ['concentra','nextcare','cvs minuteclinic','patient first'],
+};
+
+// ── STATE ──────────────────────────────────────────────
+let activeIndustry = 'auto';
+let currentSearchTerms = [];
+let targets = ['Tampa, FL','St Petersburg, FL','Clearwater, FL','Bradenton, FL','Sarasota, FL','Orlando, FL'];
+let activeChains = new Set();
+let results = [];
+let running = false, abortFlag = false, startTime = null;
+let sortCol = null, sortDir = 1;
+
+// Persist keys across page loads
+const _SCRAPE_KEY_LS = 'guppy_scraper_scrape_key';
+const _CLAUDE_KEY_LS = 'guppy_scraper_claude_key';
+window.addEventListener('DOMContentLoaded', () => {
+  const sk = localStorage.getItem(_SCRAPE_KEY_LS);
+  const ck = localStorage.getItem(_CLAUDE_KEY_LS);
+  if (sk) document.getElementById('scrapeKey').value = sk;
+  if (ck) document.getElementById('claudeKey').value = ck;
+});
+
+// ── BOOT ──────────────────────────────────────────────
+renderIndustries();
+setIndustry('auto');
+renderTargets();
+
+// ── INDUSTRY ──────────────────────────────────────────
+function renderIndustries() {
+  document.getElementById('industryGrid').innerHTML = INDUSTRIES.map(ind =>
+    `<div class="industry-chip ${ind.id===activeIndustry?'active':''}" onclick="setIndustry('${ind.id}')" id="chip-${ind.id}">
+       <span>${ind.icon}</span><span>${ind.label}</span>
+     </div>`).join('');
+}
+
+function setIndustry(id) {
+  activeIndustry = id;
+  const ind = INDUSTRIES.find(i=>i.id===id);
+  currentSearchTerms = [...ind.terms];
+  const chains = CHAIN_FILTERS[id] || [];
+  activeChains = new Set(chains);
+  document.querySelectorAll('.industry-chip').forEach(c=>c.classList.remove('active'));
+  document.getElementById(`chip-${id}`)?.classList.add('active');
+  document.getElementById('industryBadge').textContent = ind.label.toLowerCase();
+  document.getElementById('aiPrompt').placeholder = `e.g. Independent ${ind.label.toLowerCase()} businesses in Florida that need better customer follow-up...`;
+  renderChains(chains);
+  log(`Industry: ${ind.label} (${ind.terms.join(', ')})`, 'info');
+}
+
+function renderChains(chains) {
+  const grid = document.getElementById('chainsGrid');
+  if (!chains.length) { grid.innerHTML = `<span style="font-family:var(--mono);font-size:10px;color:var(--text3);">No chain filters for this industry</span>`; return; }
+  grid.innerHTML = chains.map(c =>
+    `<div class="chain-tag ${activeChains.has(c)?'active':''}" onclick="toggleChain('${c}')">${c}</div>`).join('');
+}
+
+function toggleChain(c) {
+  if (activeChains.has(c)) activeChains.delete(c); else activeChains.add(c);
+  renderChains(CHAIN_FILTERS[activeIndustry]||[]);
+}
+
+// ── TARGETS ───────────────────────────────────────────
+function renderTargets() {
+  document.getElementById('targetsList').innerHTML = targets.map((t,i) =>
+    `<div class="target-tag"><span>${t}</span><span class="remove" onclick="removeTarget(${i})">×</span></div>`).join('');
+  document.getElementById('targetCount').textContent = `${targets.length} cit${targets.length===1?'y':'ies'}`;
+}
+function addTarget() {
+  const inp = document.getElementById('addCityInput'); const val = inp.value.trim();
+  if (!val || targets.includes(val)) { inp.value=''; return; }
+  targets.push(val); renderTargets(); inp.value='';
+}
+function removeTarget(i) { targets.splice(i,1); renderTargets(); }
+function toggleKey(id) { const inp=document.getElementById(id); inp.type=inp.type==='password'?'text':'password'; }
+
+// ── CLAUDE AI ─────────────────────────────────────────
+async function generateSearches() {
+  const claudeKey = document.getElementById('claudeKey').value.trim();
+  if (!claudeKey) { toast('Add your Anthropic key first', 'error'); return; }
+  localStorage.setItem(_CLAUDE_KEY_LS, claudeKey);
+
+  const ind = INDUSTRIES.find(i=>i.id===activeIndustry);
+  const userPrompt = document.getElementById('aiPrompt').value.trim() ||
+    `Generate Yelp search terms for independent ${ind.label} businesses in: ${targets.join(', ')}. Focus on small owner-operated shops that might need sales automation tools.`;
+
+  const btn = document.getElementById('aiBtn');
+  btn.disabled = true; btn.classList.add('loading'); btn.textContent = '◈ Thinking...';
+  log('Asking Claude to generate search strategy...', 'ai');
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': claudeKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 700,
+        system: `You are a B2B lead generation expert. Respond ONLY with valid JSON, no markdown, no explanation:
+{
+  "search_terms": ["2-4 word Yelp search term", ...],
+  "suggested_cities": ["City, ST", ...],
+  "chain_filters": ["chain name", ...],
+  "tip": "One actionable insight about this search"
+}
+Provide 5-7 search_terms, 2-4 suggested_cities, relevant chain_filters. All lowercase except city names.`,
+        messages: [{ role:'user', content: userPrompt }]
+      })
+    });
+
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    const parsed = JSON.parse(data.content[0].text.trim());
+    renderAiResult(parsed);
+    log(`Claude: ${parsed.search_terms.length} search terms generated`, 'ai');
+    if (parsed.tip) log(`Tip: ${parsed.tip}`, 'ai');
+
+  } catch(e) {
+    log(`Claude error: ${e.message}`, 'error');
+    toast('Claude error — check your API key', 'error');
+  } finally {
+    btn.disabled = false; btn.classList.remove('loading'); btn.textContent = '◈ Generate Search Terms';
+  }
+}
+
+function renderAiResult(data) {
+  const el = document.getElementById('aiResult');
+  const terms = data.search_terms || [];
+  const cities = data.suggested_cities || [];
+  const filters = data.chain_filters || [];
+  let h = '';
+
+  if (terms.length) {
+    h += `<div class="ai-micro">Search Terms</div>`;
+    terms.forEach(t => h += `<div class="ai-row"><span>${esc(t)}</span><button class="ai-use-btn" onclick="useTerm('${esc(t)}')">use</button></div>`);
+  }
+  if (cities.length) {
+    h += `<div class="ai-micro">Suggested Cities</div>`;
+    cities.forEach(c => h += `<div class="ai-row"><span>${esc(c)}</span><button class="ai-use-btn" onclick="useCity('${esc(c)}')">add</button></div>`);
+  }
+  if (filters.length) {
+    h += `<div class="ai-micro">Chain Filters</div>`;
+    h += `<div style="font-size:10px;color:var(--text2);line-height:1.6;">${filters.map(f=>esc(f)).join(', ')}</div>`;
+    h += `<button class="ai-use-all" onclick="applyFilters(${JSON.stringify(filters).replace(/"/g,'&quot;')})">↓ Apply all filters</button>`;
+  }
+  if (data.tip) h += `<div class="ai-tip">${esc(data.tip)}</div>`;
+  if (terms.length) h += `<button class="ai-use-all" style="margin-top:5px;" onclick="useAllTerms(${JSON.stringify(terms).replace(/"/g,'&quot;')})">↓ Use all ${terms.length} terms</button>`;
+
+  el.innerHTML = h;
+  el.classList.add('visible');
+}
+
+function useTerm(t) { if (!currentSearchTerms.includes(t)) { currentSearchTerms.push(t); toast(`"${t}" added`); log(`Term added: ${t}`, 'ai'); } }
+function useAllTerms(terms) { terms.forEach(t => { if (!currentSearchTerms.includes(t)) currentSearchTerms.push(t); }); toast(`${terms.length} terms added`); }
+function useCity(c) { if (!targets.includes(c)) { targets.push(c); renderTargets(); toast(`${c} added`); } }
+function applyFilters(filters) { filters.forEach(f => activeChains.add(f)); renderChains(CHAIN_FILTERS[activeIndustry]||[]); toast('Filters applied'); }
+
+// ── SCRAPE ────────────────────────────────────────────
+function toggleRun() { if (running) { abortFlag=true; } else { startRun(); } }
+
+async function startRun() {
+  const token = document.getElementById('scrapeKey').value.trim();
+  if (!token) { toast('No scrape.do key','error'); return; }
+  if (!targets.length) { toast('No target cities','error'); return; }
+  localStorage.setItem(_SCRAPE_KEY_LS, token);
+
+  running=true; abortFlag=false; startTime=Date.now();
+  if (db) await createSession();
+  document.getElementById('runBtn').textContent='■ STOP';
+  document.getElementById('runBtn').classList.add('running');
+  document.getElementById('statusDot').classList.add('running');
+  document.getElementById('statusLabel').textContent='RUNNING';
+  document.getElementById('progressBar').classList.add('indeterminate');
+
+  const delay = parseInt(document.getElementById('delayMs').value);
+  const perCity = parseInt(document.getElementById('resultsPerCity').value);
+  const customOverride = document.getElementById('customIndustry').value.trim();
+  const ind = INDUSTRIES.find(i=>i.id===activeIndustry);
+  const searchTerms = customOverride ? [customOverride] : (currentSearchTerms.length ? currentSearchTerms : ind.terms);
+
+  log(`Starting: ${targets.length} cities × ${searchTerms.length} terms — ${searchTerms.join(', ')}`, 'info');
+
+  for (const target of targets) {
+    if (abortFlag) break;
+    for (const term of searchTerms) {
+      if (abortFlag) break;
+      log(`→ "${term}" in ${target}`, 'info');
+      try {
+        const slugs = await fetchSlugs(token, term, target, perCity);
+        log(`  ${slugs.length} listings`);
+        for (const slug of slugs) {
+          if (abortFlag) break;
+          if (isChain(slug)) { log(`  ⊘ ${slug}`,'skip'); continue; }
+          const details = await fetchBizDetails(token, slug);
+          if (!details || !details.phone) { if(details) log(`  – no phone: ${details.name||slug}`,'skip'); continue; }
+          if (isChain(details.name)) { log(`  ⊘ ${details.name}`,'skip'); continue; }
+          if (results.find(r=>r.phone===details.phone)) continue;
+          const cp = target.split(',');
+          details.city = details.city || cp[0].trim();
+          details.state = details.state || (cp[1]||'').trim();
+          details.industry = ind.label;
+          details.searchTerm = term;
+          results.push(details);
+          if (db) await saveLeadToDB(details);
+          updateStats();
+          renderRow(details);
+          log(`  ✓ ${details.name} — ${details.phone}`, 'success');
+          await sleep(delay);
+        }
+      } catch(e) { log(`  ✗ ${e.message}`, 'error'); }
+      if (!abortFlag) await sleep(delay);
+    }
+  }
+  await stopRun(abortFlag ? 'Stopped' : 'Complete');
+}
+
+// Fix: stopRun must be async because it awaits finalizeSession
+async function stopRun(msg) {
+  running=false; abortFlag=true;
+  document.getElementById('runBtn').textContent='▶ RUN SCRAPE';
+  document.getElementById('runBtn').classList.remove('running');
+  document.getElementById('statusDot').classList.remove('running');
+  document.getElementById('statusLabel').textContent='IDLE';
+  document.getElementById('progressBar').classList.remove('indeterminate');
+  document.getElementById('progressBar').style.width='100%';
+  setTimeout(()=>document.getElementById('progressBar').style.width='0%',1500);
+  log(`── ${msg} ── ${results.length} total`, results.length?'success':'info');
+  if (db) await finalizeSession(results.length);
+}
+
+async function fetchSlugs(token, term, location, limit) {
+  const url = `https://www.yelp.com/search?find_desc=${encodeURIComponent(term)}&find_loc=${encodeURIComponent(location)}`;
+  const html = await scrapeUrl(token, url);
+  if (!html) return [];
+  const slugs=[]; const seen=new Set(); const re=/\/biz\/([\w-]+)/g; let m;
+  while ((m=re.exec(html))!==null) {
+    const s=m[1];
+    if (!seen.has(s)&&!s.includes('search')&&s.length>3) { seen.add(s); slugs.push(s); if(slugs.length>=limit) break; }
+  }
+  return slugs;
+}
+
+async function fetchBizDetails(token, slug) {
+  const html = await scrapeUrl(token, `https://www.yelp.com/biz/${slug}`);
+  if (!html) return null;
+  let name='',phone='',address='',city='',state='',zip='',website='';
+  const ldBlocks = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)||[];
+  for (const block of ldBlocks) {
+    try {
+      const d = JSON.parse(block.replace(/<script[^>]*>/,'').replace(/<\/script>/,''));
+      const obj = Array.isArray(d)?d[0]:d;
+      if (obj.name || obj.telephone) {
+        name=obj.name||''; phone=obj.telephone||''; website=obj.url||'';
+        const a=obj.address||{};
+        if (typeof a==='object') { address=a.streetAddress||''; city=a.addressLocality||''; state=a.addressRegion||''; zip=a.postalCode||''; }
+        break;
+      }
+    } catch(e){}
+  }
+  if (!phone) { const m=html.match(/\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/); if(m) phone=m[0]; }
+  if (!name) { const m=html.match(/<title>([^<|]+)/); if(m) name=m[1].trim(); }
+  return { name, phone, address, city, state, zip, website, yelp:`yelp.com/biz/${slug}` };
+}
+
+async function scrapeUrl(token, url) {
+  try {
+    const r = await fetch(`https://api.scrape.do/?token=${token}&url=${encodeURIComponent(url)}&render=true`);
+    return r.ok ? await r.text() : null;
+  } catch(e) { return null; }
+}
+
+function isChain(str) { if(!str)return false; const s=str.toLowerCase(); return [...activeChains].some(c=>s.includes(c)); }
+function sleep(ms) { return new Promise(r=>setTimeout(r,ms)); }
+
+// ── RENDER TABLE ─────────────────────────────────────
+function renderRow(shop) {
+  document.getElementById('emptyState').style.display='none';
+  document.getElementById('resultsTable').style.display='';
+  const idx = results.length-1;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td class="row-num">${results.length}</td>
+    <td><strong>${esc(shop.name)}</strong></td>
+    <td style="color:var(--text2);font-size:11px;">${esc(shop.city)}${shop.state?', '+esc(shop.state):''}</td>
+    <td><a class="phone-link" href="tel:${shop.phone}">${esc(shop.phone)}</a></td>
+    <td>${shop.website?`<span class="has-web-dot"></span><a class="web-link" href="${shop.website.startsWith('http')?shop.website:'https://'+shop.website}" target="_blank">${esc(shop.website.replace(/^https?:\/\//,'').replace(/\/$/,''))}</a>`:`<span class="no-web">—</span>`}</td>
+    <td style="color:var(--text3);font-family:var(--mono);font-size:10px;">${esc(shop.industry||'')}</td>
+    <td><button class="sheet-btn" onclick="addOneToCRM(${idx},this)" title="Add to Guppy CRM">+ CRM</button></td>`;
+  document.getElementById('resultsBody').appendChild(tr);
+  document.getElementById('resultsCount').textContent=`${results.length} result${results.length!==1?'s':''}`;
+}
+
+function updateStats() {
+  document.getElementById('statFound').textContent=results.length;
+  document.getElementById('statHasPhone').textContent=results.filter(r=>r.phone).length;
+  document.getElementById('statHasWeb').textContent=results.filter(r=>r.website).length;
+}
+
+function filterResults() {
+  const q=document.getElementById('filterInput').value.toLowerCase();
+  document.querySelectorAll('#resultsBody tr').forEach(tr=>{tr.style.display=tr.textContent.toLowerCase().includes(q)?'':'none';});
+}
+
+function sortBy(col) {
+  if(sortCol===col) sortDir*=-1; else {sortCol=col;sortDir=1;}
+  results.sort((a,b)=>(a[col]||'').localeCompare(b[col]||'')*sortDir);
+  const tbody=document.getElementById('resultsBody'); tbody.innerHTML='';
+  results.forEach((s,i)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td class="row-num">${i+1}</td>
+      <td><strong>${esc(s.name)}</strong></td>
+      <td style="color:var(--text2);font-size:11px;">${esc(s.city)}${s.state?', '+esc(s.state):''}</td>
+      <td><a class="phone-link" href="tel:${s.phone}">${esc(s.phone)}</a></td>
+      <td>${s.website?`<span class="has-web-dot"></span><a class="web-link" href="${s.website.startsWith('http')?s.website:'https://'+s.website}" target="_blank">${esc(s.website.replace(/^https?:\/\//,'').replace(/\/$/,''))}</a>`:`<span class="no-web">—</span>`}</td>
+      <td style="color:var(--text3);font-family:var(--mono);font-size:10px;">${esc(s.industry||'')}</td>
+      <td><button class="sheet-btn" onclick="addOneToCRM(${i},this)" title="Add to Guppy CRM">+ CRM</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// ── GUPPY CRM INTEGRATION ─────────────────────────────
+async function _crmPost(shop) {
+  const notes = [
+    shop.industry, shop.address, shop.city, shop.state,
+    shop.searchTerm ? `Search: ${shop.searchTerm}` : '',
+    shop.yelp ? `Yelp: ${shop.yelp}` : '',
+  ].filter(Boolean).join(' | ');
+  const res = await fetch('/api/workspace/contacts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: shop.name, company: shop.name, phone: shop.phone, website: shop.website || '', notes }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+async function addOneToCRM(idx, btn) {
+  const shop = results[idx]; if (!shop) return;
+  btn.disabled = true; btn.textContent = '...';
+  try {
+    await _crmPost(shop);
+    btn.textContent = '✓'; btn.classList.add('added');
+    toast(`${shop.name} → CRM`);
+  } catch(e) {
+    btn.textContent = '✗'; btn.disabled = false;
+    toast('CRM import failed — is Guppy running?', 'error');
+  }
+}
+
+async function pushToGuppyCRM() {
+  if (!results.length) { toast('No results to push', 'error'); return; }
+  let pushed = 0, failed = 0;
+  for (const shop of results) {
+    try { await _crmPost(shop); pushed++; } catch(e) { failed++; }
+  }
+  const msg = failed ? `${pushed} pushed, ${failed} failed` : `${pushed} leads → Guppy CRM`;
+  toast(msg, failed ? 'error' : 'success');
+  log(`CRM push: ${pushed} imported${failed ? `, ${failed} failed` : ''}`, pushed ? 'success' : 'error');
+}
+
+function exportCSV() {
+  if(!results.length){toast('Nothing to export','error');return;}
+  const h=['name','phone','address','city','state','zip','website','industry','searchTerm','yelp'];
+  const rows=results.map(r=>h.map(k=>`"${(r[k]||'').replace(/"/g,'""')}"`).join(','));
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent([h.join(','),...rows].join('\n'));
+  a.download=`leads_${activeIndustry}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  toast(`Exported ${results.length} rows`);
+}
+
+function log(msg,type='info') {
+  const panel=document.getElementById('logPanel');
+  const e=startTime?Math.floor((Date.now()-startTime)/1000):0;
+  const t=new Date(e*1000).toISOString().substr(11,8);
+  const entry=document.createElement('div');
+  entry.className=`log-entry ${type}`;
+  entry.innerHTML=`<span class="log-time">${t}</span><span class="log-msg">${msg}</span>`;
+  panel.appendChild(entry);
+  panel.scrollTop=panel.scrollHeight;
+}
+
+function toast(msg,type='success') {
+  const el=document.getElementById('toast');
+  el.textContent=msg;
+  el.style.borderColor=type==='error'?'var(--red)':'var(--green)';
+  el.style.color=type==='error'?'var(--red)':'var(--green)';
+  el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'),3000);
+}
+
+// ── INDEXED DB ────────────────────────────────────────
+const DB_NAME = 'guppy_leads';
+const DB_VER  = 1;
+let db = null;
+let currentSessionId = null;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VER);
+    req.onupgradeneeded = e => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('sessions')) {
+        const ss = d.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
+        ss.createIndex('createdAt', 'createdAt');
+        ss.createIndex('industry', 'industry');
+      }
+      if (!d.objectStoreNames.contains('leads')) {
+        const ls = d.createObjectStore('leads', { keyPath: 'id', autoIncrement: true });
+        ls.createIndex('sessionId', 'sessionId');
+        ls.createIndex('phone', 'phone');
+        ls.createIndex('industry', 'industry');
+      }
+    };
+    req.onsuccess = e => { db = e.target.result; resolve(db); };
+    req.onerror = e => reject(e.target.error);
+  });
+}
+
+function dbAdd(store, record) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    const req = tx.objectStore(store).add(record);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbGetAll(store) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbGetByIndex(store, indexName, value) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).index(indexName).getAll(value);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbDelete(store, key) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    const req = tx.objectStore(store).delete(key);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbDeleteByIndex(store, indexName, value) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    const idx = tx.objectStore(store).index(indexName);
+    const req = idx.openCursor(IDBKeyRange.only(value));
+    const deletions = [];
+    req.onsuccess = e => {
+      const cursor = e.target.result;
+      if (cursor) {
+        deletions.push(new Promise((r,j) => { const d=cursor.delete(); d.onsuccess=r; d.onerror=j; }));
+        cursor.continue();
+      } else {
+        Promise.all(deletions).then(resolve).catch(reject);
+      }
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// ── SESSION MANAGEMENT ────────────────────────────────
+async function createSession() {
+  const ind = INDUSTRIES.find(i=>i.id===activeIndustry);
+  const session = {
+    industry: ind.label, industryId: activeIndustry,
+    cities: [...targets],
+    searchTerms: currentSearchTerms.length ? currentSearchTerms : ind.terms,
+    createdAt: new Date().toISOString(),
+    leadCount: 0, status: 'running'
+  };
+  currentSessionId = await dbAdd('sessions', session);
+  log(`Session #${currentSessionId} created`, 'info');
+  return currentSessionId;
+}
+
+async function finalizeSession(count) {
+  if (!currentSessionId || !db) return;
+  try {
+    const tx = db.transaction('sessions', 'readwrite');
+    const store = tx.objectStore('sessions');
+    const req = store.get(currentSessionId);
+    req.onsuccess = () => {
+      const session = req.result;
+      if (session) {
+        session.leadCount = count;
+        session.status = 'complete';
+        session.finishedAt = new Date().toISOString();
+        store.put(session);
+      }
+    };
+    await new Promise((r,j) => { tx.oncomplete=r; tx.onerror=j; });
+  } catch(e) { console.error('finalizeSession error', e); }
+  await loadHistory();
+}
+
+async function saveLeadToDB(lead) {
+  if (!db || !currentSessionId) return;
+  try {
+    await dbAdd('leads', { ...lead, sessionId: currentSessionId, savedAt: new Date().toISOString() });
+  } catch(e) { /* duplicate phone or quota */ }
+}
+
+// ── HISTORY UI ────────────────────────────────────────
+async function loadHistory() {
+  if (!db) return;
+  try {
+    const sessions = await dbGetAll('sessions');
+    sessions.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const el = document.getElementById('historyList');
+    if (!sessions.length) {
+      el.innerHTML = '<div class="no-history">No saved searches yet</div>';
+      return;
+    }
+    el.innerHTML = sessions.map(s => {
+      const d = new Date(s.createdAt);
+      const dateStr = d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+      const timeStr = d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+      const isActive = s.id === currentSessionId;
+      const statusDot = s.status === 'running'
+        ? `<span style="color:var(--yellow);font-size:9px;">● running</span>`
+        : `<span style="color:var(--text3);font-size:9px;">${s.status||'complete'}</span>`;
+      return `
+      <div class="history-item ${isActive?'active-session':''}" id="hsession-${s.id}">
+        <div class="history-item-top">
+          <span class="history-industry">${esc(s.industry)}</span>
+          <span class="history-count">+${s.leadCount} leads</span>
+        </div>
+        <div class="history-meta">${dateStr} ${timeStr} ${statusDot}</div>
+        <div class="history-cities">${(s.cities||[]).slice(0,3).join(', ')}${s.cities&&s.cities.length>3?` +${s.cities.length-3} more`:''}</div>
+        <div class="history-actions">
+          <button class="h-btn load" onclick="loadSession(${s.id})">↓ Load</button>
+          <button class="h-btn" onclick="exportSession(${s.id})">⬇ CSV</button>
+          <button class="h-btn del" onclick="deleteSession(${s.id})">✕</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { console.error('loadHistory error', e); }
+}
+
+async function loadSession(sessionId) {
+  if (!db) return;
+  try {
+    const leads = await dbGetByIndex('leads', 'sessionId', sessionId);
+    const sessions = await dbGetAll('sessions');
+    const session = sessions.find(s=>s.id===sessionId);
+    if (!leads.length) { toast('No leads in this session', 'error'); return; }
+
+    results = leads.map(l => { const {id, sessionId: _sid, savedAt, ...rest} = l; return rest; });
+    currentSessionId = sessionId;
+
+    if (session?.industryId) {
+      activeIndustry = session.industryId;
+      renderIndustries();
+      const ind = INDUSTRIES.find(i=>i.id===activeIndustry);
+      if (ind) {
+        document.getElementById('industryBadge').textContent = ind.label.toLowerCase();
+        currentSearchTerms = [...ind.terms];
+        const chains = CHAIN_FILTERS[activeIndustry] || [];
+        activeChains = new Set(chains);
+        renderChains(chains);
+      }
+    }
+
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('resultsTable').style.display = '';
+    const tbody = document.getElementById('resultsBody');
+    tbody.innerHTML = '';
+    results.forEach((shop, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="row-num">${i+1}</td>
+        <td><strong>${esc(shop.name)}</strong></td>
+        <td style="color:var(--text2);font-size:11px;">${esc(shop.city)}${shop.state?', '+esc(shop.state):''}</td>
+        <td><a class="phone-link" href="tel:${shop.phone}">${esc(shop.phone)}</a></td>
+        <td>${shop.website?`<span class="has-web-dot"></span><a class="web-link" href="${shop.website.startsWith('http')?shop.website:'https://'+shop.website}" target="_blank">${esc(shop.website.replace(/^https?:\/\//,'').replace(/\/$/,''))}</a>`:`<span class="no-web">—</span>`}</td>
+        <td style="color:var(--text3);font-family:var(--mono);font-size:10px;">${esc(shop.industry||'')}</td>
+        <td><button class="sheet-btn" onclick="addOneToCRM(${i},this)" title="Add to Guppy CRM">+ CRM</button></td>`;
+      tbody.appendChild(tr);
+    });
+
+    updateStats();
+    document.getElementById('resultsCount').textContent = `${results.length} result${results.length!==1?'s':''}`;
+    await loadHistory();
+    toast(`Loaded session — ${leads.length} leads`);
+    log(`Session #${sessionId} loaded from history (${leads.length} leads)`, 'info');
+  } catch(e) {
+    toast('Error loading session', 'error');
+    console.error(e);
+  }
+}
+
+async function deleteSession(sessionId) {
+  if (!db) return;
+  if (!confirm('Delete this session and all its leads?')) return;
+  try {
+    await dbDelete('sessions', sessionId);
+    await dbDeleteByIndex('leads', 'sessionId', sessionId);
+    if (currentSessionId === sessionId) {
+      currentSessionId = null; results = [];
+      document.getElementById('resultsBody').innerHTML = '';
+      document.getElementById('emptyState').style.display = '';
+      document.getElementById('resultsTable').style.display = 'none';
+      document.getElementById('resultsCount').textContent = '0 results';
+      updateStats();
+    }
+    await loadHistory();
+    toast('Session deleted');
+  } catch(e) { toast('Error deleting session', 'error'); }
+}
+
+async function exportSession(sessionId) {
+  if (!db) return;
+  try {
+    const leads = await dbGetByIndex('leads', 'sessionId', sessionId);
+    if (!leads.length) { toast('No leads to export', 'error'); return; }
+    const h = ['name','phone','address','city','state','zip','website','industry','searchTerm','yelp'];
+    const rows = leads.map(r => h.map(k=>`"${(r[k]||'').replace(/"/g,'""')}"`).join(','));
+    const sessions = await dbGetAll('sessions');
+    const session = sessions.find(s=>s.id===sessionId);
+    const a = document.createElement('a');
+    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent([h.join(','),...rows].join('\n'));
+    a.download = `leads_${(session?.industryId||'unknown')}_${(session?.createdAt||'').slice(0,10)}.csv`;
+    a.click();
+    toast(`Exported ${leads.length} leads`);
+  } catch(e) { toast('Export error', 'error'); }
+}
+
+// ── DB INIT ───────────────────────────────────────────
+openDB().then(() => {
+  document.getElementById('dbDot').classList.add('ready');
+  document.getElementById('dbLabel').textContent = 'db ready';
+  loadHistory();
+  log('IndexedDB connected — history enabled', 'info');
+}).catch(e => {
+  document.getElementById('dbLabel').textContent = 'db error';
+  log(`DB error: ${e.message}`, 'error');
+});
+</script>
+</body>
+</html>

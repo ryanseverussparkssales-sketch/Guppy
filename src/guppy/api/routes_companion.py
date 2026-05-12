@@ -337,7 +337,15 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
 
         image_b64: str | None = None
         if image:
+            _ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+            _ct = (image.content_type or "").lower().split(";")[0].strip()
+            if _ct not in _ALLOWED_IMAGE_TYPES:
+                from fastapi import HTTPException as _HTTPException
+                raise _HTTPException(415, f"Unsupported image type: {_ct!r}. Allowed: jpeg, png, gif, webp")
             data = await image.read()
+            if len(data) > 20 * 1024 * 1024:
+                from fastapi import HTTPException as _HTTPException
+                raise _HTTPException(413, "Image too large (max 20 MB)")
             image_b64 = base64.b64encode(data).decode()
 
         # ── Auto-start MiniCPM-o if offline ──────────────────────────────────

@@ -100,6 +100,12 @@ async def safe_web_fetch(
             max_redirects=5,
         ) as client:
             resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 Guppy/1.0"})
+            # Re-validate after redirects — a public URL can 302 to an internal one
+            final_url = str(resp.url)
+            if final_url != url:
+                safe2, reason2 = _is_safe_url(final_url)
+                if not safe2:
+                    return {"ok": False, "error": f"Redirect target blocked: {reason2}", "url": url}
             text = resp.text
 
         # Strip HTML tags to plain text

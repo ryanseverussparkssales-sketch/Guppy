@@ -212,8 +212,10 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
           const url   = URL.createObjectURL(res.data)
           const audio = new Audio(url)
           audioRef.current = audio
-          audio.onended = () => { URL.revokeObjectURL(url); resolve() }
-          audio.onerror = () => { URL.revokeObjectURL(url); resolve() }
+          const done = () => { URL.revokeObjectURL(url); resolve() }
+          audio.onended = done
+          audio.onpause = done
+          audio.onerror = done
           audio.play().catch(() => resolve())
         })
         .catch(() => {
@@ -279,11 +281,13 @@ export const useVoice = (options: UseVoiceOptions = {}) => {
         const url   = URL.createObjectURL(res.data)
         const audio = new Audio(url)
         audioRef.current = audio
-        audio.onended = () => { setIsSpeaking(false); URL.revokeObjectURL(url) }
-        audio.onerror = () => {
-          setIsSpeaking(false)
+        audio.onended = () => {
           URL.revokeObjectURL(url)
-          _fallbackSpeak(text, rate)
+          if (audioRef.current === audio) { audioRef.current = null; setIsSpeaking(false) }
+        }
+        audio.onerror = () => {
+          URL.revokeObjectURL(url)
+          if (audioRef.current === audio) { audioRef.current = null; setIsSpeaking(false); _fallbackSpeak(text, rate) }
         }
         await audio.play()
         return

@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Calendar, ChevronLeft, ChevronRight, Plus, X, RefreshCw,
-  Clock, MapPin, Link2, CheckCircle2, Trash2,
+  Clock, MapPin, Link2, CheckCircle2, Trash2, AlertCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
@@ -320,6 +320,7 @@ export function CalendarPanel() {
   const [month,   setMonth]   = useState(now.getMonth())
   const [events,  setEvents]  = useState<CalEvent[]>([])
   const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState<string | null>(null)
   const [gConnected, setGConnected] = useState<boolean | null>(null)
   const [addOpen,  setAddOpen]  = useState(false)
   const [dayDate,  setDayDate]  = useState<string | null>(null)
@@ -329,6 +330,7 @@ export function CalendarPanel() {
 
   const load = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const pad = (n: number) => String(n).padStart(2, '0')
       const start = `${year}-${pad(month + 1)}-01`
@@ -340,12 +342,18 @@ export function CalendarPanel() {
       ])
       setEvents(Array.isArray(evRes.data) ? evRes.data : [])
       setGConnected(stRes.data?.google_connected ?? false)
-    } catch { /* ignore */ } finally {
+    } catch {
+      setError('Failed to load calendar')
+    } finally {
       setLoading(false)
     }
   }, [year, month])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    const id = setInterval(load, 60_000)
+    return () => clearInterval(id)
+  }, [load])
 
   const prevMonth = () => { if (month === 0) { setYear(y => y - 1); setMonth(11) } else setMonth(m => m - 1) }
   const nextMonth = () => { if (month === 11) { setYear(y => y + 1); setMonth(0) } else setMonth(m => m + 1) }
@@ -426,7 +434,12 @@ export function CalendarPanel() {
 
       {/* Calendar grid */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {loading ? (
+        {error ? (
+          <div className="flex items-center gap-2 text-xs text-error/70 bg-error/5 rounded-xl px-3 py-2 mt-2">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+            {error}
+          </div>
+        ) : loading ? (
           <div className="flex items-center justify-center py-16">
             <RefreshCw className="w-5 h-5 animate-spin text-on-surface-variant/40" />
           </div>

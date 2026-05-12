@@ -268,12 +268,18 @@ def build_voip_router(ctx: ServerContext) -> APIRouter:
             calls = await asyncio.to_thread(_fetch_quo_calls, 50)
         except Exception as exc:
             raise HTTPException(502, f"Quo API error: {exc}")
+        synced = 0
+        failed = 0
         for call in calls:
             try:
                 _upsert_quo_call(call)
+                synced += 1
             except Exception:
-                pass
-        return {"ok": True, "synced": len(calls)}
+                failed += 1
+        result: dict = {"ok": True, "synced": synced}
+        if failed:
+            result["failed"] = failed
+        return result
 
     # ── Quo webhook ───────────────────────────────────────────────────────────
 

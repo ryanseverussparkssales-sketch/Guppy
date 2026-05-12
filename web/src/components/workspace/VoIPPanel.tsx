@@ -114,9 +114,8 @@ function NoteEditor({ callId, initialNote, onSaved }: { callId: string; initialN
 
 // ── CallRow ───────────────────────────────────────────────────────────────────
 
-function CallRow({ call, deleting, onDelete, onNoteUpdate }: {
+function CallRow({ call, onDelete, onNoteUpdate }: {
   call: Call
-  deleting: boolean
   onDelete: (id: string) => void
   onNoteUpdate: (id: string, note: string) => void
 }) {
@@ -145,9 +144,8 @@ function CallRow({ call, deleting, onDelete, onNoteUpdate }: {
         <button
           type="button"
           title="Delete call"
-          disabled={deleting}
           onClick={(e) => { e.stopPropagation(); onDelete(call.id) }}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-error/10 text-on-surface-variant/30 hover:text-error transition-all disabled:opacity-30"
+          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-error/10 text-on-surface-variant/30 hover:text-error transition-all"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
@@ -278,12 +276,14 @@ function LogCallForm({ onLogged }: { onLogged: () => void }) {
 export function VoIPPanel() {
   const [calls, setCalls]             = useState<Call[]>([])
   const [loading, setLoading]         = useState(true)
+  const [error, setError]             = useState<string | null>(null)
   const [syncing, setSyncing]         = useState(false)
   const [quoStatus, setQuoStatus]     = useState<{ configured: boolean } | null>(null)
   const [filter, setFilter]           = useState<'all' | 'inbound' | 'outbound'>('all')
 
   const load = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const [callsRes, statusRes] = await Promise.all([
         api.get(`/api/voip/calls${filter !== 'all' ? `?direction=${filter}` : ''}`),
@@ -291,7 +291,9 @@ export function VoIPPanel() {
       ])
       setCalls(Array.isArray(callsRes.data) ? callsRes.data : [])
       setQuoStatus({ configured: statusRes.data?.quo_configured ?? false })
-    } catch { /* ignore */ } finally {
+    } catch {
+      setError('Failed to load calls')
+    } finally {
       setLoading(false)
     }
   }, [filter])
@@ -301,25 +303,23 @@ export function VoIPPanel() {
     try {
       await api.post('/api/voip/sync', {})
       await load()
-    } catch { /* ignore */ } finally {
+    } catch {
+      toast.error('Quo sync failed')
+    } finally {
       setSyncing(false)
     }
   }
 
   useEffect(() => { load() }, [load])
 
-  const [deletingId, setDeletingId] = useState<string | null>(null)
-
   const deleteCall = async (id: string) => {
-    if (!window.confirm('Delete this call record?')) return
-    setDeletingId(id)
+    const prev = calls
+    setCalls((c) => c.filter((x) => x.id !== id))
     try {
       await api.delete(`/api/voip/calls/${id}`)
-      setCalls((c) => c.filter((x) => x.id !== id))
     } catch {
-      alert('Failed to delete call. Please try again.')
-    } finally {
-      setDeletingId(null)
+      setCalls(prev)
+      toast.error('Failed to delete call')
     }
   }
 
@@ -381,7 +381,12 @@ export function VoIPPanel() {
 
       {/* Call list */}
       <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 min-h-0">
-        {loading ? (
+        {error ? (
+          <div className="flex items-center gap-2 text-xs text-error/70 bg-error/5 rounded-xl px-3 py-2">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+            {error}
+          </div>
+        ) : loading ? (
           <div className="space-y-2 p-1">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="h-16 rounded-xl bg-surface-variant/30 animate-pulse" />
@@ -395,7 +400,7 @@ export function VoIPPanel() {
           </div>
         ) : (
           calls.map((c) => (
-            <CallRow key={c.id} call={c} deleting={deletingId === c.id} onDelete={deleteCall} onNoteUpdate={updateNote} />
+            <CallRow key={c.id} call={c} onDelete={deleteCall} onNoteUpdate={updateNote} />
           ))
         )}
       </div>

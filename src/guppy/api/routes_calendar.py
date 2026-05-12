@@ -217,7 +217,11 @@ def build_calendar_router(ctx: ServerContext) -> APIRouter:
         with _conn() as conn:
             total = conn.execute("SELECT COUNT(*) FROM calendar_events").fetchone()[0]
         has_file = bool(os.environ.get("GOOGLE_CALENDAR_CREDENTIALS"))
-        has_env  = bool(os.environ.get("GOOGLE_CLIENT_ID") and os.environ.get("GOOGLE_REFRESH_TOKEN"))
+        has_env  = bool(
+            os.environ.get("GOOGLE_CLIENT_ID") and
+            os.environ.get("GOOGLE_CLIENT_SECRET") and
+            os.environ.get("GOOGLE_REFRESH_TOKEN")
+        )
         return {
             "google_connected":    connected,
             "google_creds_file":   has_file,
@@ -354,6 +358,7 @@ def _get_upcoming_events(horizon_minutes: int = 60) -> list[dict]:
                 (now.isoformat(), horizon.isoformat()),
             ).fetchall()
     except Exception:
+        logger.warning("_get_upcoming_events failed", exc_info=True)
         return []
     result = []
     for row in rows:

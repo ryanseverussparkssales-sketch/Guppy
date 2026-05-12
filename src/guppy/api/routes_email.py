@@ -189,7 +189,7 @@ def _sync_gmail() -> dict[str, Any]:
                 subject = _header(first_msg, "Subject") or "(no subject)"
                 from_addr = _header(first_msg, "From") or ""
                 label_ids = first_msg.get("labelIds", ["INBOX"])
-                unread = "UNREAD" in label_ids
+                unread = any("UNREAD" in m.get("labelIds", []) for m in messages)
                 starred = "STARRED" in label_ids
                 last_ts_ms = int(last_msg.get("internalDate", 0))
                 last_dt = datetime.fromtimestamp(last_ts_ms / 1000, tz=timezone.utc).isoformat()

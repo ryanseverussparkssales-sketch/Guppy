@@ -153,16 +153,32 @@ async def _execute_workspace_tool(name: str, args: dict) -> dict:
         from pathlib import Path
         path = str(args.get("path", ".")).strip() or "."
         try:
-            p = Path(path)
+            resolved = Path(path).expanduser().resolve()
+            _default_safe = [
+                str(Path.home() / "Downloads"),
+                str(Path.home() / "Documents"),
+                str(Path.home() / "Desktop"),
+            ]
+            _env_dirs = os.environ.get("GUPPY_WRITE_DIRS", "")
+            _allowed  = [d.strip() for d in _env_dirs.split(";") if d.strip()] or _default_safe
+            _dev = os.environ.get("GUPPY_DEV_MODE", "").lower() in ("1", "true", "yes")
+            if not _dev and not any(str(resolved).startswith(a) for a in _allowed):
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Path not in allowed directories. "
+                        f"Allowed: {_allowed}. Set GUPPY_WRITE_DIRS to override."
+                    ),
+                }
             entries = [
                 {
                     "name": x.name,
                     "type": "dir" if x.is_dir() else "file",
                     "size": x.stat().st_size if x.is_file() else 0,
                 }
-                for x in sorted(p.iterdir())
+                for x in sorted(resolved.iterdir())
             ]
-            return {"ok": True, "path": str(p.resolve()), "entries": entries[:200]}
+            return {"ok": True, "path": str(resolved), "entries": entries[:200]}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
@@ -362,15 +378,15 @@ async def _execute_workspace_tool(name: str, args: dict) -> dict:
             return {"ok": False, "error": "url required"}
         if method not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"}:
             return {"ok": False, "error": f"unsupported method: {method}"}
-        # Block localhost/internal calls unless GUPPY_DEV_MODE is set
-        try:
-            from urllib.parse import urlparse as _urlparse
-            _parsed = _urlparse(url)
-            _host = (_parsed.hostname or "").lower()
-            if _host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") and not os.environ.get("GUPPY_DEV_MODE"):
-                return {"ok": False, "error": "api_request: localhost URLs are blocked; set GUPPY_DEV_MODE to allow internal calls"}
-        except Exception:
-            pass
+        # Block private/internal URLs unless GUPPY_DEV_MODE is set
+        if not os.environ.get("GUPPY_DEV_MODE"):
+            try:
+                from src.guppy.api.web_fetch_safe import _is_safe_url
+                _safe, _reason = _is_safe_url(url)
+                if not _safe:
+                    return {"ok": False, "error": f"api_request: URL blocked — {_reason}"}
+            except Exception:
+                pass
         try:
             import httpx
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:

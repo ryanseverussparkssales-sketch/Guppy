@@ -347,7 +347,10 @@ def _recall_sqlite(q: str, limit: int = 4, cat: str = "", max_age: int = 90, wor
 
     # Filter out results below the minimum relevance threshold so the model
     # doesn't receive noise. Configurable via GUPPY_MEMORY_MIN_SCORE (0–1).
-    _min_score = float(os.environ.get("GUPPY_MEMORY_MIN_SCORE", "0.45"))
+    try:
+        _min_score = float(os.environ.get("GUPPY_MEMORY_MIN_SCORE", "0.45"))
+    except (ValueError, TypeError):
+        _min_score = 0.45
     top = [x for x in sorted(scored, key=lambda x: x[0], reverse=True)[:limit]
            if x[0] >= _min_score]
     if not top:

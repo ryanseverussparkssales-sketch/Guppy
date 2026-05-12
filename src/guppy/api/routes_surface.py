@@ -122,6 +122,7 @@ def _db() -> sqlite3.Connection:
     conn = sqlite3.connect(_DB_PATH, check_same_thread=False, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
@@ -786,6 +787,8 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
             ).fetchone()
         return dict(row) if row else {}
 
+    _STATE_ALLOWED_COLS: frozenset[str] = frozenset(SurfaceStateUpdate.model_fields)
+
     @router.put("/state/{surface}")
     def update_surface_state(
         surface: str,
@@ -794,7 +797,10 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
     ):
         if surface not in SURFACES:
             raise HTTPException(400, f"Unknown surface: {surface}")
-        updates: dict[str, Any] = {k: v for k, v in body.model_dump().items() if v is not None}
+        updates: dict[str, Any] = {
+            k: v for k, v in body.model_dump().items()
+            if v is not None and k in _STATE_ALLOWED_COLS
+        }
         updates["updated_at"] = _now()
         if not updates:
             return {"ok": True}
@@ -830,6 +836,8 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
             ).fetchone()
         return dict(row) if row else SURFACE_DEFAULTS.get(surface, {})
 
+    _CONFIG_ALLOWED_COLS: frozenset[str] = frozenset(SurfaceConfigUpdate.model_fields)
+
     @router.put("/config/{surface}")
     def update_surface_config(
         surface: str,
@@ -838,7 +846,10 @@ def build_surface_router(ctx: ServerContext) -> APIRouter:
     ):
         if surface not in SURFACES:
             raise HTTPException(400, f"Unknown surface: {surface}")
-        updates: dict[str, Any] = {k: v for k, v in body.model_dump().items() if v is not None}
+        updates: dict[str, Any] = {
+            k: v for k, v in body.model_dump().items()
+            if v is not None and k in _CONFIG_ALLOWED_COLS
+        }
 
         # When companion model is switched without an explicit system_prompt, auto-apply
         # the matching personality preset so Pepe doesn't respond like Hermes3, etc.

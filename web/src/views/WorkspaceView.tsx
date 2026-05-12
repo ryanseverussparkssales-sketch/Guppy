@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   MessageSquare, LayoutList, Users, Monitor, FolderOpen,
   Cpu, Phone, Zap, AlertCircle, Calendar, Mail, Library,
-  CheckSquare, RefreshCw, FileText, Wrench, Brain,
+  CheckSquare, RefreshCw, FileText, Wrench, Brain, Crosshair,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -40,7 +40,7 @@ import AssistantChat from './AssistantView'
 
 // ── Tab config ─────────────────────────────────────────────────────────────────
 
-type Tab = 'chat' | 'agents' | 'crm' | 'screen' | 'files' | 'pc' | 'tasks' | 'voip' | 'calendar' | 'email' | 'media' | 'docs' | 'tools' | 'memory'
+type Tab = 'chat' | 'agents' | 'crm' | 'screen' | 'files' | 'pc' | 'tasks' | 'voip' | 'calendar' | 'email' | 'media' | 'docs' | 'tools' | 'memory' | 'leads'
 
 const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'chat',     icon: <MessageSquare className="w-4 h-4" />, label: 'Chat'     },
@@ -57,6 +57,7 @@ const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
   { id: 'docs',     icon: <FileText      className="w-4 h-4" />, label: 'Docs'     },
   { id: 'tools',    icon: <Wrench        className="w-4 h-4" />, label: 'Tools'    },
   { id: 'memory',   icon: <Brain         className="w-4 h-4" />, label: 'Memory'   },
+  { id: 'leads',    icon: <Crosshair     className="w-4 h-4" />, label: 'Leads'    },
 ]
 
 // ── Panel error fallback ───────────────────────────────────────────────────────
@@ -169,7 +170,7 @@ export default function WorkspaceView() {
     }
   }, [])
 
-  useSurfaceEvents(handleSurfaceEvent)
+  const { isReconnecting: sseReconnecting } = useSurfaceEvents(handleSurfaceEvent)
 
   const handleRefresh = () => setRefreshKey((k) => k + 1)
 
@@ -196,6 +197,9 @@ export default function WorkspaceView() {
           <h1 className="text-sm font-semibold text-on-surface">Workspace</h1>
         </div>
         <div className="flex items-center gap-2">
+          {sseReconnecting && (
+            <span className="text-[10px] text-warning/70 animate-pulse px-1">⟳ reconnecting</span>
+          )}
           <SurfaceStatusBar surface="companion" compact label="Companion" />
           <SurfaceStatusBar surface="codespace" compact label="Codespace" />
           <BackendSelector surface="workspace" compact />
@@ -368,6 +372,18 @@ export default function WorkspaceView() {
               <ErrorBoundary fallback={<PanelFallback label="Memory" />}>
                 <MemoryPanel />
               </ErrorBoundary>
+            </div>
+          )}
+
+          {activeTab === 'leads' && (
+            <div className="h-full w-full">
+              <iframe
+                key={`leads-${refreshKey}`}
+                src="/lead-scraper.html"
+                className="w-full h-full border-none"
+                title="Lead Scraper"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-clipboard-read allow-clipboard-write"
+              />
             </div>
           )}
         </div>

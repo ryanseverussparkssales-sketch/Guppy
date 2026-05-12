@@ -3,25 +3,31 @@
  *
  * Reconnects automatically on disconnect using backoff: 2 → 4 → 8 → 16 → 32 → 60 s.
  * Resets the delay after a connection stays alive for 10 s (healthy connection).
+ * Token is read fresh from localStorage on every reconnect attempt so it never goes stale.
  *
  * Usage:
- *   useSurfaceEvents((type, payload) => { ... })
+ *   const { isConnected, isReconnecting } = useSurfaceEvents((type, payload) => { ... })
  */
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 type EventHandler = (type: string, payload: unknown) => void
+
+export interface SurfaceEventsState {
+  isConnected:    boolean
+  isReconnecting: boolean
+}
 
 const BASE_DELAY_MS = 2_000
 const MAX_DELAY_MS  = 60_000
 
-export function useSurfaceEvents(onEvent: EventHandler) {
-  // Keep handler ref so the SSE loop always sees the latest version without
-  // being included in the reconnect useEffect deps.
+export function useSurfaceEvents(onEvent: EventHandler): SurfaceEventsState {
   const handlerRef = useRef<EventHandler>(onEvent)
   useEffect(() => { handlerRef.current = onEvent })
 
+  const [isConnected,    setIsConnected]    = useState(false)
+  const [isReconnecting, setIsReconnecting] = useState(false)
+
   useEffect(() => {
-    const token   = localStorage.getItem('accessToken') || ''
     let cancelled = false
     let delay     = BASE_DELAY_MS
     let retryHandle: ReturnType<typeof setTimeout> | null = null
@@ -29,6 +35,8 @@ export function useSurfaceEvents(onEvent: EventHandler) {
 
     async function connect() {
       if (cancelled) return
+      // Read token fresh each attempt — avoids stale token after refresh.
+      const token = localStorage.getItem('accessToken') || ''
       const connectTime = Date.now()
       try {
         const res = await fetch('/api/surface/events', {
@@ -36,6 +44,9 @@ export function useSurfaceEvents(onEvent: EventHandler) {
           signal: abortCtrl.signal,
         })
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+
+        setIsConnected(true)
+        setIsReconnecting(false)
 
         const reader = res.body.getReader()
         const dec    = new TextDecoder()
@@ -70,10 +81,11 @@ export function useSurfaceEvents(onEvent: EventHandler) {
 
       } catch (e: any) {
         if (e?.name === 'AbortError') return  // intentional unmount — don't retry
-        /* expected on disconnect — fall through to retry */
       }
 
       if (!cancelled) {
+        setIsConnected(false)
+        setIsReconnecting(true)
         retryHandle = setTimeout(() => {
           delay = Math.min(delay * 2, MAX_DELAY_MS)
           abortCtrl = new AbortController()
@@ -85,8 +97,12 @@ export function useSurfaceEvents(onEvent: EventHandler) {
     connect()
     return () => {
       cancelled = true
+      setIsConnected(false)
+      setIsReconnecting(false)
       abortCtrl.abort()
       if (retryHandle) clearTimeout(retryHandle)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return { isConnected, isReconnecting }
 }

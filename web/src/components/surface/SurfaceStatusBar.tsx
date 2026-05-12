@@ -47,6 +47,7 @@ export function SurfaceStatusBar({ surface, label, compact = false }: SurfaceSta
     async function connect() {
       if (cancelled) return
       try {
+        // Read token fresh each attempt — avoids stale token after refresh.
         const token = localStorage.getItem('accessToken') || ''
         const res = await fetch('/api/surface/events', {
           headers: { Authorization: `Bearer ${token}` },

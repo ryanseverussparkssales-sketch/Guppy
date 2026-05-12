@@ -120,7 +120,7 @@ export default function CompanionView() {
     }
   }, [ttsEnabled, voice])
 
-  useSurfaceEvents(handleSurfaceEvent)
+  const { isReconnecting: sseReconnecting } = useSurfaceEvents(handleSurfaceEvent)
 
   // Scroll to bottom
   useEffect(() => {
@@ -372,6 +372,9 @@ export default function CompanionView() {
           <h1 className="text-sm font-semibold text-on-surface">Companion</h1>
         </div>
         <div className="flex items-center gap-2">
+          {sseReconnecting && (
+            <span className="text-[10px] text-warning/70 animate-pulse px-1">⟳ reconnecting</span>
+          )}
           <SurfaceStatusBar surface="workspace" compact label="Workspace" />
           <SurfaceStatusBar surface="codespace" compact label="Codespace" />
           <BackendSelector surface="companion" simple />

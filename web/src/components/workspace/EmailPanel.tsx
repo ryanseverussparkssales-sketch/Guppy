@@ -256,7 +256,11 @@ export function EmailPanel() {
     } catch { /* ignore */ } finally { setLoading(false) }
   }, [folder, debouncedSearch])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    const id = setInterval(load, 60_000)
+    return () => clearInterval(id)
+  }, [load])
 
   const syncEmail = async () => {
     await api.post('/api/email/sync')
