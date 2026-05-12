@@ -1,423 +1,259 @@
 /**
- * VPNPanel — Windows VPN + WireGuard management
- *
- * API:
- *   GET  /api/vpn/connections
- *   POST /api/vpn/connect        { name, username?, password? }
- *   POST /api/vpn/disconnect     { name }
- *   POST /api/vpn/add            { name, server, tunnel_type, ... }
- *   DELETE /api/vpn/connections/:name
- *   GET  /api/vpn/wireguard
+ * VPNPanel — Mullvad VPN control panel.
+ * Shows connection status, relay info, quick connect/disconnect/reconnect,
+ * relay location picker, and kill-switch toggle.
  */
 import { useState, useEffect, useCallback } from 'react'
-import {
-  Shield, ShieldCheck, ShieldOff, Plus, Trash2,
-  RefreshCw, ChevronDown, ChevronUp, Wifi, WifiOff,
-  Lock, Unlock, X, Eye, EyeOff,
-} from 'lucide-react'
+import { Shield, ShieldOff, RefreshCw, Wifi, WifiOff, Globe, Lock, Unlock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import api from '@/api/client'
-import { toast } from 'sonner'
+import toast from 'react-hot-toast'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface VpnConnection {
-  name: string
-  server: string
-  status: string
-  tunnel_type: string
-  auth_method: string[]
-  split_tunnel: boolean
-}
-
-interface WgStatus {
+interface VpnStatus {
   available: boolean
-  raw?: string
-  error?: string
+  connected: boolean
+  state: string
+  relay?: string
+  location?: { country: string; city: string }
+  tunnel_type?: string
 }
 
-// ── AddVpnForm ────────────────────────────────────────────────────────────────
-
-const TUNNEL_TYPES = ['Automatic', 'IkeV2', 'L2tp', 'Pptp', 'Sstp']
-
-function AddVpnForm({ onAdded }: { onAdded: () => void }) {
-  const [open, setOpen] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({
-    name: '', server: '', tunnel_type: 'Automatic',
-    auth_method: 'MSChapv2', l2tp_psk: '', split_tunnel: false,
-  })
-
-  const save = async () => {
-    if (!form.name.trim() || !form.server.trim()) {
-      toast.error('Name and server are required')
-      return
-    }
-    setSaving(true)
-    try {
-      await api.post('/api/vpn/add', form)
-      toast.success(`VPN "${form.name}" added`)
-      setForm({ name: '', server: '', tunnel_type: 'Automatic', auth_method: 'MSChapv2', l2tp_psk: '', split_tunnel: false })
-      setOpen(false)
-      onAdded()
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail ?? 'Failed to add VPN')
-    } finally { setSaving(false) }
-  }
-
-  if (!open) return (
-    <button
-      onClick={() => setOpen(true)}
-      className="w-full flex items-center justify-center gap-2 text-xs text-on-surface-variant/60 hover:text-primary transition-colors py-2 border border-dashed border-outline-variant/30 rounded-lg hover:border-primary/30"
-    >
-      <Plus className="w-3.5 h-3.5" /> Add VPN Connection
-    </button>
-  )
-
-  return (
-    <div className="bg-surface-container rounded-xl p-3 space-y-2 border border-primary/20">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-on-surface">New VPN Connection</span>
-        <button onClick={() => setOpen(false)} className="text-on-surface-variant/40 hover:text-on-surface">
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
-      {[
-        { key: 'name',   placeholder: 'Connection name *' },
-        { key: 'server', placeholder: 'Server address (hostname or IP) *' },
-      ].map(({ key, placeholder }) => (
-        <input
-          key={key}
-          value={(form as any)[key]}
-          onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-          placeholder={placeholder}
-          className="w-full text-xs bg-surface border border-outline-variant/20 rounded-lg px-2.5 py-1.5 outline-none focus:border-primary/50 text-on-surface"
-        />
-      ))}
-      <div className="grid grid-cols-2 gap-2">
-        <select
-          value={form.tunnel_type}
-          onChange={(e) => setForm((f) => ({ ...f, tunnel_type: e.target.value }))}
-          className="text-xs bg-surface border border-outline-variant/20 rounded-lg px-2.5 py-1.5 outline-none focus:border-primary/50 text-on-surface"
-        >
-          {TUNNEL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
-        <select
-          value={form.auth_method}
-          onChange={(e) => setForm((f) => ({ ...f, auth_method: e.target.value }))}
-          className="text-xs bg-surface border border-outline-variant/20 rounded-lg px-2.5 py-1.5 outline-none focus:border-primary/50 text-on-surface"
-        >
-          {['MSChapv2', 'Pap', 'Chap', 'Eap', 'MachineCertificate'].map((a) => (
-            <option key={a} value={a}>{a}</option>
-          ))}
-        </select>
-      </div>
-      {form.tunnel_type === 'L2tp' && (
-        <input
-          value={form.l2tp_psk}
-          onChange={(e) => setForm((f) => ({ ...f, l2tp_psk: e.target.value }))}
-          placeholder="L2TP Pre-shared key (optional)"
-          type="password"
-          className="w-full text-xs bg-surface border border-outline-variant/20 rounded-lg px-2.5 py-1.5 outline-none focus:border-primary/50 text-on-surface"
-        />
-      )}
-      <label className="flex items-center gap-2 text-xs text-on-surface-variant/60 cursor-pointer select-none">
-        <input type="checkbox" checked={form.split_tunnel} onChange={(e) => setForm((f) => ({ ...f, split_tunnel: e.target.checked }))} />
-        Split tunneling (only route VPN traffic through tunnel)
-      </label>
-      <div className="flex gap-2">
-        <button
-          onClick={save}
-          disabled={saving || !form.name.trim() || !form.server.trim()}
-          className="flex-1 text-xs bg-primary text-on-primary rounded-lg py-1.5 hover:bg-primary/90 disabled:opacity-40 transition-colors"
-        >
-          {saving ? 'Adding…' : 'Add Connection'}
-        </button>
-        <button onClick={() => setOpen(false)} className="px-3 text-xs text-on-surface-variant/60 hover:text-on-surface transition-colors">
-          Cancel
-        </button>
-      </div>
-    </div>
-  )
+interface RelayCountry {
+  name: string
+  code: string
+  cities: { name: string; code: string }[]
 }
-
-// ── ConnectModal ──────────────────────────────────────────────────────────────
-
-function ConnectModal({ name, onDone, onClose }: { name: string; onDone: () => void; onClose: () => void }) {
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [showPw, setShowPw]     = useState(false)
-  const [connecting, setConnecting] = useState(false)
-
-  const connect = async () => {
-    setConnecting(true)
-    try {
-      await api.post('/api/vpn/connect', { name, username, password })
-      toast.success(`Connected to ${name}`)
-      onDone()
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail ?? 'Connection failed')
-    } finally { setConnecting(false) }
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-surface rounded-2xl border border-outline-variant/30 p-5 w-full max-w-sm shadow-xl space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-semibold text-on-surface">Connect to {name}</span>
-          <button onClick={onClose} className="text-on-surface-variant/40 hover:text-on-surface">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        <p className="text-xs text-on-surface-variant/60">Leave blank to use saved credentials.</p>
-        <input
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          placeholder="Username (optional)"
-          className="w-full text-sm bg-surface-container border border-outline-variant/20 rounded-lg px-3 py-2 outline-none focus:border-primary/50 text-on-surface"
-        />
-        <div className="relative">
-          <input
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password (optional)"
-            type={showPw ? 'text' : 'password'}
-            className="w-full text-sm bg-surface-container border border-outline-variant/20 rounded-lg px-3 py-2 pr-9 outline-none focus:border-primary/50 text-on-surface"
-          />
-          <button
-            type="button"
-            onClick={() => setShowPw((v) => !v)}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant/40 hover:text-on-surface"
-          >
-            {showPw ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-          </button>
-        </div>
-        <div className="flex gap-2 pt-1">
-          <button
-            onClick={connect}
-            disabled={connecting}
-            className="flex-1 flex items-center justify-center gap-2 text-sm bg-primary text-on-primary rounded-xl py-2 hover:bg-primary/90 disabled:opacity-40 transition-colors font-medium"
-          >
-            {connecting ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Connecting…</> : <><Lock className="w-3.5 h-3.5" /> Connect</>}
-          </button>
-          <button onClick={onClose} className="px-4 text-sm text-on-surface-variant/60 hover:text-on-surface transition-colors">
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── VpnCard ───────────────────────────────────────────────────────────────────
-
-function VpnCard({ conn, onRefresh }: { conn: VpnConnection; onRefresh: () => void }) {
-  const [expanded, setExpanded]         = useState(false)
-  const [connectModal, setConnectModal] = useState(false)
-  const [disconnecting, setDisconnecting] = useState(false)
-  const [removing, setRemoving]         = useState(false)
-
-  const connected = conn.status === 'Connected'
-
-  const disconnect = async () => {
-    setDisconnecting(true)
-    try {
-      await api.post('/api/vpn/disconnect', { name: conn.name })
-      toast.success(`Disconnected from ${conn.name}`)
-      onRefresh()
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail ?? 'Disconnect failed')
-    } finally { setDisconnecting(false) }
-  }
-
-  const remove = async () => {
-    if (!window.confirm(`Remove VPN connection "${conn.name}"?`)) return
-    setRemoving(true)
-    try {
-      await api.delete(`/api/vpn/connections/${encodeURIComponent(conn.name)}`)
-      toast.success(`Removed ${conn.name}`)
-      onRefresh()
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail ?? 'Remove failed')
-    } finally { setRemoving(false) }
-  }
-
-  return (
-    <>
-      {connectModal && (
-        <ConnectModal
-          name={conn.name}
-          onDone={() => { setConnectModal(false); onRefresh() }}
-          onClose={() => setConnectModal(false)}
-        />
-      )}
-      <div className={cn(
-        'rounded-xl border transition-colors',
-        connected ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-outline-variant/20 bg-surface-container'
-      )}>
-        {/* Header row */}
-        <div className="flex items-center gap-3 px-3 py-3">
-          <div className={cn(
-            'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
-            connected ? 'bg-emerald-500/15' : 'bg-surface-container-high'
-          )}>
-            {connected
-              ? <ShieldCheck className="w-4 h-4 text-emerald-500" />
-              : <ShieldOff className="w-4 h-4 text-on-surface-variant/40" />}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-on-surface truncate">{conn.name}</p>
-            <p className="text-xs text-on-surface-variant/50 truncate">{conn.server}</p>
-          </div>
-          <span className={cn(
-            'text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0',
-            connected
-              ? 'bg-emerald-500/15 text-emerald-600'
-              : 'bg-surface-container-high text-on-surface-variant/60'
-          )}>
-            {conn.status || 'Disconnected'}
-          </span>
-
-          {/* Actions */}
-          {connected ? (
-            <button
-              onClick={disconnect}
-              disabled={disconnecting}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-error/10 text-error hover:bg-error/20 text-xs font-medium transition-colors disabled:opacity-40 shrink-0"
-            >
-              {disconnecting ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Unlock className="w-3 h-3" />}
-              {disconnecting ? '' : 'Disconnect'}
-            </button>
-          ) : (
-            <button
-              onClick={() => setConnectModal(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 text-xs font-medium transition-colors shrink-0"
-            >
-              <Lock className="w-3 h-3" /> Connect
-            </button>
-          )}
-
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            className="p-1 rounded-lg hover:bg-surface-variant text-on-surface-variant/40 hover:text-on-surface transition-colors shrink-0"
-          >
-            {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-          </button>
-        </div>
-
-        {/* Expanded details */}
-        {expanded && (
-          <div className="px-3 pb-3 pt-0 space-y-2 border-t border-outline-variant/10">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mt-2">
-              <span className="text-on-surface-variant/50">Tunnel</span>
-              <span className="text-on-surface">{conn.tunnel_type || '—'}</span>
-              <span className="text-on-surface-variant/50">Auth</span>
-              <span className="text-on-surface">{Array.isArray(conn.auth_method) ? conn.auth_method.join(', ') : conn.auth_method || '—'}</span>
-              <span className="text-on-surface-variant/50">Split tunnel</span>
-              <span className="text-on-surface">{conn.split_tunnel ? 'Yes' : 'No'}</span>
-            </div>
-            <button
-              onClick={remove}
-              disabled={removing || connected}
-              className="flex items-center gap-1.5 text-xs text-error/70 hover:text-error disabled:opacity-40 transition-colors"
-              title={connected ? 'Disconnect first' : 'Remove connection'}
-            >
-              <Trash2 className="w-3 h-3" /> {removing ? 'Removing…' : 'Remove connection'}
-            </button>
-          </div>
-        )}
-      </div>
-    </>
-  )
-}
-
-// ── VPNPanel ──────────────────────────────────────────────────────────────────
 
 export function VPNPanel() {
-  const [connections, setConnections] = useState<VpnConnection[]>([])
-  const [wg, setWg]                   = useState<WgStatus | null>(null)
-  const [loading, setLoading]         = useState(true)
-  const [error, setError]             = useState<string | null>(null)
+  const [status, setStatus]         = useState<VpnStatus | null>(null)
+  const [relays, setRelays]         = useState<RelayCountry[]>([])
+  const [killSwitch, setKillSwitch] = useState(false)
+  const [loading, setLoading]       = useState(false)
+  const [country, setCountry]       = useState('')
+  const [city, setCity]             = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
+  const loadStatus = useCallback(async () => {
     try {
-      const [connRes, wgRes] = await Promise.all([
-        api.get('/api/vpn/connections'),
-        api.get('/api/vpn/wireguard').catch(() => null),
+      const [s, ks] = await Promise.all([
+        api.get('/api/vpn/status'),
+        api.get('/api/vpn/killswitch'),
       ])
-      setConnections(connRes.data || [])
-      if (wgRes) setWg(wgRes.data)
-    } catch (e: any) {
-      setError(e?.response?.data?.detail ?? 'Could not load VPN info')
-    } finally { setLoading(false) }
+      setStatus(s.data)
+      setKillSwitch(ks.data?.enabled ?? false)
+    } catch {
+      setStatus({ available: false, connected: false, state: 'error' })
+    }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  const loadRelays = useCallback(async () => {
+    try {
+      const r = await api.get('/api/vpn/relays')
+      setRelays(Array.isArray(r.data) ? r.data : [])
+    } catch {}
+  }, [])
 
-  const connectedCount = connections.filter((c) => c.status === 'Connected').length
+  useEffect(() => {
+    loadStatus()
+    loadRelays()
+    const id = setInterval(loadStatus, 10_000)
+    return () => clearInterval(id)
+  }, [loadStatus, loadRelays])
+
+  const act = useCallback(async (action: 'connect' | 'disconnect' | 'reconnect') => {
+    setLoading(true)
+    try {
+      if (action === 'connect') {
+        await api.post('/api/vpn/connect', (country || city) ? { country: country || undefined, city: city || undefined } : undefined)
+        toast.success('Connecting to Mullvad…')
+      } else if (action === 'disconnect') {
+        await api.post('/api/vpn/disconnect')
+        toast.success('Disconnected')
+      } else {
+        await api.post('/api/vpn/reconnect')
+        toast.success('Reconnecting…')
+      }
+      setTimeout(loadStatus, 1500)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'VPN action failed')
+    } finally {
+      setLoading(false)
+    }
+  }, [country, city, loadStatus])
+
+  const toggleKillSwitch = useCallback(async () => {
+    try {
+      const next = !killSwitch
+      await api.post('/api/vpn/killswitch', { enabled: next })
+      setKillSwitch(next)
+      toast.success(`Kill-switch ${next ? 'enabled' : 'disabled'}`)
+    } catch {
+      toast.error('Failed to toggle kill-switch')
+    }
+  }, [killSwitch])
+
+  if (!status) {
+    return <div className="p-6 text-on-surface-variant/50 text-sm">Loading…</div>
+  }
+
+  if (!status.available) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-on-surface-variant/50">
+        <ShieldOff className="w-10 h-10" />
+        <p className="text-sm">Mullvad VPN is not installed.</p>
+        <p className="text-xs">Install the Mullvad desktop app and ensure the CLI is on PATH.</p>
+      </div>
+    )
+  }
+
+  const isConnected     = status.connected
+  const isTransitioning = ['connecting', 'disconnecting'].includes(status.state)
+  const selectedCities  = relays.find(c => c.code === country)?.cities ?? []
 
   return (
-    <div className="flex flex-col gap-4 p-4">
-      {/* Status header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Shield className={cn('w-5 h-5', connectedCount > 0 ? 'text-emerald-500' : 'text-on-surface-variant/40')} />
-          <div>
-            <p className="text-sm font-semibold text-on-surface">VPN Manager</p>
-            <p className="text-xs text-on-surface-variant/50">
-              {connectedCount > 0 ? `${connectedCount} connected` : 'Not connected'}
-              {wg?.available ? ' · WireGuard detected' : ''}
+    <div className="flex flex-col h-full overflow-y-auto p-4 gap-4">
+
+      {/* Status card */}
+      <div className={cn(
+        'rounded-xl border p-4 flex items-start gap-4 transition-colors',
+        isConnected
+          ? 'border-primary/30 bg-primary/5'
+          : 'border-outline-variant/20 bg-surface-container-low/40'
+      )}>
+        <div className={cn(
+          'w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0',
+          isConnected ? 'bg-primary/20 text-primary' : 'bg-surface-container text-on-surface-variant/40'
+        )}>
+          {isConnected ? <Shield className="w-5 h-5" /> : <ShieldOff className="w-5 h-5" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={cn('text-sm font-semibold', isConnected ? 'text-primary' : 'text-on-surface-variant')}>
+              {isConnected ? 'Protected' : isTransitioning ? status.state : 'Unprotected'}
+            </span>
+            {isTransitioning && <RefreshCw className="w-3 h-3 animate-spin text-on-surface-variant/50" />}
+          </div>
+          {status.location && (
+            <p className="text-xs text-on-surface-variant/60 mt-0.5">
+              <Globe className="w-3 h-3 inline mr-1" />
+              {status.location.city}, {status.location.country}
             </p>
+          )}
+          {status.relay && (
+            <p className="text-xs text-on-surface-variant/40 font-mono mt-0.5">{status.relay}</p>
+          )}
+          {status.tunnel_type && (
+            <p className="text-xs text-on-surface-variant/40 mt-0.5">{status.tunnel_type}</p>
+          )}
+        </div>
+        <div className="flex-shrink-0">
+          {isConnected
+            ? <Wifi className="w-4 h-4 text-primary" />
+            : <WifiOff className="w-4 h-4 text-on-surface-variant/40" />}
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex gap-2">
+        {!isConnected ? (
+          <button
+            onClick={() => act('connect')}
+            disabled={loading || isTransitioning}
+            className="flex-1 py-2 px-4 rounded-lg bg-primary text-on-primary text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            Connect
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={() => act('disconnect')}
+              disabled={loading || isTransitioning}
+              className="flex-1 py-2 px-4 rounded-lg border border-outline-variant/30 text-on-surface-variant text-sm font-medium hover:bg-surface-variant/30 transition-colors disabled:opacity-50"
+            >
+              Disconnect
+            </button>
+            <button
+              onClick={() => act('reconnect')}
+              disabled={loading || isTransitioning}
+              title="Reconnect (cycle relay)"
+              className="py-2 px-3 rounded-lg border border-outline-variant/30 text-on-surface-variant hover:bg-surface-variant/30 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Relay picker */}
+      <div className="rounded-xl border border-outline-variant/20 bg-surface-container-low/30 p-4 flex flex-col gap-3">
+        <h3 className="text-xs font-semibold text-on-surface-variant/60 uppercase tracking-wide">Relay Location</h3>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs text-on-surface-variant/50 mb-1 block">Country</label>
+            <select
+              value={country}
+              onChange={e => { setCountry(e.target.value); setCity('') }}
+              className="w-full text-sm bg-surface-container border border-outline-variant/25 rounded-lg px-2.5 py-1.5 text-on-surface focus:outline-none focus:border-primary/40"
+            >
+              <option value="">Any</option>
+              {relays.map(c => (
+                <option key={c.code} value={c.code}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-on-surface-variant/50 mb-1 block">City</label>
+            <select
+              value={city}
+              onChange={e => setCity(e.target.value)}
+              disabled={!country}
+              className="w-full text-sm bg-surface-container border border-outline-variant/25 rounded-lg px-2.5 py-1.5 text-on-surface focus:outline-none focus:border-primary/40 disabled:opacity-40"
+            >
+              <option value="">Any</option>
+              {selectedCities.map(c => (
+                <option key={c.code} value={c.code}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {(country || city) && (
+          <button
+            onClick={() =>
+              api.post('/api/vpn/relay', { country: country || undefined, city: city || undefined })
+                .then(() => toast.success('Relay updated'))
+                .catch(() => toast.error('Failed'))
+            }
+            className="text-xs text-primary hover:underline text-left"
+          >
+            Apply without connecting
+          </button>
+        )}
+      </div>
+
+      {/* Kill-switch */}
+      <div className="rounded-xl border border-outline-variant/20 bg-surface-container-low/30 p-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          {killSwitch
+            ? <Lock className="w-4 h-4 text-warning" />
+            : <Unlock className="w-4 h-4 text-on-surface-variant/40" />}
+          <div>
+            <p className="text-sm font-medium text-on-surface">Kill-switch</p>
+            <p className="text-xs text-on-surface-variant/50">Block all traffic if VPN drops</p>
           </div>
         </div>
         <button
-          onClick={load}
-          className="p-1.5 rounded-lg hover:bg-surface-container text-on-surface-variant/40 hover:text-on-surface transition-colors"
-          title="Refresh"
+          onClick={toggleKillSwitch}
+          className={cn(
+            'relative w-10 h-5 rounded-full transition-colors flex-shrink-0',
+            killSwitch ? 'bg-warning' : 'bg-outline-variant/40'
+          )}
         >
-          <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+          <span className={cn(
+            'absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all',
+            killSwitch ? 'left-[22px]' : 'left-0.5'
+          )} />
         </button>
       </div>
 
-      {error && (
-        <div className="flex items-center gap-2 text-sm text-error bg-error/8 border border-error/15 rounded-xl px-4 py-3">
-          <WifiOff className="w-4 h-4 shrink-0" /> {error}
-        </div>
-      )}
-
-      {/* Connection list */}
-      {loading && connections.length === 0 ? (
-        <div className="flex items-center justify-center py-10 text-on-surface-variant/40 gap-2">
-          <RefreshCw className="w-4 h-4 animate-spin" />
-          <span className="text-sm">Loading…</span>
-        </div>
-      ) : connections.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-10 gap-2 text-on-surface-variant/40">
-          <ShieldOff className="w-8 h-8" />
-          <p className="text-sm">No VPN connections configured</p>
-          <p className="text-xs">Add one below to get started</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {connections.map((conn) => (
-            <VpnCard key={conn.name} conn={conn} onRefresh={load} />
-          ))}
-        </div>
-      )}
-
-      {/* WireGuard status (if installed) */}
-      {wg?.available && wg.raw && (
-        <div className="rounded-xl border border-outline-variant/20 bg-surface-container p-3">
-          <p className="text-xs font-semibold text-on-surface mb-2 flex items-center gap-1.5">
-            <Wifi className="w-3.5 h-3.5 text-primary" /> WireGuard
-          </p>
-          <pre className="text-xs font-mono text-on-surface/70 whitespace-pre-wrap">{wg.raw}</pre>
-        </div>
-      )}
-
-      {/* Add new */}
-      <AddVpnForm onAdded={load} />
     </div>
   )
 }

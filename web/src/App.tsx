@@ -4,7 +4,6 @@ import { AppShell } from './components/layout/index'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ErrorToastContainer } from './components/ErrorToast'
 import CompanionView from './views/CompanionView'
-import ConversationsView from './views/ConversationsView'
 import WorkspaceView from './views/WorkspaceView'
 import CodespaceView from './views/CodespaceView'
 import SettingsView from './views/SettingsView'
@@ -148,7 +147,7 @@ function AppContent() {
           <Route path="/" element={<Navigate to="/companion" replace />} />
 
           {/* ── Three primary surfaces ──────────────────────────── */}
-          <Route path="/conversations" element={<ConversationsView />} />
+          <Route path="/conversations" element={<Navigate to="/companion" replace />} />
           <Route path="/companion" element={<CompanionView />} />
           <Route path="/workspace" element={<WorkspaceView />} />
           <Route path="/codespace" element={<CodespaceView />} />

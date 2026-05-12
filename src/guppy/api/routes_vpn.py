@@ -1,21 +1,25 @@
 """
-VPN management API — Windows built-in VPN + WireGuard detection.
+Mullvad VPN management API.
 
-GET  /api/vpn/connections          — list configured VPN connections
-GET  /api/vpn/status               — current connection state
-POST /api/vpn/connect              — connect a VPN by name { name, username?, password? }
-POST /api/vpn/disconnect           — disconnect a VPN by name { name }
-POST /api/vpn/add                  — add a new VPN connection
-DELETE /api/vpn/connections/{name} — remove a VPN connection
-GET  /api/vpn/wireguard            — WireGuard tunnel status (if installed)
-POST /api/vpn/wireguard/up         — bring up a WireGuard tunnel { tunnel }
-POST /api/vpn/wireguard/down       — bring down a WireGuard tunnel { tunnel }
+Uses the Mullvad CLI (`mullvad`) which must be installed and accessible on PATH.
+All commands run as the current user — no admin elevation needed for status/connect/disconnect.
+
+GET  /api/vpn/status          — connection status + current relay
+GET  /api/vpn/account         — account info (expiry, device name)
+GET  /api/vpn/relays          — available relay locations (country/city/hostname)
+POST /api/vpn/connect         — connect (optionally set relay first: { country?, city?, hostname? })
+POST /api/vpn/disconnect      — disconnect
+POST /api/vpn/reconnect       — reconnect (cycle relay)
+GET  /api/vpn/relay           — currently selected relay constraint
+POST /api/vpn/relay           — set relay constraint { country?, city?, hostname? }
+GET  /api/vpn/killswitch      — lockdown mode (kill-switch) state
+POST /api/vpn/killswitch      — set lockdown mode { enabled: bool }
 """
 from __future__ import annotations
 
 import json
-import subprocess
 import shutil
+import subprocess
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -24,65 +28,45 @@ from pydantic import BaseModel
 from src.guppy.api.server_context import ServerContext
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Mullvad CLI helper ────────────────────────────────────────────────────────
 
-def _ps(script: str, timeout: int = 15) -> str:
-    """Run a PowerShell script and return stdout."""
+def _mullvad(*args: str, timeout: int = 10) -> str:
+    """Run `mullvad <args>` and return stdout. Raises HTTPException if CLI missing."""
+    exe = shutil.which("mullvad")
+    if not exe:
+        raise HTTPException(503, "Mullvad CLI not found — install Mullvad VPN desktop app")
     result = subprocess.run(
-        ["powershell", "-NonInteractive", "-NoProfile", "-Command", script],
+        [exe, *args],
         capture_output=True, text=True, timeout=timeout,
     )
     return result.stdout.strip()
 
 
-def _ps_json(script: str) -> Any:
-    """Run a PowerShell script that outputs JSON and parse it."""
-    raw = _ps(script + " | ConvertTo-Json -Depth 4")
+def _mullvad_json(*args: str, timeout: int = 10) -> Any:
+    """Run `mullvad <args> --json` and return parsed dict/list."""
+    raw = _mullvad(*args, "--json", timeout=timeout)
     if not raw:
-        return []
+        return {}
     try:
-        data = json.loads(raw)
-        # PowerShell ConvertTo-Json wraps single objects — normalize to list
-        return data if isinstance(data, list) else [data]
+        return json.loads(raw)
     except json.JSONDecodeError:
-        return []
+        return {"raw": raw}
 
 
-def _normalize_vpn(raw: dict) -> dict:
-    return {
-        "name":          raw.get("Name", ""),
-        "server":        raw.get("ServerAddress", ""),
-        "status":        raw.get("ConnectionStatus", "Disconnected"),
-        "tunnel_type":   raw.get("TunnelType", ""),
-        "auth_method":   raw.get("AuthenticationMethod", []),
-        "split_tunnel":  raw.get("SplitTunneling", False),
-    }
+def _mullvad_available() -> bool:
+    return shutil.which("mullvad") is not None
 
 
-# ── Models ────────────────────────────────────────────────────────────────────
+# ── Schemas ───────────────────────────────────────────────────────────────────
 
-class ConnectRequest(BaseModel):
-    name: str
-    username: str = ""
-    password: str = ""
-
-
-class DisconnectRequest(BaseModel):
-    name: str
+class RelayConstraint(BaseModel):
+    country:  str | None = None   # e.g. "se"
+    city:     str | None = None   # e.g. "got"
+    hostname: str | None = None   # e.g. "se-got-wg-001"
 
 
-class AddVpnRequest(BaseModel):
-    name: str
-    server: str
-    tunnel_type: str = "Automatic"   # Automatic | L2tp | Pptp | Sstp | IkeV2
-    auth_method: str = "MSChapv2"    # MSChapv2 | Pap | Chap | Eap | MachineCertificate
-    remember_credential: bool = True
-    split_tunnel: bool = False
-    l2tp_psk: str = ""               # Pre-shared key for L2TP
-
-
-class WireGuardRequest(BaseModel):
-    tunnel: str   # tunnel name (matches .conf file name in WireGuard directory)
+class KillSwitchRequest(BaseModel):
+    enabled: bool
 
 
 # ── Router ────────────────────────────────────────────────────────────────────
@@ -90,131 +74,143 @@ class WireGuardRequest(BaseModel):
 def build_vpn_router(ctx: ServerContext) -> APIRouter:
     router = APIRouter(prefix="/api/vpn", tags=["vpn"])
 
-    @router.get("/connections")
-    def list_connections(_uid: str = Depends(ctx.require_rate_limit)):
-        """List all configured Windows VPN connections."""
-        try:
-            rows = _ps_json("Get-VpnConnection -ErrorAction SilentlyContinue | Select-Object Name, ServerAddress, ConnectionStatus, TunnelType, AuthenticationMethod, SplitTunneling")
-            return [_normalize_vpn(r) for r in rows]
-        except subprocess.TimeoutExpired:
-            raise HTTPException(504, "PowerShell timed out")
-        except Exception as e:
-            raise HTTPException(500, f"Could not list VPN connections: {e}")
-
     @router.get("/status")
-    def vpn_status(_uid: str = Depends(ctx.require_rate_limit)):
-        """Return connection status for all VPN connections."""
+    async def vpn_status(_u = Depends(ctx.require_rate_limit)):
+        """Return Mullvad connection status."""
+        if not _mullvad_available():
+            return {"available": False, "connected": False, "status": "Mullvad not installed"}
         try:
-            rows = _ps_json("Get-VpnConnection -ErrorAction SilentlyContinue | Select-Object Name, ConnectionStatus")
-            connected = [r.get("Name", "") for r in rows if r.get("ConnectionStatus") == "Connected"]
-            return {"connected": connected, "all": [{"name": r.get("Name", ""), "status": r.get("ConnectionStatus", "Disconnected")} for r in rows]}
+            data = _mullvad_json("status")
+            # CLI JSON: {"state": "connected"|"disconnected"|"connecting"|..., "details": {...}}
+            state = data.get("state", "unknown")
+            details = data.get("details") or {}
+            return {
+                "available": True,
+                "connected": state == "connected",
+                "state": state,
+                "relay": details.get("endpoint", {}).get("address"),
+                "location": details.get("location"),
+                "tunnel_type": details.get("tunnel_type"),
+            }
         except Exception as e:
-            raise HTTPException(500, f"Could not get VPN status: {e}")
+            return {"available": True, "connected": False, "state": "unknown", "error": str(e)}
 
-    @router.post("/connect")
-    def connect_vpn(body: ConnectRequest, _uid: str = Depends(ctx.require_rate_limit)):
-        """Connect a Windows VPN connection by name."""
-        name = body.name.strip()
-        if not name:
-            raise HTTPException(400, "name is required")
+    @router.get("/account")
+    async def vpn_account(_u = Depends(ctx.require_rate_limit)):
+        """Return Mullvad account info."""
         try:
-            if body.username and body.password:
-                cmd = f'rasdial "{name}" "{body.username}" "{body.password}"'
-            else:
-                cmd = f'rasdial "{name}"'
-            out = _ps(cmd, timeout=30)
-            if "error" in out.lower() or "failed" in out.lower():
-                raise HTTPException(500, f"Connection failed: {out}")
-            return {"ok": True, "name": name, "output": out}
-        except subprocess.TimeoutExpired:
-            raise HTTPException(504, "Connection timed out (30s)")
+            data = _mullvad_json("account", "get")
+            return data
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(500, f"Connect failed: {e}")
+            raise HTTPException(500, str(e))
+
+    @router.get("/relays")
+    async def vpn_relays(_u = Depends(ctx.require_rate_limit)):
+        """Return available relay countries/cities."""
+        try:
+            data = _mullvad_json("relay", "list")
+            # Returns list of {name, code, cities: [{name, code, relays: [...]}]}
+            return data if isinstance(data, list) else []
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, str(e))
+
+    @router.post("/connect")
+    async def vpn_connect(body: RelayConstraint | None = None, _u = Depends(ctx.require_rate_limit)):
+        """Optionally set relay, then connect."""
+        try:
+            if body and any([body.hostname, body.city, body.country]):
+                args: list[str] = ["relay", "set", "location"]
+                if body.country:
+                    args.append(body.country)
+                if body.city:
+                    args.append(body.city)
+                if body.hostname:
+                    args.append(body.hostname)
+                _mullvad(*args)
+            out = _mullvad("connect")
+            return {"ok": True, "output": out}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, str(e))
 
     @router.post("/disconnect")
-    def disconnect_vpn(body: DisconnectRequest, _uid: str = Depends(ctx.require_rate_limit)):
-        """Disconnect a Windows VPN connection by name."""
-        name = body.name.strip()
-        if not name:
-            raise HTTPException(400, "name is required")
+    async def vpn_disconnect(_u = Depends(ctx.require_rate_limit)):
+        """Disconnect from Mullvad."""
         try:
-            out = _ps(f'rasdial "{name}" /disconnect', timeout=15)
-            return {"ok": True, "name": name, "output": out}
-        except subprocess.TimeoutExpired:
-            raise HTTPException(504, "Disconnect timed out")
+            out = _mullvad("disconnect")
+            return {"ok": True, "output": out}
+        except HTTPException:
+            raise
         except Exception as e:
-            raise HTTPException(500, f"Disconnect failed: {e}")
+            raise HTTPException(500, str(e))
 
-    @router.post("/add")
-    def add_vpn(body: AddVpnRequest, _uid: str = Depends(ctx.require_rate_limit)):
-        """Add a new Windows VPN connection."""
-        if not body.name.strip() or not body.server.strip():
-            raise HTTPException(400, "name and server are required")
+    @router.post("/reconnect")
+    async def vpn_reconnect(_u = Depends(ctx.require_rate_limit)):
+        """Reconnect (cycles to next relay if connected)."""
         try:
-            psk_part = f' -L2tpPsk "{body.l2tp_psk}"' if body.l2tp_psk else ""
-            script = (
-                f'Add-VpnConnection -Name "{body.name}" -ServerAddress "{body.server}" '
-                f'-TunnelType {body.tunnel_type} -AuthenticationMethod {body.auth_method} '
-                f'-RememberCredential:${str(body.remember_credential).lower()} '
-                f'-SplitTunneling:${str(body.split_tunnel).lower()}'
-                f'{psk_part} -Force -ErrorAction Stop'
-            )
-            out = _ps(script, timeout=15)
-            return {"ok": True, "name": body.name, "output": out}
-        except subprocess.TimeoutExpired:
-            raise HTTPException(504, "Add VPN timed out")
+            out = _mullvad("reconnect")
+            return {"ok": True, "output": out}
+        except HTTPException:
+            raise
         except Exception as e:
-            raise HTTPException(500, f"Add VPN failed: {e}")
+            raise HTTPException(500, str(e))
 
-    @router.delete("/connections/{name}")
-    def remove_vpn(name: str, _uid: str = Depends(ctx.require_rate_limit)):
-        """Remove a configured Windows VPN connection."""
+    @router.get("/relay")
+    async def vpn_relay_get(_u = Depends(ctx.require_rate_limit)):
+        """Get the currently configured relay constraint."""
         try:
-            out = _ps(f'Remove-VpnConnection -Name "{name}" -Force -ErrorAction Stop', timeout=10)
-            return {"ok": True, "name": name, "output": out}
+            data = _mullvad_json("relay", "get")
+            return data
+        except HTTPException:
+            raise
         except Exception as e:
-            raise HTTPException(500, f"Remove VPN failed: {e}")
+            raise HTTPException(500, str(e))
 
-    # ── WireGuard ─────────────────────────────────────────────────────────────
-
-    def _wg_available() -> bool:
-        return shutil.which("wireguard") is not None or shutil.which("wg") is not None
-
-    @router.get("/wireguard")
-    def wireguard_status(_uid: str = Depends(ctx.require_rate_limit)):
-        """List WireGuard tunnels and their status (requires WireGuard installed)."""
-        if not _wg_available():
-            return {"available": False, "tunnels": []}
+    @router.post("/relay")
+    async def vpn_relay_set(body: RelayConstraint, _u = Depends(ctx.require_rate_limit)):
+        """Set relay location constraint."""
         try:
-            raw = _ps("wg show all 2>$null", timeout=10)
-            if not raw:
-                return {"available": True, "tunnels": [], "raw": ""}
-            return {"available": True, "tunnels": [], "raw": raw}
+            args = ["relay", "set", "location"]
+            if body.country:
+                args.append(body.country)
+            if body.city:
+                args.append(body.city)
+            if body.hostname:
+                args.append(body.hostname)
+            if len(args) == 3:
+                raise HTTPException(400, "Provide at least country, city, or hostname")
+            out = _mullvad(*args)
+            return {"ok": True, "output": out}
+        except HTTPException:
+            raise
         except Exception as e:
-            return {"available": True, "tunnels": [], "error": str(e)}
+            raise HTTPException(500, str(e))
 
-    @router.post("/wireguard/up")
-    def wireguard_up(body: WireGuardRequest, _uid: str = Depends(ctx.require_rate_limit)):
-        """Bring up a WireGuard tunnel by name."""
-        if not _wg_available():
-            raise HTTPException(503, "WireGuard not installed")
+    @router.get("/killswitch")
+    async def vpn_killswitch_get(_u = Depends(ctx.require_rate_limit)):
+        """Get lockdown mode (kill-switch) state."""
         try:
-            out = _ps(f'wireguard /installtunnelservice "{body.tunnel}" 2>$null', timeout=15)
-            return {"ok": True, "tunnel": body.tunnel, "output": out}
+            out = _mullvad("lockdown-mode", "get")
+            return {"enabled": "on" in out.lower()}
+        except HTTPException:
+            raise
         except Exception as e:
-            raise HTTPException(500, f"WireGuard up failed: {e}")
+            raise HTTPException(500, str(e))
 
-    @router.post("/wireguard/down")
-    def wireguard_down(body: WireGuardRequest, _uid: str = Depends(ctx.require_rate_limit)):
-        """Bring down a WireGuard tunnel by name."""
-        if not _wg_available():
-            raise HTTPException(503, "WireGuard not installed")
+    @router.post("/killswitch")
+    async def vpn_killswitch_set(body: KillSwitchRequest, _u = Depends(ctx.require_rate_limit)):
+        """Enable or disable lockdown mode (kill-switch)."""
         try:
-            out = _ps(f'wireguard /uninstalltunnelservice "{body.tunnel}" 2>$null', timeout=15)
-            return {"ok": True, "tunnel": body.tunnel, "output": out}
+            out = _mullvad("lockdown-mode", "on" if body.enabled else "off")
+            return {"ok": True, "enabled": body.enabled, "output": out}
+        except HTTPException:
+            raise
         except Exception as e:
-            raise HTTPException(500, f"WireGuard down failed: {e}")
+            raise HTTPException(500, str(e))
 
     return router

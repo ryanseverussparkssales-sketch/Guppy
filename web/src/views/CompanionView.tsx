@@ -22,7 +22,6 @@ import { toast } from 'sonner'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface Preset { key: string; label: string; description: string }
 interface Message { id: string; role: 'user' | 'assistant'; content: string }
 
 // ── Auto-grow textarea ────────────────────────────────────────────────────────
@@ -50,9 +49,6 @@ export default function CompanionView() {
   const [ttsEnabled, setTtsEnabled]         = useState(true)
   const [wakeActive, setWakeActive]         = useState(false)
   const [wakeLoading, setWakeLoading]       = useState(false)
-  const [presets, setPresets]               = useState<Preset[]>([])
-  const [activePreset, setActivePreset]     = useState('sharp')
-  const [presetLoading, setPresetLoading]   = useState(false)
   const [avatarState, setAvatarState]       = useState<AvatarState>('idle')
   const [vadSending, setVadSending]         = useState(false)
   const [imageFile, setImageFile]           = useState<File | null>(null)
@@ -127,18 +123,8 @@ export default function CompanionView() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streaming])
 
-  // Load personality presets on mount; rehydrate session if one exists
+  // Rehydrate session on mount
   useEffect(() => {
-    api.get('/api/companion/personality').then((r) => {
-      const data = r.data
-      const raw = data.presets || {}
-      const list: Preset[] = Object.entries(raw).map(([key, v]: any) => ({
-        key, label: v.label || key, description: v.description || '',
-      }))
-      setPresets(list)
-      setActivePreset(data.active || 'sharp')
-    }).catch(() => {})
-
     api.get('/api/companion/voice/session').then((r) => {
       setWakeActive(r.data?.active || false)
     }).catch(() => {})
@@ -161,16 +147,6 @@ export default function CompanionView() {
         })
     }
   }, [])
-
-  const switchPreset = useCallback(async (key: string) => {
-    if (key === activePreset || presetLoading) return
-    setPresetLoading(true)
-    try {
-      await api.put('/api/companion/personality', { preset: key })
-      setActivePreset(key)
-    } catch {}
-    setPresetLoading(false)
-  }, [activePreset, presetLoading])
 
   const toggleWake = useCallback(async () => {
     setWakeLoading(true)
@@ -398,30 +374,9 @@ export default function CompanionView() {
         </div>
       </div>
 
-      {/* Avatar + personality picker */}
-      <div className="flex flex-col items-center pt-6 pb-3 flex-shrink-0 gap-4">
+      {/* Avatar */}
+      <div className="flex flex-col items-center pt-6 pb-3 flex-shrink-0">
         <AvatarPresence state={avatarState} size="lg" />
-        {/* Personality pills */}
-        <div className="flex flex-wrap justify-center gap-1.5 px-4">
-          {presets.map((p) => (
-            <button
-              type="button"
-              key={p.key}
-              onClick={() => switchPreset(p.key)}
-              disabled={presetLoading}
-              title={p.description}
-              className={cn(
-                'px-3 py-1 rounded-full text-xs font-medium transition-colors border',
-                activePreset === p.key
-                  ? 'bg-primary/15 border-primary/30 text-primary'
-                  : 'bg-surface-container border-outline-variant/25 text-on-surface-variant hover:border-primary/20 hover:text-on-surface',
-                presetLoading && 'opacity-50 cursor-not-allowed'
-              )}
-            >
-              {p.label.split(' ')[0]}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* Messages */}

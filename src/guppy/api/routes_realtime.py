@@ -175,6 +175,30 @@ create_reminder(message, delay_minutes=30)   — schedule a reminder for Ryan
 
 download_media(url, category="general")   — queue a download in qBittorrent
   <tool_call>{"name": "download_media", "arguments": {"url": "magnet:?xt=urn:btih:...", "category": "books"}}</tool_call>
+
+get_weather(location="auto")   — current conditions for a city or "auto" for Ryan's location
+  <tool_call>{"name": "get_weather", "arguments": {"location": "Seattle"}}</tool_call>
+
+get_news(topic="world", max_results=5)   — fetch recent headlines (topics: tech, world, business, science)
+  <tool_call>{"name": "get_news", "arguments": {"topic": "tech", "max_results": 5}}</tool_call>
+
+clipboard_read()   — read the current Windows clipboard text
+  <tool_call>{"name": "clipboard_read", "arguments": {}}</tool_call>
+
+clipboard_write(text)   — write text to the Windows clipboard
+  <tool_call>{"name": "clipboard_write", "arguments": {"text": "Hello world"}}</tool_call>
+
+open_application(name)   — launch a Windows app by name or path
+  <tool_call>{"name": "open_application", "arguments": {"name": "notepad"}}</tool_call>
+
+api_request(url, method="GET", body=null, headers=null)   — HTTP request to any non-private URL
+  <tool_call>{"name": "api_request", "arguments": {"url": "https://api.example.com/data", "method": "GET"}}</tool_call>
+
+read_screen_text(region=null)   — OCR the current screen or a region {"x","y","width","height"} (uses MiniCPM vision)
+  <tool_call>{"name": "read_screen_text", "arguments": {}}</tool_call>
+
+write_file(path, content)   — write text to a file in allowed directories (Downloads, Documents, Desktop)
+  <tool_call>{"name": "write_file", "arguments": {"path": "C:/Users/Ryan/Downloads/notes.txt", "content": "My notes here"}}</tool_call>
 """
 
 
