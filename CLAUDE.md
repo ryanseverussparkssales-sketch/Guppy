@@ -2,7 +2,7 @@
 
 **Purpose:** Persistent notes on architecture, conventions, known issues, and integration points for Claude (and future agents).
 
-**Last updated:** 2026-05-03 — Single-model consolidation (Hermes 4.3 36B Heretic replaces two-model split)
+**Last updated:** 2026-05-12 — Tray model control, security hardening, SSE fixes, leads tab, --parallel 1
 
 ---
 
@@ -12,7 +12,7 @@
 
 Three dedicated surfaces replacing the single AssistantView — **Phases 1–5 ✅ shipped:**
 1. **Companion** (`/companion`) — Voice/chat/vision, personality-first, avatar presence ✅
-2. **Workspace** (`/workspace`) — 8-tab operations hub: Chat | Agents | CRM | Screen | Files | PC | Reminders | Calls ✅
+2. **Workspace** (`/workspace`) — 15-tab operations hub: Chat | Agents | CRM | Screen | Files | PC | Tasks | Calls | Calendar | Email | Media | Docs | Tools | Memory | Leads ✅
 3. **Codespace** (`/codespace`) — 3-tab: Chat | Sandbox (Docker) | Triage (self-triage + AI fix proposals) ✅
 
 Phase 5 ✅ complete — VoIP, ambient wake mode, screen AI summaries, self-improvement pipeline, avatar upgrade.
@@ -92,7 +92,7 @@ launcher_app.py (Qt Wrapper)
 - **`src/guppy/api/`** — FastAPI backend (routes, inference, provider mgmt, workspace persistence) + REST API with JWT auth, repair token, dev mode
 - **`src/guppy/launcher_application/`** — Shared workflow catalog, launcher services, state contracts
 - **`src/guppy/experience_config/`** — Runtime persona, provider selection, voice settings
-- **`src/guppy/apps/`** — UI surfaces: `launcher_app.py` (Qt wrapper, spawns server), `hub_app.py` (legacy, deprecated in favor of web UI)
+- **`src/guppy/apps/`** — UI surfaces: `launcher_app.py` (Qt wrapper, spawns server), `hub_app.py` (legacy, deprecated), `tray_app.py` (system tray — monitors API + controls llama.cpp models via bat files; launch with `pythonw src/guppy/cli/launch.py tray`; registered at Windows logon via `tools/register_tray_startup.ps1`)
 - **Web UI (React)** — Primary surface, served by FastAPI. Handles chat, workspace management, model selection, settings, tool execution.
 
 ### Known Architecture Seams
@@ -267,6 +267,15 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
   - **Structured memory categories** — `MEMORY_CATEGORIES` frozenset + `normalize_category()` + `recall_by_category()` in `memory_store.py`; tool primer in `context_injection.py` updated with 7 typed slot descriptions; `remember_fact()` normalizes category before storing
   - **Test fixes** — TTS tests updated for new `_load_onnx()` / `_call_api()` method names; chat routing test patches system prompt cache to force cache miss so `get_startup_system` is always invoked; 925 unit tests green
 
+- ✅ **Security + tray + usability batch** (2026-05-12, commit 701f2f9):
+  - **Tray model management** — `tray_app.py` monitors and controls all 3 always-on llama.cpp models (ports 8086/8091/8092); Models submenu with ●/○ live status, per-model Start/Stop/Restart, Start All / Restart All / Stop All; icon turns yellow when API up but primary model offline; 30s refresh cycle; `tools/register_tray_startup.ps1` registers as Windows logon Task Scheduler task
+  - **VRAM fix** — `--parallel 1` in launch-hermes-4_3-36b.bat; saves ~1.3 GB KV cache; total stack fits ~25 GB (was overflowing 24 GB and using CPU layers)
+  - **Lead scraper tab** — Workspace Leads tab with iframe + `allow-clipboard-read/write` sandbox; `server_runtime.py` registers explicit `/lead-scraper.html` and `/lead-scraper` routes before SPA 404 handler
+  - **Security fixes** — `routes_realtime.py` deleted duplicate inline tool executors (security drift); `web_fetch_safe.py` re-validates URL after redirects (SSRF via redirect chain); `tool_executor_workspace.py` SSRF check on `api_request` + path allowlist on `file_list`; `routes_surface.py` `PRAGMA busy_timeout=5000` + column allowlists; `routes_companion.py` image content-type + 20 MB size validation
+  - **SSE hardening** — `useSurfaceEvents.ts` token now read fresh on every reconnect (was captured once at mount); exposes `isConnected`/`isReconnecting`; CompanionView + WorkspaceView show `⟳ reconnecting` badge; `SurfaceStatusBar` same fix
+  - **Auto-refresh** — CalendarPanel + EmailPanel poll every 60s (was load-once-on-mount)
+  - **924 unit tests green** (1 pre-existing failure in `test_local_client_no_ollama_cleanup.py`)
+
 **For detailed implementation notes on completed initiatives, see `SHIPPING_LOG.md` in the Guppy repo.**
 
 ---
@@ -284,6 +293,7 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 - **`tools/verify_local_model_runtime.py`** — Local model runtime availability check
 - **`tools/verify_voice_runtime.py`** — Voice engine availability check (edge_tts, kokoro, pyttsx3, ElevenLabs)
 - **`tools/run_overnight_low_compute.py`** — Off-hours testing
+- **`tools/register_tray_startup.ps1`** — Register Guppy tray app as a Windows logon Task Scheduler task (run once; requires pwsh.exe)
 
 ### Desktop Launcher
 - **`tools/ensure_desktop_launcher.ps1`** — Updates `Desktop\Guppy Launcher.lnk` to point to dist exe (if built) or repo launcher
@@ -304,15 +314,17 @@ powershell -ExecutionPolicy Bypass -File tools/bootstrap_venv.ps1 -Dev
 
 → See `docs/MODEL_ROUTING.md` for full table.
 
-**Always-on stack (~27 GB VRAM; overflow to 96 GB RAM):**
+**Always-on stack (~25 GB VRAM; fits RX 7900 XTX 24 GB with --parallel 1):**
 | Surface role | Key | Port | Model |
 |---|---|---|---|
 | **Primary — all surfaces** | `llamacpp-hermes4` | 8086 | Hermes 4.3 36B Heretic Q4_K_M (~21.8 GB) |
 | On-demand fallback | `llamacpp-hermes3` | 8087 | Hermes 3 8B Lorablated Q8_0 (starts if 36B is down) |
-| Orchestrator / summarizer | `llamacpp-phi4-mini` | 8091 | Phi-4-mini-instruct Q4_K_M |
-| Semantic embedding | `llamacpp-nomic-embed` | 8092 | nomic-embed-text-v1.5 |
+| Orchestrator / summarizer | `llamacpp-phi4-mini` | 8091 | Phi-4-mini-instruct Q4_K_M (~2.3 GB) |
+| Semantic embedding | `llamacpp-nomic-embed` | 8092 | nomic-embed-text-v1.5 (~0.3 GB) |
 
 **Single-model consolidation (2026-05-03):** Rocinante (companion primary) and Hermes 4 14B (workspace) replaced by Hermes 4.3 36B Heretic as the single model for all three surfaces. Launch script: `C:\llama-cpp\launch-hermes-4_3-36b.bat`. Requires llama.cpp build ≥ 2025-08-24 (seed_oss arch PR #15490).
+
+**VRAM fix (2026-05-12):** `--parallel 1` (was 2) in launch bat. Saves ~1.3 GB KV cache; keeps entire model stack on GPU (was overflowing to RAM). Total: 21.8 + 2.3 + 0.3 + 0.65 (KV) ≈ 25 GB.
 
 **Ollama is removed from routing.** `can_stream_ollama=False`. All local routes go to llamacpp.
 

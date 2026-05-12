@@ -19,7 +19,7 @@ The desktop launcher (`launcher_app.py`) spawns a FastAPI server and opens a bro
 | Surface | Route | Model | Purpose |
 |---|---|---|---|
 | **Companion** | `/companion` | Hermes 4.3 36B Heretic (port 8086) / Phi-4-mini fast path | Voice/chat/vision, personality, avatar |
-| **Workspace** | `/workspace` | Hermes 4.3 36B Heretic (port 8086) | 11-tab operations hub |
+| **Workspace** | `/workspace` | Hermes 4.3 36B Heretic (port 8086) | 15-tab operations hub |
 | **Codespace** | `/codespace` | Hermes 4.3 36B Heretic (port 8086) | Docker sandbox, self-triage, AI fix proposals |
 
 **Single-model consolidation (2026-05-03):** All three surfaces share one primary — Hermes 4.3 36B Heretic Q4_K_M at port 8086. Companion has a fast path: simple queries (≤12 words, no tool cues) route to Phi-4-mini first (~0.3s TTFT), falling through to the 36B if needed.
@@ -78,7 +78,7 @@ Single SQLite at `guppy_main.db` (path via `src/guppy/paths.MAIN_DB_PATH`). All 
 - ✅ Backend watchdog — auto-restart crashed always-on models
 - ✅ KV cache warming on startup
 - ✅ Chunked TTS streaming + SSE exponential backoff
-- ✅ Workspace 11-tab hub — Calendar, Email, Media, Tasks, VoIP, CRM, Screen, Files, PC, Agents, Chat
+- ✅ Workspace 15-tab hub — Chat, Agents, CRM, Screen, Files, PC, Tasks, Calls, Calendar, Email, Media, Docs, Tools, Memory, Leads
 - ✅ Screenpipe integration — screen timeline, AI activity summaries
 - ✅ Library surface — OPDS 1.2, OpenLibrary enricher, Calibre/Kindle
 - ✅ DB consolidation — all routes on guppy_main.db
@@ -96,6 +96,10 @@ Single SQLite at `guppy_main.db` (path via `src/guppy/paths.MAIN_DB_PATH`). All 
 - ✅ **Structured memory categories** — `MEMORY_CATEGORIES` frozenset + `normalize_category()` + typed fact slots
 - ✅ **Proactive companion nudge** — calendar-event SSE alerts voiced by TTS in ambient mode
 - ✅ **MiniCPM-o vision endpoint** — `/api/companion/vision` auto-starts model, streams multimodal response
+- ✅ **Tray model control** — `tray_app.py` monitors + controls all 3 always-on models; Models submenu with live status, Start/Stop/Restart/Restart All; logon auto-start via Task Scheduler
+- ✅ **VRAM fix** — `--parallel 1` in launch bat; full stack fits 24 GB VRAM (was overflowing to RAM)
+- ✅ **Security hardening** — redirect-chain SSRF fix, duplicate executor removal, column allowlists, image validation
+- ✅ **SSE token freshness** — token re-read on every reconnect; isReconnecting indicator in UI
 
 ### In Progress / Next
 - Wake word production (pvporcupine needs access key + .ppn files)

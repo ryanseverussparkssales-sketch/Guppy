@@ -18,11 +18,12 @@ The Web UI (React/Vite, `web/`) is the **authoritative user surface**, served at
 
 ### Companion (`/companion`)
 Voice-first, personality-led. Animated avatar, push-to-talk, wake word, camera vision, escalate-to-Workspace.
-Model cascade: rocinante (8088) → hermes3 (8087) → Haiku cloud.
+Model cascade (2026-05-03 consolidation): hermes4 (8086) → hermes3 (8087, on-demand) → Haiku cloud.
+Fast path: simple queries (≤12 words, no tool cues) → phi4-mini (8091) first (~0.3s TTFT), falls through to 36B if needed.
 
 ### Workspace (`/workspace`)
-11-tab hub: Chat | Agents | CRM | Screen | Files | PC | Tasks | Calls | Calendar | Email | Media.
-Model cascade: hermes4 (8086) → phi4-mini/dispatch (small-ctx) → Sonnet cloud.
+15-tab hub: Chat | Agents | CRM | Screen | Files | PC | Tasks | Calls | Calendar | Email | Media | Docs | Tools | Memory | Leads.
+Model cascade: hermes4 (8086) → hermes3 (8087, on-demand) → Sonnet cloud.
 
 ### Codespace (`/codespace`)
 3-tab: Chat | Sandbox | Triage.
@@ -64,13 +65,22 @@ Model cascade: hermes4 (8086) → hermes3 (8087) → Sonnet cloud.
 | `/api/tier3/*` | `routes_tier3.py` | Tier3 features |
 | `/api/queue/*` | `routes_queue.py` | Inference job queue |
 | `/api/providers/*` | `routes_providers.py` | Provider management |
+| `/api/provider-management/*` | `routes_provider_management.py` | Provider lifecycle |
 | `/api/settings/*` | `routes_settings.py` | Settings |
 | `/api/models/*` | `routes_models.py` | Model management |
+| `/api/model-roles/*` | `routes_model_roles.py` | Surface-to-model role assignment + operator config |
 | `/api/workspaces/*` | `routes_workspaces.py` | Workspace management |
+| `/api/workspace/*` | `routes_workspace.py` | Workspace-specific helpers |
 | `/api/instances/*` | `routes_instances.py` | Instance management |
 | `/api/chat-history/*` | `routes_chat_history.py` | Conversation history |
+| `/api/conversations/*` | `routes_conversations.py` | Persistent sessions, SSE streaming, partner selection |
+| `/api/memory/*` | `routes_memory.py` | Memory CRUD and semantic search (user-facing) |
+| `/api/control/*` | `routes_control.py` | Service/model lifecycle, logs viewer, PC health |
+| `/api/vpn/*` | `routes_vpn.py` | VPN connection management |
 | `/api/launcher/*` | `routes_launcher.py` | Launcher control |
 | `/api/tools/*` | `routes_tools.py` | Tool registry |
+| (ops) | `routes_ops.py` | Repair token, ops endpoints |
+| (core) | `routes_core.py` | Core infrastructure endpoints |
 
 ---
 
