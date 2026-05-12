@@ -98,6 +98,14 @@ function RecentTab({ alive }: { alive: boolean | null }) {
 
   useEffect(() => { if (alive !== false) load() }, [alive, load])
 
+  useEffect(() => {
+    if (alive === false) return
+    const id = setInterval(() => load(), 120_000)
+    const onVisible = () => { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVisible) }
+  }, [alive, load])
+
   return (
     <div className="flex flex-col gap-3 h-full">
       {/* Time range selector */}
@@ -260,6 +268,13 @@ function TimelineTab() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    const id = setInterval(load, 120_000)
+    const onVisible = () => { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVisible) }
+  }, [load])
 
   const snapshot = async () => {
     setSnapping(true)

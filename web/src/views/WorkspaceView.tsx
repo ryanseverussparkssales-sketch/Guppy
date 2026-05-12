@@ -1,8 +1,8 @@
 /**
  * WorkspaceView — Operations Hub
  *
- * Icon tab strip (11 tabs):
- *   Chat | Agents | CRM | Screen | Files | PC | Tasks | Calls | Calendar | Email | Media
+ * Icon tab strip (15 tabs):
+ *   Chat | Agents | CRM | Screen | Files | PC | Tasks | Calls | Calendar | Email | Media | Docs | Tools | Memory | Leads
  * Each tab mounts its panel in a consistent scrollable container.
  * Chat tab keeps the full AssistantView + collapsible AgentTaskPanel sidebar.
  */
@@ -289,7 +289,7 @@ export default function WorkspaceView() {
           )}
 
           {activeTab === 'pc' && (
-            <div className="h-full overflow-y-auto">
+            <div className="h-full overflow-y-auto" key={`pc-${refreshKey}`}>
               <ErrorBoundary fallback={<PanelFallback label="System Metrics" />}>
                 <div className="p-4 border-b border-outline-variant/15">
                   <SystemMetricsPanel />
@@ -305,7 +305,7 @@ export default function WorkspaceView() {
           )}
 
           {activeTab === 'tasks' && (
-            <div className="h-full flex flex-col overflow-hidden">
+            <div className="h-full flex flex-col overflow-hidden" key={`tasks-${refreshKey}`}>
               <div className="flex-1 min-h-0 overflow-hidden">
                 <ErrorBoundary fallback={<PanelFallback label="Tasks" />}>
                   <TaskManagerPanel />
@@ -320,7 +320,7 @@ export default function WorkspaceView() {
           )}
 
           {activeTab === 'voip' && (
-            <div className="h-full">
+            <div className="h-full" key={`voip-${refreshKey}`}>
               <ErrorBoundary fallback={<PanelFallback label="Calls" />}>
                 <VoIPPanel />
               </ErrorBoundary>
@@ -328,7 +328,7 @@ export default function WorkspaceView() {
           )}
 
           {activeTab === 'calendar' && (
-            <div className="h-full">
+            <div className="h-full" key={`calendar-${refreshKey}`}>
               <ErrorBoundary fallback={<PanelFallback label="Calendar" />}>
                 <CalendarPanel />
               </ErrorBoundary>
@@ -336,7 +336,7 @@ export default function WorkspaceView() {
           )}
 
           {activeTab === 'email' && (
-            <div className="h-full">
+            <div className="h-full" key={`email-${refreshKey}`}>
               <ErrorBoundary fallback={<PanelFallback label="Email" />}>
                 <EmailPanel />
               </ErrorBoundary>
@@ -344,7 +344,7 @@ export default function WorkspaceView() {
           )}
 
           {activeTab === 'media' && (
-            <div className="h-full">
+            <div className="h-full" key={`media-${refreshKey}`}>
               <ErrorBoundary fallback={<PanelFallback label="Media" />}>
                 <MediaLibraryPanel />
               </ErrorBoundary>

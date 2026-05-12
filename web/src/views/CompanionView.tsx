@@ -1,7 +1,7 @@
 /**
  * CompanionView — Personality-first voice + chat surface
  *
- * Layout: large avatar orb (center) | personality picker | chat area | input bar
+ * Layout: large avatar orb (center) | chat area | input bar
  * Voice: mic STT → send → TTS speak. Wake-word toggle calls /api/companion/voice/session.
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
