@@ -153,7 +153,6 @@ _LLAMACPP_BACKENDS = {
     "llamacpp-minicpm",
     "llamacpp-dispatch",
     "llamacpp-hermes4",
-    "llamacpp-hermes3",
     "llamacpp-rocinante",
 }
 

@@ -162,11 +162,12 @@ def test_local_runtime_status_collapses_removed_backend_config_to_llamacpp_regis
         payload = guppy_api._build_local_runtime_status()
 
     assert payload["backend"] == "llamacpp-hermes4"
-    # With INFERENCE_ROUTER_AVAILABLE=False, all roles use _ROLE_MODEL_FALLBACKS which
-    # all fall through to the selected backend (llamacpp-hermes4, alive). fast/vault
-    # use hermes-3-8b-lorablated fallback which also maps back to selected backend.
-    # At minimum, the selected backend must appear in available_roles or be the backend.
-    assert payload["backend"] in ("llamacpp-hermes4",)
+    # All _ROLE_MODEL_FALLBACKS now map to hermes4 36B → all roles map to hermes4 backend.
+    # hermes4 alive → all 5 roles available; state = READY → PARTIAL because chat_ready=False.
+    assert set(payload["available_roles"]) == {"fast", "complex", "teach", "code", "vault"}
+    assert payload["missing_roles"] == []
+    assert all(b == "llamacpp-hermes4" for b in payload["role_backends"].values())
+    assert payload["state"] == "PARTIAL"  # READY→PARTIAL because chat lane not yet warm
     assert payload["chat_ready"] is False
     assert payload["chat_state"] == "UNKNOWN"
 

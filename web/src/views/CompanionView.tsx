@@ -147,8 +147,9 @@ export default function CompanionView() {
       setSessionId(s.id)
       sessionStorage.setItem('companion_session_id', s.id)
       setSidebarOpen(false)
+      loadSessions()
     } catch { toast.error('Failed to load session') }
-  }, [])
+  }, [loadSessions])
 
   const deleteSession = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -445,8 +446,13 @@ export default function CompanionView() {
                   <MessageSquare className="w-3 h-3 mt-0.5 flex-shrink-0 opacity-60" />
                   <span className="flex-1 min-w-0">
                     <span className="block truncate leading-snug">{s.session_title}</span>
-                    <span className="block text-[10px] text-on-surface-variant/40 mt-0.5">
-                      {new Date(s.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    <span className="flex items-center gap-1.5 text-[10px] text-on-surface-variant/40 mt-0.5">
+                      <span>{new Date(s.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                      {s.message_count > 0 && (
+                        <span className="px-1 py-0 rounded bg-surface-container-high text-on-surface-variant/50">
+                          {s.message_count}
+                        </span>
+                      )}
                     </span>
                   </span>
                   <span
