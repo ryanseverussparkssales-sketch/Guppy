@@ -217,6 +217,15 @@ async def _execute_companion_tool(name: str, args: dict) -> dict:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    # MCP tool dispatch — mcp__<server_id>__<tool_name>
+    if name.startswith("mcp__"):
+        try:
+            from src.guppy.mcp.manager import get_mcp_manager
+            result_text = await get_mcp_manager().call_tool_by_guppy_id(name, args)
+            return {"ok": True, "result": result_text}
+        except Exception as e:
+            return {"ok": False, "error": f"MCP tool error: {e}"}
+
     return {"ok": False, "error": f"Unknown tool: {name}"}
 
 
@@ -415,6 +424,15 @@ async def _execute_workspace_tool(name: str, args: dict) -> dict:
             }
         except Exception as e:
             return {"ok": False, "error": f"screenpipe_search failed: {e}"}
+
+    # MCP tool dispatch — mcp__<server_id>__<tool_name>
+    if name.startswith("mcp__"):
+        try:
+            from src.guppy.mcp.manager import get_mcp_manager
+            result_text = await get_mcp_manager().call_tool_by_guppy_id(name, args)
+            return {"ok": True, "result": result_text}
+        except Exception as e:
+            return {"ok": False, "error": f"MCP tool error: {e}"}
 
     return {"ok": False, "error": f"Unknown workspace tool: {name}"}
 
@@ -841,7 +859,28 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
             or (request.use_claude and not _active_local_model)
         )
         if request.surface == "workspace" and _WORKSPACE_TOOL_SCHEMA not in system_prompt and not _is_cloud_only:
-            system_prompt = system_prompt + _WORKSPACE_TOOL_SCHEMA
+            _tool_schema = _WORKSPACE_TOOL_SCHEMA
+            # Append any enabled MCP server tools so the model knows they exist
+            try:
+                from src.guppy.mcp.manager import get_mcp_manager
+                _mcp_tools = await get_mcp_manager().get_tools_for_llm()
+                if _mcp_tools:
+                    _mcp_lines = ["\n\n## MCP Tools (external servers)\nUse the same <tool_call> format.\n"]
+                    for _t in _mcp_tools:
+                        _params = _t.get("parameters", {})
+                        _props = _params.get("properties", {})
+                        _param_str = ", ".join(
+                            f"{k}{'?' if k not in _params.get('required', []) else ''}"
+                            for k in _props
+                        ) if _props else ""
+                        _mcp_lines.append(
+                            f"{_t['id']}({_param_str})   — {_t.get('description', '')}\n"
+                            f"  <tool_call>{{\"name\": \"{_t['id']}\", \"arguments\": {{{', '.join(f'\"{k}\": ...' for k in list(_props)[:3])}}}}}</tool_call>"
+                        )
+                    _tool_schema = _tool_schema + "\n".join(_mcp_lines)
+            except Exception:
+                pass  # MCP tools are optional; never break chat if they fail
+            system_prompt = system_prompt + _tool_schema
 
         async def _generate():
             full_response = ""

@@ -459,6 +459,26 @@ def _start_drop_observer_service() -> None:
     start_drop_observer()
 
 
+async def _connect_mcp_servers() -> None:
+    """Connect all previously-enabled MCP servers at startup."""
+    try:
+        from src.guppy.mcp.manager import get_mcp_manager
+        await get_mcp_manager().connect_all_enabled()
+        logger.info("[MCP] Startup connect complete")
+    except Exception as exc:
+        logger.warning("[MCP] Startup connect failed: %s", exc)
+
+
+async def _disconnect_mcp_servers() -> None:
+    """Gracefully stop all MCP server subprocesses on shutdown."""
+    try:
+        from src.guppy.mcp.manager import get_mcp_manager
+        await get_mcp_manager().disconnect_all()
+        logger.info("[MCP] Shutdown disconnect complete")
+    except Exception as exc:
+        logger.warning("[MCP] Shutdown disconnect failed: %s", exc)
+
+
 lifespan = build_lifespan(
     module_owner=_module_owner,
     validate_environment=validate_environment,
@@ -469,6 +489,10 @@ lifespan = build_lifespan(
         _start_codespace_triage_watchdog,
         _start_screen_monitor_service,
         _start_drop_observer_service,
+        _connect_mcp_servers,
+    ],
+    shutdown_callbacks=[
+        _disconnect_mcp_servers,
     ],
     background_coroutines=[_surface_background_loop],
 )

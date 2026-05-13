@@ -101,6 +101,7 @@ def build_lifespan(
     startup_host: Callable[[Any], Awaitable[Any]],
     shutdown_host: Callable[[Any], Awaitable[Any]],
     startup_callbacks: list[Callable[[], Any]] | None = None,
+    shutdown_callbacks: list[Callable[[], Any]] | None = None,
     background_coroutines: list[Callable[[], Any]] | None = None,
 ):
     @asynccontextmanager
@@ -169,6 +170,14 @@ def build_lifespan(
             _log.info("━━━━  Guppy shutting down  ━━━━")
             for _task in _bg_tasks:
                 _task.cancel()
+            for _cb in (shutdown_callbacks or []):
+                _cb_name = getattr(_cb, "__name__", repr(_cb))
+                try:
+                    _r = _cb()
+                    if inspect.isawaitable(_r):
+                        await _r
+                except Exception:
+                    _log.exception("Shutdown callback %s raised", _cb_name)
             try:
                 await shutdown_host(owner)
             except Exception:

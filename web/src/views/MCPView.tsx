@@ -109,6 +109,7 @@ function ServerCard({
   const [expanded, setExpanded] = useState(false)
   const [tools, setTools] = useState<MCPTool[]>([])
   const [loadingTools, setLoadingTools] = useState(false)
+  const [toolsError, setToolsError] = useState("")
   const [testStatus, setTestStatus] = useState<TestStatus>("idle")
   const [testError, setTestError] = useState("")
   const [toggling, setToggling] = useState(false)
@@ -150,11 +151,15 @@ function ServerCard({
       setExpanded(true)
       if (!tools.length) {
         setLoadingTools(true)
+        setToolsError("")
         try {
           const data = await api.get(`/api/mcp/servers/${server.id}/tools`)
           setTools(data.data.tools || [])
-        } catch {
-          // ignore
+        } catch (e: unknown) {
+          const msg =
+            (e as { response?: { data?: { detail?: string } } }).response?.data?.detail ||
+            "Failed to load tools — is the server process running?"
+          setToolsError(msg)
         } finally {
           setLoadingTools(false)
         }
@@ -251,6 +256,10 @@ function ServerCard({
             <div className="flex items-center gap-2 text-xs text-gray-400">
               <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading tools…
             </div>
+          ) : toolsError ? (
+            <p className="text-xs text-red-400 flex items-center gap-1">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {toolsError}
+            </p>
           ) : tools.length === 0 ? (
             <p className="text-xs text-gray-500">No tools found (server may not be running yet)</p>
           ) : (
