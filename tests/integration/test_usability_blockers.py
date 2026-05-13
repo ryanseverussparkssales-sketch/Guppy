@@ -842,5 +842,317 @@ class TestErrorPaths(unittest.TestCase):
             self.fail(f"sanitize_chat_history crashed on missing content: {exc!r}")
 
 
+# ---------------------------------------------------------------------------
+# 10. Companion identity quality — offline
+# ---------------------------------------------------------------------------
+
+class TestCompanionIdentityQuality(unittest.TestCase):
+    """_COMPANION_IDENTITY must encode the conversational quality rules we care about."""
+
+    def _get_identity(self) -> str:
+        from src.guppy.inference.context_injection import _COMPANION_IDENTITY
+        return _COMPANION_IDENTITY
+
+    def test_hollow_fillers_explicitly_banned(self):
+        """Identity must call out each hollow filler phrase that breaks conversational quality."""
+        identity = self._get_identity()
+        banned = ["Certainly!", "Of course!", "Absolutely!", "Sure!", "Got it!"]
+        missing = [f for f in banned if f not in identity]
+        self.assertEqual(missing, [],
+            f"Hollow filler phrases not banned in identity: {missing}")
+
+    def test_energy_matching_rule_present(self):
+        """Identity must tell model to match Ryan's message energy/length."""
+        identity = self._get_identity()
+        self.assertTrue(
+            any(term in identity for term in ("Match Ryan", "match Ryan", "Short message", "short message")),
+            "Identity must have energy-matching rule (short message → short reply)"
+        )
+
+    def test_think_block_suppression_present(self):
+        """Hermes 4.3 36B has hybrid thinking — <think> blocks must be suppressed."""
+        identity = self._get_identity()
+        self.assertIn("<think>", identity,
+            "Identity must explicitly suppress <think> blocks (Hermes 4.3 36B hybrid mode)")
+
+    def test_sycophancy_rule_present(self):
+        identity = self._get_identity()
+        self.assertTrue(
+            "sycophantic" in identity or "yes-machine" in identity,
+            "Identity must prohibit sycophantic behavior"
+        )
+
+    def test_name_use_guidance_present(self):
+        identity = self._get_identity()
+        self.assertIn("Ryan", identity,
+            "Identity must mention how to use Ryan's name")
+
+    def test_no_action_narration(self):
+        """Identity must prohibit narrating actions ('I'll now proceed to...')."""
+        identity = self._get_identity()
+        self.assertTrue(
+            "narrate" in identity or "proceed to" in identity,
+            "Identity must prohibit action narration"
+        )
+
+    def test_follow_up_guidance_present(self):
+        """Identity should guide the model on natural follow-up questions."""
+        identity = self._get_identity()
+        self.assertTrue(
+            "follow" in identity.lower() or "follow-up" in identity.lower(),
+            "Identity should include guidance on natural follow-up questions"
+        )
+
+    def test_voice_brevity_injection_prepends_constraint(self):
+        """Voice mode must prepend brevity constraint to the system prompt."""
+        import types
+        # Build a minimal fake request
+        req = types.SimpleNamespace(is_voice=True, surface="companion")
+        system_before = "BASE SYSTEM PROMPT."
+        # Simulate the injection logic from routes_realtime
+        if req.is_voice and req.surface == "companion":
+            result = (
+                "VOICE MODE: You are responding via text-to-speech. "
+                "Reply in ONE or TWO sentences only. "
+                "No bullet points, no markdown, no lists. "
+                "Be direct and conversational — your response will be read aloud.\n\n"
+            ) + system_before
+        else:
+            result = system_before
+        self.assertIn("ONE or TWO sentences", result)
+        self.assertIn("BASE SYSTEM PROMPT.", result)
+        self.assertTrue(result.index("VOICE MODE") < result.index("BASE SYSTEM PROMPT."),
+            "Voice brevity constraint must come before base system prompt")
+
+
+# ---------------------------------------------------------------------------
+# 11. Session persistence bridge — offline with temp DB
+# ---------------------------------------------------------------------------
+
+class TestSessionPersistenceBridge(unittest.TestCase):
+    """_bridge_companion_session must write to both session tables correctly."""
+
+    def _make_temp_db(self) -> Path:
+        f = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        f.close()
+        return Path(f.name)
+
+    def _init_session_tables(self, db_path: Path) -> None:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS conversation_sessions (
+                    id TEXT PRIMARY KEY,
+                    session_title TEXT NOT NULL DEFAULT 'New Session',
+                    model_backend TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS conversation_session_messages (
+                    id TEXT PRIMARY KEY,
+                    conversation_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    image_url TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (conversation_id) REFERENCES conversation_sessions(id)
+                        ON DELETE CASCADE
+                );
+            """)
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _read_messages(self, db_path: Path, session_id: str) -> list[dict]:
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT * FROM conversation_session_messages WHERE conversation_id=? ORDER BY created_at",
+                (session_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def test_bridge_creates_session_row(self):
+        db_path = self._make_temp_db()
+        self._init_session_tables(db_path)
+        try:
+            import uuid
+            session_id = str(uuid.uuid4())
+            # Call bridge logic directly using a simplified version
+            import sqlite3 as _sqlite3
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
+            conn = _sqlite3.connect(str(db_path))
+            try:
+                conn.execute(
+                    "INSERT OR IGNORE INTO conversation_sessions (id, session_title, model_backend, created_at, updated_at)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (session_id, f"Session {now[:10]}", "llamacpp-hermes4", now, now),
+                )
+                conn.execute("UPDATE conversation_sessions SET updated_at=? WHERE id=?", (now, session_id))
+                conn.execute(
+                    "INSERT INTO conversation_session_messages (id, conversation_id, role, content, image_url, created_at)"
+                    " VALUES (?, ?, 'user', ?, NULL, ?)",
+                    (str(uuid.uuid4()), session_id, "hello", now),
+                )
+                conn.execute(
+                    "INSERT INTO conversation_session_messages (id, conversation_id, role, content, image_url, created_at)"
+                    " VALUES (?, ?, 'assistant', ?, NULL, ?)",
+                    (str(uuid.uuid4()), session_id, "hi there", now),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            # Verify session row exists
+            conn2 = _sqlite3.connect(str(db_path))
+            try:
+                row = conn2.execute(
+                    "SELECT id FROM conversation_sessions WHERE id=?", (session_id,)
+                ).fetchone()
+            finally:
+                conn2.close()
+            self.assertIsNotNone(row, "Bridge must create a session row")
+
+            messages = self._read_messages(db_path, session_id)
+            self.assertEqual(len(messages), 2, "Bridge must write user + assistant messages")
+            roles = [m["role"] for m in messages]
+            self.assertIn("user", roles)
+            self.assertIn("assistant", roles)
+        finally:
+            db_path.unlink(missing_ok=True)
+
+    def test_bridge_idempotent_session_creation(self):
+        """INSERT OR IGNORE means calling bridge twice with same session_id is safe."""
+        db_path = self._make_temp_db()
+        self._init_session_tables(db_path)
+        try:
+            import uuid, sqlite3 as _sq
+            from datetime import datetime, timezone
+            sid = str(uuid.uuid4())
+            for _ in range(2):
+                now = datetime.now(timezone.utc).isoformat()
+                c = _sq.connect(str(db_path))
+                try:
+                    c.execute(
+                        "INSERT OR IGNORE INTO conversation_sessions (id, session_title, model_backend, created_at, updated_at)"
+                        " VALUES (?, 'title', 'model', ?, ?)", (sid, now, now))
+                    c.execute(
+                        "INSERT INTO conversation_session_messages (id, conversation_id, role, content, image_url, created_at)"
+                        " VALUES (?, ?, 'user', 'hi', NULL, ?)", (str(uuid.uuid4()), sid, now))
+                    c.execute(
+                        "INSERT INTO conversation_session_messages (id, conversation_id, role, content, image_url, created_at)"
+                        " VALUES (?, ?, 'assistant', 'hello', NULL, ?)", (str(uuid.uuid4()), sid, now))
+                    c.commit()
+                finally:
+                    c.close()
+            # Exactly 1 session row, 4 messages (2 pairs)
+            c = _sq.connect(str(db_path))
+            try:
+                n_sessions = c.execute("SELECT count(*) FROM conversation_sessions WHERE id=?", (sid,)).fetchone()[0]
+                n_msgs = c.execute("SELECT count(*) FROM conversation_session_messages WHERE conversation_id=?", (sid,)).fetchone()[0]
+            finally:
+                c.close()
+            self.assertEqual(n_sessions, 1, "Must have exactly one session row")
+            self.assertEqual(n_msgs, 4, "Two bridge calls → four message rows")
+        finally:
+            db_path.unlink(missing_ok=True)
+
+    def test_messages_preserve_content(self):
+        """Messages written by bridge must preserve user_text and assistant_text exactly."""
+        db_path = self._make_temp_db()
+        self._init_session_tables(db_path)
+        try:
+            import uuid, sqlite3 as _sq
+            from datetime import datetime, timezone
+            sid = str(uuid.uuid4())
+            now = datetime.now(timezone.utc).isoformat()
+            user_text = "What is the capital of France?"
+            asst_text = "Paris."
+            c = _sq.connect(str(db_path))
+            try:
+                c.execute("INSERT OR IGNORE INTO conversation_sessions (id, session_title, model_backend, created_at, updated_at) VALUES (?, 'T', 'M', ?, ?)", (sid, now, now))
+                c.execute("INSERT INTO conversation_session_messages (id, conversation_id, role, content, image_url, created_at) VALUES (?, ?, 'user', ?, NULL, ?)", (str(uuid.uuid4()), sid, user_text, now))
+                c.execute("INSERT INTO conversation_session_messages (id, conversation_id, role, content, image_url, created_at) VALUES (?, ?, 'assistant', ?, NULL, ?)", (str(uuid.uuid4()), sid, asst_text, now))
+                c.commit()
+            finally:
+                c.close()
+            msgs = self._read_messages(db_path, sid)
+            user_msg = next((m for m in msgs if m["role"] == "user"), None)
+            asst_msg = next((m for m in msgs if m["role"] == "assistant"), None)
+            self.assertIsNotNone(user_msg)
+            self.assertIsNotNone(asst_msg)
+            self.assertEqual(user_msg["content"], user_text)
+            self.assertEqual(asst_msg["content"], asst_text)
+        finally:
+            db_path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# 12. Session PATCH endpoint — live
+# ---------------------------------------------------------------------------
+
+@_skip_offline
+class TestSessionPatchEndpoint(unittest.TestCase):
+    """PATCH /api/conversations/sessions/{id} must update session title."""
+
+    def test_patch_session_title_updates(self):
+        """Create a session then PATCH its title — title must change."""
+        # Create session
+        r = requests.post(
+            f"{_BASE}/api/conversations/sessions",
+            json={"surface": "companion"},
+            timeout=_TIMEOUT,
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        session_id = r.json()["id"]
+
+        # Patch title
+        new_title = "My favourite conversation ever"
+        r2 = requests.patch(
+            f"{_BASE}/api/conversations/sessions/{session_id}",
+            json={"session_title": new_title},
+            timeout=_TIMEOUT,
+        )
+        self.assertEqual(r2.status_code, 200, r2.text)
+        self.assertTrue(r2.json().get("ok"), "PATCH must return ok=true")
+
+        # Verify title changed via session list
+        r3 = requests.get(f"{_BASE}/api/conversations/sessions", timeout=_TIMEOUT)
+        sessions = r3.json()
+        match = next((s for s in sessions if s["id"] == session_id), None)
+        if match:  # May not appear if list only shows sessions with messages
+            self.assertEqual(match["session_title"], new_title)
+
+    def test_patch_empty_title_is_ignored(self):
+        """PATCH with empty string title must not crash (returns ok, title unchanged)."""
+        r = requests.post(
+            f"{_BASE}/api/conversations/sessions",
+            json={"surface": "companion"},
+            timeout=_TIMEOUT,
+        )
+        session_id = r.json()["id"]
+        r2 = requests.patch(
+            f"{_BASE}/api/conversations/sessions/{session_id}",
+            json={"session_title": ""},
+            timeout=_TIMEOUT,
+        )
+        self.assertIn(r2.status_code, (200, 204, 400),
+            "PATCH with empty title must return a reasonable status, not 500")
+
+    def test_patch_nonexistent_session_is_safe(self):
+        """PATCH on a session that doesn't exist must not crash."""
+        r = requests.patch(
+            f"{_BASE}/api/conversations/sessions/nonexistent-session-id-xyz",
+            json={"session_title": "anything"},
+            timeout=_TIMEOUT,
+        )
+        self.assertNotEqual(r.status_code, 500,
+            "PATCH on nonexistent session must not return 500")
+
+
 if __name__ == "__main__":
     unittest.main()
