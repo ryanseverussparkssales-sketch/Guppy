@@ -278,12 +278,12 @@ _BACKEND_DEFAULT_MODELS: Dict[str, str] = {
     "local_harness":       "local-model",
 }
 
-_DEFAULT_BACKEND = "llamacpp-hermes3" if "llamacpp-hermes3" in _BACKENDS else "local_harness"
+_DEFAULT_BACKEND = "llamacpp-hermes4" if "llamacpp-hermes4" in _BACKENDS else "local_harness"
 _AUTO_PROBE_PREFERENCE = (
-    "llamacpp-hermes3",
+    "llamacpp-hermes4",
     "local_harness",
     "llamacpp-dispatch",
-    "llamacpp-hermes4",
+    "llamacpp-hermes3",
     "llamacpp-qwen3",
     "llamacpp-gemma",
     "llamacpp-pepe",
