@@ -615,6 +615,23 @@ def build_conversations_router(ctx: ServerContext) -> APIRouter:
             conn.commit()
         return {"ok": True}
 
+    @router.patch("/sessions/{session_id}")
+    async def update_session_title(
+        session_id: str,
+        body: dict,
+        _user_id: str = Depends(ctx.require_rate_limit),
+    ) -> dict:
+        """Update session metadata (title)."""
+        title = str(body.get("session_title", "")).strip()[:200]
+        if title:
+            with _db() as conn:
+                conn.execute(
+                    "UPDATE conversation_sessions SET session_title=?, updated_at=? WHERE id=?",
+                    (title, _now(), session_id),
+                )
+                conn.commit()
+        return {"ok": True}
+
     @router.get("/search")
     async def search_conversations(
         q: str,

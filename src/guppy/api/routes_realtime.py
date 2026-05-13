@@ -370,6 +370,55 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                 exc,
             )
 
+    def _bridge_companion_session(
+        session_id: str,
+        user_text: str,
+        assistant_text: str,
+    ) -> None:
+        """Mirror companion messages into conversation_sessions tables for the sidebar.
+
+        The main /api/chat/stream writes to the 'conversations' memory table.
+        This bridge additionally writes to conversation_sessions + conversation_session_messages
+        so the companion sidebar (GET /api/conversations/sessions) can list and load them.
+        """
+        try:
+            import uuid as _uuid
+            from datetime import datetime as _dt, timezone as _tz
+            from src.guppy.paths import MAIN_DB_PATH as _MAIN_DB
+            now = _dt.now(_tz.utc).isoformat()
+            conn = __import__("sqlite3").connect(str(_MAIN_DB), check_same_thread=False, timeout=5)
+            conn.row_factory = __import__("sqlite3").Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            try:
+                conn.execute(
+                    """INSERT OR IGNORE INTO conversation_sessions
+                       (id, session_title, model_backend, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (session_id, f"Session {now[:10]}", "llamacpp-hermes4", now, now),
+                )
+                conn.execute(
+                    "UPDATE conversation_sessions SET updated_at=? WHERE id=?",
+                    (now, session_id),
+                )
+                conn.execute(
+                    """INSERT INTO conversation_session_messages
+                       (id, conversation_id, role, content, image_url, created_at)
+                       VALUES (?, ?, 'user', ?, NULL, ?)""",
+                    (str(_uuid.uuid4()), session_id, user_text, now),
+                )
+                conn.execute(
+                    """INSERT INTO conversation_session_messages
+                       (id, conversation_id, role, content, image_url, created_at)
+                       VALUES (?, ?, 'assistant', ?, NULL, ?)""",
+                    (str(_uuid.uuid4()), session_id, assistant_text, now),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as exc:
+            owner.logger.debug("_bridge_companion_session failed: %s", exc)
+
     @router.post("/chat")
     async def chat(request: ChatRequest, _user_id: str = Depends(ctx.require_rate_limit)):
 
@@ -1017,13 +1066,7 @@ def build_realtime_router(ctx: ServerContext) -> APIRouter:
                     workspace_name=str(active_instance_name or "").strip(),
                 )
                 if request.session_id and full_response:
-                    try:
-                        from src.guppy.api.routes_chat_history import _chat_history_db
-                        conv = _chat_history_db.get_conversation(request.session_id)
-                        if conv and conv.get("message_count", 0) <= 2 and str(conv.get("title", "")).startswith("Conversation "):
-                            asyncio.ensure_future(_generate_conversation_title(request.message, request.session_id))
-                    except Exception:
-                        pass
+                    _bridge_companion_session(request.session_id, request.message, full_response)
                 return
 
             # ── Standard streaming for all other surfaces ─────────────────────

@@ -1,13 +1,14 @@
 /**
  * CompanionView — Personality-first voice + chat surface
  *
- * Layout: large avatar orb (center) | chat area | input bar
+ * Layout: collapsible session sidebar | avatar orb | chat area | input bar
  * Voice: mic STT → send → TTS speak. Wake-word toggle calls /api/companion/voice/session.
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Mic, MicOff, Volume2, VolumeX, StopCircle, ArrowUp,
   Radio, RadioTower, RefreshCw, Paperclip, X, Bot, Navigation,
+  PanelLeft, PenSquare, Trash2, MessageSquare,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
@@ -23,6 +24,13 @@ import { toast } from 'sonner'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Message { id: string; role: 'user' | 'assistant'; content: string }
+
+interface Session {
+  id: string
+  session_title: string
+  updated_at: string
+  message_count: number
+}
 
 // ── Auto-grow textarea ────────────────────────────────────────────────────────
 
@@ -55,6 +63,8 @@ export default function CompanionView() {
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
 
   const [isSteerMode, setIsSteerMode]   = useState(false)
+  const [sidebarOpen, setSidebarOpen]   = useState(false)
+  const [sessions, setSessions]         = useState<Session[]>([])
 
   const abortRef    = useRef<AbortController | null>(null)
   const bottomRef   = useRef<HTMLDivElement>(null)
@@ -118,13 +128,56 @@ export default function CompanionView() {
 
   const { isReconnecting: sseReconnecting } = useSurfaceEvents(handleSurfaceEvent)
 
+  // ── Session sidebar management ─────────────────────────────────────────────
+
+  const loadSessions = useCallback(async () => {
+    try {
+      const r = await api.get('/api/conversations/sessions')
+      setSessions(Array.isArray(r.data) ? r.data : [])
+    } catch { /* silent */ }
+  }, [])
+
+  const switchSession = useCallback(async (s: Session) => {
+    try {
+      const r = await api.get(`/api/conversations/sessions/${s.id}/messages?limit=100`)
+      const msgs: Message[] = (r.data || []).map((m: any) => ({
+        id: m.id, role: m.role as 'user' | 'assistant', content: m.content,
+      }))
+      setMessages(msgs)
+      setSessionId(s.id)
+      sessionStorage.setItem('companion_session_id', s.id)
+      setSidebarOpen(false)
+    } catch { toast.error('Failed to load session') }
+  }, [])
+
+  const deleteSession = useCallback(async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      await api.delete(`/api/conversations/sessions/${id}`)
+      if (sessionId === id) {
+        setMessages([])
+        setSessionId(null)
+        sessionStorage.removeItem('companion_session_id')
+      }
+      setSessions((s) => s.filter((x) => x.id !== id))
+    } catch { toast.error('Failed to delete session') }
+  }, [sessionId])
+
+  const newChat = useCallback(() => {
+    setMessages([])
+    setSessionId(null)
+    sessionStorage.removeItem('companion_session_id')
+    setSidebarOpen(false)
+  }, [])
+
   // Scroll to bottom
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streaming])
 
-  // Rehydrate session on mount
+  // Rehydrate session + load session list on mount
   useEffect(() => {
+    loadSessions()
     api.get('/api/companion/voice/session').then((r) => {
       setWakeActive(r.data?.active || false)
     }).catch(() => {})
@@ -187,11 +240,18 @@ export default function CompanionView() {
     if (!text || isSending) return
 
     // Ensure a session ID exists before sending; persist it for rehydration
+    const isFirstMessage = messages.length === 0
     let currentSessionId = sessionId
     if (!currentSessionId) {
       currentSessionId = crypto.randomUUID()
       setSessionId(currentSessionId)
       sessionStorage.setItem('companion_session_id', currentSessionId)
+    }
+
+    // Auto-title the session from the first user message
+    if (isFirstMessage) {
+      const title = text.slice(0, 60).trim()
+      api.patch(`/api/conversations/sessions/${currentSessionId}`, { session_title: title }).catch(() => {})
     }
 
     // Capture and clear image attachment before async work
@@ -316,6 +376,7 @@ export default function CompanionView() {
 
       setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', content: fullText }])
       setStreaming('')
+      loadSessions()
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
         setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', content: '⚠ Something went wrong.' }])
@@ -327,7 +388,7 @@ export default function CompanionView() {
       setIsSending(false)
       abortRef.current = null
     }
-  }, [input, isSending, sessionId, ttsEnabled, voice])
+  }, [input, isSending, messages.length, sessionId, ttsEnabled, voice, loadSessions])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -339,11 +400,91 @@ export default function CompanionView() {
   }, [voice])
 
   return (
-    <div className="flex flex-col h-full bg-surface text-on-surface">
+    <div className="flex h-full bg-surface text-on-surface overflow-hidden">
+
+      {/* Session sidebar */}
+      <AnimatePresence initial={false}>
+        {sidebarOpen && (
+          <motion.aside
+            key="companion-sidebar"
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 220, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
+            className="flex flex-col border-r border-outline-variant/20 bg-surface-container-low overflow-hidden flex-shrink-0"
+          >
+            {/* New chat button */}
+            <div className="px-3 pt-3 pb-2">
+              <button
+                type="button"
+                onClick={newChat}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold transition-colors"
+              >
+                <PenSquare className="w-3.5 h-3.5" />
+                New chat
+              </button>
+            </div>
+
+            {/* Session list */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-2 pb-3 space-y-0.5">
+              {sessions.length === 0 && (
+                <p className="text-[11px] text-on-surface-variant/40 px-2 py-3 text-center">No sessions yet</p>
+              )}
+              {sessions.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => switchSession(s)}
+                  className={cn(
+                    'w-full text-left px-2.5 py-2 rounded-lg text-xs transition-colors group flex items-start gap-1.5',
+                    s.id === sessionId
+                      ? 'bg-primary/15 text-primary font-medium'
+                      : 'text-on-surface-variant hover:bg-surface-container'
+                  )}
+                >
+                  <MessageSquare className="w-3 h-3 mt-0.5 flex-shrink-0 opacity-60" />
+                  <span className="flex-1 min-w-0">
+                    <span className="block truncate leading-snug">{s.session_title}</span>
+                    <span className="block text-[10px] text-on-surface-variant/40 mt-0.5">
+                      {new Date(s.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    </span>
+                  </span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => deleteSession(s.id, e)}
+                    onKeyDown={(e) => e.key === 'Enter' && deleteSession(s.id, e as any)}
+                    title="Delete session"
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-error transition-all ml-auto flex-shrink-0"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </span>
+                </button>
+              ))}
+            </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
+
+      {/* Main area */}
+      <div className="flex flex-col flex-1 min-w-0 h-full">
 
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-outline-variant/20 flex-shrink-0 bg-surface-container-low/50">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => { setSidebarOpen((v) => !v); if (!sidebarOpen) loadSessions() }}
+            title="Session history"
+            className={cn(
+              'p-1.5 rounded-lg transition-colors',
+              sidebarOpen
+                ? 'bg-primary/15 text-primary'
+                : 'text-on-surface-variant/60 hover:bg-surface-container hover:text-on-surface'
+            )}
+          >
+            <PanelLeft className="w-4 h-4" />
+          </button>
           <AvatarPresence state={avatarState} size="sm" className="!gap-0" />
           <h1 className="text-sm font-semibold text-on-surface">Companion</h1>
         </div>
@@ -604,6 +745,7 @@ export default function CompanionView() {
           <span className="text-[11px] text-on-surface-variant/30">Enter to send · Shift+Enter new line</span>
         </div>
       </div>
+      </div>{/* end main area */}
     </div>
   )
 }
