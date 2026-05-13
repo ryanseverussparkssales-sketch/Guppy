@@ -263,9 +263,9 @@ def _resolve_step(step: dict, agent_overrides: dict | None) -> dict:
 
 _PIPELINE_MODEL_ALIASES = {
     "guppy-fast": _BACKEND_DEFAULT_MODELS.get("llamacpp-dispatch", "qwen2.5-3b-instruct"),
-    "guppy-code": _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes4", "hermes-4-14b"),
-    "guppy": _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes3", "hermes-3-8b-lorablated"),
-    "guppy-teach": _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes3", "hermes-3-8b-lorablated"),
+    "guppy-code": _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes4", "Hermes-4.3-36B-heretic.Q4_K_M.gguf"),
+    "guppy": _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes4", "Hermes-4.3-36B-heretic.Q4_K_M.gguf"),
+    "guppy-teach": _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes4", "Hermes-4.3-36B-heretic.Q4_K_M.gguf"),
     "vault-scraper": _BACKEND_DEFAULT_MODELS.get("llamacpp-phi4-mini", "phi-4-mini-instruct"),
 }
 
@@ -273,7 +273,7 @@ _PIPELINE_MODEL_ALIASES = {
 def _resolve_pipeline_model(model: str) -> str:
     normalized = str(model or "").strip()
     if not normalized:
-        return _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes3", "local-model")
+        return _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes4", "local-model")
     return _PIPELINE_MODEL_ALIASES.get(normalized.lower(), normalized)
 
 

@@ -124,7 +124,7 @@ def _ask_local_summary(text: str) -> str:
         if not model:
             model = _BACKEND_DEFAULT_MODELS.get(backend, "") if backend else ""
         if not model:
-            model = _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes3", "local-model")
+            model = _BACKEND_DEFAULT_MODELS.get("llamacpp-hermes4", "local-model")
         result = local_chat(
             model,
             [

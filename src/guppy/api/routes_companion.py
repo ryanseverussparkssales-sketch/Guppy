@@ -260,9 +260,9 @@ def build_companion_router(ctx: ServerContext) -> APIRouter:
                 row = conn.execute(
                     "SELECT model FROM surface_config WHERE surface = 'companion'"
                 ).fetchone()
-            current_model = row["model"] if row else "llamacpp-hermes3"
+            current_model = row["model"] if row else "llamacpp-hermes4"
         except Exception:
-            current_model = "llamacpp-hermes3"
+            current_model = "llamacpp-hermes4"
 
         # Find which preset matches the current model
         active_preset = next(

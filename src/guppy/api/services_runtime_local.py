@@ -26,11 +26,11 @@ _PROBE_CACHE: dict[str, Any] = {"expires_at": 0.0, "payload": {}}
 _MODEL_LIST_CACHE: dict[str, tuple[float, list[str]]] = {}
 
 _ROLE_MODEL_FALLBACKS = {
-    "fast": "hermes-3-8b-lorablated",
-    "complex": "hermes-4-14b",
-    "teach": "hermes-4-14b",
-    "code": "hermes-4-14b",
-    "vault": "hermes-3-8b-lorablated",
+    "fast":    "Hermes-4.3-36B-heretic.Q4_K_M.gguf",
+    "complex": "Hermes-4.3-36B-heretic.Q4_K_M.gguf",
+    "teach":   "Hermes-4.3-36B-heretic.Q4_K_M.gguf",
+    "code":    "Hermes-4.3-36B-heretic.Q4_K_M.gguf",
+    "vault":   "Hermes-4.3-36B-heretic.Q4_K_M.gguf",
 }
 
 

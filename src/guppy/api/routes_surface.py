@@ -461,7 +461,7 @@ async def _run_workspace_task(
     try:
         # Call Hermes4 directly (port 8086, OpenAI-compat)
         payload = {
-            "model": "hermes-4-14b",
+            "model": "Hermes-4.3-36B-heretic.Q4_K_M.gguf",
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": user_message},
@@ -487,7 +487,7 @@ async def _run_workspace_task(
                     # One-shot correction: ask the model to fix its malformed JSON
                     try:
                         _correction_payload = {
-                            "model": "hermes-4-14b",
+                            "model": "Hermes-4.3-36B-heretic.Q4_K_M.gguf",
                             "messages": [
                                 {"role": "user", "content": (
                                     f"You emitted an invalid tool call. Raw output:\n\n{tc_json}\n\n"
@@ -533,7 +533,7 @@ async def _run_workspace_task(
                 for r in tool_results
             )
             summary_payload = {
-                "model": "hermes-4-14b",
+                "model": "Hermes-4.3-36B-heretic.Q4_K_M.gguf",
                 "messages": [
                     {"role": "system",    "content": system_prompt},
                     {"role": "user",      "content": user_message},

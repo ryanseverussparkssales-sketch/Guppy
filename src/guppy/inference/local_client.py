@@ -269,7 +269,7 @@ _BACKEND_DEFAULT_MODELS: Dict[str, str] = {
     "llamacpp-pepe":       "assistant-pepe-8b",
     "llamacpp-minicpm":    "minicpm-o-4.5",
     "llamacpp-dispatch":   "qwen2.5-3b-instruct",
-    "llamacpp-hermes4":    "hermes-4-14b",
+    "llamacpp-hermes4":    "Hermes-4.3-36B-heretic.Q4_K_M.gguf",
     "llamacpp-hermes3":    "hermes-3-8b-lorablated",
     "llamacpp-rocinante":  "rocinante-x-12b",
     "llamacpp-xlam":       "Llama-xLAM-2-8B-fc-r-Q4_K_M.gguf",
